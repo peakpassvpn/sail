@@ -62,6 +62,7 @@ Rust: [`AnyTlsOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sai
 | `min_idle_session` | number | `0` | Supported | — |
 | `client_metadata` | string | — | Warned: Metadata the client tells the server: the connection goes the same way without it | — |
 | `domain_strategy` | string | unset | Supported (deprecated in sing-box) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
+| `skip_default_domain_resolver` | bool | `false` | sail extension | A sail extension: without a `domain_resolver` of its own, the names dialled resolve as the DNS rules say, not as `route.default_domain_resolver` does; as Mihomo's DIRECT resolves apart from the proxies' servers. |
 
 <a id="outbounds-block"></a>
 
@@ -165,6 +166,7 @@ Rust: [`HttpOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/
 | `path` | string | unset | Supported | The request target instead of the destination, which then goes only in `Host`, as sing-box sends it. |
 | `headers` | map | `{}` | Supported | Sent with every `CONNECT`. |
 | `domain_strategy` | string | unset | Supported (deprecated in sing-box) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
+| `skip_default_domain_resolver` | bool | `false` | sail extension | A sail extension: without a `domain_resolver` of its own, the names dialled resolve as the DNS rules say, not as `route.default_domain_resolver` does; as Mihomo's DIRECT resolves apart from the proxies' servers. |
 
 <a id="outbounds-hysteria2"></a>
 
@@ -219,6 +221,7 @@ Rust: [`Hysteria2OutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/
 | `disable_chrome_parrot` | bool | — | Warned: Hysteria's congestion tuning and debugging, the longest hop interval, and its QUIC fingerprint: the same traffic | — |
 | `realm` | object → [object](#outbounds-hysteria2-realm) | — | Error: Meeting peers through a Hysteria realm: connections would be made otherwise | — |
 | `domain_strategy` | string | unset | Supported (deprecated in sing-box) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
+| `skip_default_domain_resolver` | bool | `false` | sail extension | A sail extension: without a `domain_resolver` of its own, the names dialled resolve as the DNS rules say, not as `route.default_domain_resolver` does; as Mihomo's DIRECT resolves apart from the proxies' servers. |
 
 <a id="outbounds-hysteria2-tls"></a>
 
@@ -256,6 +259,7 @@ Rust: [`OutboundTls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/tran
 | `ech` | object → [object](/sail/reference/shared/#ech-outbounds) | unset | Supported | — |
 | `utls` | object → [object](#outbounds-hysteria2-tls-utls) | — | Error: Not supported over QUIC | The browser the ClientHello imitates. Unset, it is Chrome's. |
 | `reality` | object → [object](/sail/reference/shared/#reality-outbounds) | unset | Supported | — |
+| `certificate_sha256` | string or array of string | unset | sail extension | A sail extension, Mihomo's `fingerprint`: the SHA-256 hashes, hex, of whole certificates (DER) to take a server by, in place of the certificates trusted and `insecure`. A hash of the server's own certificate takes it outright: no CA and no name are checked, so that exact certificate is trusted for any server name. A hash of a certificate sent after it, an intermediate or a root, is the only CA the server's certificate is verified by, with the server name. |
 
 <a id="outbounds-hysteria2-tls-utls"></a>
 
@@ -454,6 +458,11 @@ Rust: [`SelectorOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/s
 | `outbounds` | array | `[]` | Supported | Its members; none may be when its providers give others. |
 | `default` | string | unset | Supported | Selected when nothing was selected before, or what was is no longer a member; defaults to the first. It may be a member a provider gives, the first so named. |
 | `interrupt_exist_connections` | bool | `false` | Supported | Ends the connections through the member selected before once another is selected, rather than leaving them on it. |
+| `providers` | string or array of string | `[]` | sail extension | The outbound providers, by tag, whose outbounds join the group's own, in this order. |
+| `filter` | string or array of string | `[]` | sail extension | Regular expressions, as Mihomo's `filter`: of the providers' outbounds, only those whose names match one are members, those of the first first. The group's own outbounds are not filtered. |
+| `exclude_filter` | string or array of string | `[]` | sail extension | Regular expressions no member's name may match, the group's own outbounds' too. |
+| `exclude_type` | string or array of string | `[]` | sail extension | The types no member may be of, the group's own outbounds too, in Mihomo's names for them, without case: `Shadowsocks`, `Vmess`, `Socks5`, `Direct`, ... |
+| `empty_fallback` | string | unset | sail extension | An outbound, not a group, that is the member while there is none else. Without it such a group has none, and its connections fail. |
 
 <a id="outbounds-shadowsocks"></a>
 
@@ -495,6 +504,8 @@ Rust: [`ShadowsocksOutboundOptions`](https://github.com/peakpassvpn/sail/blob/de
 | `udp_over_tcp` | bool\|object → [object](/sail/reference/shared/#udp-over-tcp) | unset | Supported | UDP over its TCP, to `sp.v2.udp-over-tcp.arpa`, instead of its own UDP. |
 | `multiplex` | object → [object](/sail/reference/shared/#multiplex-outbounds) | unset | Supported | — |
 | `domain_strategy` | string | unset | Supported (deprecated in sing-box) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
+| `skip_default_domain_resolver` | bool | `false` | sail extension | A sail extension: without a `domain_resolver` of its own, the names dialled resolve as the DNS rules say, not as `route.default_domain_resolver` does; as Mihomo's DIRECT resolves apart from the proxies' servers. |
+| `prefix` | string | unset | sail extension | Bytes sent before the first payload, percent-encoded. |
 
 <a id="outbounds-shadowtls"></a>
 
@@ -532,6 +543,7 @@ Rust: [`ShadowTlsOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/
 | `password` | string | `""` | Supported | Cannot be empty. |
 | `tls` | object → [object](/sail/reference/shared/#tls-outbounds) | unset | Supported | Must be enabled: the handshake with the site the server imitates, `server_name` being the site's (the server's address when unset). A browser fingerprint, disable_sni and a client certificate apply as for TLS; REALITY and ECH do not. |
 | `domain_strategy` | string | unset | Supported (deprecated in sing-box) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
+| `skip_default_domain_resolver` | bool | `false` | sail extension | A sail extension: without a `domain_resolver` of its own, the names dialled resolve as the DNS rules say, not as `route.default_domain_resolver` does; as Mihomo's DIRECT resolves apart from the proxies' servers. |
 
 <a id="outbounds-smart"></a>
 
@@ -611,6 +623,7 @@ Rust: [`SocksOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail
 | `network` | listable-string, one of `tcp`, `udp` | — | Error: Which networks an outbound carries: connections it should refuse would go through it | — |
 | `udp_over_tcp` | bool\|object → [object](/sail/reference/shared/#udp-over-tcp) | unset | Supported | UDP over its TCP, to `sp.v2.udp-over-tcp.arpa`, instead of UDP ASSOCIATE. |
 | `domain_strategy` | string | unset | Supported (deprecated in sing-box) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
+| `skip_default_domain_resolver` | bool | `false` | sail extension | A sail extension: without a `domain_resolver` of its own, the names dialled resolve as the DNS rules say, not as `route.default_domain_resolver` does; as Mihomo's DIRECT resolves apart from the proxies' servers. |
 
 <a id="outbounds-trojan"></a>
 
@@ -646,48 +659,11 @@ Rust: [`TrojanOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sai
 | `server_port` | number | required | Supported | — |
 | `password` | string | required | Supported | — |
 | `network` | listable-string, one of `tcp`, `udp` | — | Error: Which networks an outbound carries: connections it should refuse would go through it | — |
-| `tls` | object → [object](#outbounds-trojan-tls) | unset | Supported | — |
+| `tls` | object → [object](/sail/reference/shared/#tls-outbounds) | unset | Supported | — |
 | `multiplex` | object → [object](/sail/reference/shared/#multiplex-outbounds) | unset | Supported | — |
 | `transport` | object → [object](/sail/reference/shared/#transport-outbounds), [[grpc]](/sail/reference/shared/#transport-grpc-outbounds), [[http]](/sail/reference/shared/#transport-http-outbounds), [[httpupgrade]](/sail/reference/shared/#transport-httpupgrade-outbounds), [[ws]](/sail/reference/shared/#transport-ws-outbounds) | unset | Supported | — |
 | `domain_strategy` | string | unset | Supported (deprecated in sing-box) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
-
-<a id="outbounds-trojan-tls"></a>
-
-### `outbounds[trojan].tls`
-
-Rust: [`OutboundTls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
-
-| Field | Type | Default | Status | Description |
-| --- | --- | --- | --- | --- |
-| `enabled` | bool | `false` | Supported | — |
-| `engine` | string, one of `go`, `apple`, `windows` | — | Warned: The TLS stack: sail has one | — |
-| `disable_sni` | bool | `false` | Supported | Sends no SNI. The certificate is still verified against `server_name`, unless `insecure`. |
-| `server_name` | string | unset | Supported | Defaults to the server's address. |
-| `insecure` | bool | `false` | Supported | — |
-| `alpn` | listable-string | unset | Supported | — |
-| `min_version` | string, one of `1.0`, `1.1`, `1.2`, `1.3` | unset | Supported | The lowest TLS version to negotiate, `1.0` to `1.3`; unset, 1.2. |
-| `max_version` | string, one of `1.0`, `1.1`, `1.2`, `1.3` | unset | Supported | The highest; unset, 1.3. |
-| `cipher_suites` | listable-string | — | Error: TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked | — |
-| `curve_preferences` | listable-string, one of `P256`, `P384`, `P521`, `X25519`, `X25519MLKEM768` | — | Error: TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked | — |
-| `certificate` | listable-string | unset | Supported | An inline PEM certificate to trust. |
-| `certificate_path` | string | unset | Supported | A PEM certificate to trust, by path. |
-| `certificate_public_key_sha256` | listable-string\|array | unset | Supported | The SHA-256 hashes, base64, of the public keys to take a server's certificate by, in place of the certificates trusted, the name and `insecure`. |
-| `client_certificate` | listable-string | unset | Supported | An inline PEM certificate, its chain after it, presented when the server asks for one; with `client_key`. |
-| `client_certificate_path` | string | unset | Supported | `client_certificate`, by path. |
-| `client_key` | listable-string | unset | Supported | The inline PEM key of the client certificate. |
-| `client_key_path` | string | unset | Supported | `client_key`, by path. |
-| `fragment` | bool | — | Error: Fragmenting or spoofing the TLS handshake against censorship | — |
-| `fragment_fallback_delay` | duration | — | Error: Fragmenting or spoofing the TLS handshake against censorship | — |
-| `record_fragment` | bool | — | Error: Fragmenting or spoofing the TLS handshake against censorship | — |
-| `spoof` | string | — | Error: Fragmenting or spoofing the TLS handshake against censorship | — |
-| `spoof_method` | string, one of `wrong-sequence`, `wrong-checksum`, `wrong-ack`, `wrong-md5`, `wrong-timestamp` | — | Error: Fragmenting or spoofing the TLS handshake against censorship | — |
-| `kernel_tx` | bool | — | Warned: The TLS stack, kernel TLS and the handshake's timeout: the same TLS without them | — |
-| `kernel_rx` | bool | — | Warned: The TLS stack, kernel TLS and the handshake's timeout: the same TLS without them | — |
-| `handshake_timeout` | duration | — | Warned: The TLS stack, kernel TLS and the handshake's timeout: the same TLS without them | — |
-| `ech` | object → [object](/sail/reference/shared/#ech-outbounds) | unset | Supported | — |
-| `utls` | object → [object](/sail/reference/shared/#utls-dns-servers-outbounds) | unset | Supported | The browser the ClientHello imitates. Unset, it is Chrome's. |
-| `reality` | object → [object](/sail/reference/shared/#reality-outbounds) | unset | Supported | — |
-| `certificate_sha256` | string or array of string | unset | sail extension | A sail extension, Mihomo's `fingerprint`: the SHA-256 hashes, hex, of whole certificates (DER) to take a server by, in place of the certificates trusted and `insecure`. A hash of the server's own certificate takes it outright: no CA and no name are checked, so that exact certificate is trusted for any server name. A hash of a certificate sent after it, an intermediate or a root, is the only CA the server's certificate is verified by, with the server name. |
+| `skip_default_domain_resolver` | bool | `false` | sail extension | A sail extension: without a `domain_resolver` of its own, the names dialled resolve as the DNS rules say, not as `route.default_domain_resolver` does; as Mihomo's DIRECT resolves apart from the proxies' servers. |
 
 <a id="outbounds-tryall"></a>
 
@@ -750,6 +726,7 @@ Rust: [`TuicOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/
 | `initial_packet_size` | number | — | Warned: QUIC tuning: the same connection without it | — |
 | `disable_path_mtu_discovery` | bool | — | Warned: QUIC tuning: the same connection without it | — |
 | `domain_strategy` | string | unset | Supported (deprecated in sing-box) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
+| `skip_default_domain_resolver` | bool | `false` | sail extension | A sail extension: without a `domain_resolver` of its own, the names dialled resolve as the DNS rules say, not as `route.default_domain_resolver` does; as Mihomo's DIRECT resolves apart from the proxies' servers. |
 
 <a id="outbounds-tuic-tls"></a>
 
@@ -787,6 +764,7 @@ Rust: [`OutboundTls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/tran
 | `ech` | object → [object](/sail/reference/shared/#ech-outbounds) | unset | Supported | — |
 | `utls` | object → [object](#outbounds-tuic-tls-utls) | — | Error: Not supported with TUIC | The browser the ClientHello imitates. Unset, it is Chrome's. |
 | `reality` | object → [object](/sail/reference/shared/#reality-outbounds) | unset | Supported | — |
+| `certificate_sha256` | string or array of string | unset | sail extension | A sail extension, Mihomo's `fingerprint`: the SHA-256 hashes, hex, of whole certificates (DER) to take a server by, in place of the certificates trusted and `insecure`. A hash of the server's own certificate takes it outright: no CA and no name are checked, so that exact certificate is trusted for any server name. A hash of a certificate sent after it, an intermediate or a root, is the only CA the server's certificate is verified by, with the server name. |
 
 <a id="outbounds-tuic-tls-utls"></a>
 
@@ -814,6 +792,11 @@ Rust: [`UrlTestOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sa
 | `tolerance` | number | `50` | Supported | Milliseconds. |
 | `idle_timeout` | duration | unset | Supported | Tests pause once the group has not been used for this long. |
 | `interrupt_exist_connections` | bool | `false` | Supported | Ends the connections through the member left once the group switches. |
+| `providers` | string or array of string | `[]` | sail extension | The outbound providers, by tag, whose outbounds join the group's own, in this order. |
+| `filter` | string or array of string | `[]` | sail extension | Regular expressions, as Mihomo's `filter`: of the providers' outbounds, only those whose names match one are members, those of the first first. The group's own outbounds are not filtered. |
+| `exclude_filter` | string or array of string | `[]` | sail extension | Regular expressions no member's name may match, the group's own outbounds' too. |
+| `exclude_type` | string or array of string | `[]` | sail extension | The types no member may be of, the group's own outbounds too, in Mihomo's names for them, without case: `Shadowsocks`, `Vmess`, `Socks5`, `Direct`, ... |
+| `empty_fallback` | string | unset | sail extension | An outbound, not a group, that is the member while there is none else. Without it such a group has none, and its connections fail. |
 
 <a id="outbounds-vless"></a>
 
@@ -855,6 +838,7 @@ Rust: [`VlessOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail
 | `transport` | object → [object](/sail/reference/shared/#transport-outbounds), [[grpc]](/sail/reference/shared/#transport-grpc-outbounds), [[http]](/sail/reference/shared/#transport-http-outbounds), [[httpupgrade]](/sail/reference/shared/#transport-httpupgrade-outbounds), [[ws]](/sail/reference/shared/#transport-ws-outbounds) | unset | Supported | — |
 | `packet_encoding` | string | unset | Supported | How UDP travels: unset means `xudp`, as in sing-box; `""` is VLESS's own UDP, one destination per connection. |
 | `domain_strategy` | string | unset | Supported (deprecated in sing-box) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
+| `skip_default_domain_resolver` | bool | `false` | sail extension | A sail extension: without a `domain_resolver` of its own, the names dialled resolve as the DNS rules say, not as `route.default_domain_resolver` does; as Mihomo's DIRECT resolves apart from the proxies' servers. |
 
 <a id="outbounds-vmess"></a>
 
@@ -899,6 +883,7 @@ Rust: [`VMessOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail
 | `multiplex` | object → [object](/sail/reference/shared/#multiplex-outbounds) | unset | Supported | — |
 | `transport` | object → [object](/sail/reference/shared/#transport-outbounds), [[grpc]](/sail/reference/shared/#transport-grpc-outbounds), [[http]](/sail/reference/shared/#transport-http-outbounds), [[httpupgrade]](/sail/reference/shared/#transport-httpupgrade-outbounds), [[ws]](/sail/reference/shared/#transport-ws-outbounds) | unset | Supported | — |
 | `domain_strategy` | string | unset | Supported (deprecated in sing-box) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
+| `skip_default_domain_resolver` | bool | `false` | sail extension | A sail extension: without a `domain_resolver` of its own, the names dialled resolve as the DNS rules say, not as `route.default_domain_resolver` does; as Mihomo's DIRECT resolves apart from the proxies' servers. |
 
 <a id="outbounds-missing"></a>
 

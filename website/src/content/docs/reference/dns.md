@@ -105,6 +105,8 @@ Rust: [`RemoteOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/ap
 | `method` | string | unset | Supported | `https` and `h3`: `POST`, the default, or `GET` (RFC 8484 §4.1). |
 | `headers` | map | `{}` | Supported | `https` and `h3`: sent with each request; a `Host` one is the host the requests name. |
 | `domain_strategy` | string | unset | Supported (deprecated in sing-box) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
+| `respect_rules` | bool | `false` | sail extension | A sail extension, as Mihomo's `respect-rules`: the connections go through the outbound the routing rules pick for them, as for a connection from the inbound `dnsclient` to the server, its domain known. |
+| `client_subnet` | object → [object](/sail/reference/shared/#client-subnet) | unset | sail extension | A sail extension: the EDNS Client Subnet its queries carry, over any they have, as Mihomo's `ecs` with `ecs-override`. |
 
 <a id="dns-servers-h3-tls"></a>
 
@@ -142,6 +144,7 @@ Rust: [`OutboundTls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/tran
 | `ech` | object → [object](/sail/reference/shared/#ech-dns-servers) | — | Error: Not for a dns server | — |
 | `utls` | object → [object](#dns-servers-h3-tls-utls) | — | Error: Not for a h3 server | The browser the ClientHello imitates. Unset, it is Chrome's. |
 | `reality` | object → [object](/sail/reference/shared/#reality-dns-servers) | unset | Supported | — |
+| `certificate_sha256` | string or array of string | unset | sail extension | A sail extension, Mihomo's `fingerprint`: the SHA-256 hashes, hex, of whole certificates (DER) to take a server by, in place of the certificates trusted and `insecure`. A hash of the server's own certificate takes it outright: no CA and no name are checked, so that exact certificate is trusted for any server name. A hash of a certificate sent after it, an intermediate or a root, is the only CA the server's certificate is verified by, with the server name. |
 
 <a id="dns-servers-h3-tls-utls"></a>
 
@@ -203,6 +206,8 @@ Rust: [`RemoteOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/ap
 | `method` | string | unset | Supported | `https` and `h3`: `POST`, the default, or `GET` (RFC 8484 §4.1). |
 | `headers` | map | `{}` | Supported | `https` and `h3`: sent with each request; a `Host` one is the host the requests name. |
 | `domain_strategy` | string | unset | Supported (deprecated in sing-box) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
+| `respect_rules` | bool | `false` | sail extension | A sail extension, as Mihomo's `respect-rules`: the connections go through the outbound the routing rules pick for them, as for a connection from the inbound `dnsclient` to the server, its domain known. |
+| `client_subnet` | object → [object](/sail/reference/shared/#client-subnet) | unset | sail extension | A sail extension: the EDNS Client Subnet its queries carry, over any they have, as Mihomo's `ecs` with `ecs-override`. |
 
 <a id="dns-servers-https-tls"></a>
 
@@ -240,6 +245,7 @@ Rust: [`OutboundTls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/tran
 | `ech` | object → [object](/sail/reference/shared/#ech-dns-servers) | — | Error: Not for a dns server | — |
 | `utls` | object → [object](/sail/reference/shared/#utls-dns-servers-outbounds) | unset | Supported | The browser the ClientHello imitates. Unset, it is Chrome's. |
 | `reality` | object → [object](/sail/reference/shared/#reality-dns-servers) | unset | Supported | — |
+| `certificate_sha256` | string or array of string | unset | sail extension | A sail extension, Mihomo's `fingerprint`: the SHA-256 hashes, hex, of whole certificates (DER) to take a server by, in place of the certificates trusted and `insecure`. A hash of the server's own certificate takes it outright: no CA and no name are checked, so that exact certificate is trusted for any server name. A hash of a certificate sent after it, an intermediate or a root, is the only CA the server's certificate is verified by, with the server name. |
 
 <a id="dns-servers-local"></a>
 
@@ -374,6 +380,8 @@ Rust: [`RemoteOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/ap
 | `server_port` | number | unset | Supported | — |
 | `tls` | object → [object](#dns-servers-quic-tls) | unset | Supported | `tls`, `https`, `quic` and `h3`. |
 | `domain_strategy` | string | unset | Supported (deprecated in sing-box) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
+| `respect_rules` | bool | `false` | sail extension | A sail extension, as Mihomo's `respect-rules`: the connections go through the outbound the routing rules pick for them, as for a connection from the inbound `dnsclient` to the server, its domain known. |
+| `client_subnet` | object → [object](/sail/reference/shared/#client-subnet) | unset | sail extension | A sail extension: the EDNS Client Subnet its queries carry, over any they have, as Mihomo's `ecs` with `ecs-override`. |
 
 <a id="dns-servers-quic-tls"></a>
 
@@ -411,6 +419,7 @@ Rust: [`OutboundTls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/tran
 | `ech` | object → [object](/sail/reference/shared/#ech-dns-servers) | — | Error: Not for a dns server | — |
 | `utls` | object → [object](#dns-servers-quic-tls-utls) | — | Error: Not for a quic server | The browser the ClientHello imitates. Unset, it is Chrome's. |
 | `reality` | object → [object](/sail/reference/shared/#reality-dns-servers) | unset | Supported | — |
+| `certificate_sha256` | string or array of string | unset | sail extension | A sail extension, Mihomo's `fingerprint`: the SHA-256 hashes, hex, of whole certificates (DER) to take a server by, in place of the certificates trusted and `insecure`. A hash of the server's own certificate takes it outright: no CA and no name are checked, so that exact certificate is trusted for any server name. A hash of a certificate sent after it, an intermediate or a root, is the only CA the server's certificate is verified by, with the server name. |
 
 <a id="dns-servers-quic-tls-utls"></a>
 
@@ -467,6 +476,8 @@ Rust: [`RemoteOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/ap
 | `server` | string | unset | Supported | — |
 | `server_port` | number | unset | Supported | — |
 | `domain_strategy` | string | unset | Supported (deprecated in sing-box) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
+| `respect_rules` | bool | `false` | sail extension | A sail extension, as Mihomo's `respect-rules`: the connections go through the outbound the routing rules pick for them, as for a connection from the inbound `dnsclient` to the server, its domain known. |
+| `client_subnet` | object → [object](/sail/reference/shared/#client-subnet) | unset | sail extension | A sail extension: the EDNS Client Subnet its queries carry, over any they have, as Mihomo's `ecs` with `ecs-override`. |
 
 <a id="dns-servers-tls"></a>
 
@@ -502,6 +513,8 @@ Rust: [`RemoteOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/ap
 | `server_port` | number | unset | Supported | — |
 | `tls` | object → [object](#dns-servers-tls-tls) | unset | Supported | `tls`, `https`, `quic` and `h3`. |
 | `domain_strategy` | string | unset | Supported (deprecated in sing-box) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
+| `respect_rules` | bool | `false` | sail extension | A sail extension, as Mihomo's `respect-rules`: the connections go through the outbound the routing rules pick for them, as for a connection from the inbound `dnsclient` to the server, its domain known. |
+| `client_subnet` | object → [object](/sail/reference/shared/#client-subnet) | unset | sail extension | A sail extension: the EDNS Client Subnet its queries carry, over any they have, as Mihomo's `ecs` with `ecs-override`. |
 
 <a id="dns-servers-tls-tls"></a>
 

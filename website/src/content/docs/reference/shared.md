@@ -33,7 +33,7 @@ Rust: [`MultiplexBrutal`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/
 
 ## `client_subnet`
 
-Used at: `dns.servers[udp].client_subnet`, `outbounds[redirect].domain_resolver.client_subnet`
+Used at: `dns.servers[h3, https, quic, tcp, tls, udp].client_subnet`, `outbounds[redirect].domain_resolver.client_subnet`
 
 Rust: [`Prefix`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs) · **sail extension**
 
@@ -175,12 +175,62 @@ Rust: [`OutboundEch`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/tran
 | `config` | listable-string | unset | Supported | An ECHConfigList, base64 or PEM. Looked up in DNS when not set. |
 | `config_path` | string | — | Error: An ECH configuration from a file, or looked up under another name: the server name would go in the clear | — |
 | `query_server_name` | string | — | Error: An ECH configuration from a file, or looked up under another name: the server name would go in the clear | — |
+| `disable_dns_lookup` | bool | `false` | sail extension | Never look the ECHConfigList up in DNS. |
 
-<a id="handshake"></a>
+<a id="fallback-fallback-for-alpn"></a>
 
-## `handshake`
+## `fallback / fallback_for_alpn`
 
-Used at: `inbounds[http, hysteria2, trojan, tuic, vless, vmess].tls.reality.handshake`
+Used at: `inbounds[anytls, vless].fallback`, `inbounds[anytls, vless].fallback_for_alpn`
+
+Rust: [`FallbackServer`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/fallback.rs) · Build: `any (feature = "inbound-anytls" , feature = "inbound-trojan" , feature = "inbound-vless" , feature = "inbound-shadowtls")` · **sail extension**
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `server` | string | required | sail extension | — |
+| `server_port` | number | required | sail extension | — |
+
+<a id="handshake-inbounds"></a>
+
+## `handshake` — inbounds
+
+Used at: `inbounds[http, trojan, vless, vmess].tls.reality.handshake`
+
+Rust: [`RealityHandshake`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `server` | string | required | Supported | — |
+| `server_port` | number | required | Supported | — |
+| `detour` | string | — | Error: A detour to the REALITY handshake server: it would be reached otherwise | The outbound to dial through, in place of a socket of its own. |
+| `bind_interface` | string | unset | Supported | The interface to send through, by name. Loopback destinations still go over loopback, where sing-box applies the bind to them as well. |
+| `inet4_bind_address` | string | unset | Supported | The local address for IPv4 destinations, loopback ones aside: as `bind_interface`. |
+| `inet6_bind_address` | string | unset | Supported | The local address for IPv6 destinations, loopback ones aside: as `bind_interface`. |
+| `bind_address_no_port` | bool | `false` | Supported | `IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address, so that the port is picked at connect: Linux only. |
+| `protect_path` | string | — | Error: Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
+| `routing_mark` | number\|string | unset | Supported | `SO_MARK`, Linux only. |
+| `reuse_addr` | bool | `false` | Supported | `SO_REUSEADDR`, and `SO_REUSEPORT` on Unix, on UDP sockets. |
+| `netns` | string | — | Error: Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
+| `connect_timeout` | duration | unset | Supported | How long a TCP connect to one address may take; 5s when unset. |
+| `tcp_fast_open` | bool | `false` | Supported | TCP Fast Open: the first data written goes with the SYN. Its addresses are then tried one by one, not raced. |
+| `tcp_multi_path` | bool | — | Warned: Socket tuning: connections go the same way without it | Not implemented yet. |
+| `disable_tcp_keep_alive` | bool | `false` | Supported | No TCP keepalive at all. |
+| `tcp_keep_alive` | duration | unset | Supported | How long a TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
+| `udp_fragment` | bool | unset | Supported | Whether UDP datagrams may be fragmented on the way; unset, as the place says, see `udp_fragment_default`. |
+| `domain_resolver` | string\|object → [object](#domain-resolver-default-domain-resolver) | unset | Supported | The DNS server that resolves the names dialled. |
+| `network_strategy` | string, one of `default`, `fallback`, `hybrid` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_delay` | duration | unset | Supported | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs); 300ms when unset. |
+| `domain_strategy` | string | unset | Supported (deprecated in sing-box) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
+| `skip_default_domain_resolver` | bool | `false` | sail extension | A sail extension: without a `domain_resolver` of its own, the names dialled resolve as the DNS rules say, not as `route.default_domain_resolver` does; as Mihomo's DIRECT resolves apart from the proxies' servers. |
+
+<a id="handshake-inbounds-2"></a>
+
+## `handshake` — inbounds (2)
+
+Used at: `inbounds[hysteria2, tuic].tls.reality.handshake`
 
 Rust: [`RealityHandshake`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
 
@@ -267,6 +317,7 @@ Rust: [`InboundMultiplex`](https://github.com/peakpassvpn/sail/blob/dev/sail/src
 | `enabled` | bool | `false` | Supported | — |
 | `padding` | bool | `false` | Supported | sing-mux: refuse connections that are not padded. |
 | `brutal` | object → [object](#brutal) | unset | Supported | sing-mux: TCP Brutal for clients that ask for it; Linux only. |
+| `protocol` | string | unset | sail extension | `amux`; unset, sing-mux, which sing-box's block has no field for: its server takes smux, yamux and h2mux alike. |
 
 <a id="multiplex-outbounds"></a>
 
@@ -285,6 +336,10 @@ Rust: [`OutboundMultiplex`](https://github.com/peakpassvpn/sail/blob/dev/sail/sr
 | `max_streams` | number | unset | Supported | — |
 | `padding` | bool | `false` | Supported | — |
 | `brutal` | object → [object](#brutal) | unset | Supported | sing-mux only: TCP Brutal, negotiated on each new connection. |
+| `max_accepts` | number | unset | sail extension | amux only. |
+| `concurrency` | number | unset | sail extension | With `protocol: amux`: the streams a session carries at once |
+| `max_recv_bytes` | number | unset | sail extension | With `protocol: amux`: the bytes a session receives before it takes no more streams; 0, no limit |
+| `max_lifetime` | number | unset | sail extension | With `protocol: amux`: the seconds a session takes new streams for; 0, no limit |
 
 <a id="obfs"></a>
 
@@ -366,14 +421,30 @@ Used at: `http_clients[].tls.reality`, `route.rule_set[remote].http_client.tls.r
 
 ## `reality` — inbounds
 
-Used at: `inbounds[http, hysteria2, trojan, tuic, vless, vmess].tls.reality`
+Used at: `inbounds[http, trojan, vless, vmess].tls.reality`
 
 Rust: [`InboundReality`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
 | `enabled` | bool | `false` | Supported | — |
-| `handshake` | object → [object](#handshake) | required | Supported | — |
+| `handshake` | object → [object](#handshake-inbounds) | required | Supported | — |
+| `private_key` | string | required | Supported | X25519, hex or base64url. |
+| `short_id` | listable-string | required | Supported | — |
+| `max_time_difference` | duration | unset | Supported | How far a client's clock may be from ours, e.g. `1m`. Unset, any time is accepted, as in sing-box. |
+
+<a id="reality-inbounds-2"></a>
+
+## `reality` — inbounds (2)
+
+Used at: `inbounds[hysteria2, tuic].tls.reality`
+
+Rust: [`InboundReality`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `enabled` | bool | `false` | Supported | — |
+| `handshake` | object → [object](#handshake-inbounds-2) | required | Supported | — |
 | `private_key` | string | required | Supported | X25519, hex or base64url. |
 | `short_id` | listable-string | required | Supported | — |
 | `max_time_difference` | duration | unset | Supported | How far a client's clock may be from ours, e.g. `1m`. Unset, any time is accepted, as in sing-box. |
@@ -445,7 +516,7 @@ Used at: `http_clients[].tls`, `route.rule_set[remote].http_client.tls`
 
 ## `tls` — inbounds
 
-Used at: `inbounds[http, hysteria2, trojan, tuic, vless, vmess].tls`
+Used at: `inbounds[http, trojan, vless, vmess].tls`
 
 Rust: [`InboundTls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
 
@@ -473,6 +544,40 @@ Rust: [`InboundTls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/trans
 | `certificate_provider` | string\|object | — | Error: A certificate from a provider or ACME: the inbound would have none | — |
 | `ech` | object → [object](#ech-inbounds) | — | Error: Encrypted Client Hello on an inbound | — |
 | `reality` | object → [object](#reality-inbounds) | unset | Supported | — |
+| `acme` | object | — | Error: A certificate from a provider or ACME: the inbound would have none (deprecated in sing-box) | — |
+
+<a id="tls-inbounds-2"></a>
+
+## `tls` — inbounds (2)
+
+Used at: `inbounds[hysteria2, tuic].tls`
+
+Rust: [`InboundTls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `enabled` | bool | `false` | Supported | — |
+| `server_name` | string | unset | Supported | The name REALITY clients must ask for; only REALITY uses it. |
+| `insecure` | bool | — | Warned: Only relaxes checks a server's TLS does not make | — |
+| `alpn` | listable-string | unset | Supported | — |
+| `min_version` | string, one of `1.0`, `1.1`, `1.2`, `1.3` | unset | Supported | The lowest TLS version to accept, `1.0` to `1.3`; unset, 1.2. |
+| `max_version` | string, one of `1.0`, `1.1`, `1.2`, `1.3` | unset | Supported | The highest; unset, 1.3. |
+| `cipher_suites` | listable-string | — | Error: TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked | — |
+| `curve_preferences` | listable-string, one of `P256`, `P384`, `P521`, `X25519`, `X25519MLKEM768` | — | Error: TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked | — |
+| `certificate` | listable-string | unset | Supported | An inline PEM certificate. |
+| `certificate_path` | string | unset | Supported | — |
+| `client_authentication` | string, one of `no`, `request`, `require-any`, `verify-if-given`, `require-and-verify` | — | Error: Verifying clients' certificates: an inbound would take clients it should refuse | — |
+| `client_certificate` | listable-string | — | Error: Verifying clients' certificates: an inbound would take clients it should refuse | — |
+| `client_certificate_path` | listable-string | — | Error: Verifying clients' certificates: an inbound would take clients it should refuse | — |
+| `client_certificate_public_key_sha256` | listable-string\|array | — | Error: Verifying clients' certificates: an inbound would take clients it should refuse | — |
+| `key` | listable-string | unset | Supported | An inline PEM key. |
+| `key_path` | string | unset | Supported | — |
+| `kernel_tx` | bool | — | Warned: The TLS stack, kernel TLS and the handshake's timeout: the same TLS without them | — |
+| `kernel_rx` | bool | — | Warned: The TLS stack, kernel TLS and the handshake's timeout: the same TLS without them | — |
+| `handshake_timeout` | duration | — | Warned: The TLS stack, kernel TLS and the handshake's timeout: the same TLS without them | — |
+| `certificate_provider` | string\|object | — | Error: A certificate from a provider or ACME: the inbound would have none | — |
+| `ech` | object → [object](#ech-inbounds) | — | Error: Encrypted Client Hello on an inbound | — |
+| `reality` | object → [object](#reality-inbounds-2) | unset | Supported | — |
 | `acme` | object | — | Error: A certificate from a provider or ACME: the inbound would have none (deprecated in sing-box) | — |
 
 <a id="tls-inbounds-outbounds"></a>
@@ -516,7 +621,7 @@ Used at: `inbounds[hysteria2].realm.http_client.tls`, `outbounds[hysteria2].real
 
 ## `tls` — outbounds
 
-Used at: `outbounds[anytls, http, shadowtls, vless, vmess].tls`
+Used at: `outbounds[anytls, http, shadowtls, trojan, vless, vmess].tls`
 
 Rust: [`OutboundTls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
 
@@ -550,6 +655,7 @@ Rust: [`OutboundTls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/tran
 | `ech` | object → [object](#ech-outbounds) | unset | Supported | — |
 | `utls` | object → [object](#utls-dns-servers-outbounds) | unset | Supported | The browser the ClientHello imitates. Unset, it is Chrome's. |
 | `reality` | object → [object](#reality-outbounds) | unset | Supported | — |
+| `certificate_sha256` | string or array of string | unset | sail extension | A sail extension, Mihomo's `fingerprint`: the SHA-256 hashes, hex, of whole certificates (DER) to take a server by, in place of the certificates trusted and `insecure`. A hash of the server's own certificate takes it outright: no CA and no name are checked, so that exact certificate is trusted for any server name. A hash of a certificate sent after it, an intermediate or a root, is the only CA the server's certificate is verified by, with the server name. |
 
 <a id="transport-inbounds"></a>
 
@@ -681,6 +787,7 @@ Rust: [`InboundTransport`](https://github.com/peakpassvpn/sail/blob/dev/sail/src
 | `headers` | map | — | Warned: Response headers and keepalive of a WebSocket or gRPC server: the same streams | — |
 | `max_early_data` | number | `0` | Supported | The most early data a client may send in its upgrade request. |
 | `early_data_header_name` | string | unset | Supported | The header it comes in; unset, it comes in the path. |
+| `forwarded_header` | string | unset | sail extension | The header a trusted reverse proxy in front puts the client's address in, such as `X-Forwarded-For`. Unset, no header is believed: anyone can send one. |
 
 <a id="transport-ws-outbounds"></a>
 

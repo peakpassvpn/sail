@@ -66,6 +66,7 @@ Rust: [`WireGuardOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src
 | `fallback_network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
 | `fallback_delay` | duration | unset | Supported | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs); 300ms when unset. |
 | `domain_strategy` | string | unset | Supported (deprecated in sing-box) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
+| `skip_default_domain_resolver` | bool | `false` | sail extension | A sail extension: without a `domain_resolver` of its own, the names dialled resolve as the DNS rules say, not as `route.default_domain_resolver` does; as Mihomo's DIRECT resolves apart from the proxies' servers. |
 
 <a id="endpoints-wireguard-peers"></a>
 

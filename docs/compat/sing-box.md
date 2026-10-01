@@ -3069,9 +3069,9 @@ Fields and types sail accepts that sing-box does not.
 | `log.format` | `compact` writes the message alone |
 | `dns.client_strategy` | The address families of the answers to clients' queries |
 | `dns.servers[race].servers` | A server that asks its members at once and takes the first good answer |
-| `dns.servers[udp].respect_rules` | Queries go through the outbound the routing rules pick (Mihomo's respect-rules) |
-| `dns.servers[udp].client_subnet` | The EDNS Client Subnet its queries carry (Mihomo's ecs) |
-| `dns.servers[tls].tls.certificate_sha256` | As an outbound's `tls.certificate_sha256` |
+| `dns.servers[udp|tcp|tls|quic|https|h3].respect_rules` | Queries go through the outbound the routing rules pick (Mihomo's respect-rules) |
+| `dns.servers[udp|tcp|tls|quic|https|h3].client_subnet` | The EDNS Client Subnet its queries carry (Mihomo's ecs) |
+| `dns.servers[tls|quic|https|h3].tls.certificate_sha256` | As an outbound's `tls.certificate_sha256` |
 | `dns.rules[].geosite` | Domains of a geosite category |
 | `dns.rules[].external` | Domains or addresses from a geosite or mmdb file |
 | `dns.rules[].process_name_regex` | Process names by regular expression (Mihomo's PROCESS-NAME-REGEX) |
@@ -3102,8 +3102,26 @@ Fields and types sail accepts that sing-box does not.
 | `route.rule_set[inline].rules[].process_name_regex` | As a routing rule's |
 | `route.rule_set[inline].rules[].wifi_ssid_regex` | As a routing rule's |
 | `route.rule_set[inline].rules[].no_resolve` | As a routing rule's |
-| `outbounds[trojan].tls.certificate_sha256` | In any outbound's `tls`: whole certificates pinned by SHA-256, hex (Mihomo's fingerprint); the server's own is trusted for any name, a CA's in its chain is the only CA it is verified by |
-| `outbounds[direct].skip_default_domain_resolver` | Names resolve as the DNS rules say, not by `route.default_domain_resolver` |
+| `outbounds[anytls|http|hysteria2|shadowtls|trojan|tuic|vless|vmess].tls.certificate_sha256` | In any outbound's `tls`: whole certificates pinned by SHA-256, hex (Mihomo's fingerprint); the server's own is trusted for any name, a CA's in its chain is the only CA it is verified by |
+| `outbounds[direct|anytls|http|hysteria2|shadowsocks|shadowtls|socks|trojan|tuic|vless|vmess].skip_default_domain_resolver` | Names resolve as the DNS rules say, not by `route.default_domain_resolver` |
+| `endpoints[wireguard].skip_default_domain_resolver` | As an outbound's, for the peers' names |
+| `inbounds[shadowtls].handshake.skip_default_domain_resolver` | As an outbound's, for the handshake server's name |
+| `inbounds[http|trojan|vless|vmess].tls.reality.handshake.skip_default_domain_resolver` | As an outbound's, for the REALITY handshake server's name |
+| `outbounds[anytls|http|hysteria2|shadowtls|trojan|tuic|vless|vmess].tls.ech.disable_dns_lookup` | The ECHConfigList is never looked up in DNS |
+| `outbounds[shadowsocks].prefix` | Bytes sent before the first payload, percent-encoded (Outline's prefix); not with the 2022 methods |
+| `outbounds[shadowsocks|trojan|vless|vmess].multiplex.max_accepts` | With `protocol: amux` (sail's own, to be removed): the streams a session carries in all |
+| `outbounds[shadowsocks|trojan|vless|vmess].multiplex.concurrency` | With `protocol: amux`: the streams a session carries at once |
+| `outbounds[shadowsocks|trojan|vless|vmess].multiplex.max_recv_bytes` | With `protocol: amux`: the bytes a session receives before it takes no more streams; 0, no limit |
+| `outbounds[shadowsocks|trojan|vless|vmess].multiplex.max_lifetime` | With `protocol: amux`: the seconds a session takes new streams for; 0, no limit |
+| `inbounds[shadowsocks|trojan|vless|vmess].multiplex.protocol` | `amux`, sail's own multiplex (to be removed); unset, sing-mux |
+| `inbounds[anytls|vless].fallback` | As the trojan inbound's: where a connection that fails to authenticate is relayed |
+| `inbounds[anytls|vless].fallback_for_alpn` | As the trojan inbound's: the fallback by the ALPN the client asked for |
+| `inbounds[trojan|vless|vmess].transport[ws].forwarded_header` | The header a trusted reverse proxy in front puts the client's address in; unset, none is believed |
+| `outbounds[selector|urltest].providers` | The outbound providers whose outbounds join the group's own (Mihomo's use) |
+| `outbounds[selector|urltest].filter` | Of the providers' outbounds, only those whose names match a regular expression (Mihomo's filter) |
+| `outbounds[selector|urltest].exclude_filter` | Regular expressions no member's name may match, the group's own outbounds' too (Mihomo's exclude-filter) |
+| `outbounds[selector|urltest].exclude_type` | Types no member may be of, in Mihomo's names (Mihomo's exclude-type) |
+| `outbounds[selector|urltest].empty_fallback` | The outbound, not a group, that is the member while there is none else |
 | `outbounds[fallback].outbounds` | A group: the first member that works |
 | `outbounds[load-balance].outbounds` | A group spreading connections over its members |
 | `outbounds[smart].outbounds` | A group scoring its members by the connections through them |

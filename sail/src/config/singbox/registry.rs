@@ -196,7 +196,16 @@ fn outbound(kind: &str) -> Value {
             "tls": { "enabled": true, "server_name": "example.com" } }),
         _ => json!({}),
     };
-    if !matches!(kind, "direct" | "block" | "bridge" | "selector" | "urltest") {
+    let groups = [
+        "selector",
+        "urltest",
+        "fallback",
+        "load-balance",
+        "smart",
+        "network",
+        "tryall",
+    ];
+    if !matches!(kind, "direct" | "block" | "bridge") && !groups.contains(&kind) {
         merge(&mut v, server);
     }
     merge(&mut v, extra);
@@ -255,6 +264,161 @@ fn object(key: &str) -> Value {
         "handshake" => json!({ "server": "example.com", "server_port": 443 }),
         _ => json!({}),
     }
+}
+
+/// What an extension needs to be taken: fields next to it, merged into
+/// the entry probed, and entries before that one in its list.
+const CONTEXT: &[(&str, &str, &str)] = &[
+    (
+        "dns.servers[race].servers",
+        "{}",
+        r#"[{ "type": "local", "tag": "other" }]"#,
+    ),
+    (
+        "dns.rules[].ip_match_all",
+        r#"{ "match_response": true, "ip_cidr": ["10.0.0.0/8"] }"#,
+        r#"[{ "domain": "a", "action": "evaluate", "server": "local" }]"#,
+    ),
+    (
+        "outbounds[network].default",
+        r#"{ "branches": [{ "network_type": ["wifi"], "outbound": "direct" }] }"#,
+        "[]",
+    ),
+    (
+        "route.rules[].no_resolve",
+        r#"{ "ip_cidr": ["10.0.0.0/8"] }"#,
+        "[]",
+    ),
+    (
+        "route.rule_set[inline].rules[].no_resolve",
+        r#"{ "ip_cidr": ["10.0.0.0/8"] }"#,
+        "[]",
+    ),
+    (
+        "route.rule_set[remote].behavior",
+        r#"{ "format": "clash-yaml" }"#,
+        "[]",
+    ),
+    (
+        "outbounds[selector].providers",
+        "{}",
+        r#"{ "outbound_providers": [{ "type": "inline", "tag": "p",
+            "outbounds": [{ "type": "direct", "tag": "a" }] }] }"#,
+    ),
+    (
+        "outbounds[selector].filter",
+        r#"{ "providers": "p" }"#,
+        r#"{ "outbound_providers": [{ "type": "inline", "tag": "p",
+            "outbounds": [{ "type": "direct", "tag": "a" }] }] }"#,
+    ),
+    (
+        "outbounds[urltest].providers",
+        "{}",
+        r#"{ "outbound_providers": [{ "type": "inline", "tag": "p",
+            "outbounds": [{ "type": "direct", "tag": "a" }] }] }"#,
+    ),
+    (
+        "outbounds[urltest].filter",
+        r#"{ "providers": "p" }"#,
+        r#"{ "outbound_providers": [{ "type": "inline", "tag": "p",
+            "outbounds": [{ "type": "direct", "tag": "a" }] }] }"#,
+    ),
+];
+
+/// `config` with what `path` needs (`CONTEXT`).
+fn with_context(config: &mut Value, path: &str) {
+    let Some((_, with, before)) = CONTEXT.iter().find(|(p, _, _)| *p == path) else {
+        return;
+    };
+    let with: Value = serde_json::from_str(with).expect("a context");
+    let before: Value = serde_json::from_str(before).expect("a context");
+    merge(probed(config, path).expect("the entry probed"), with);
+    let before = match before {
+        Value::Array(entries) => entries,
+        top => {
+            merge(config, top);
+            return;
+        }
+    };
+    let list = path.split('[').next().expect("a list");
+    let pointer = format!("/{}", list.replace('.', "/"));
+    if let Some(Value::Array(entries)) = config.pointer_mut(&pointer) {
+        let at = entries.len() - 1;
+        for (i, entry) in before.into_iter().enumerate() {
+            entries.insert(at + i, entry);
+        }
+    }
+}
+
+/// The entry of the list `path` begins in that the probe set it on.
+fn probed<'a>(config: &'a mut Value, path: &str) -> Option<&'a mut Value> {
+    let list = path.split('[').next()?;
+    let pointer = format!("/{}", list.replace('.', "/"));
+    let entries = config.pointer_mut(&pointer)?.as_array_mut()?;
+    let entry = entries.last_mut()?;
+    // A rule-set's rules: its first rule is the one set.
+    if path.contains("].rules[]") {
+        return entry.get_mut("rules")?.as_array_mut()?.first_mut();
+    }
+    Some(entry)
+}
+
+/// The paths `pattern` names: `outbounds[vless|vmess].tls` is
+/// `outbounds[vless].tls` and `outbounds[vmess].tls`.
+fn expand(pattern: &str) -> Vec<String> {
+    let Some(open) = pattern.find('[') else {
+        return vec![pattern.to_string()];
+    };
+    let close = open + pattern[open..].find(']').expect("a closing bracket");
+    let (head, choices, tail) = (
+        &pattern[..open],
+        &pattern[open + 1..close],
+        &pattern[close + 1..],
+    );
+    choices
+        .split('|')
+        .flat_map(|choice| {
+            expand(tail)
+                .into_iter()
+                .map(move |rest| format!("{}[{}]{}", head, choice, rest))
+        })
+        .collect()
+}
+
+/// `config` with the entry probed (tagged `probe`) on TLS, if it has a
+/// `tls` the probe made: an extension of TLS is read only then. An
+/// inbound's takes the certificate, or with REALITY its key.
+fn prepared(mut config: Value, pki: &Pki) -> Value {
+    for (list, inbound) in [("inbounds", true), ("outbounds", false), ("dns", false)] {
+        let entries = match list {
+            "dns" => config.pointer_mut("/dns/servers"),
+            _ => config.get_mut(list),
+        };
+        let Some(Value::Array(entries)) = entries else {
+            continue;
+        };
+        for entry in entries {
+            if entry.get("tag").and_then(Value::as_str) != Some("probe") {
+                continue;
+            }
+            let Some(Value::Object(tls)) = entry.get_mut("tls") else {
+                continue;
+            };
+            tls.insert("enabled".into(), json!(true));
+            if !inbound {
+                tls.entry("server_name").or_insert(json!("example.com"));
+            } else if let Some(Value::Object(reality)) = tls.get_mut("reality") {
+                reality.insert("enabled".into(), json!(true));
+                reality.insert("private_key".into(), json!("11".repeat(32)));
+                reality.insert("short_id".into(), json!("0123"));
+                tls.insert("server_name".into(), json!("example.com"));
+            } else {
+                tls.insert("certificate".into(), json!(pki.cert));
+                tls.insert("key".into(), json!(pki.key));
+            }
+        }
+    }
+    config
 }
 
 /// A certificate and its key, for the inbounds that need TLS.
@@ -854,21 +1018,21 @@ const EXTENSIONS: &[(&str, &str, &str)] = &[
     ),
     (
         "dns.servers[race].servers",
-        r#"["local"]"#,
+        r#"["local", "other"]"#,
         "A server that asks its members at once and takes the first good answer",
     ),
     (
-        "dns.servers[udp].respect_rules",
+        "dns.servers[udp|tcp|tls|quic|https|h3].respect_rules",
         "true",
         "Queries go through the outbound the routing rules pick (Mihomo's respect-rules)",
     ),
     (
-        "dns.servers[udp].client_subnet",
+        "dns.servers[udp|tcp|tls|quic|https|h3].client_subnet",
         r#""1.2.3.0/24""#,
         "The EDNS Client Subnet its queries carry (Mihomo's ecs)",
     ),
     (
-        "dns.servers[tls].tls.certificate_sha256",
+        "dns.servers[tls|quic|https|h3].tls.certificate_sha256",
         r#"["abababababababababababababababababababababababababababababababab"]"#,
         "As an outbound's `tls.certificate_sha256`",
     ),
@@ -900,7 +1064,7 @@ const EXTENSIONS: &[(&str, &str, &str)] = &[
     ),
     (
         "dns.rules[].network_mcc_mnc",
-        r#"["460-00"]"#,
+        r#"["46000"]"#,
         "The cellular carrier (Surge's MCCMNC)",
     ),
     (
@@ -952,7 +1116,7 @@ const EXTENSIONS: &[(&str, &str, &str)] = &[
     ),
     (
         "route.rules[].network_mcc_mnc",
-        r#"["460-00"]"#,
+        r#"["46000"]"#,
         "The cellular carrier (Surge's MCCMNC)",
     ),
     (
@@ -1011,14 +1175,104 @@ const EXTENSIONS: &[(&str, &str, &str)] = &[
         "As a routing rule's",
     ),
     (
-        "outbounds[trojan].tls.certificate_sha256",
+        "outbounds[anytls|http|hysteria2|shadowtls|trojan|tuic|vless|vmess].tls.certificate_sha256",
         r#"["abababababababababababababababababababababababababababababababab"]"#,
         "In any outbound's `tls`: whole certificates pinned by SHA-256, hex (Mihomo's fingerprint); the server's own is trusted for any name, a CA's in its chain is the only CA it is verified by",
     ),
     (
-        "outbounds[direct].skip_default_domain_resolver",
+        "outbounds[direct|anytls|http|hysteria2|shadowsocks|shadowtls|socks|trojan|tuic|vless|vmess].skip_default_domain_resolver",
         "true",
         "Names resolve as the DNS rules say, not by `route.default_domain_resolver`",
+    ),
+    (
+        "endpoints[wireguard].skip_default_domain_resolver",
+        "true",
+        "As an outbound's, for the peers' names",
+    ),
+    (
+        "inbounds[shadowtls].handshake.skip_default_domain_resolver",
+        "true",
+        "As an outbound's, for the handshake server's name",
+    ),
+    (
+        "inbounds[http|trojan|vless|vmess].tls.reality.handshake.skip_default_domain_resolver",
+        "true",
+        "As an outbound's, for the REALITY handshake server's name",
+    ),
+    (
+        "outbounds[anytls|http|hysteria2|shadowtls|trojan|tuic|vless|vmess].tls.ech.disable_dns_lookup",
+        "true",
+        "The ECHConfigList is never looked up in DNS",
+    ),
+    (
+        "outbounds[shadowsocks].prefix",
+        r#""%16%03%01""#,
+        "Bytes sent before the first payload, percent-encoded (Outline's prefix); not with the 2022 methods",
+    ),
+    (
+        "outbounds[shadowsocks|trojan|vless|vmess].multiplex.max_accepts",
+        "8",
+        "With `protocol: amux` (sail's own, to be removed): the streams a session carries in all",
+    ),
+    (
+        "outbounds[shadowsocks|trojan|vless|vmess].multiplex.concurrency",
+        "2",
+        "With `protocol: amux`: the streams a session carries at once",
+    ),
+    (
+        "outbounds[shadowsocks|trojan|vless|vmess].multiplex.max_recv_bytes",
+        "1048576",
+        "With `protocol: amux`: the bytes a session receives before it takes no more streams; 0, no limit",
+    ),
+    (
+        "outbounds[shadowsocks|trojan|vless|vmess].multiplex.max_lifetime",
+        "600",
+        "With `protocol: amux`: the seconds a session takes new streams for; 0, no limit",
+    ),
+    (
+        "inbounds[shadowsocks|trojan|vless|vmess].multiplex.protocol",
+        r#""amux""#,
+        "`amux`, sail's own multiplex (to be removed); unset, sing-mux",
+    ),
+    (
+        "inbounds[anytls|vless].fallback",
+        r#"{ "server": "127.0.0.1", "server_port": 8080 }"#,
+        "As the trojan inbound's: where a connection that fails to authenticate is relayed",
+    ),
+    (
+        "inbounds[anytls|vless].fallback_for_alpn",
+        r#"{ "h2": { "server": "127.0.0.1", "server_port": 8080 } }"#,
+        "As the trojan inbound's: the fallback by the ALPN the client asked for",
+    ),
+    (
+        "inbounds[trojan|vless|vmess].transport[ws].forwarded_header",
+        r#""X-Forwarded-For""#,
+        "The header a trusted reverse proxy in front puts the client's address in; unset, none is believed",
+    ),
+    (
+        "outbounds[selector|urltest].providers",
+        r#""p""#,
+        "The outbound providers whose outbounds join the group's own (Mihomo's use)",
+    ),
+    (
+        "outbounds[selector|urltest].filter",
+        r#""^a""#,
+        "Of the providers' outbounds, only those whose names match a regular expression (Mihomo's filter)",
+    ),
+    (
+        "outbounds[selector|urltest].exclude_filter",
+        r#""^b""#,
+        "Regular expressions no member's name may match, the group's own outbounds' too (Mihomo's exclude-filter)",
+    ),
+    (
+        "outbounds[selector|urltest].exclude_type",
+        r#""Shadowsocks""#,
+        "Types no member may be of, in Mihomo's names (Mihomo's exclude-type)",
+    ),
+    (
+        "outbounds[selector|urltest].empty_fallback",
+        r#""direct""#,
+        "The outbound, not a group, that is the member while there is none else",
     ),
     (
         "outbounds[fallback].outbounds",
@@ -1048,29 +1302,33 @@ const EXTENSIONS: &[(&str, &str, &str)] = &[
 ];
 
 impl Registry {
-    /// The sail extensions, each checked: not sing-box's, and taken.
+    /// The sail extensions, each checked for every type it names: not
+    /// sing-box's, and taken as it is, its sample no error.
     fn extensions(&self) -> Vec<(&'static str, &'static str)> {
-        EXTENSIONS
-            .iter()
-            .map(|(path, value, what)| {
-                assert!(
-                    !self.kinds.contains_key(*path),
-                    "{}: sing-box has it; not an extension",
-                    path
-                );
-                let value: Value = serde_json::from_str(value).expect("a sample");
-                let (tier, message) = measure(&self.probe(path, value), path);
-                assert_eq!(tier, Measured::Supported, "{}: {}", path, message);
-                let (parent, _) = parent(path);
-                assert_eq!(
-                    self.control(parent),
-                    Measured::Unknown,
-                    "{}: an unknown field there is no error",
-                    path
-                );
-                (*path, *what)
-            })
-            .collect()
+        let mut problems = Vec::new();
+        for (pattern, value, _) in EXTENSIONS {
+            let value: Value = serde_json::from_str(value).expect("a sample");
+            for path in expand(pattern) {
+                if self.kinds.contains_key(&path) {
+                    problems.push(format!("{}: sing-box has it; not an extension", path));
+                    continue;
+                }
+                let mut config = prepared(self.probe(&path, value.clone()), &self.pki);
+                with_context(&mut config, &path);
+                let (tier, message) = measure(&config, &path);
+                // A rule on a database sail reads at start: no database here.
+                let read = message.is_empty() || message.contains("sail assets --fetch");
+                if tier != Measured::Supported || !read {
+                    problems.push(format!("{}: {:?}: {}", path, tier, message));
+                }
+                let (parent, _) = parent(&path);
+                if self.control(parent) != Measured::Unknown {
+                    problems.push(format!("{}: an unknown field there is no error", path));
+                }
+            }
+        }
+        assert!(problems.is_empty(), "{}", problems.join("\n"));
+        EXTENSIONS.iter().map(|(p, _, what)| (*p, *what)).collect()
     }
 }
 

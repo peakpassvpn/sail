@@ -49,6 +49,8 @@ Rust: [`AnyTlsInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail
 | `tls` | object → [object](#inbounds-anytls-tls) | — | Supported | — |
 | `users` | array → [[]](#inbounds-anytls-users) | required | Supported | — |
 | `padding_scheme` | listable-string | unset | Supported | The padding scheme, as lines. Unset, the default. |
+| `fallback` | object → [object](/sail/reference/shared/#fallback-fallback-for-alpn) | unset | sail extension | Where a connection that fails to authenticate is relayed. |
+| `fallback_for_alpn` | object of object → [object](/sail/reference/shared/#fallback-fallback-for-alpn) | `{}` | sail extension | The same, by the ALPN the connection's TLS negotiated; the ones it does not name go to `fallback`. |
 
 <a id="inbounds-anytls-tls"></a>
 
@@ -247,7 +249,7 @@ Rust: [`Hysteria2InboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/s
 | `obfs` | object → [object](/sail/reference/shared/#obfs), [[gecko]](/sail/reference/shared/#obfs-gecko), [[salamander]](/sail/reference/shared/#obfs-salamander) | unset | Supported | — |
 | `users` | array → [[]](#inbounds-hysteria2-users) | required | Supported | — |
 | `ignore_client_bandwidth` | bool | `false` | Supported | Ignores the rate clients say they receive at, and has them find their own: BBR both ways. |
-| `tls` | object → [object](/sail/reference/shared/#tls-inbounds) | required | Supported | — |
+| `tls` | object → [object](/sail/reference/shared/#tls-inbounds-2) | required | Supported | — |
 | `idle_timeout` | duration | — | Warned: QUIC tuning: the same connection without it | — |
 | `keep_alive_period` | duration | — | Warned: QUIC tuning: the same connection without it | — |
 | `stream_receive_window` | number\|string | — | Warned: QUIC tuning: the same connection without it | — |
@@ -609,6 +611,7 @@ Rust: [`ShadowTlsHandshake`](https://github.com/peakpassvpn/sail/blob/dev/sail/s
 | `fallback_network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Error: The protocol's own check: not implemented yet | Not implemented yet. |
 | `fallback_delay` | duration | unset | Supported | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs); 300ms when unset. |
 | `domain_strategy` | string | unset | Supported (deprecated in sing-box) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
+| `skip_default_domain_resolver` | bool | `false` | sail extension | A sail extension: without a `domain_resolver` of its own, the names dialled resolve as the DNS rules say, not as `route.default_domain_resolver` does; as Mihomo's DIRECT resolves apart from the proxies' servers. |
 
 <a id="inbounds-socks"></a>
 
@@ -755,7 +758,7 @@ Rust: [`TuicInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/s
 | `auth_timeout` | duration | unset | Supported | How long a connection may go without authenticating. 3s, as in sing-box, when not set. |
 | `zero_rtt_handshake` | bool | `false` | Supported | — |
 | `heartbeat` | duration | unset | Supported | — |
-| `tls` | object → [object](/sail/reference/shared/#tls-inbounds) | required | Supported | — |
+| `tls` | object → [object](/sail/reference/shared/#tls-inbounds-2) | required | Supported | — |
 | `idle_timeout` | duration | — | Warned: QUIC tuning: the same connection without it | — |
 | `keep_alive_period` | duration | — | Warned: QUIC tuning: the same connection without it | — |
 | `stream_receive_window` | number\|string | — | Warned: QUIC tuning: the same connection without it | — |
@@ -873,6 +876,8 @@ Rust: [`VlessInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/
 | `tls` | object → [object](/sail/reference/shared/#tls-inbounds) | unset | Supported | — |
 | `multiplex` | object → [object](/sail/reference/shared/#multiplex-inbounds) | unset | Supported | — |
 | `transport` | object → [object](/sail/reference/shared/#transport-inbounds), [[grpc]](/sail/reference/shared/#transport-grpc-inbounds), [[http]](/sail/reference/shared/#transport-http-inbounds), [[httpupgrade]](/sail/reference/shared/#transport-httpupgrade-inbounds), [[ws]](/sail/reference/shared/#transport-ws-inbounds) | unset | Supported | — |
+| `fallback` | object → [object](/sail/reference/shared/#fallback-fallback-for-alpn) | unset | sail extension | Where a connection that fails to authenticate is relayed. |
+| `fallback_for_alpn` | object of object → [object](/sail/reference/shared/#fallback-fallback-for-alpn) | `{}` | sail extension | The same, by the ALPN the connection's TLS negotiated; the ones it does not name go to `fallback`. |
 
 <a id="inbounds-vless-users"></a>
 

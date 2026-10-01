@@ -33,7 +33,7 @@ Rust 定义：[`MultiplexBrutal`](https://github.com/peakpassvpn/sail/blob/dev/s
 
 ## `client_subnet`
 
-所在位置：`dns.servers[udp].client_subnet`, `outbounds[redirect].domain_resolver.client_subnet`
+所在位置：`dns.servers[h3, https, quic, tcp, tls, udp].client_subnet`, `outbounds[redirect].domain_resolver.client_subnet`
 
 Rust 定义：[`Prefix`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs) · **sail 扩展**
 
@@ -175,12 +175,62 @@ Rust 定义：[`OutboundEch`](https://github.com/peakpassvpn/sail/blob/dev/sail/
 | `config` | listable-string | 未设置 | 支持 | An ECHConfigList, base64 or PEM. Looked up in DNS when not set. |
 | `config_path` | string | — | 报错：An ECH configuration from a file, or looked up under another name: the server name would go in the clear | — |
 | `query_server_name` | string | — | 报错：An ECH configuration from a file, or looked up under another name: the server name would go in the clear | — |
+| `disable_dns_lookup` | bool | `false` | sail 扩展 | Never look the ECHConfigList up in DNS. |
 
-<a id="handshake"></a>
+<a id="fallback-fallback-for-alpn"></a>
 
-## `handshake`
+## `fallback / fallback_for_alpn`
 
-所在位置：`inbounds[http, hysteria2, trojan, tuic, vless, vmess].tls.reality.handshake`
+所在位置：`inbounds[anytls, vless].fallback`, `inbounds[anytls, vless].fallback_for_alpn`
+
+Rust 定义：[`FallbackServer`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/fallback.rs) · 构建条件：`any (feature = "inbound-anytls" , feature = "inbound-trojan" , feature = "inbound-vless" , feature = "inbound-shadowtls")` · **sail 扩展**
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `server` | string | 必填 | sail 扩展 | — |
+| `server_port` | number | 必填 | sail 扩展 | — |
+
+<a id="handshake-inbounds"></a>
+
+## `handshake` — inbounds
+
+所在位置：`inbounds[http, trojan, vless, vmess].tls.reality.handshake`
+
+Rust 定义：[`RealityHandshake`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `server` | string | 必填 | 支持 | — |
+| `server_port` | number | 必填 | 支持 | — |
+| `detour` | string | — | 报错：A detour to the REALITY handshake server: it would be reached otherwise | The outbound to dial through, in place of a socket of its own. |
+| `bind_interface` | string | 未设置 | 支持 | The interface to send through, by name. Loopback destinations still go over loopback, where sing-box applies the bind to them as well. |
+| `inet4_bind_address` | string | 未设置 | 支持 | The local address for IPv4 destinations, loopback ones aside: as `bind_interface`. |
+| `inet6_bind_address` | string | 未设置 | 支持 | The local address for IPv6 destinations, loopback ones aside: as `bind_interface`. |
+| `bind_address_no_port` | bool | `false` | 支持 | `IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address, so that the port is picked at connect: Linux only. |
+| `protect_path` | string | — | 报错：Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
+| `routing_mark` | number\|string | 未设置 | 支持 | `SO_MARK`, Linux only. |
+| `reuse_addr` | bool | `false` | 支持 | `SO_REUSEADDR`, and `SO_REUSEPORT` on Unix, on UDP sockets. |
+| `netns` | string | — | 报错：Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
+| `connect_timeout` | duration | 未设置 | 支持 | How long a TCP connect to one address may take; 5s when unset. |
+| `tcp_fast_open` | bool | `false` | 支持 | TCP Fast Open: the first data written goes with the SYN. Its addresses are then tried one by one, not raced. |
+| `tcp_multi_path` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `disable_tcp_keep_alive` | bool | `false` | 支持 | No TCP keepalive at all. |
+| `tcp_keep_alive` | duration | 未设置 | 支持 | How long a TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | 未设置 | 支持 | Between keepalive probes; 75s when unset. |
+| `udp_fragment` | bool | 未设置 | 支持 | Whether UDP datagrams may be fragmented on the way; unset, as the place says, see `udp_fragment_default`. |
+| `domain_resolver` | string\|object → [对象](#domain-resolver-default-domain-resolver) | 未设置 | 支持 | The DNS server that resolves the names dialled. |
+| `network_strategy` | string, 取值 `default`, `fallback`, `hybrid` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_delay` | duration | 未设置 | 支持 | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs); 300ms when unset. |
+| `domain_strategy` | string | 未设置 | 支持 (sing-box 已弃用) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
+| `skip_default_domain_resolver` | bool | `false` | sail 扩展 | A sail extension: without a `domain_resolver` of its own, the names dialled resolve as the DNS rules say, not as `route.default_domain_resolver` does; as Mihomo's DIRECT resolves apart from the proxies' servers. |
+
+<a id="handshake-inbounds-2"></a>
+
+## `handshake` — inbounds (2)
+
+所在位置：`inbounds[hysteria2, tuic].tls.reality.handshake`
 
 Rust 定义：[`RealityHandshake`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
 
@@ -267,6 +317,7 @@ Rust 定义：[`InboundMultiplex`](https://github.com/peakpassvpn/sail/blob/dev/
 | `enabled` | bool | `false` | 支持 | — |
 | `padding` | bool | `false` | 支持 | sing-mux: refuse connections that are not padded. |
 | `brutal` | object → [对象](#brutal) | 未设置 | 支持 | sing-mux: TCP Brutal for clients that ask for it; Linux only. |
+| `protocol` | string | 未设置 | sail 扩展 | `amux`; unset, sing-mux, which sing-box's block has no field for: its server takes smux, yamux and h2mux alike. |
 
 <a id="multiplex-outbounds"></a>
 
@@ -285,6 +336,10 @@ Rust 定义：[`OutboundMultiplex`](https://github.com/peakpassvpn/sail/blob/dev
 | `max_streams` | number | 未设置 | 支持 | — |
 | `padding` | bool | `false` | 支持 | — |
 | `brutal` | object → [对象](#brutal) | 未设置 | 支持 | sing-mux only: TCP Brutal, negotiated on each new connection. |
+| `max_accepts` | number | 未设置 | sail 扩展 | amux only. |
+| `concurrency` | number | 未设置 | sail 扩展 | With `protocol: amux`: the streams a session carries at once |
+| `max_recv_bytes` | number | 未设置 | sail 扩展 | With `protocol: amux`: the bytes a session receives before it takes no more streams; 0, no limit |
+| `max_lifetime` | number | 未设置 | sail 扩展 | With `protocol: amux`: the seconds a session takes new streams for; 0, no limit |
 
 <a id="obfs"></a>
 
@@ -366,14 +421,30 @@ Rust 定义：[`OutboundReality`](https://github.com/peakpassvpn/sail/blob/dev/s
 
 ## `reality` — inbounds
 
-所在位置：`inbounds[http, hysteria2, trojan, tuic, vless, vmess].tls.reality`
+所在位置：`inbounds[http, trojan, vless, vmess].tls.reality`
 
 Rust 定义：[`InboundReality`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
 | `enabled` | bool | `false` | 支持 | — |
-| `handshake` | object → [对象](#handshake) | 必填 | 支持 | — |
+| `handshake` | object → [对象](#handshake-inbounds) | 必填 | 支持 | — |
+| `private_key` | string | 必填 | 支持 | X25519, hex or base64url. |
+| `short_id` | listable-string | 必填 | 支持 | — |
+| `max_time_difference` | duration | 未设置 | 支持 | How far a client's clock may be from ours, e.g. `1m`. Unset, any time is accepted, as in sing-box. |
+
+<a id="reality-inbounds-2"></a>
+
+## `reality` — inbounds (2)
+
+所在位置：`inbounds[hysteria2, tuic].tls.reality`
+
+Rust 定义：[`InboundReality`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `enabled` | bool | `false` | 支持 | — |
+| `handshake` | object → [对象](#handshake-inbounds-2) | 必填 | 支持 | — |
 | `private_key` | string | 必填 | 支持 | X25519, hex or base64url. |
 | `short_id` | listable-string | 必填 | 支持 | — |
 | `max_time_difference` | duration | 未设置 | 支持 | How far a client's clock may be from ours, e.g. `1m`. Unset, any time is accepted, as in sing-box. |
@@ -445,7 +516,7 @@ Rust 定义：[`OutboundReality`](https://github.com/peakpassvpn/sail/blob/dev/s
 
 ## `tls` — inbounds
 
-所在位置：`inbounds[http, hysteria2, trojan, tuic, vless, vmess].tls`
+所在位置：`inbounds[http, trojan, vless, vmess].tls`
 
 Rust 定义：[`InboundTls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
 
@@ -473,6 +544,40 @@ Rust 定义：[`InboundTls`](https://github.com/peakpassvpn/sail/blob/dev/sail/s
 | `certificate_provider` | string\|object | — | 报错：A certificate from a provider or ACME: the inbound would have none | — |
 | `ech` | object → [对象](#ech-inbounds) | — | 报错：Encrypted Client Hello on an inbound | — |
 | `reality` | object → [对象](#reality-inbounds) | 未设置 | 支持 | — |
+| `acme` | object | — | 报错：A certificate from a provider or ACME: the inbound would have none (sing-box 已弃用) | — |
+
+<a id="tls-inbounds-2"></a>
+
+## `tls` — inbounds (2)
+
+所在位置：`inbounds[hysteria2, tuic].tls`
+
+Rust 定义：[`InboundTls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `enabled` | bool | `false` | 支持 | — |
+| `server_name` | string | 未设置 | 支持 | The name REALITY clients must ask for; only REALITY uses it. |
+| `insecure` | bool | — | 警告：Only relaxes checks a server's TLS does not make | — |
+| `alpn` | listable-string | 未设置 | 支持 | — |
+| `min_version` | string, 取值 `1.0`, `1.1`, `1.2`, `1.3` | 未设置 | 支持 | The lowest TLS version to accept, `1.0` to `1.3`; unset, 1.2. |
+| `max_version` | string, 取值 `1.0`, `1.1`, `1.2`, `1.3` | 未设置 | 支持 | The highest; unset, 1.3. |
+| `cipher_suites` | listable-string | — | 报错：TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked | — |
+| `curve_preferences` | listable-string, 取值 `P256`, `P384`, `P521`, `X25519`, `X25519MLKEM768` | — | 报错：TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked | — |
+| `certificate` | listable-string | 未设置 | 支持 | An inline PEM certificate. |
+| `certificate_path` | string | 未设置 | 支持 | — |
+| `client_authentication` | string, 取值 `no`, `request`, `require-any`, `verify-if-given`, `require-and-verify` | — | 报错：Verifying clients' certificates: an inbound would take clients it should refuse | — |
+| `client_certificate` | listable-string | — | 报错：Verifying clients' certificates: an inbound would take clients it should refuse | — |
+| `client_certificate_path` | listable-string | — | 报错：Verifying clients' certificates: an inbound would take clients it should refuse | — |
+| `client_certificate_public_key_sha256` | listable-string\|array | — | 报错：Verifying clients' certificates: an inbound would take clients it should refuse | — |
+| `key` | listable-string | 未设置 | 支持 | An inline PEM key. |
+| `key_path` | string | 未设置 | 支持 | — |
+| `kernel_tx` | bool | — | 警告：The TLS stack, kernel TLS and the handshake's timeout: the same TLS without them | — |
+| `kernel_rx` | bool | — | 警告：The TLS stack, kernel TLS and the handshake's timeout: the same TLS without them | — |
+| `handshake_timeout` | duration | — | 警告：The TLS stack, kernel TLS and the handshake's timeout: the same TLS without them | — |
+| `certificate_provider` | string\|object | — | 报错：A certificate from a provider or ACME: the inbound would have none | — |
+| `ech` | object → [对象](#ech-inbounds) | — | 报错：Encrypted Client Hello on an inbound | — |
+| `reality` | object → [对象](#reality-inbounds-2) | 未设置 | 支持 | — |
 | `acme` | object | — | 报错：A certificate from a provider or ACME: the inbound would have none (sing-box 已弃用) | — |
 
 <a id="tls-inbounds-outbounds"></a>
@@ -516,7 +621,7 @@ Rust 定义：[`InboundTls`](https://github.com/peakpassvpn/sail/blob/dev/sail/s
 
 ## `tls` — outbounds
 
-所在位置：`outbounds[anytls, http, shadowtls, vless, vmess].tls`
+所在位置：`outbounds[anytls, http, shadowtls, trojan, vless, vmess].tls`
 
 Rust 定义：[`OutboundTls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
 
@@ -550,6 +655,7 @@ Rust 定义：[`OutboundTls`](https://github.com/peakpassvpn/sail/blob/dev/sail/
 | `ech` | object → [对象](#ech-outbounds) | 未设置 | 支持 | — |
 | `utls` | object → [对象](#utls-dns-servers-outbounds) | 未设置 | 支持 | The browser the ClientHello imitates. Unset, it is Chrome's. |
 | `reality` | object → [对象](#reality-outbounds) | 未设置 | 支持 | — |
+| `certificate_sha256` | string 或 数组，元素为 string | 未设置 | sail 扩展 | A sail extension, Mihomo's `fingerprint`: the SHA-256 hashes, hex, of whole certificates (DER) to take a server by, in place of the certificates trusted and `insecure`. A hash of the server's own certificate takes it outright: no CA and no name are checked, so that exact certificate is trusted for any server name. A hash of a certificate sent after it, an intermediate or a root, is the only CA the server's certificate is verified by, with the server name. |
 
 <a id="transport-inbounds"></a>
 
@@ -681,6 +787,7 @@ Rust 定义：[`InboundTransport`](https://github.com/peakpassvpn/sail/blob/dev/
 | `headers` | map | — | 警告：Response headers and keepalive of a WebSocket or gRPC server: the same streams | — |
 | `max_early_data` | number | `0` | 支持 | The most early data a client may send in its upgrade request. |
 | `early_data_header_name` | string | 未设置 | 支持 | The header it comes in; unset, it comes in the path. |
+| `forwarded_header` | string | 未设置 | sail 扩展 | The header a trusted reverse proxy in front puts the client's address in, such as `X-Forwarded-For`. Unset, no header is believed: anyone can send one. |
 
 <a id="transport-ws-outbounds"></a>
 

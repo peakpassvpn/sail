@@ -49,6 +49,8 @@ Rust 定义：[`AnyTlsInboundOptions`](https://github.com/peakpassvpn/sail/blob/
 | `tls` | object → [对象](#inbounds-anytls-tls) | — | 支持 | — |
 | `users` | array → [[]](#inbounds-anytls-users) | 必填 | 支持 | — |
 | `padding_scheme` | listable-string | 未设置 | 支持 | The padding scheme, as lines. Unset, the default. |
+| `fallback` | 对象 → [对象](/sail/zh/reference/shared/#fallback-fallback-for-alpn) | 未设置 | sail 扩展 | Where a connection that fails to authenticate is relayed. |
+| `fallback_for_alpn` | 对象，值为 对象 → [对象](/sail/zh/reference/shared/#fallback-fallback-for-alpn) | `{}` | sail 扩展 | The same, by the ALPN the connection's TLS negotiated; the ones it does not name go to `fallback`. |
 
 <a id="inbounds-anytls-tls"></a>
 
@@ -247,7 +249,7 @@ Rust 定义：[`Hysteria2InboundOptions`](https://github.com/peakpassvpn/sail/bl
 | `obfs` | object → [对象](/sail/zh/reference/shared/#obfs), [[gecko]](/sail/zh/reference/shared/#obfs-gecko), [[salamander]](/sail/zh/reference/shared/#obfs-salamander) | 未设置 | 支持 | — |
 | `users` | array → [[]](#inbounds-hysteria2-users) | 必填 | 支持 | — |
 | `ignore_client_bandwidth` | bool | `false` | 支持 | Ignores the rate clients say they receive at, and has them find their own: BBR both ways. |
-| `tls` | object → [对象](/sail/zh/reference/shared/#tls-inbounds) | 必填 | 支持 | — |
+| `tls` | object → [对象](/sail/zh/reference/shared/#tls-inbounds-2) | 必填 | 支持 | — |
 | `idle_timeout` | duration | — | 警告：QUIC tuning: the same connection without it | — |
 | `keep_alive_period` | duration | — | 警告：QUIC tuning: the same connection without it | — |
 | `stream_receive_window` | number\|string | — | 警告：QUIC tuning: the same connection without it | — |
@@ -609,6 +611,7 @@ Rust 定义：[`ShadowTlsHandshake`](https://github.com/peakpassvpn/sail/blob/de
 | `fallback_network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：The protocol's own check: not implemented yet | Not implemented yet. |
 | `fallback_delay` | duration | 未设置 | 支持 | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs); 300ms when unset. |
 | `domain_strategy` | string | 未设置 | 支持 (sing-box 已弃用) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
+| `skip_default_domain_resolver` | bool | `false` | sail 扩展 | A sail extension: without a `domain_resolver` of its own, the names dialled resolve as the DNS rules say, not as `route.default_domain_resolver` does; as Mihomo's DIRECT resolves apart from the proxies' servers. |
 
 <a id="inbounds-socks"></a>
 
@@ -755,7 +758,7 @@ Rust 定义：[`TuicInboundOptions`](https://github.com/peakpassvpn/sail/blob/de
 | `auth_timeout` | duration | 未设置 | 支持 | How long a connection may go without authenticating. 3s, as in sing-box, when not set. |
 | `zero_rtt_handshake` | bool | `false` | 支持 | — |
 | `heartbeat` | duration | 未设置 | 支持 | — |
-| `tls` | object → [对象](/sail/zh/reference/shared/#tls-inbounds) | 必填 | 支持 | — |
+| `tls` | object → [对象](/sail/zh/reference/shared/#tls-inbounds-2) | 必填 | 支持 | — |
 | `idle_timeout` | duration | — | 警告：QUIC tuning: the same connection without it | — |
 | `keep_alive_period` | duration | — | 警告：QUIC tuning: the same connection without it | — |
 | `stream_receive_window` | number\|string | — | 警告：QUIC tuning: the same connection without it | — |
@@ -873,6 +876,8 @@ Rust 定义：[`VlessInboundOptions`](https://github.com/peakpassvpn/sail/blob/d
 | `tls` | object → [对象](/sail/zh/reference/shared/#tls-inbounds) | 未设置 | 支持 | — |
 | `multiplex` | object → [对象](/sail/zh/reference/shared/#multiplex-inbounds) | 未设置 | 支持 | — |
 | `transport` | object → [对象](/sail/zh/reference/shared/#transport-inbounds), [[grpc]](/sail/zh/reference/shared/#transport-grpc-inbounds), [[http]](/sail/zh/reference/shared/#transport-http-inbounds), [[httpupgrade]](/sail/zh/reference/shared/#transport-httpupgrade-inbounds), [[ws]](/sail/zh/reference/shared/#transport-ws-inbounds) | 未设置 | 支持 | — |
+| `fallback` | 对象 → [对象](/sail/zh/reference/shared/#fallback-fallback-for-alpn) | 未设置 | sail 扩展 | Where a connection that fails to authenticate is relayed. |
+| `fallback_for_alpn` | 对象，值为 对象 → [对象](/sail/zh/reference/shared/#fallback-fallback-for-alpn) | `{}` | sail 扩展 | The same, by the ALPN the connection's TLS negotiated; the ones it does not name go to `fallback`. |
 
 <a id="inbounds-vless-users"></a>
 

@@ -383,6 +383,29 @@ fn walk_items(
 }
 
 /// The `EXTENSIONS` of the sing-box registry test: path, sample, what.
+/// The paths an extension's pattern names, as the registry test reads
+/// them: `outbounds[vless|vmess].tls` is `outbounds[vless].tls` and
+/// `outbounds[vmess].tls`.
+fn expand(pattern: &str) -> Vec<String> {
+    let Some(open) = pattern.find('[') else {
+        return vec![pattern.to_string()];
+    };
+    let close = open + pattern[open..].find(']').expect("a closing bracket");
+    let (head, choices, tail) = (
+        &pattern[..open],
+        &pattern[open + 1..close],
+        &pattern[close + 1..],
+    );
+    choices
+        .split('|')
+        .flat_map(|choice| {
+            expand(tail)
+                .into_iter()
+                .map(move |rest| format!("{}[{}]{}", head, choice, rest))
+        })
+        .collect()
+}
+
 fn extensions(root: &Path) -> Vec<Value> {
     let file = root.join("sail/src/config/singbox/registry.rs");
     let ast = syn::parse_file(&fs::read_to_string(&file).unwrap()).unwrap();
@@ -416,10 +439,13 @@ fn extensions(root: &Path) -> Vec<Value> {
             return a
                 .elems
                 .iter()
-                .map(|e| {
+                .flat_map(|e| {
                     let s = strings(e);
                     assert_eq!(s.len(), 3, "an extension is (path, sample, what)");
-                    json!({"path": s[0], "sample": s[1], "what": s[2]})
+                    expand(&s[0])
+                        .into_iter()
+                        .map(move |path| json!({"path": path, "sample": s[1], "what": s[2]}))
+                        .collect::<Vec<_>>()
                 })
                 .collect();
         }
@@ -642,13 +668,15 @@ mod tests {
         write(
             &root,
             "sail/src/config/singbox/registry.rs",
-            r##"const EXTENSIONS: &[(&str, &str, &str)] = &[("api", "{}", "The control API"), ("log.format", r#""compact""#, "Compact")];"##,
+            r##"const EXTENSIONS: &[(&str, &str, &str)] = &[("api", "{}", "The control API"), ("log.format", r#""compact""#, "Compact"), ("outbounds[vless|vmess].x", "true", "X")];"##,
         );
         assert_eq!(
             extensions(&root),
             vec![
                 json!({"path": "api", "sample": "{}", "what": "The control API"}),
                 json!({"path": "log.format", "sample": "\"compact\"", "what": "Compact"}),
+                json!({"path": "outbounds[vless].x", "sample": "true", "what": "X"}),
+                json!({"path": "outbounds[vmess].x", "sample": "true", "what": "X"}),
             ]
         );
         fs::remove_dir_all(root).unwrap();
