@@ -1034,10 +1034,8 @@ async fn follow_default_interface(manager: Arc<RuntimeManager>) {
             warn!("not following the network as it changes: {}", e);
             return std::future::pending().await;
         }
-        // Take every notice of the change before looking.
-        while let Ok(Ok(())) =
-            tokio::time::timeout(std::time::Duration::from_secs(1), changed()).await
-        {}
+        // Take the notices of the change before looking.
+        settle(&changed, SETTLE_QUIET, SETTLE_MAX).await;
         let moved = match manager.dial_defaults.load().env.auto_interface.clone() {
             Some(auto) => tokio::task::spawn_blocking(move || auto.refresh())
                 .await
@@ -1610,6 +1608,41 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
     Ok(())
 }
 
+/// How long the system is quiet after a change of network before sail
+/// looks: the notices of a switch of default route, its old interface
+/// going down and its routes and addresses going, came within 3 ms in five
+/// runs on Linux (netns, measured); this leaves room for slower systems
+/// (judgment). A real device's DHCP and router advertisements after a
+/// switch are not measured: notices that come later make sail look again,
+/// which closes nothing unless the network differs again.
+const SETTLE_QUIET: std::time::Duration = std::time::Duration::from_millis(100);
+
+/// The longest sail waits for the system to be quiet: notices that have
+/// nothing to do with the change, an address's duplicate detection ending
+/// on another interface, kept a quiet window of 1 s from ending for 1.4 s
+/// (measured). Judgment: the 1 s sail used to wait at the least.
+const SETTLE_MAX: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// Waits until `changed` gives no notice for `quiet`, or `max` has passed.
+#[cfg_attr(
+    not(any(target_os = "linux", target_os = "macos", target_os = "windows")),
+    allow(dead_code)
+)]
+async fn settle<F, Fut>(changed: &F, quiet: std::time::Duration, max: std::time::Duration)
+where
+    F: Fn() -> Fut,
+    Fut: std::future::Future<Output = std::io::Result<()>>,
+{
+    let deadline = tokio::time::Instant::now() + max;
+    loop {
+        let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+        match tokio::time::timeout(quiet.min(left), changed()).await {
+            Ok(Ok(())) if !left.is_zero() => continue,
+            _ => return,
+        }
+    }
+}
+
 /// The open-file limit the process runs with, which every connection
 /// counts against. The embedding host's to set: the CLI raises it to the
 /// hard limit.
@@ -1632,6 +1665,37 @@ fn log_file_limit() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The notices of a switch, 3 ms apart, are taken 100 ms after the
+    /// last; notices that keep coming are taken at 1 s, not waited out.
+    #[tokio::test(start_paused = true)]
+    async fn a_change_is_looked_at_once_its_notices_stop_or_at_the_latest() {
+        use std::time::Duration;
+        let changed_at = |notices: Vec<Duration>| {
+            let started = tokio::time::Instant::now();
+            let notices = std::sync::Arc::new(std::sync::Mutex::new(notices.into_iter()));
+            move || {
+                let notices = notices.clone();
+                async move {
+                    let next = notices.lock().unwrap().next();
+                    match next {
+                        Some(at) => tokio::time::sleep_until(started + at).await,
+                        None => std::future::pending::<()>().await,
+                    }
+                    std::io::Result::Ok(())
+                }
+            }
+        };
+        let start = tokio::time::Instant::now();
+        let burst = changed_at(vec![Duration::from_millis(1), Duration::from_millis(3)]);
+        settle(&burst, SETTLE_QUIET, SETTLE_MAX).await;
+        assert_eq!(start.elapsed(), Duration::from_millis(103));
+
+        let start = tokio::time::Instant::now();
+        let endless = changed_at((1..100).map(|i| Duration::from_millis(50 * i)).collect());
+        settle(&endless, SETTLE_QUIET, SETTLE_MAX).await;
+        assert_eq!(start.elapsed(), SETTLE_MAX);
+    }
     use std::thread;
 
     #[test]
