@@ -37,6 +37,21 @@ Rust: [`Config`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/mo
 | `api` | object → [object](#api) | each field's default | sail extension | The control API |
 | `clash_api` | object → [object](#clash-api) | unset | sail extension | The Clash API, which dashboards (yacd, metacubexd) and clients control the instance through. sing-box has it under `experimental`, which is read too, as the same. |
 | `outbound_providers` | array of object → [[]](#outbound-providers) | `[]` | sail extension | A sail extension: outbounds given together, downloaded, read from a file or written in place, that groups take as members, as Mihomo's proxy groups take a proxy-provider's proxies. |
+| `user_limits` | object of object → [object](#user-limits) | `{}` | sail extension | A sail extension: what each user, by name, may do across every inbound it is in. |
+
+<a id="user-limits"></a>
+
+### `user_limits`
+
+Rust: [`UserLimits`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs) · **sail extension**
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `max_connections` | number | unset | sail extension | How many connections it may have live at once. |
+| `quota_bytes` | number | unset | sail extension | How many bytes, up and down together, it may send and receive; kept across restarts in the cache file, which it needs. |
+| `expire_at` | string | unset | sail extension | When it may no longer connect, in RFC 3339. |
+| `up_mbps` | number | unset | sail extension | Its rate up, what its clients send, in Mbps: the unit of sing-box's Hysteria2 `up_mbps`, not its direction. |
+| `down_mbps` | number | unset | sail extension | Its rate down, what its clients receive, in Mbps. |
 
 <a id="log"></a>
 

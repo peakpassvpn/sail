@@ -37,6 +37,21 @@ Rust 定义：[`Config`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/c
 | `api` | 对象 → [对象](#api) | 各字段取默认值 | sail 扩展 | The control API |
 | `clash_api` | 对象 → [对象](#clash-api) | 未设置 | sail 扩展 | The Clash API, which dashboards (yacd, metacubexd) and clients control the instance through. sing-box has it under `experimental`, which is read too, as the same. |
 | `outbound_providers` | 数组，元素为 对象 → [[]](#outbound-providers) | `[]` | sail 扩展 | A sail extension: outbounds given together, downloaded, read from a file or written in place, that groups take as members, as Mihomo's proxy groups take a proxy-provider's proxies. |
+| `user_limits` | 对象，值为 对象 → [对象](#user-limits) | `{}` | sail 扩展 | A sail extension: what each user, by name, may do across every inbound it is in. |
+
+<a id="user-limits"></a>
+
+### `user_limits`
+
+Rust 定义：[`UserLimits`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs) · **sail 扩展**
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `max_connections` | number | 未设置 | sail 扩展 | How many connections it may have live at once. |
+| `quota_bytes` | number | 未设置 | sail 扩展 | How many bytes, up and down together, it may send and receive; kept across restarts in the cache file, which it needs. |
+| `expire_at` | string | 未设置 | sail 扩展 | When it may no longer connect, in RFC 3339. |
+| `up_mbps` | number | 未设置 | sail 扩展 | Its rate up, what its clients send, in Mbps: the unit of sing-box's Hysteria2 `up_mbps`, not its direction. |
+| `down_mbps` | number | 未设置 | sail 扩展 | Its rate down, what its clients receive, in Mbps. |
 
 <a id="log"></a>
 
