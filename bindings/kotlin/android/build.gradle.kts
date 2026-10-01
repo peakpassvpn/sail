@@ -19,6 +19,9 @@ fun required(name: String): String =
 android {
     namespace = "io.github.peakpassvpn.sail"
     compileSdk = 36
+    // The NDK the static libraries were built with, so that their C++
+    // and the runtime linked to them are of one version.
+    providers.gradleProperty("sail.ndkPath").orNull?.let { ndkPath = it }
 
     defaultConfig {
         minSdk = 24

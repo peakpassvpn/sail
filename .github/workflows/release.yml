@@ -5,7 +5,7 @@ name: release
 # The 5.8 release design: each target is built by its own job with the
 # scripts ci.yml's cross job checks, symbols are kept apart, two Linux
 # targets are built twice and must match, and the release stays a draft
-# until every file is in it. Android and Apple come in later steps.
+# until every file is in it. Apple comes in a later step.
 on:
   workflow_dispatch:
     inputs:
@@ -27,6 +27,12 @@ env:
   WINTUN_VERSION: 0.14.1
   WINTUN_SHA256: 07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51
   CARGO_CYCLONEDX_VERSION: 0.5.9
+  # The AAR's build: the Android Gradle plugin, Gradle, and the JDK it runs
+  # on. The NDK is scripts/install_cross_toolchain.sh's, the one the
+  # static libraries are built with.
+  AGP_VERSION: 9.4.1
+  GRADLE_VERSION: 9.8.0
+  JAVA_VERSION: 21
 
 jobs:
   check:
@@ -99,6 +105,79 @@ jobs:
           name: cli-${{ matrix.target }}
           path: out/
 
+  android-lib:
+    needs: check
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: aarch64-linux-android, abi: arm64-v8a }
+          - { target: armv7-linux-androideabi, abi: armeabi-v7a }
+          - { target: x86_64-linux-android, abi: x86_64 }
+          - { target: i686-linux-android, abi: x86 }
+    env:
+      SOURCE_DATE_EPOCH: ${{ needs.check.outputs.epoch }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.TOOLCHAIN }}
+
+      - name: install cross toolchain
+        run: scripts/install_cross_toolchain.sh ${{ matrix.target }}
+
+      - name: build
+        run: scripts/release/build-lib-android.sh ${{ matrix.target }} ${{ matrix.abi }} libs
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-lib-${{ matrix.abi }}
+          path: libs/
+
+  aar:
+    needs: [check, android-lib]
+    runs-on: ubuntu-latest
+    env:
+      SOURCE_DATE_EPOCH: ${{ needs.check.outputs.epoch }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.TOOLCHAIN }}
+          components: llvm-tools
+
+      # The NDK alone: any Android target installs it.
+      - name: install the NDK
+        run: scripts/install_cross_toolchain.sh aarch64-linux-android
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: ${{ env.GRADLE_VERSION }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: android-lib-*
+          path: libs
+          merge-multiple: true
+
+      - name: build and check
+        run: |
+          NDK_PATH=$(echo "$HOME"/.sail-cross/android-ndk-*) \
+            scripts/release/package-aar.sh "${{ inputs.version }}" libs out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aar
+          path: out/
+
   # The same commit built again on another runner must give the same bytes.
   reproducible:
     needs: [check, cli]
@@ -140,7 +219,7 @@ jobs:
           cmp "first/ship/sail-$VERSION-$T.tar.gz" "again/ship/sail-$VERSION-$T.tar.gz"
 
   assemble:
-    needs: [check, cli, reproducible]
+    needs: [check, cli, reproducible, aar]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -160,6 +239,11 @@ jobs:
         with:
           pattern: cli-*
           path: built
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: aar
+          path: built/aar
 
       - name: gather
         run: |
