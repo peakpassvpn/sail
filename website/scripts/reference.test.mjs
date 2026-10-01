@@ -545,3 +545,12 @@ test('a listable union takes one of its kinds or a list of them', () => {
   assert.equal(validate(s, true).length, 1);
   assert.deepEqual(kindSchema('number|duration'), { anyOf: [{ type: 'number' }, { type: 'string' }] });
 });
+
+test('a map of objects takes any key, each value such an object', () => {
+  const f = fixture();
+  f.extract.definitions.find(d => d.name === 'Config').shape.fields.push(field('limits', 'HashMap < String , Policy >', 'default'));
+  f.extract.extensions.push({ path: 'limits', sample: '{}', what: 'Limits by name' });
+  const schema = buildSchema(buildModel(f), { version: 'v9.9', id: 'x', title: 't', description: 'd' });
+  assert.deepEqual(validate(schema, { limits: { alice: { level: 1 }, bob: {} } }), []);
+  assert.deepEqual(validate(schema, { limits: { alice: { speed: 1 } } }), ['limits.alice.speed: not a field here']);
+});

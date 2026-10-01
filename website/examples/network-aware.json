@@ -1,0 +1,47 @@
+{
+  "$schema": "https://peakpassvpn.github.io/sail/schema.json",
+  "outbounds": [
+    {
+      "type": "network",
+      "tag": "by-network",
+      "branches": [
+        { "wifi_ssid": "Home", "outbound": "direct" },
+        { "network_type": "cellular", "outbound": "hysteria2" }
+      ],
+      "default": "reality"
+    },
+    {
+      "type": "vless",
+      "tag": "reality",
+      "server": "server.example.com",
+      "server_port": 443,
+      "uuid": "1b0e0a3e-1c2d-4e5f-8a9b-0c1d2e3f4a5b",
+      "flow": "xtls-rprx-vision",
+      "tls": {
+        "enabled": true,
+        "server_name": "www.example.com",
+        "utls": { "enabled": true, "fingerprint": "chrome" },
+        "reality": {
+          "enabled": true,
+          "public_key": "ERERERERERERERERERERERERERERERERERERERERERE",
+          "short_id": "0123"
+        }
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "hysteria2",
+      "server": "server.example.com",
+      "server_port": 8443,
+      "password": "a long random password",
+      "tls": { "enabled": true, "server_name": "server.example.com" }
+    },
+    { "type": "direct", "tag": "direct" }
+  ],
+  "route": {
+    "rules": [
+      { "wifi_ssid_regex": "^Office", "outbound": "direct" }
+    ],
+    "final": "by-network"
+  }
+}

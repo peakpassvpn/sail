@@ -818,7 +818,10 @@
    "description": "A sail extension: outbounds given together, downloaded, read from a file or written in place, that groups take as members, as Mihomo's proxy groups take a proxy-provider's proxies."
   },
   "user_limits": {
-   "$ref": "#/$defs/user_limits",
+   "type": "object",
+   "additionalProperties": {
+    "$ref": "#/$defs/user_limits"
+   },
    "description": "A sail extension: what each user, by name, may do across every inbound it is in."
   }
  },
@@ -6536,7 +6539,10 @@
      "description": "Where a connection that fails to authenticate is relayed."
     },
     "fallback_for_alpn": {
-     "$ref": "#/$defs/inbounds%5Banytls%5D.fallback_for_alpn",
+     "type": "object",
+     "additionalProperties": {
+      "$ref": "#/$defs/inbounds%5Banytls%5D.fallback_for_alpn"
+     },
      "description": "The same, by the ALPN the connection's TLS negotiated; the ones it does not name go to `fallback`."
     },
     "type": {
@@ -11766,7 +11772,10 @@
      "description": "Where a connection that fails to authenticate is relayed."
     },
     "fallback_for_alpn": {
-     "$ref": "#/$defs/inbounds%5Bvless%5D.fallback_for_alpn",
+     "type": "object",
+     "additionalProperties": {
+      "$ref": "#/$defs/inbounds%5Bvless%5D.fallback_for_alpn"
+     },
      "description": "The same, by the ALPN the connection's TLS negotiated; the ones it does not name go to `fallback`."
     },
     "type": {

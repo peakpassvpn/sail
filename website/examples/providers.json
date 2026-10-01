@@ -1,0 +1,30 @@
+{
+  "$schema": "https://peakpassvpn.github.io/sail/schema.json",
+  "outbound_providers": [
+    {
+      "type": "remote",
+      "tag": "subscription",
+      "url": "https://provider.example.com/sub.yaml",
+      "update_interval": "12h",
+      "download_detour": "direct"
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "selector",
+      "tag": "proxy",
+      "outbounds": ["fastest"],
+      "providers": "subscription"
+    },
+    {
+      "type": "urltest",
+      "tag": "fastest",
+      "providers": "subscription",
+      "filter": "(?i)hong kong|singapore",
+      "exclude_filter": "(?i)expire|traffic",
+      "empty_fallback": "direct"
+    },
+    { "type": "direct", "tag": "direct" }
+  ],
+  "route": { "final": "proxy" }
+}

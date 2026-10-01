@@ -80,6 +80,7 @@ export default defineConfig({
           translations: { 'zh-CN': '配置参考' },
           items: [
             { slug: 'reference/compatibility' },
+            { slug: 'reference/examples' },
             { slug: 'reference/common' },
             { slug: 'reference/dns' },
             { slug: 'reference/inbounds' },

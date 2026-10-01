@@ -1,0 +1,32 @@
+{
+  "$schema": "https://peakpassvpn.github.io/sail/schema.json",
+  "log": { "level": "info" },
+  "inbounds": [
+    {
+      "type": "vless",
+      "tag": "reality",
+      "listen": "::",
+      "listen_port": 443,
+      "users": [
+        { "name": "alice", "uuid": "1b0e0a3e-1c2d-4e5f-8a9b-0c1d2e3f4a5b", "flow": "xtls-rprx-vision" },
+        { "name": "bob", "uuid": "2c1f1b4f-2d3e-4f60-9bac-1d2e3f4a5b6c", "flow": "xtls-rprx-vision" }
+      ],
+      "tls": {
+        "enabled": true,
+        "server_name": "www.example.com",
+        "reality": {
+          "enabled": true,
+          "handshake": { "server": "www.example.com", "server_port": 443 },
+          "private_key": "IiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiI",
+          "short_id": ["0123"]
+        }
+      }
+    }
+  ],
+  "outbounds": [{ "type": "direct", "tag": "direct" }],
+  "user_limits": {
+    "alice": { "max_connections": 64, "up_mbps": 50, "down_mbps": 200 },
+    "bob": { "quota_bytes": 107374182400, "expire_at": "2027-01-01T00:00:00Z" }
+  },
+  "experimental": { "cache_file": { "enabled": true, "path": "cache.db" } }
+}

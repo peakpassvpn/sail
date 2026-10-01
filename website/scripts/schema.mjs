@@ -136,7 +136,8 @@ export function buildSchema(model, { version, id, title, description }) {
       else shaped.object = entry;
     } else {
       if (shapes.includes(`${row.path}[]`)) shaped.array = { type: 'array', items: objectOf(`${row.path}[]`) };
-      if (shapes.includes(row.path)) shaped.object = objectOf(row.path);
+      // A map's object is its values': any key, each such an object.
+      if (shapes.includes(row.path)) shaped.object = isMap(row) ? { type: 'object', additionalProperties: objectOf(row.path) } : objectOf(row.path);
     }
     // A logical rule's rules: rules as the list it is in has them, without
     // their actions.
@@ -175,6 +176,7 @@ export function buildSchema(model, { version, id, title, description }) {
     return schema;
   };
 
+  const isMap = row => row.info.json === 'map' || /^(Option<)?(std::collections::)?(HashMap|BTreeMap|IndexMap)</.test((row.rust?.type || '').replace(/\s+/g, ''));
   const hasOwnFields = id => model.rowsOf(id).some(r => r.key !== 'type');
   const building = new Set();
 
@@ -338,7 +340,10 @@ export function validate(schema, value) {
           const p = `${at ? at + '.' : ''}${k}`;
           if (k in s.properties) check(s.properties[k], x, p, out);
           else if (s.additionalProperties === false) out.push(`${p}: not a field here`);
+          else check(s.additionalProperties, x, p, out);
         }
+      } else if (s.additionalProperties !== undefined) {
+        for (const [k, x] of Object.entries(v)) check(s.additionalProperties, x, `${at ? at + '.' : ''}${k}`, out);
       }
     }
     if (typeOf(v) === 'array' && s.items) v.forEach((x, i) => check(s.items, x, `${at}[${i}]`, out));

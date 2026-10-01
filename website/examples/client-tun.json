@@ -1,0 +1,64 @@
+{
+  "$schema": "https://peakpassvpn.github.io/sail/schema.json",
+  "log": { "level": "info" },
+  "dns": {
+    "servers": [
+      { "type": "https", "tag": "remote", "server": "1.1.1.1", "detour": "proxy" },
+      { "type": "local", "tag": "local" }
+    ],
+    "rules": [
+      { "domain_suffix": ["lan", "local"], "server": "local" }
+    ],
+    "final": "remote"
+  },
+  "inbounds": [
+    {
+      "type": "tun",
+      "tag": "tun",
+      "address": ["172.19.0.1/30", "fdfe:dcba:9876::1/126"],
+      "auto_route": true,
+      "strict_route": true
+    }
+  ],
+  "outbounds": [
+    { "type": "selector", "tag": "proxy", "outbounds": ["auto", "reality", "hysteria2"] },
+    { "type": "urltest", "tag": "auto", "outbounds": ["reality", "hysteria2"] },
+    {
+      "type": "vless",
+      "tag": "reality",
+      "server": "server.example.com",
+      "server_port": 443,
+      "uuid": "1b0e0a3e-1c2d-4e5f-8a9b-0c1d2e3f4a5b",
+      "flow": "xtls-rprx-vision",
+      "tls": {
+        "enabled": true,
+        "server_name": "www.example.com",
+        "utls": { "enabled": true, "fingerprint": "chrome" },
+        "reality": {
+          "enabled": true,
+          "public_key": "ERERERERERERERERERERERERERERERERERERERERERE",
+          "short_id": "0123"
+        }
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "hysteria2",
+      "server": "server.example.com",
+      "server_port": 8443,
+      "password": "a long random password",
+      "tls": { "enabled": true, "server_name": "server.example.com" }
+    },
+    { "type": "direct", "tag": "direct" }
+  ],
+  "route": {
+    "rules": [
+      { "inbound": "tun", "action": "sniff" },
+      { "protocol": "dns", "action": "hijack-dns" },
+      { "ip_is_private": true, "outbound": "direct" }
+    ],
+    "final": "proxy",
+    "auto_detect_interface": true,
+    "default_domain_resolver": "local"
+  }
+}

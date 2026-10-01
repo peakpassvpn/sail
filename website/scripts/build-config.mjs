@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { COMPAT, buildModel, render, stale } from './reference.mjs';
 import { buildSchema } from './schema.mjs';
+import { examplePages } from './examples.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const docs = path.join(root, 'website/src/content/docs');
@@ -41,6 +42,9 @@ const schema = buildSchema(buildModel({ fields, tiers, extract, compat }), {
 });
 const schemaAt = path.join(root, 'website/public/schema.json');
 const schemaText = JSON.stringify(schema, null, 1) + '\n';
+const examples = path.join(root, 'website/examples');
+const texts = Object.fromEntries(readdirSync(examples).filter(f => f.endsWith('.json') && f !== 'index.json').map(f => [f, readFileSync(path.join(examples, f), 'utf8')]));
+Object.assign(files, examplePages(JSON.parse(readFileSync(path.join(examples, 'index.json'), 'utf8')), texts, schema));
 
 const read = name => {
   const at = path.join(docs, name);

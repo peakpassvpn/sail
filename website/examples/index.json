@@ -1,0 +1,34 @@
+[
+  {
+    "file": "client-tun.json",
+    "title": { "en": "A client on a TUN", "zh": "TUN 上的客户端" },
+    "intro": {
+      "en": "Every connection of the device through a TUN: DNS over HTTPS through the proxy, the LAN's names by the system's resolver, a selector over a URL test of a REALITY and a Hysteria2 server, and private addresses direct. Everything in it is sing-box's.",
+      "zh": "设备的全部连接经 TUN 进入：DNS 经代理走 HTTPS，局域网名字由系统解析；选择器下挂 URL 测速组，成员为 REALITY 与 Hysteria2 服务器；私有地址直连。所用字段均为 sing-box 原有。"
+    }
+  },
+  {
+    "file": "server-reality.json",
+    "title": { "en": "A REALITY server with limits per user", "zh": "带用户限额的 REALITY 服务端" },
+    "intro": {
+      "en": "A VLESS inbound on REALITY with two users, and sail's `user_limits`: a cap on connections and a rate for one, a quota and an end date for the other. The quota is kept across restarts in the cache file.",
+      "zh": "REALITY 上的 VLESS 入站，两个用户，加上 sail 的 `user_limits`：一个用户限连接数与速率，另一个限流量与到期时间。流量配额经缓存文件跨重启保留。"
+    }
+  },
+  {
+    "file": "providers.json",
+    "title": { "en": "Groups from a subscription", "zh": "取自订阅的策略组" },
+    "intro": {
+      "en": "sail's `outbound_providers`: a subscription downloaded every 12 hours, its outbounds joining a selector and, filtered by name, a URL test that falls back to direct while none is left.",
+      "zh": "sail 的 `outbound_providers`：每 12 小时下载一次订阅，其出站加入选择器，并按名称过滤后加入 URL 测速组；过滤后无成员时回落直连。"
+    }
+  },
+  {
+    "file": "network-aware.json",
+    "title": { "en": "By the network the device is on", "zh": "按所在网络选择" },
+    "intro": {
+      "en": "sail's `network` group: direct on the home Wi-Fi, Hysteria2 on cellular, REALITY elsewhere; and a rule on the Wi-Fi's name by regular expression, a sail extension.",
+      "zh": "sail 的 `network` 策略组：家中 Wi-Fi 直连，蜂窝网络走 Hysteria2，其他网络走 REALITY；另有一条按正则匹配 Wi-Fi 名称的规则（sail 扩展）。"
+    }
+  }
+]
