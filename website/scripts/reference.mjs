@@ -535,7 +535,9 @@ export function rustDefault(model, rf, w) {
     const literal = body && literalOf(body);
     return literal ? `\`${literal}\`` : `\`${name}()\``;
   }
-  const node = parseType(rf.type || 'String');
+  let node = parseType(rf.type || 'String');
+  // A wrapper reads as what it holds, and leaves it out as that does.
+  while (['Box', 'Arc', 'Rc', 'Secret'].includes(node.name) && node.args.length) node = node.args[0];
   const listable = /\bwith\s*=\s*"[^"]*listable"/.test(meta);
   if (node.name === 'Option') return w.unset;
   if (/\bdefault\b/.test(meta)) {

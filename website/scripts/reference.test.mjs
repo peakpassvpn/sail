@@ -104,6 +104,7 @@ function fixture() {
       field('extra', 'Option < serde_json :: Value >', 'default'),
       field('either', 'Option < Listable >', 'default'),
       field('secret', 'Option < Secret < String > >', 'default'),
+      field('token', 'Secret < String >', 'default'),
       field('ratio', 'f64', 'default'),
       field('flag', 'bool', 'default'),
       field('count', 'usize', 'default'),
@@ -283,6 +284,7 @@ test('Rust types read as JSON types', () => {
   assert.match(row(g, 'extra'), /\| any JSON \| unset \|/);
   assert.match(row(g, 'either'), /\| string or array of string \| unset \|/);
   assert.match(row(g, 'secret'), /\| string \| unset \|/);
+  assert.match(row(g, 'token'), /\| string \| `""` \|/);
   assert.match(row(g, 'ratio'), /\| number \| the type's default \|/);
   assert.match(row(g, 'flag'), /\| bool \| `false` \|/);
   assert.match(row(g, 'count'), /\| number \| `0` \|/);
