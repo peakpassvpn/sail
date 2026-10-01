@@ -74,7 +74,10 @@ run on `pull_request_target`.
 Every Git source is a fork under `peakpassvpn`, pinned by full revision in
 `tools/security/policy.toml` and allowed by URL in `tools/security/deny.toml`.
 Each fork's `sail` branch carries a `FORK.md` with the same reason and drop
-condition.
+condition. How far each is from its upstream is reported weekly by
+`tools/upstream-watch` (its fork list is `tools/upstream-watch/forks.json`)
+into the [upstream sync report](https://github.com/peakpassvpn/sail/issues/1),
+which is where a drop condition is seen to be met.
 
 | Fork | Why | Drop when |
 | --- | --- | --- |
@@ -84,9 +87,9 @@ condition.
 | `netconfig-rs` | `netlink-packet-core` 0.9, without the unmaintained `paste` (`RUSTSEC-2024-0436`). Built on Linux and Windows through `tun-rs`. | `tun-rs/netconfig-rs` releases on `netlink-packet-core` 0.9 or later and `tun-rs` takes it. |
 | `route_manager` | The same netlink update. `tun-rs` uses it on macOS and the BSDs, which Sail does not build `tun-rs` for, but it is in the lockfile and so in the audit. | `tun-rs/route_manager` releases on `netlink-packet-core` 0.9 or later and `tun-rs` takes it. |
 
-Since 2026-10-02 `cargo-audit` reports no warning: the `paste`, `lru` 0.16.4
-and yanked `yoke-derive` 0.8.3 warnings below are closed by the last two forks
-and by `yoke-derive` 0.8.4.
+Since 2026-10-02 `cargo-audit` reports no warning: of the warnings below,
+`lru` 0.16.4 is closed by `quinn-btls`, `paste` by the last two forks, and the
+yanked `yoke-derive` 0.8.3 by 0.8.4.
 
 ## Remediation status (2026-09-29)
 
