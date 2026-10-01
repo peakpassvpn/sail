@@ -30,16 +30,20 @@ import statistics
 import sys
 
 # metric suffix -> (largest growth against the last master run, against the
-# last release, or None; source). The design's section 6.
+# last release, or None; source). The design's section 6, set from the
+# calibration (ten runners, five rounds each, 2026-10-01): "spread" is the
+# largest difference between two runners' medians. The most specific
+# suffix first.
 THRESHOLDS = [
-    ("size_bytes", 0.02, 0.05, "5%: 5.8's release threshold; 2%: judgment"),
-    ("allocations_per_connection", 0.05, 0.05, "judgment, calibrated at step 1"),
-    ("allocations_per_mib", 0.05, 0.05, "judgment, calibrated at step 1"),
-    ("allocated_bytes_per_mib", 0.05, 0.05, "judgment, calibrated at step 1"),
-    ("rss_kb", 0.10, 0.10, "judgment, calibrated at step 1"),
-    ("footprint_kb", 0.10, 0.10, "judgment, calibrated at step 1"),
-    ("per_connection", 0.10, 0.10, "judgment, calibrated at step 1"),
-    ("_ms", 0.50, None, "judgment: a runner's time is noisy"),
+    ("size_bytes", 0.02, 0.05, "5%: 5.8's release threshold; 2%: judgment (sizes are reproducible)"),
+    ("allocations_per_connection", 0.02, 0.02, "measured: spread <=0.9%"),
+    ("allocations_per_mib", 0.03, 0.03, "measured: spread <=1.9%"),
+    ("allocated_bytes_per_mib", 0.25, 0.25, "measured: spread ~20%, a coarse alarm"),
+    ("footprint_kb_per_connection", 0.10, 0.10, "judgment: macOS not yet calibrated"),
+    ("footprint_kb", 0.10, 0.10, "judgment: macOS not yet calibrated"),
+    ("kb_per_connection", 0.03, 0.03, "measured: spread <=0.8%"),
+    ("rss_kb", 0.05, 0.05, "measured: spread <=2.7%"),
+    ("_ms", 1.00, None, "measured: spread up to 62%; only a doubling"),
 ]
 
 NAME = re.compile(r"^[a-z0-9_.-]+$")

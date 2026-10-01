@@ -5,7 +5,8 @@ name: perf
 # load — measured at each master push and release, compared with the last
 # master run and the last release's. A crossed threshold turns this
 # workflow red; it blocks nothing. iOS's footprint is measured weekly on
-# macOS. A ci/perf-* branch measures ten times over, to calibrate.
+# macOS. A ci/perf-* branch runs as master does, to try a change of this
+# workflow; ci/perf-calib measures ten times over, to calibrate.
 on:
   push:
     branches: [master, "ci/perf-*"]
@@ -28,7 +29,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        run: ${{ fromJSON(startsWith(github.ref, 'refs/heads/ci/perf-') && '[1,2,3,4,5,6,7,8,9,10]' || '[1]') }}
+        run: ${{ fromJSON(github.ref == 'refs/heads/ci/perf-calib' && '[1,2,3,4,5,6,7,8,9,10]' || '[1]') }}
     name: measure (${{ matrix.run }})
     steps:
       - name: checkout
@@ -86,7 +87,7 @@ jobs:
 
   # Release builds, stripped, of what ships: the size of each.
   size:
-    if: github.event_name != 'schedule' && !startsWith(github.ref, 'refs/heads/ci/perf-')
+    if: github.event_name != 'schedule' && github.ref != 'refs/heads/ci/perf-calib'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -175,7 +176,9 @@ jobs:
           }
           fetch master master
           tag=$(gh release view -R "$GITHUB_REPOSITORY" --json tagName --jq .tagName 2>/dev/null || true)
-          [ -n "$tag" ] && fetch "$tag" release
+          if [ -n "$tag" ]; then
+            fetch "$tag" release
+          fi
 
       - name: compare
         run: |
