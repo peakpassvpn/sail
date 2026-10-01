@@ -1,0 +1,11 @@
+module SailC [system] {
+    header "shim.h"
+    link "sail"
+    // What libsail.a needs of the system (rustc --print native-static-libs).
+    link framework "Security"
+    link framework "CoreFoundation"
+    link framework "CoreServices"
+    link "c++"
+    link "iconv"
+    export *
+}

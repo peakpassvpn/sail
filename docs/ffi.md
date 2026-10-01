@@ -187,6 +187,31 @@ sail_subscribe(client, SAIL_EVENT_STATUS, NULL, on_event, ctx, release, &sub, &e
   service: `sail_instance_serve` and `sail_client_connect` fail with
   `SAIL_ERR_UNSUPPORTED`.
 
+## Swift and Kotlin
+
+[`bindings/swift`](../bindings/swift) is a SwiftPM package (`Sail`, iOS 15
+and macOS 13, as sing-box's apps) and
+[`bindings/kotlin`](../bindings/kotlin) a Kotlin library with its JNI glue,
+`jni/sail_jni.c` (Android minSdk 24, as SFA). Both give one class for an
+instance or a client, `Sail`, whose calls throw the SAIL code and message,
+whose answers are decoded into data types, and whose events are streams
+(`AsyncThrowingStream`, `Flow`): ending a stream ends its subscription. The
+contract above holds through them; two of their own:
+
+- Swift: a stream's `onTermination` runs under the stream's lock, so the
+  package unsubscribes from another thread: the release that follows
+  finishes the stream, which takes that lock. A host writing its own
+  wrapper keeps the same rule: never wait on sail while holding a lock a
+  callback takes.
+- Kotlin: the JNI glue attaches sail's threads to the JVM the first time
+  each calls back and detaches them when they end, and holds the Kotlin
+  objects sail calls back as global references, deleted when sail releases
+  them.
+
+Their tests run against a real instance on the host: `bindings/swift/test.sh`
+(macOS), and `bindings/kotlin/jni/build-host.sh` then `gradle test` (a
+desktop JDK). Each builds sail-ffi first.
+
 ## Compared with sing-box's libbox
 
 libbox (sing-box 1.14) gives its apps the same capabilities through a
