@@ -169,13 +169,21 @@ pub fn server_crypto(
 
 /// [`server_crypto`] from an inbound's `tls` block, its errors as the
 /// inbound `tag`'s. A version range without TLS 1.3 is an error: QUIC is
-/// TLS 1.3 only.
+/// TLS 1.3 only. So is REALITY, which is TCP-only: sing-box takes it in the
+/// configuration and refuses it at start ("unsupported usage for
+/// reality", its REALITY server's STDConfig); here, at once.
 pub fn inbound_crypto(
     tag: &str,
     tls: &InboundTls,
     env: &RuntimeEnv,
     alpns: &[Vec<u8>],
 ) -> Result<quinn_btls::ServerConfig> {
+    if tls.reality.as_ref().is_some_and(|r| r.enabled) {
+        return Err(anyhow!(
+            "[{}] inbound: tls.reality: REALITY is TCP-only, not for QUIC",
+            tag
+        ));
+    }
     tls.versions(tag)?
         .require_tls13("QUIC")
         .map_err(|e| anyhow!("[{}] inbound: tls.{}", tag, e))?;
@@ -620,6 +628,29 @@ mod tests {
         assert_eq!(
             err.to_string(),
             "[i] inbound: tls.max_version: QUIC is TLS 1.3 only, and 1.2 leaves it out"
+        );
+    }
+
+    /// REALITY on a QUIC inbound is an error, which sing-box only finds at
+    /// start.
+    #[test]
+    fn no_reality_over_quic() {
+        let tls: InboundTls = serde_json::from_value(serde_json::json!({
+            "enabled": true,
+            "reality": {
+                "enabled": true,
+                "private_key": "x",
+                "short_id": ["0123"],
+                "handshake": { "server": "example.com", "server_port": 443 },
+            },
+        }))
+        .unwrap();
+        let err = inbound_crypto("i", &tls, &RuntimeEnv::default(), &[])
+            .err()
+            .unwrap();
+        assert_eq!(
+            err.to_string(),
+            "[i] inbound: tls.reality: REALITY is TCP-only, not for QUIC"
         );
     }
 
