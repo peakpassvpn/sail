@@ -352,6 +352,12 @@ impl OutboundTls {
             }
             return Ok(ClientOptions::default());
         }
+        // sing-box takes such a range without a word and hands it to its TLS
+        // unchanged (common/tls/std_client.go:149, utls_client.go:224);
+        // both Go's crypto/tls (handshake_client.go:198, Go 1.25) and its
+        // uTLS (u_handshake_client.go:338, metacubex/utls 1.8.7) then fail
+        // every handshake: "MinVersion must be >= VersionTLS13 if
+        // EncryptedClientHelloConfigList is populated". Refused here first.
         if self.ech.as_ref().is_some_and(|e| e.enabled) {
             for (field, version) in [("min_version", versions.min), ("max_version", versions.max)] {
                 if version.is_some_and(|v| v < Version::Tls13) {
