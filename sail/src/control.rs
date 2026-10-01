@@ -478,18 +478,17 @@ impl RuntimeManager {
     }
 
     /// The outbounds, in the order the configuration has them (those added
-    /// since, by tag, after), then the members of outbound providers, in
-    /// their providers' order, for the groups that take them; an outbound
-    /// so named comes first.
+    /// since after), then the members of outbound providers, in their
+    /// providers' order, for the groups that take them; an outbound so
+    /// named comes first.
     pub async fn outbounds(&self) -> Vec<OutboundInfo> {
         let latencies = self.latencies().await;
         let om = self.outbound_manager.load_full();
         let mut out = Vec::new();
-        let order = self.order.load();
-        let position = |tag: &str| order.iter().position(|t| t == tag).unwrap_or(usize::MAX);
-        let mut tags: Vec<String> = om.handlers().map(|h| h.tag().clone()).collect();
-        tags.sort_by(|a, b| position(a).cmp(&position(b)).then_with(|| a.cmp(b)));
-        for tag in &tags {
+        // By tag, not by handler: identical outbounds share one, which
+        // goes by one of their tags.
+        let tags = self.order.load();
+        for tag in tags.iter() {
             if let Some(handler) = om.get(tag) {
                 let protocol = om.protocol(tag).unwrap_or_default();
                 out.push(

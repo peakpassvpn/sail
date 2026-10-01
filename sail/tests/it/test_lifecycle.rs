@@ -293,8 +293,23 @@ fn without_a_clash_api_an_instance_has_no_mode_unless_its_host_gives_it() {
             destination: sail::session::SocksAddr::from(echo),
             ..Default::default()
         };
-        let stream = common::new_socks_stream("127.0.0.1", port, &sess, None, None).await;
-        assert!(stream.is_ok(), "the clash_mode rule matched");
+        // sail answers the SOCKS request before it routes: a rule that
+        // rejects shows only in the data.
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let mut stream = common::new_socks_stream("127.0.0.1", port, &sess, None, None)
+            .await
+            .unwrap();
+        stream.write_all(b"ping").await.unwrap();
+        let mut back = [0u8; 4];
+        let read = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            stream.read_exact(&mut back),
+        )
+        .await;
+        assert!(
+            matches!(read, Ok(Ok(_))) && &back == b"ping",
+            "the clash_mode rule matched"
+        );
     });
     stop(NO_MODES, started);
 }

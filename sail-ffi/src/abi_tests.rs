@@ -670,23 +670,43 @@ fn instances_run_at_once_each_with_its_own_events() {
     });
 }
 
-/// Whether a connection through the SOCKS inbound at `port` is let through.
+/// Whether a connection through the SOCKS inbound at `port` is let through:
+/// what it sends comes back. sail answers the SOCKS request before it
+/// routes, so a rule that rejects shows only in the data.
 fn socks_connects(port: u16) -> bool {
-    let target = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let std::net::SocketAddr::V4(v4) = target.local_addr().unwrap() else {
+    let echo = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let std::net::SocketAddr::V4(v4) = echo.local_addr().unwrap() else {
         unreachable!()
     };
-    let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
-    s.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
-    s.write_all(&[5, 1, 0]).unwrap();
-    let mut reply = [0u8; 2];
-    s.read_exact(&mut reply).unwrap();
-    let mut request = vec![5, 1, 0, 1];
-    request.extend_from_slice(&v4.ip().octets());
-    request.extend_from_slice(&v4.port().to_be_bytes());
-    s.write_all(&request).unwrap();
-    let mut reply = [0u8; 10];
-    s.read_exact(&mut reply).is_ok() && reply[1] == 0
+    std::thread::spawn(move || {
+        if let Ok((mut s, _)) = echo.accept() {
+            let mut buf = [0u8; 4];
+            if s.read_exact(&mut buf).is_ok() {
+                let _ = s.write_all(&buf);
+            }
+        }
+    });
+    let attempt = || -> std::io::Result<bool> {
+        let mut s = std::net::TcpStream::connect(("127.0.0.1", port))?;
+        s.set_read_timeout(Some(Duration::from_secs(3)))?;
+        s.write_all(&[5, 1, 0])?;
+        let mut reply = [0u8; 2];
+        s.read_exact(&mut reply)?;
+        let mut request = vec![5, 1, 0, 1];
+        request.extend_from_slice(&v4.ip().octets());
+        request.extend_from_slice(&v4.port().to_be_bytes());
+        s.write_all(&request)?;
+        let mut reply = [0u8; 10];
+        s.read_exact(&mut reply)?;
+        if reply[1] != 0 {
+            return Ok(false);
+        }
+        s.write_all(b"ping")?;
+        let mut back = [0u8; 4];
+        s.read_exact(&mut back)?;
+        Ok(&back == b"ping")
+    };
+    attempt().unwrap_or(false)
 }
 
 #[test]

@@ -121,7 +121,9 @@ pub struct RuntimeManager {
     /// The modes the rules name, as sing-box lists them.
     modes: arc_swap::ArcSwap<Vec<String>>,
     /// The tags of the outbounds and endpoints, in the configuration's
-    /// order, which they are listed in.
+    /// order, those added after it last: the outbounds there are, as
+    /// identical outbounds share one handler, which goes by one of their
+    /// tags.
     order: arc_swap::ArcSwap<Vec<String>>,
     /// The delays measured of each outbound.
     delays: control::Delays,
@@ -745,6 +747,9 @@ impl RuntimeManager {
             )
             .map_err(Error::Config)?;
         self.outbound_manager.store(Arc::new(next));
+        let mut order = (**self.order.load()).clone();
+        order.push(outbound.tag.clone());
+        self.order.store(Arc::new(order));
         info!("added outbound [{}]", outbound.tag);
         Ok(())
     }
@@ -768,6 +773,9 @@ impl RuntimeManager {
         for task in tasks {
             task.abort();
         }
+        let mut order = (**self.order.load()).clone();
+        order.retain(|t| t != tag);
+        self.order.store(Arc::new(order));
         info!("removed outbound [{}]", tag);
         Ok(())
     }
