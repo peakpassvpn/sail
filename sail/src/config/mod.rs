@@ -105,6 +105,7 @@ pub fn from_file_for(path: &str, host: &crate::runtime::Host) -> Result<Config> 
 
 /// A certificate's SHA-256 hash as a front-end writes it (colons, spaces,
 /// either case), as `certificate_sha256` has it: lowercase hex alone.
+#[cfg(any(feature = "config-clash", feature = "config-surge"))]
 pub(crate) fn certificate_hash(hash: &str) -> String {
     hash.chars()
         .filter(|c| *c != ':' && !c.is_whitespace())
