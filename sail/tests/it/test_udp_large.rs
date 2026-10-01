@@ -24,7 +24,6 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use serde_json::json;
-use tokio::time::timeout;
 
 use sail::session::{Session, SocksAddr};
 
@@ -83,9 +82,14 @@ fn echo_large(
             let mut answered = false;
             for _ in 0..5 {
                 s.send_to(&msg, &sess.destination).await?;
-                if let Ok(got) = timeout(Duration::from_secs(2), r.recv_from(&mut buf)).await {
+                // An echo of another size answers an earlier datagram,
+                // sent again after it seemed lost: it is passed over.
+                let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+                while let Ok(got) = tokio::time::timeout_at(deadline, r.recv_from(&mut buf)).await {
                     let (n, from) = got?;
-                    anyhow::ensure!(n == size, "a UDP echo of {} bytes for {}", n, size);
+                    if n != size {
+                        continue;
+                    }
                     anyhow::ensure!(
                         buf[..n] == msg[..],
                         "the UDP echo of {} bytes differs",
@@ -93,6 +97,9 @@ fn echo_large(
                     );
                     anyhow::ensure!(from == sess.destination, "UDP echo from {}", from);
                     answered = true;
+                    break;
+                }
+                if answered {
                     break;
                 }
             }
