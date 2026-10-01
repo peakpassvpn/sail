@@ -22,6 +22,8 @@ use crate::app::{SyncDnsClient, SyncOutboundManager, SyncRouter, SyncStatManager
 use crate::app::api::api_server::ApiServer;
 
 pub mod adapter;
+#[cfg(feature = "alloc-stats")]
+pub mod alloc_stats;
 pub mod app;
 pub mod assets;
 pub mod common;

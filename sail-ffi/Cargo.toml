@@ -18,6 +18,9 @@ default = [
 ]
 
 auto-reload = ["sail/auto-reload"]
+# Counts allocations in the test binary, for perf_tests (roadmap 5.4); a
+# measurement build only.
+alloc-stats = ["sail/alloc-stats"]
 # The command service an app's UI controls the tunnel process's instance
 # through, as sing-box's libbox serves one: gRPC over a unix socket.
 command-server = [

@@ -204,6 +204,9 @@ api = ["axum"]
 # The Clash API, which dashboards (yacd, metacubexd) control an instance through.
 clash-api = ["axum", "axum/ws", "axum/query", "miniz_oxide"]
 auto-reload = ["notify"]
+# Counts allocations, for the measurement builds of the performance
+# regression checks; never in a released build.
+alloc-stats = []
 ctrlc = ["tokio/signal"]
 # Pure in-memory parser entry points used only by the separate cargo-fuzz
 # workspace. Keep this out of default builds and runtime APIs.

@@ -1,0 +1,234 @@
+name: perf
+
+# The performance regression checks' tier A (roadmap 5.4): the numbers that
+# barely depend on the machine — sizes, allocations, memory under a fixed
+# load — measured at each master push and release, compared with the last
+# master run and the last release's. A crossed threshold turns this
+# workflow red; it blocks nothing. iOS's footprint is measured weekly on
+# macOS. A ci/perf-* branch measures ten times over, to calibrate.
+on:
+  push:
+    branches: [master, "ci/perf-*"]
+    tags: ["v*"]
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  measure:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        run: ${{ fromJSON(startsWith(github.ref, 'refs/heads/ci/perf-') && '[1,2,3,4,5,6,7,8,9,10]' || '[1]') }}
+    name: measure (${{ matrix.run }})
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: install rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+
+      - name: cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: perf
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+
+      - name: install go
+        uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: false
+
+      - name: build netgen
+        run: (cd scripts/netem/netgen && CGO_ENABLED=0 go build -o "$RUNNER_TEMP/netgen" .)
+
+      # The release profile, as shipped, with the counting allocator.
+      - name: build sail for measuring
+        run: cargo build -p sail-cli --release --features alloc-stats
+
+      - name: sail-cli
+        run: |
+          tools/perf/cli.py --sail target/release/sail --netgen "$RUNNER_TEMP/netgen" --rounds 5 \
+            | tee "$RUNNER_TEMP/cli.log"
+
+      - name: ffi
+        run: |
+          cargo test -p sail-ffi --release --features alloc-stats --lib --no-run
+          for _ in 1 2 3 4 5; do
+            cargo test -q -p sail-ffi --release --features alloc-stats --lib perf_tests -- --ignored --nocapture \
+              | grep '^PERF '
+          done | tee "$RUNNER_TEMP/ffi.log"
+
+      - name: collect
+        run: |
+          tools/perf/report.py collect --sha "$GITHUB_SHA" "$RUNNER_TEMP/cli.log" "$RUNNER_TEMP/ffi.log" \
+            > "perf-measure-${{ matrix.run }}.json"
+
+      - name: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-measure-${{ matrix.run }}
+          path: perf-measure-${{ matrix.run }}.json
+
+  # Release builds, stripped, of what ships: the size of each.
+  size:
+    if: github.event_name != 'schedule' && !startsWith(github.ref, 'refs/heads/ci/perf-')
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: x86_64-unknown-linux-musl, package: sail-cli, file: sail }
+          - { target: aarch64-unknown-linux-musl, package: sail-cli, file: sail }
+          - { target: armv7-unknown-linux-musleabihf, package: sail-cli, file: sail }
+          - { target: x86_64-pc-windows-gnu, package: sail-cli, file: sail.exe }
+          # The C library, until the AAR's libsail_jni.so is built here.
+          - { target: aarch64-linux-android, package: sail-ffi, file: libsail.so }
+    name: size (${{ matrix.target }})
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: install rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+
+      - name: cache cross toolchain
+        uses: actions/cache@v4
+        with:
+          path: ~/.sail-cross
+          key: sail-cross-perf-${{ matrix.target }}-${{ hashFiles('scripts/install_cross_toolchain.sh') }}
+
+      - name: install cross toolchain
+        run: scripts/install_cross_toolchain.sh ${{ matrix.target }}
+
+      - name: build
+        run: scripts/cross.sh ${{ matrix.target }} build -p ${{ matrix.package }} --release
+
+      - name: collect
+        run: |
+          tools/perf/report.py collect --sha "$GITHUB_SHA" \
+            --size "${{ matrix.target }}=target/${{ matrix.target }}/release/${{ matrix.file }}" /dev/null \
+            > "perf-size-${{ matrix.target }}.json"
+
+      - name: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-size-${{ matrix.target }}
+          path: perf-size-${{ matrix.target }}.json
+
+  report:
+    needs: [measure, size]
+    if: always() && needs.measure.result == 'success'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: download
+        uses: actions/download-artifact@v4
+        with:
+          pattern: perf-*
+          path: parts
+          merge-multiple: true
+
+      - name: merge
+        run: tools/perf/report.py merge parts/*.json > perf.json
+
+      # Numbers, metric names and the commit only: it is public.
+      - name: sensitive
+        run: tools/perf/report.py check perf.json
+
+      - name: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf
+          path: perf.json
+          retention-days: 90
+
+      # The last master run's and the last release's, from their artifacts.
+      - name: baselines
+        run: |
+          fetch() {
+            id=$(gh run list -R "$GITHUB_REPOSITORY" --workflow perf.yml --branch "$1" --status success \
+                   --json databaseId,headSha --jq "[.[] | select(.headSha != \"$GITHUB_SHA\")][0].databaseId")
+            [ -n "$id" ] && gh run download "$id" -R "$GITHUB_REPOSITORY" -n perf -D "base-$2" || true
+          }
+          fetch master master
+          tag=$(gh release view -R "$GITHUB_REPOSITORY" --json tagName --jq .tagName 2>/dev/null || true)
+          [ -n "$tag" ] && fetch "$tag" release
+
+      - name: compare
+        run: |
+          if [ ! -f base-master/perf.json ]; then
+            echo "No master run to compare with yet." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          release=()
+          [ -f base-release/perf.json ] && release=(--release base-release/perf.json)
+          tools/perf/report.py compare perf.json base-master/perf.json "${release[@]}" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+
+  # iOS limits a Network Extension by its footprint: the FFI's numbers on
+  # macOS, weekly.
+  macos:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: macos-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: install rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+
+      - name: ffi
+        run: |
+          cargo test -p sail-ffi --release --features alloc-stats --lib --no-run
+          for _ in 1 2 3 4 5; do
+            cargo test -q -p sail-ffi --release --features alloc-stats --lib perf_tests -- --ignored --nocapture \
+              | grep '^PERF '
+          done | tee "$RUNNER_TEMP/ffi.log"
+          tools/perf/report.py collect --sha "$GITHUB_SHA" "$RUNNER_TEMP/ffi.log" > perf-macos.json
+          tools/perf/report.py check perf-macos.json
+
+      - name: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-macos
+          path: perf-macos.json
+          retention-days: 90
+
+      - name: compare
+        run: |
+          id=$(gh run list -R "$GITHUB_REPOSITORY" --workflow perf.yml --event schedule --status success \
+                 --json databaseId,headSha --jq "[.[] | select(.headSha != \"$GITHUB_SHA\")][0].databaseId")
+          if [ -z "$id" ] || ! gh run download "$id" -R "$GITHUB_REPOSITORY" -n perf-macos -D base; then
+            echo "No earlier week to compare with yet." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          tools/perf/report.py compare perf-macos.json base/perf-macos.json | tee -a "$GITHUB_STEP_SUMMARY"

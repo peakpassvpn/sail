@@ -9,6 +9,11 @@ license = "Apache-2.0"
 name = "sail"
 path = "src/main.rs"
 
+[features]
+# A measurement build: counts allocations and writes them to the file
+# SAIL_ALLOC_STATS names (tools/perf).
+alloc-stats = ["sail/alloc-stats"]
+
 [dependencies]
 tokio = { version = "1", features = ["rt"] }
 argh = "0.1"

@@ -474,7 +474,15 @@ fn fetch_includes(config: &str, cache_dir: Option<&str>) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(feature = "alloc-stats")]
+#[global_allocator]
+static ALLOC: sail::alloc_stats::Counting = sail::alloc_stats::Counting;
+
 fn main() {
+    #[cfg(feature = "alloc-stats")]
+    if let Some(path) = std::env::var_os("SAIL_ALLOC_STATS") {
+        sail::alloc_stats::write_every(path.into(), std::time::Duration::from_millis(100));
+    }
     #[cfg(unix)]
     raise_file_limit();
 

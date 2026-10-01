@@ -32,6 +32,14 @@ mod events;
 mod handles;
 #[cfg(test)]
 mod header_tests;
+#[cfg(all(test, feature = "alloc-stats"))]
+mod perf_tests;
+#[cfg(all(test, feature = "alloc-stats"))]
+use sail::alloc_stats;
+// The measurement's allocator: perf_tests counts what the process makes.
+#[cfg(all(test, feature = "alloc-stats"))]
+#[global_allocator]
+static ALLOC: sail::alloc_stats::Counting = sail::alloc_stats::Counting;
 mod instance;
 /// The JSON hosts are answered with: core's, which the management API
 /// answers with too.
