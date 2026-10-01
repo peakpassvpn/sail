@@ -23,7 +23,7 @@ use std::collections::HashMap;
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::num::NonZeroUsize;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -45,6 +45,7 @@ use crate::net::netstack::{
     ChannelPacketIo, NativeRuntimeControl, NativeRuntimeGroup, NativeUdpDatagram,
     NativeUdpReplyHandle,
 };
+use crate::net::network::NetworkChange;
 use crate::net::Dialer;
 use crate::runtime::options::{Netstack, NetstackBudget};
 use crate::session::{DatagramSource, Network, Session, SocksAddr};
@@ -82,24 +83,15 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<BuiltEndpoint> {
     let options: WireGuardOptions = ctx.options()?;
     let settings = Settings::parse(&options, ctx.dialer.detour().is_some())
         .map_err(|e| anyhow!("[{}] endpoint: {}", ctx.tag, e))?;
-    let (running_tx, running_rx) = watch::channel(None);
-    let shared = Arc::new(Shared {
-        tag: ctx.tag.to_string(),
+    let shared = Arc::new(Shared::new(
+        ctx.tag,
         settings,
-        dialer: ctx.dialer.clone(),
-        dns_client: ctx.dns_client.clone(),
-        netstack: ctx.env.options.netstack.clone(),
-        started: AtomicBool::new(false),
-        running_tx,
-        running_rx,
-    });
-    let outbound: AnyOutboundHandler = HandlerBuilder::default()
-        .tag(ctx.tag.to_string())
-        .stream_handler(Arc::new(outbound::StreamHandler(shared.clone())))
-        .datagram_handler(Arc::new(outbound::DatagramHandler(shared.clone())))
-        .build();
+        ctx.dialer.clone(),
+        ctx.dns_client.clone(),
+        ctx.env.options.netstack.clone(),
+    ));
     Ok(BuiltEndpoint {
-        outbound,
+        outbound: shared.outbound(),
         server: Arc::new(Server(shared)),
     })
 }
@@ -115,6 +107,10 @@ struct Shared {
     started: AtomicBool,
     running_tx: watch::Sender<Option<Arc<Running>>>,
     running_rx: watch::Receiver<Option<Arc<Running>>>,
+    /// What the tunnel sends on, while it runs.
+    bind: parking_lot::Mutex<Option<Arc<dyn Transport>>>,
+    /// The last network change it was bound anew for.
+    rebound: AtomicU64,
 }
 
 /// A started endpoint, as the outbound uses it.
@@ -168,6 +164,56 @@ impl Running {
 }
 
 impl Shared {
+    fn new(
+        tag: &str,
+        settings: Settings,
+        dialer: Dialer,
+        dns_client: SyncDnsClient,
+        netstack: Netstack,
+    ) -> Self {
+        let (running_tx, running_rx) = watch::channel(None);
+        Shared {
+            tag: tag.to_string(),
+            settings,
+            dialer,
+            dns_client,
+            netstack,
+            started: AtomicBool::new(false),
+            running_tx,
+            running_rx,
+            bind: parking_lot::Mutex::new(None),
+            rebound: AtomicU64::new(0),
+        }
+    }
+
+    /// The endpoint as an outbound.
+    fn outbound(self: &Arc<Self>) -> AnyOutboundHandler {
+        HandlerBuilder::default()
+            .tag(self.tag.clone())
+            .stream_handler(Arc::new(outbound::StreamHandler(self.clone())))
+            .datagram_handler(Arc::new(outbound::DatagramHandler(self.clone())))
+            .build()
+    }
+
+    /// Binds what the tunnel sends on anew, as sing-box's InterfaceUpdated
+    /// does with updateBind; the peers' sessions go on over it. Both
+    /// halves of the outbound hear of a change, which is acted on once.
+    fn network_changed(&self, change: &NetworkChange) {
+        if self.rebound.fetch_max(change.generation, Ordering::SeqCst) >= change.generation {
+            return;
+        }
+        let Some(bind) = self.bind.lock().clone() else {
+            return;
+        };
+        let tag = self.tag.clone();
+        tokio::spawn(async move {
+            match bind.rebind().await {
+                Ok(()) => debug!("wireguard [{}]: bound anew", tag),
+                Err(e) => error!("wireguard [{}]: update bind: {}", tag, e),
+            }
+        });
+    }
+
     /// The running endpoint, once it is up.
     async fn running(&self) -> io::Result<Arc<Running>> {
         let mut rx = self.running_rx.clone();
@@ -282,6 +328,7 @@ impl Shared {
     ) -> Result<()> {
         let peers = self.resolve_peers().await;
         let transport = self.transport(&peers).await?;
+        *self.bind.lock() = Some(transport.clone());
 
         let now = tokio::time::Instant::now().into_std();
         let mut device_config = DeviceConfig::new(self.settings.private_key);
@@ -421,6 +468,7 @@ impl Shared {
         }
         let stopped = tasks.join_next().await;
         self.running_tx.send_replace(None);
+        *self.bind.lock() = None;
         if let Some(Ok(what)) = stopped {
             warn!("wireguard [{}]: {} stopped", self.tag, what);
             if what != "stack" {
@@ -536,5 +584,102 @@ impl EndpointServer for Server {
                 error!("wireguard [{}]: {:#}", tag, e);
             }
         }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::AtomicUsize;
+
+    use async_trait::async_trait;
+
+    use super::*;
+    use crate::net::network::ChangeReason;
+
+    /// Counts its rebinds.
+    #[derive(Default)]
+    struct Counting(AtomicUsize);
+
+    #[async_trait]
+    impl Transport for Counting {
+        async fn send_to(&self, _datagram: &[u8], _dst: SocketAddr) -> io::Result<()> {
+            Ok(())
+        }
+
+        async fn recv_from(&self, _buf: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
+            std::future::pending().await
+        }
+
+        async fn rebind(&self) -> io::Result<()> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+
+    fn shared() -> Arc<Shared> {
+        let options: WireGuardOptions = serde_json::from_value(serde_json::json!({
+            "address": ["10.0.0.2/32"],
+            "private_key": "YFf6vyGG0nAu8ZlKIYO7nZbcfdd2dbmodt1XRkcCdU4=",
+            "peers": [{
+                "address": "127.0.0.1",
+                "port": 51820,
+                "public_key": "Z1XXLsKYkYxuiYjJIkRvtIKFepCYHTgON+GwPq7SOV4=",
+                "allowed_ips": ["0.0.0.0/0"],
+            }],
+        }))
+        .unwrap();
+        let dns = crate::app::dns::DnsClient::new(
+            &crate::config::Dns::default(),
+            Default::default(),
+            &Default::default(),
+        )
+        .unwrap()
+        .into_shared();
+        Arc::new(Shared::new(
+            "wg",
+            Settings::parse(&options, false).unwrap(),
+            Dialer::system(),
+            dns,
+            Netstack::default(),
+        ))
+    }
+
+    fn change(generation: u64) -> NetworkChange {
+        NetworkChange {
+            generation,
+            reason: ChangeReason::DefaultInterface,
+            old: Arc::default(),
+            new: Arc::default(),
+        }
+    }
+
+    /// The rebinds once `n` are done, and after a moment more.
+    async fn rebinds(bind: &Counting, n: usize) -> usize {
+        for _ in 0..100 {
+            if bind.0.load(Ordering::SeqCst) >= n {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        bind.0.load(Ordering::SeqCst)
+    }
+
+    #[tokio::test]
+    async fn a_network_change_rebinds_the_tunnel_once() {
+        let shared = shared();
+        let outbound = shared.outbound();
+        // Not running: nothing to rebind.
+        outbound.network_changed(&change(1));
+
+        let bind = Arc::new(Counting::default());
+        *shared.bind.lock() = Some(bind.clone());
+        // Both halves of the outbound hear of it.
+        outbound.network_changed(&change(2));
+        assert_eq!(rebinds(&bind, 1).await, 1);
+        outbound.network_changed(&change(2));
+        assert_eq!(rebinds(&bind, 1).await, 1);
+        outbound.network_changed(&change(3));
+        assert_eq!(rebinds(&bind, 2).await, 2);
     }
 }

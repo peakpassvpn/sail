@@ -4,11 +4,13 @@
 
 use std::io;
 use std::net::{IpAddr, SocketAddr};
+use std::sync::atomic::{AtomicU16, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
 use tokio::net::UdpSocket;
-use tokio::sync::{Mutex, Notify};
+use tokio::sync::{watch, Mutex, Notify};
 use tracing::{debug, warn};
 
 use crate::adapter::{OutboundDatagramRecvHalf, OutboundDatagramSendHalf};
@@ -20,30 +22,60 @@ use crate::session::{Network, Session, SocksAddr};
 /// The socket buffers asked for, each way.
 const SOCKET_BUFFER: usize = 7 << 20;
 
+/// How long a rebind waits for the old socket to be let go of, so that the
+/// new one can bind its port.
+const RELEASE_WAIT: Duration = Duration::from_secs(1);
+
 /// A UDP socket. Bound to IPv6 it takes IPv4 peers too, as IPv4-mapped
 /// addresses, which it maps back so that peers are known by one address.
 pub struct SocketTransport {
-    socket: UdpSocket,
+    /// None while it is bound anew, or when that failed.
+    socket: watch::Sender<Option<Arc<UdpSocket>>>,
     v6: bool,
+    /// The port it has, which a rebind binds again.
+    port: AtomicU16,
+    /// Whether the port was configured, and so must be the one bound.
+    fixed: bool,
+    dialer: Dialer,
+    rebinding: Mutex<()>,
 }
 
 impl SocketTransport {
     /// A socket on `port` (0: any), IPv6 and dual-stack when `v6`.
     pub async fn bind(port: u16, v6: bool, dialer: &Dialer) -> io::Result<Self> {
-        let ip: IpAddr = if v6 {
-            std::net::Ipv6Addr::UNSPECIFIED.into()
-        } else {
-            std::net::Ipv4Addr::UNSPECIFIED.into()
-        };
-        let socket = dialer.udp_socket(&SocketAddr::new(ip, port)).await?;
-        set_buffers(&socket);
-        let v6 = socket.local_addr()?.is_ipv6();
-        Ok(SocketTransport { socket, v6 })
+        let socket = open(port, v6, dialer).await?;
+        let local = socket.local_addr()?;
+        Ok(SocketTransport {
+            socket: watch::Sender::new(Some(Arc::new(socket))),
+            v6: local.is_ipv6(),
+            port: AtomicU16::new(local.port()),
+            fixed: port != 0,
+            dialer: dialer.clone(),
+            rebinding: Mutex::new(()),
+        })
+    }
+
+    fn socket(&self) -> io::Result<Arc<UdpSocket>> {
+        self.socket
+            .borrow()
+            .clone()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "the socket is being bound"))
     }
 
     pub fn local_addr(&self) -> io::Result<SocketAddr> {
-        self.socket.local_addr()
+        self.socket()?.local_addr()
     }
+}
+
+async fn open(port: u16, v6: bool, dialer: &Dialer) -> io::Result<UdpSocket> {
+    let ip: IpAddr = if v6 {
+        std::net::Ipv6Addr::UNSPECIFIED.into()
+    } else {
+        std::net::Ipv4Addr::UNSPECIFIED.into()
+    };
+    let socket = dialer.udp_socket(&SocketAddr::new(ip, port)).await?;
+    set_buffers(&socket);
+    Ok(socket)
 }
 
 /// Room for a burst of the tunnel's packets, as wireguard-go asks for:
@@ -102,12 +134,57 @@ impl Transport for SocketTransport {
             }
             other => other,
         };
-        self.socket.send_to(datagram, dst).await.map(|_| ())
+        self.socket()?.send_to(datagram, dst).await.map(|_| ())
     }
 
     async fn recv_from(&self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
-        let (n, src) = self.socket.recv_from(buf).await?;
-        Ok((n, unmap(src)))
+        let mut current = self.socket.subscribe();
+        loop {
+            // Held only while no rebind wants it gone.
+            let socket = current.borrow_and_update().clone();
+            let Some(socket) = socket else {
+                current
+                    .changed()
+                    .await
+                    .map_err(|_| io::Error::from(io::ErrorKind::NotConnected))?;
+                continue;
+            };
+            tokio::select! {
+                r = socket.recv_from(buf) => {
+                    let (n, src) = r?;
+                    return Ok((n, unmap(src)));
+                }
+                _ = current.changed() => {}
+            }
+        }
+    }
+
+    /// Closes the socket and binds its port again with the dialer, as
+    /// wireguard-go's StdNetBind, on whichever interface the dialer now
+    /// picks. A port not configured that is taken meanwhile gives way to
+    /// any.
+    async fn rebind(&self) -> io::Result<()> {
+        let _rebinding = self.rebinding.lock().await;
+        if let Some(old) = self.socket.send_replace(None) {
+            let old = Arc::downgrade(&old);
+            let deadline = tokio::time::Instant::now() + RELEASE_WAIT;
+            while old.strong_count() > 0 && tokio::time::Instant::now() < deadline {
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+        }
+        let port = self.port.load(Ordering::Relaxed);
+        let socket = match open(port, self.v6, &self.dialer).await {
+            Err(e) if !self.fixed => {
+                debug!("wireguard: binding port {} again: {}", port, e);
+                open(0, self.v6, &self.dialer).await?
+            }
+            socket => socket?,
+        };
+        let local = socket.local_addr()?;
+        self.port.store(local.port(), Ordering::Relaxed);
+        debug!("wireguard: bound anew on udp {}", local);
+        self.socket.send_replace(Some(Arc::new(socket)));
+        Ok(())
     }
 }
 
@@ -247,5 +324,109 @@ impl Transport for DetourTransport {
                 }
             }
         }
+    }
+
+    /// Lets the detour's datagrams go, as sing-box's ClientBind: the
+    /// receiving side opens them again.
+    async fn rebind(&self) -> io::Result<()> {
+        *self.send.lock().await = None;
+        self.failed.notify_one();
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::net::IpAddr;
+
+    use tokio::sync::mpsc;
+    use tokio::time::timeout;
+
+    use super::*;
+    use crate::protocol::wireguard::crypto;
+    use crate::protocol::wireguard::shell::InboundPacket;
+    use crate::protocol::wireguard::{Device, DeviceConfig, PeerConfig, PeerId, WireGuard};
+
+    fn ipv4_udp(src: [u8; 4], dst: [u8; 4], payload: &[u8]) -> Vec<u8> {
+        let total = 28 + payload.len();
+        let mut p = vec![0u8; total];
+        p[0] = 0x45;
+        p[2..4].copy_from_slice(&(total as u16).to_be_bytes());
+        p[8] = 64;
+        p[9] = 17;
+        p[12..16].copy_from_slice(&src);
+        p[16..20].copy_from_slice(&dst);
+        p[24..26].copy_from_slice(&((8 + payload.len()) as u16).to_be_bytes());
+        p[28..].copy_from_slice(payload);
+        p
+    }
+
+    fn device(private: [u8; 32], peer_public: [u8; 32], peer_ip: &str) -> (Device, PeerId) {
+        let mut device = Device::new(
+            DeviceConfig::new(private),
+            tokio::time::Instant::now().into_std(),
+        );
+        let mut peer = PeerConfig::new(peer_public);
+        peer.allowed_ips = vec![(peer_ip.parse::<IpAddr>().unwrap(), 32)];
+        let id = device.add_peer(peer).unwrap();
+        (device, id)
+    }
+
+    /// A packet each way, `n` its payload.
+    async fn exchange(
+        (a, rx_a): (&WireGuard, &mut mpsc::Receiver<InboundPacket>),
+        (b, rx_b): (&WireGuard, &mut mpsc::Receiver<InboundPacket>),
+        n: u8,
+    ) {
+        let p = ipv4_udp([10, 0, 0, 1], [10, 0, 0, 2], &[n]);
+        a.send(&p).await.unwrap();
+        let got = timeout(Duration::from_secs(5), rx_b.recv()).await;
+        assert_eq!(got.unwrap().unwrap().packet, p);
+        let p = ipv4_udp([10, 0, 0, 2], [10, 0, 0, 1], &[n]);
+        b.send(&p).await.unwrap();
+        let got = timeout(Duration::from_secs(5), rx_a.recv()).await;
+        assert_eq!(got.unwrap().unwrap().packet, p);
+    }
+
+    /// A rebind closes the socket and binds its port again; the tunnel,
+    /// its receive pending across it, goes on with the session it had.
+    #[tokio::test]
+    async fn a_rebind_keeps_the_port_and_the_session() {
+        let ka = crypto::generate_private_key();
+        let kb = crypto::generate_private_key();
+        let transport = Arc::new(
+            SocketTransport::bind(0, false, &Dialer::system())
+                .await
+                .unwrap(),
+        );
+        let port = transport.local_addr().unwrap().port();
+        let (device_a, pa) = device(ka, crypto::public_key(&kb), "10.0.0.2");
+        let (a, mut rx_a) = WireGuard::spawn(device_a, transport.clone());
+        let b_socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let b_addr = b_socket.local_addr().unwrap();
+        let (b, mut rx_b) = WireGuard::spawn(
+            device(kb, crypto::public_key(&ka), "10.0.0.1").0,
+            Arc::new(b_socket),
+        );
+        a.with_device(|d, _| (d.set_endpoint(pa, b_addr).unwrap(), Vec::new()))
+            .await;
+
+        exchange((&a, &mut rx_a), (&b, &mut rx_b), 1).await;
+        let handshake = a
+            .with_device(|d, _| (d.peer_stats(pa).unwrap().last_handshake, Vec::new()))
+            .await;
+        assert!(handshake.is_some());
+
+        let old = Arc::downgrade(&transport.socket().unwrap());
+        transport.rebind().await.unwrap();
+        assert!(old.upgrade().is_none(), "the old socket is still open");
+        assert_eq!(transport.local_addr().unwrap().port(), port);
+
+        exchange((&a, &mut rx_a), (&b, &mut rx_b), 2).await;
+        let stats = a
+            .with_device(|d, _| (d.peer_stats(pa).unwrap(), Vec::new()))
+            .await;
+        assert!(stats.has_session);
+        assert_eq!(stats.last_handshake, handshake);
     }
 }

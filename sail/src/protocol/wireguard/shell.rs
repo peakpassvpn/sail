@@ -22,6 +22,13 @@ use crate::net::accept::AcceptBackoff;
 pub trait Transport: Send + Sync + 'static {
     async fn send_to(&self, datagram: &[u8], dst: SocketAddr) -> io::Result<()>;
     async fn recv_from(&self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)>;
+
+    /// Opens it anew, on the network the host is on now, as wireguard-go's
+    /// BindUpdate: the device's sessions go on over it, as WireGuard
+    /// roams. A receive pending meanwhile goes on on the new one.
+    async fn rebind(&self) -> io::Result<()> {
+        Ok(())
+    }
 }
 
 #[async_trait]

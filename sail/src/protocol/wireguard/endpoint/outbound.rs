@@ -13,6 +13,7 @@ use crate::adapter::{
     OutboundDatagram, OutboundDatagramHandler, OutboundDatagramRecvHalf, OutboundDatagramSendHalf,
     OutboundStreamHandler,
 };
+use crate::net::network::NetworkChange;
 use crate::session::{Session, SocksAddr};
 
 use super::{Running, Shared};
@@ -99,6 +100,9 @@ impl OutboundStreamHandler for StreamHandler {
         }
         Err(last.unwrap_or_else(|| io::Error::other("no address to connect to")))
     }
+    fn network_changed(&self, change: &NetworkChange) {
+        self.0.network_changed(change);
+    }
 }
 
 pub(super) struct DatagramHandler(pub(super) Arc<Shared>);
@@ -130,6 +134,9 @@ impl OutboundDatagramHandler for DatagramHandler {
             },
             recv: RecvHalf(rx),
         }))
+    }
+    fn network_changed(&self, change: &NetworkChange) {
+        self.0.network_changed(change);
     }
 }
 
