@@ -89,7 +89,18 @@ fn samples(field: &Field) -> Vec<Value> {
     if !field.r#enum.is_empty() {
         return field.r#enum.clone();
     }
-    field.json.split('|').flat_map(samples_of).collect()
+    // A value of the field's own kind, where any string would not do.
+    let key = field.path.rsplit('.').next().unwrap_or_default();
+    let own = match key {
+        "inet6_bind_address" => vec![json!("2001:db8::1")],
+        k if k.ends_with("_address") => vec![json!("192.0.2.1")],
+        "client_subnet" => vec![json!("192.0.2.0/24")],
+        "domain_strategy" | "strategy" => vec![json!("prefer_ipv4")],
+        _ => vec![],
+    };
+    own.into_iter()
+        .chain(field.json.split('|').flat_map(samples_of))
+        .collect()
 }
 
 fn samples_of(kind: &str) -> Vec<Value> {
@@ -651,10 +662,13 @@ fn entry_of(path: &str) -> Option<&str> {
 
 impl Registry {
     /// How sail treats `field`: supported if it takes one of the samples.
-    /// With the configuration that decided it.
+    /// With the configuration that decided it. A sample refused for its
+    /// value says nothing of the field while another sample may: one that
+    /// sail takes, or warns of, goes before it.
     fn measure(&self, field: &Field) -> (Measured, String, Value) {
         let at = measured_at(&field.path);
         let mut first = None;
+        let mut refused = None;
         for value in samples(field) {
             let probe = self.probe(&at, value);
             let (tier, message) = measure(&probe, &at);
@@ -662,6 +676,10 @@ impl Registry {
             // Only a protocol's refusal, or of a value `upstream::VALUES`
             // lists, may be of the value.
             let whatever = match measured.0 {
+                Measured::Supported if !measured.1.is_empty() => {
+                    refused.get_or_insert(measured);
+                    continue;
+                }
                 Measured::Supported | Measured::Ignored | Measured::Unknown => true,
                 Measured::Unsupported => {
                     measured.1.contains("does not implement this field")
@@ -673,7 +691,7 @@ impl Registry {
             }
             first.get_or_insert(measured);
         }
-        first.expect("a sample")
+        refused.or(first).expect("a sample")
     }
 
     /// How sail treats an unknown field in the object at `path`.
