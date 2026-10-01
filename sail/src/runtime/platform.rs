@@ -166,16 +166,19 @@ impl std::ops::Deref for PlatformRef {
     }
 }
 
-/// Collects log output into lines for `Platform::log`.
+/// Collects log output into lines for `Platform::log`. The logger is the
+/// process's and outlives the instance whose host it writes to, so it
+/// holds the host weakly: once the instance is gone, so is the host's
+/// platform (its `release` called), and the lines are dropped.
 pub(crate) struct LineWriter {
-    platform: PlatformRef,
+    platform: std::sync::Weak<dyn Platform>,
     buf: Vec<u8>,
 }
 
 impl LineWriter {
     pub fn new(platform: PlatformRef) -> Self {
         LineWriter {
-            platform,
+            platform: Arc::downgrade(&platform.0),
             buf: Vec::new(),
         }
     }
@@ -186,8 +189,9 @@ impl std::io::Write for LineWriter {
         self.buf.extend_from_slice(data);
         while let Some(end) = self.buf.iter().position(|&b| b == b'\n') {
             let line: Vec<u8> = self.buf.drain(..=end).collect();
-            self.platform
-                .log(String::from_utf8_lossy(&line[..end]).as_ref());
+            if let Some(platform) = self.platform.upgrade() {
+                platform.log(String::from_utf8_lossy(&line[..end]).as_ref());
+            }
         }
         Ok(data.len())
     }
@@ -221,5 +225,17 @@ mod tests {
         writer.write_all(b"ond\n").unwrap();
         writer.write_all(b"unfinished").unwrap();
         assert_eq!(*recorder.0.lock().unwrap(), ["first", "second"]);
+    }
+
+    #[test]
+    fn the_writer_keeps_no_host_alive() {
+        let recorder = Arc::new(Recorder::default());
+        let mut writer = LineWriter::new(PlatformRef(recorder.clone()));
+        writer.write_all(b"while it lives\n").unwrap();
+        let weak = Arc::downgrade(&recorder);
+        drop(recorder);
+        assert!(weak.upgrade().is_none(), "the writer held the host");
+        // Lines for a host that is gone are dropped.
+        writer.write_all(b"after\n").unwrap();
     }
 }

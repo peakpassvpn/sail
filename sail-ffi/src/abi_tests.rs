@@ -1919,3 +1919,33 @@ fn a_change_of_network_is_followed() {
         eventually("released", || changes.released.load(Ordering::SeqCst) == 1);
     });
 }
+
+extern "C" fn protect_any(_fd: i32, _context: *mut c_void) -> bool {
+    true
+}
+
+/// The system log (iOS's and Android's default) writes to the host's
+/// platform for as long as the instance lives, and keeps it no longer.
+#[test]
+fn the_system_log_lets_the_platform_go_with_the_instance() {
+    let _serial = serial();
+    within(Duration::from_secs(60), || {
+        for settings in [
+            r#"{"profile": "mobile", "log_to_system": true}"#,
+            r#"{"profile": "desktop", "log_to_system": true}"#,
+        ] {
+            let host = Recorder::new();
+            let mut platform = platform_of(&host);
+            platform.protect_socket = Some(protect_any);
+            let instance = new_instance(Some(settings), Some(&platform));
+            let port = free_port();
+            start(instance, &config(port));
+            echo_through(port);
+            stop(instance);
+            sail_instance_free(instance);
+            eventually(&format!("released, with {}", settings), || {
+                host.released.load(Ordering::SeqCst) == 1
+            });
+        }
+    });
+}
