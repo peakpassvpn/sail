@@ -9,7 +9,7 @@ netgen 客户端 --SOCKS--> 被测客户端 ==veth, netem==> sing-box 服务端 
 
 - `netns.sh`：建立、整形、断开这对命名空间。所有操作都只在这两个命名空间里进行，不动宿主机自己的路由和防火墙。
 - `netgen/`：流量工具（Go）。双方发送的每个字节都来自带种子的生成器，由对端校验，所以数据损坏、截断、错序都会被计数，不会漏掉。模式包括大块上下行、回显往返、建连延迟、大量并发、按固定速率建立并保持大量连接（`hold`，给出建连延迟到 p999，可经多个 SOCKS 代理轮流建连）、短连接高频开关、两个方向的半关闭，以及断网期间的连通性探测。
-- `run.py`：编排。每组（协议 × 客户端）按场景依次整形、跑负载、采样，结果写到 `<work>/results/<时间>/summary.json`；只有出现失败的组才保留压缩后的原始记录。
+- `run.py`：编排。每组（协议 × 客户端）按场景依次整形、跑负载、采样，结果写到 `<work>/results/<时间>/summary.json`（`{"schema": 1, "runs": [...]}`，每次运行一项）；只有出现失败的组才保留压缩后的原始记录。
 
 ## 运行
 
@@ -23,7 +23,7 @@ python3 run.py --work WORK --sail WORK/sail --netgen WORK/netgen
 python3 run.py --protocols direct --clients sail-server --only baseline --quick   # 冒烟
 ```
 
-`--protocols` 取 `direct,ss,trojan,reality,hy2,tuic,mux`（默认前三个；`reality` 是 vless+REALITY+vision，握手目标是服务端 netns 里的 `openssl s_server`；`mux` 是开了 sing-mux 的 trojan）；`--clients` 取 `sail-server,sail-mobile,sing-box`（sail 的运行档位，或 sing-box 作对照）；`--inbound tun` 让客户端改用 tun 入站（auto_route，接管客户端 netns 的全部流量），netgen 直接连目标，走的是 TUN 路径而不是 SOCKS；`--only` 只跑名字含该子串的场景；`--quick` 缩短每项负载；`--client-set KEY=VALUE` 把 sail 的 `--set` 传给被测客户端（可重复）；`--only route_switch` 单独跑默认路由切换（客户端经默认路由连服务端并跟随默认网卡）。
+`--protocols` 取 `direct,ss,trojan,reality,hy2,tuic,mux`（默认前三个；`reality` 是 vless+REALITY+vision，握手目标是服务端 netns 里的 `openssl s_server`；`mux` 是开了 sing-mux 的 trojan）；`--clients` 取 `sail-server,sail-mobile,sing-box`（sail 的运行档位，或 sing-box 作对照）；`--inbound tun` 让客户端改用 tun 入站（auto_route，接管客户端 netns 的全部流量），netgen 直接连目标，走的是 TUN 路径而不是 SOCKS；`--only` 只跑名字含该子串的场景，可用逗号分隔多个（如 `--only baseline,rate10m`；`disconnect`、`concurrency`、`halfclose` 选对应的一组）；`--quick` 缩短每项负载；`--client-set KEY=VALUE` 把 sail 的 `--set` 传给被测客户端（可重复）；`--only route_switch` 单独跑默认路由切换（客户端经默认路由连服务端并跟随默认网卡）。
 
 长跑：`--soak HOURS` 代替上面的场景，客户端不重启，在基线、高延迟、丢包、限速、突发丢包之间轮换，每轮跑一组轻量的带校验负载后静置 60 秒、记录客户端的静止 RSS 与描述符；每小时向该次运行目录下的 `soak.jsonl` 追加一行，结束时按“第 2 小时到最后一小时静止 RSS 增长低于 10%”判定。`--cpus LIST` 把客户端一侧（被测客户端与 netgen）绑到这些 CPU 上（`taskset -c`），`--server-cpus LIST` 把服务端一侧绑到另一组 CPU；只给 `--cpus` 时两侧都绑到同一组，用于和另一个长跑共用主机。
 

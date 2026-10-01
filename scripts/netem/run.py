@@ -686,12 +686,12 @@ class Run:
     def scenarios(self, sampler):
         """The shaped, disconnect, concurrency and half-close scenarios."""
         for scenario, spec in SHAPED:
-            if self.args.only and self.args.only not in scenario:
+            if self.args.only and not any(o in scenario for o in self.args.only_list):
                 continue
             netns("shape", spec) if spec else netns("clear")
             self.workloads(sampler, scenario)
         netns("clear")
-        if not self.args.only or "disconnect" in self.args.only:
+        if not self.args.only or any("disconnect" in o for o in self.args.only_list):
             self.disconnect(sampler, "blackhole5", 5, "blackhole")
             self.disconnect(sampler, "blackhole30", 30, "blackhole")
             self.disconnect(sampler, "linkdown10", 10, "linkdown")
@@ -700,9 +700,9 @@ class Run:
         # route reaches, and follows the default interface.
         if self.args.only == "route_switch":
             self.route_switch(sampler)
-        if not self.args.only or "concurrency" in self.args.only:
+        if not self.args.only or any("concurrency" in o for o in self.args.only_list):
             self.concurrency(sampler)
-        if not self.args.only or "halfclose" in self.args.only:
+        if not self.args.only or any("halfclose" in o for o in self.args.only_list):
             self.halfclose(sampler)
 
     def go(self):
@@ -784,9 +784,10 @@ def parse_network_changed(line):
 
 
 def write_summary(out, summaries):
+    """The runs, under a schema version that a reader (tools/perf) checks."""
     path = os.path.join(out, "summary.json")
     with open(path + ".tmp", "w") as f:
-        json.dump(summaries, f, indent=1)
+        json.dump({"schema": 1, "runs": summaries}, f, indent=1)
     os.replace(path + ".tmp", path)
 
 
@@ -821,7 +822,10 @@ def main():
                          "with auto_route that takes the namespace's traffic")
     # sing-box is the reference; sail serves the protocols it takes in too.
     ap.add_argument("--servers", default="sing-box")
-    ap.add_argument("--only", default="")
+    ap.add_argument("--only", default="",
+                    help="only these scenarios, comma-separated: each a part of a shaped "
+                         "scenario's name, or disconnect, concurrency, halfclose; "
+                         "route_switch alone, as a run of its own")
     ap.add_argument("--setup-n", type=int, default=0,
                     help="connections of the setup workload, for rare failures")
     ap.add_argument("--client-nofile", type=int, default=None,
@@ -829,6 +833,9 @@ def main():
                          "the others keep a deployment's")
     ap.add_argument("--quick", action="store_true")
     args = ap.parse_args()
+    args.only_list = [o.strip() for o in args.only.split(",") if o.strip()]
+    if "route_switch" in args.only_list and args.only != "route_switch":
+        ap.error("--only route_switch is a run of its own")
     if args.cpus:
         CPUS[CLIENT_NS] = args.cpus
         CPUS[SERVER_NS] = args.server_cpus or args.cpus
