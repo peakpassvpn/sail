@@ -6,7 +6,7 @@
 #
 # Usage:
 #   tools/sensitive-check.sh tree              every tracked file at HEAD
-#   tools/sensitive-check.sh range BASE HEAD   lines, paths and messages added in BASE..HEAD
+#   tools/sensitive-check.sh range BASE HEAD   lines, paths, messages and authors added in BASE..HEAD
 #
 # Local patterns: one extended regex per line in $SAIL_SENSITIVE_PATTERNS
 # (default ~/.config/sail/sensitive-patterns); blank lines and # comments are
@@ -47,6 +47,7 @@ range)
     [ -n "$hits" ] && { echo "$hits" | sed 's/^/sensitive-check: /'; found=1; }
     for c in $(git rev-list "$base..$head"); do
         git log -1 --format=%B "$c" | grep -qE "$patterns" && report "commit $(git rev-parse --short "$c"): message"
+        git log -1 --format='%an%n%ae%n%cn%n%ce' "$c" | grep -qE "$patterns" && report "commit $(git rev-parse --short "$c"): author or committer"
     done
     ;;
 *)
