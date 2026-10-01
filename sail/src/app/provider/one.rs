@@ -541,6 +541,7 @@ fn hash(body: &[u8]) -> u64 {
 mod tests {
     use super::*;
 
+    #[cfg(feature = "outbound-direct")]
     fn dns_client() -> SyncDnsClient {
         crate::app::dns::DnsClient::new(
             &Default::default(),
@@ -603,6 +604,7 @@ mod tests {
         .unwrap()
     }
 
+    #[cfg(feature = "outbound-direct")]
     fn names(provider: &Provider) -> Vec<String> {
         let snapshot = provider.members().load();
         snapshot
@@ -612,6 +614,7 @@ mod tests {
             .collect()
     }
 
+    #[cfg(feature = "outbound-direct")]
     fn handler(provider: &Provider, name: &str) -> AnyOutboundHandler {
         provider
             .members()

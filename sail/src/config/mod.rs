@@ -103,6 +103,15 @@ pub fn from_file_for(path: &str, host: &crate::runtime::Host) -> Result<Config> 
     format.parse(&text)
 }
 
+/// A certificate's SHA-256 hash as a front-end writes it (colons, spaces,
+/// either case), as `certificate_sha256` has it: lowercase hex alone.
+pub(crate) fn certificate_hash(hash: &str) -> String {
+    hash.chars()
+        .filter(|c| *c != ':' && !c.is_whitespace())
+        .collect::<String>()
+        .to_ascii_lowercase()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -132,13 +141,4 @@ mod tests {
         assert_eq!(Format::of_file("b.conf").unwrap(), Format::Surge);
         assert!(Format::of_file("b.toml").is_err());
     }
-}
-
-/// A certificate's SHA-256 hash as a front-end writes it (colons, spaces,
-/// either case), as `certificate_sha256` has it: lowercase hex alone.
-pub(crate) fn certificate_hash(hash: &str) -> String {
-    hash.chars()
-        .filter(|c| *c != ':' && !c.is_whitespace())
-        .collect::<String>()
-        .to_ascii_lowercase()
 }
