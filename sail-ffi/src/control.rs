@@ -292,6 +292,8 @@ pub unsafe extern "C" fn sail_url_test(
         let tag = unsafe { str_arg(tag, "tag") }?.to_string();
         let url = unsafe { opt_str_arg(url, "url") }?.map(str::to_owned);
         let timeout = timeout(timeout_ms)?;
+        // One arm without the command service, two with it.
+        #[allow(clippy::infallible_destructuring_match)]
         let instance = match target(instance)? {
             Target::Local(i) => i,
             #[cfg(feature = "command-server")]
