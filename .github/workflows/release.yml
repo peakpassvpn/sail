@@ -5,7 +5,9 @@ name: release
 # The 5.8 release design: each target is built by its own job with the
 # scripts ci.yml's cross job checks, symbols are kept apart, two Linux
 # targets are built twice and must match, and the release stays a draft
-# until every file is in it. Apple comes in a later step.
+# until every file is in it. The tag is the workflow's: its commit is the
+# branch's with bindings/swift/Package.swift pointing at the release's
+# XCFramework, which only then has a checksum.
 on:
   workflow_dispatch:
     inputs:
@@ -178,6 +180,32 @@ jobs:
           name: aar
           path: out/
 
+  # Apple's: sail for macOS (both architectures in one file) and the
+  # XCFramework, one job, as they build the same crates. Standard runner.
+  apple:
+    needs: check
+    runs-on: macos-latest
+    env:
+      SOURCE_DATE_EPOCH: ${{ needs.check.outputs.epoch }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.TOOLCHAIN }}
+          targets: aarch64-apple-darwin,x86_64-apple-darwin,aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
+
+      - name: GNU tar
+        run: command -v gtar || brew install gnu-tar
+
+      - name: build
+        run: scripts/release/build-apple.sh "${{ inputs.version }}" out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apple
+          path: out/
+
   # The same commit built again on another runner must give the same bytes.
   reproducible:
     needs: [check, cli]
@@ -219,7 +247,7 @@ jobs:
           cmp "first/ship/sail-$VERSION-$T.tar.gz" "again/ship/sail-$VERSION-$T.tar.gz"
 
   assemble:
-    needs: [check, cli, reproducible, aar]
+    needs: [check, cli, reproducible, aar, apple]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -244,6 +272,11 @@ jobs:
         with:
           name: aar
           path: built/aar
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: apple
+          path: built/apple
 
       - name: gather
         run: |
@@ -303,6 +336,19 @@ jobs:
           name: release
           path: .
 
+      # The tagged commit: this one, with the Swift package fetching the
+      # release's XCFramework. Only the tag is pushed; the branch keeps
+      # building SailC from the source.
+      - name: tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          scripts/release/swift-package.sh "$GITHUB_REPOSITORY" "$VERSION" dist/SailC.xcframework.zip
+          git commit -q -am "release: sail $VERSION, its Swift package on the release's XCFramework"
+          tools/sensitive-check.sh range "$GITHUB_SHA" HEAD
+          git tag "v$VERSION"
+          git push origin "refs/tags/v$VERSION"
+
       - name: release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -313,9 +359,11 @@ jobs:
             echo
             echo "Every file's hash is in SHA256SUMS, its size and build ID in manifest.json,"
             echo "and its build provenance can be checked with \`gh attestation verify\`."
+            echo
+            echo "Swift: the package at this tag (bindings/swift) fetches SailC.xcframework.zip from here."
             if [ -s grown.txt ]; then echo; echo "Grown since the last release:"; sed 's/^/- /' grown.txt; fi
           } >notes.md
           # A draft until every file is in it.
-          gh release create "$tag" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+          gh release create "$tag" --repo "$GITHUB_REPOSITORY" --verify-tag \
             --title "sail $VERSION" --notes-file notes.md --draft dist/*
           gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --draft=false

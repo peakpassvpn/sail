@@ -13,7 +13,9 @@
 #
 # Linux archives carry packaging/systemd and its guide; the Windows one
 # carries wintun.dll, exactly as wintun.net ships it (WINTUN_VERSION and
-# WINTUN_SHA256 pin the zip), with its license.
+# WINTUN_SHA256 pin the zip), with its license. On macOS (target
+# macos-universal) GNU tar does the archive, as gtar; DSYM names the
+# file's dSYM for split-symbols.sh.
 
 set -euo pipefail
 
@@ -23,6 +25,15 @@ built=$3
 out=$4
 
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
+
+sha256() {
+	if command -v sha256sum >/dev/null; then sha256sum "$1"; else shasum -a 256 "$1"; fi |
+		cut -d' ' -f1
+}
+# GNU tar: fixed order, owner and times take its options.
+tar=$(command -v gtar || command -v tar)
+"$tar" --version 2>/dev/null | grep -q 'GNU tar' ||
+	{ echo "package-cli: GNU tar needed (gtar on macOS)" >&2; exit 1; }
 name=sail-$version-$target
 stage=$(mktemp -d)/$name
 mkdir -p "$stage" "$out/ship" "$out/symbols"
@@ -37,7 +48,7 @@ id=$("$ROOT/scripts/release/split-symbols.sh" "$stage/$exe" "$out/symbols")
 for f in "$out/symbols"/"$exe"*; do
 	mv "$f" "$out/symbols/sail-$target${f##*/"$exe"}"
 done
-sha256sum "$stage/$exe" | cut -d' ' -f1 >"$out/$target.sha256"
+sha256 "$stage/$exe" >"$out/$target.sha256"
 
 cp "$ROOT/LICENSE" "$ROOT/THIRD_PARTY_LICENSES.md" "$stage/"
 case $target in
@@ -57,7 +68,8 @@ TXT
 	: "${WINTUN_VERSION:?}" "${WINTUN_SHA256:?}"
 	zip=$(mktemp -d)/wintun.zip
 	curl -sSfL -o "$zip" "https://www.wintun.net/builds/wintun-$WINTUN_VERSION.zip"
-	echo "$WINTUN_SHA256  $zip" | sha256sum -c --quiet
+	[ "$(sha256 "$zip")" = "$WINTUN_SHA256" ] ||
+		{ echo "package-cli: wintun zip: not the pinned hash" >&2; exit 1; }
 	unzip -q -j "$zip" wintun/bin/amd64/wintun.dll -d "$stage"
 	unzip -q -p "$zip" wintun/LICENSE.txt >"$stage/wintun-LICENSE.txt"
 	cat >"$stage/README.txt" <<TXT
@@ -66,6 +78,15 @@ sail $version for $target
 Run it:  sail.exe -c config.json
 The TUN inbound uses Wintun (wintun.dll, beside sail.exe), shipped
 unmodified from wintun.net under its own license, wintun-LICENSE.txt.
+TXT
+	;;
+macos*)
+	cat >"$stage/README.txt" <<TXT
+sail $version for macOS (Apple silicon and Intel)
+
+Run it:  ./sail -c config.json
+Not signed: macOS asks before the first run; allow it under System
+Settings, Privacy & Security, or run: xattr -d com.apple.quarantine sail
 TXT
 	;;
 esac
@@ -81,7 +102,7 @@ case $target in
 	;;
 *)
 	archive=$name.tar.gz
-	tar --sort=name --owner=0 --group=0 --numeric-owner --mtime="@$epoch" \
+	"$tar" --sort=name --owner=0 --group=0 --numeric-owner --mtime="@$epoch" \
 		-cf - "$name" | gzip -n -9 >"$out/ship/$archive"
 	;;
 esac
