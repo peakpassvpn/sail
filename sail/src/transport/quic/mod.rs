@@ -2,6 +2,7 @@
 
 mod common;
 mod detour;
+mod recv_backoff;
 
 pub use common::*;
 pub use detour::DetourSocket;

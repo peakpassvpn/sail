@@ -18,6 +18,7 @@ use quinn::{AsyncUdpSocket, Runtime};
 use serde_derive::Deserialize;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
+use super::recv_backoff::RecvBackoff;
 use crate::net::Dialer;
 use crate::runtime::options::Quic as Tuning;
 use crate::runtime::RuntimeEnv;
@@ -441,7 +442,9 @@ pub fn endpoint(
     endpoint_on(wrap_socket(socket)?, server)
 }
 
-/// [`endpoint`] on a socket of quinn's.
+/// [`endpoint`] on a socket of quinn's. Every endpoint is made here: its
+/// socket waits out transient receive errors, which would otherwise end
+/// the endpoint and every connection on it ([`RecvBackoff`]).
 pub fn endpoint_on(
     socket: Arc<dyn AsyncUdpSocket>,
     server: Option<quinn::ServerConfig>,
@@ -449,7 +452,7 @@ pub fn endpoint_on(
     quinn::Endpoint::new_with_abstract_socket(
         quinn_btls::helpers::default_endpoint_config(),
         server,
-        socket,
+        Arc::new(RecvBackoff::new(socket)),
         Arc::new(quinn::TokioRuntime),
     )
 }
