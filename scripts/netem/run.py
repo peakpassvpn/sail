@@ -313,15 +313,26 @@ class Run:
         cmd = in_ns(CLIENT_NS, f"{self.args.netgen} {mode} {proxy}-target {target} "
                     + " ".join(flags))
         t0 = time.time()
-        r = sh(cmd, check=False, timeout=timeout)
-        out = r.stdout.strip().splitlines()
+        # Its own process group: a timeout ends the traffic tool itself, not
+        # only the shell that started it, and the run goes on with the
+        # operation counted as failed, as a hung transfer is a result too.
+        p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE, text=True, start_new_session=True)
+        try:
+            stdout, stderr = p.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            os.killpg(p.pid, signal.SIGKILL)
+            p.communicate()
+            return {"failed": 1, "_seconds": round(time.time() - t0, 2),
+                    "_error": f"{mode} did not finish within {timeout}s"}
+        out = stdout.strip().splitlines()
         try:
             res = json.loads(out[-1]) if out else {}
         except json.JSONDecodeError:
             res = {}
         res["_seconds"] = round(time.time() - t0, 2)
-        if r.returncode != 0:
-            res["_error"] = r.stderr.strip()[-500:]
+        if p.returncode != 0:
+            res["_error"] = stderr.strip()[-500:]
         return res
 
     def start_server(self):
@@ -580,6 +591,15 @@ class Run:
                 self.check(f"soak/{scenario}", workload, res)
                 if res.get("failed"):
                     self.soak_failed = getattr(self, "soak_failed", 0) + res["failed"]
+                    # Which link condition, when, and what the tool said.
+                    with open(os.path.join(self.dir, "soak-failures.jsonl"), "a") as f:
+                        f.write(json.dumps({
+                            "t": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                            "round": rounds + 1, "scenario": scenario,
+                            "workload": workload, "failed": res["failed"],
+                            "seconds": res.get("_seconds"),
+                            "errors": res.get("errors"), "error": res.get("_error"),
+                        }) + "\n")
             netns("clear")
             rest = self.idle(sampler, settle=60)
             rest["t"] = time.time()
