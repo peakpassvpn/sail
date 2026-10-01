@@ -208,7 +208,7 @@ impl Instance {
     /// routes into it. Returns what runs the instance.
     pub fn start(&mut self) -> Result<Vec<Runner>> {
         let mut runners = vec![
-            StatManager::store_task(self.stat_manager.clone(), self.env.clone()),
+            StatManager::store_task(self.stat_manager.clone(), self.env.cache_file.clone()),
             self.env.users.expiry_task(),
         ];
         let inbound_manager = self.inbound_manager.clone();
@@ -289,7 +289,7 @@ impl Instance {
     /// Undoes what `start` did to the system.
     pub fn stop(&mut self) {
         // What it kept is written, and the file freed for the next start.
-        self.stat_manager.store(&self.env);
+        self.stat_manager.store(&self.env.cache_file);
         self.env.cache_file.close();
         // Before the device goes, as sing-box closes it.
         #[cfg(all(

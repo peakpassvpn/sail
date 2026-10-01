@@ -297,7 +297,12 @@ fn platform_of(recorder: &Arc<Recorder>) -> SailPlatform {
 
 /// Waits until `f` holds, for up to 10 s.
 fn eventually(what: &str, f: impl Fn() -> bool) {
-    let deadline = Instant::now() + Duration::from_secs(10);
+    eventually_within(Duration::from_secs(10), what, f)
+}
+
+/// Waits until `f` holds, for up to `limit`.
+fn eventually_within(limit: Duration, what: &str, f: impl Fn() -> bool) {
+    let deadline = Instant::now() + limit;
     while !f() {
         assert!(Instant::now() < deadline, "{}", what);
         std::thread::sleep(Duration::from_millis(20));
@@ -560,6 +565,26 @@ fn files() -> usize {
     std::fs::read_dir("/dev/fd").unwrap().count()
 }
 
+/// The process's threads and files once they have held for 6 s, within
+/// 90 s: longer than what an instance leaves to end on its own lingers
+/// unchanged (the neighbor table's watcher, up to a 5 s dump), so that it
+/// is not counted as the baseline and a leak of one thread still shows.
+fn settled() -> (usize, usize) {
+    let deadline = Instant::now() + Duration::from_secs(90);
+    let mut seen = (threads(), files());
+    let mut since = Instant::now();
+    while Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(100));
+        let now = (threads(), files());
+        if now != seen {
+            (seen, since) = (now, Instant::now());
+        } else if since.elapsed() >= Duration::from_secs(6) {
+            break;
+        }
+    }
+    seen
+}
+
 #[test]
 fn starts_and_stops_leave_nothing_behind() {
     let _serial = serial();
@@ -580,7 +605,7 @@ fn starts_and_stops_leave_nothing_behind() {
         eventually("the warm-up instance is gone", || {
             instance::ids_held() == ids0
         });
-        let (threads0, files0) = (threads(), files());
+        let (threads0, files0) = settled();
 
         let host = Recorder::new();
         let platform = platform_of(&host);
@@ -602,9 +627,16 @@ fn starts_and_stops_leave_nothing_behind() {
             instance::live_instances() == instances0 && instance::ids_held() == ids0
         });
         assert_eq!(events::live_subscriptions(), subs0);
-        assert_eq!(host.released.load(Ordering::SeqCst), 1);
+        eventually("the platform released", || {
+            host.released.load(Ordering::SeqCst) == 1
+        });
+        assert_eq!(host.released.load(Ordering::SeqCst), 1, "released once");
         assert_eq!(events.released.load(Ordering::SeqCst), 1);
-        eventually(
+        // What an instance leaves to end on its own: the neighbor table's
+        // watcher sees its receiver gone at its next read, up to 3 s
+        // (WATCH_POLL) or a dump's 5 s; a loaded machine takes longer.
+        eventually_within(
+            Duration::from_secs(60),
             &format!("threads back to {} and files to {}", threads0, files0),
             || threads() <= threads0 && files() <= files0,
         );

@@ -930,23 +930,30 @@ impl StatManager {
     }
 
     /// Writes the counts to the cache file, if there is one.
-    pub fn store(&self, env: &crate::runtime::RuntimeEnv) {
-        if let Some(cache) = env.cache_file.get() {
+    pub fn store(&self, cache_file: &crate::runtime::cache_file::CacheFileSlot) {
+        if let Some(cache) = cache_file.get() {
             if let Err(e) = cache.store_traffic(&self.traffic()) {
                 warn!("cache_file: traffic not written: {:#}", e);
             }
         }
     }
 
-    /// Writes the counts to the cache file every `STORE_INTERVAL`.
-    pub fn store_task(sm: SyncStatManager, env: crate::runtime::SyncRuntimeEnv) -> crate::Runner {
+    /// Writes the counts to the cache file every `STORE_INTERVAL`. The
+    /// write runs on a blocking thread, which a stopping instance does not
+    /// wait for: it holds the file alone, never the instance's environment
+    /// and so its host's platform, which is released once the instance
+    /// stops.
+    pub fn store_task(
+        sm: SyncStatManager,
+        cache_file: crate::runtime::cache_file::CacheFileSlot,
+    ) -> crate::Runner {
         Box::pin(async move {
             let mut interval = tokio::time::interval(STORE_INTERVAL);
             interval.tick().await;
             loop {
                 interval.tick().await;
-                let (sm, env) = (sm.clone(), env.clone());
-                let _ = tokio::task::spawn_blocking(move || sm.store(&env)).await;
+                let (sm, cache_file) = (sm.clone(), cache_file.clone());
+                let _ = tokio::task::spawn_blocking(move || sm.store(&cache_file)).await;
             }
         })
     }
