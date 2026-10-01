@@ -2,7 +2,12 @@
 
 ## System Overview
 
-MPTP (Multipath Transport Protocol) carries one logical tunnel over several reliable connections for resilience. Every frame is sent on every path that has room (at most 64 KiB queued on it); the receiver keeps the first copy of each frame, drops the duplicates and puts the frames back in order. MPTP therefore keeps a tunnel going when one path fails, but it does not add bandwidth, and its traffic is multiplied by the number of paths. It has no authentication or encryption of its own. Configuration is on the [MPTP page](https://peakpassvpn.github.io/sail/mptp/).
+MPTP (Multipath Transport Protocol) carries one logical tunnel over several reliable connections for resilience. Each frame is sent on every sub-connection that has room (at most 64 KiB queued on it). The receiver keeps the first copy of each frame, drops the duplicates and reorders up to 1024 frames ahead; a sub-connection whose next frame is further ahead is not read until the gap fills, which slows the sender. MPTP adds no bandwidth, and its traffic is multiplied by the number of paths. It has no authentication or encryption of its own. Configuration is on the [MPTP page](https://peakpassvpn.github.io/sail/mptp/).
+
+Known limits:
+- There is no retransmission: frames sent only on a sub-connection that fails are lost.
+- On the server, a session whose paths are all held or closed keeps waiting for a new path; there is no session timeout yet.
+- Throughput over paths of very different latency is unmeasured.
 
 ```mermaid
 graph TD
