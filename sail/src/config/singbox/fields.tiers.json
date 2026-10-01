@@ -1753,11 +1753,6 @@
   "route.rules[action=route-options].tls_fragment",
   "route.rules[action=route-options].tls_fragment_fallback_delay",
   "route.rules[action=route-options].tls_record_fragment",
-  "route.rules[action=direct].inet4_bind_address",
-  "route.rules[action=direct].inet6_bind_address",
-  "route.rules[action=direct].domain_resolver.strategy",
-  "route.rules[action=direct].domain_resolver.client_subnet",
-  "route.rules[action=direct].domain_strategy",
   "route.rules[action=bypass].outbound",
   "route.rules[action=bypass].override_address",
   "route.rules[action=bypass].override_port",
@@ -2298,6 +2293,8 @@
   ],
   "Accepted, no effect (as sing-box)": [
    "route.rules[action=direct].bind_interface",
+   "route.rules[action=direct].inet4_bind_address",
+   "route.rules[action=direct].inet6_bind_address",
    "route.rules[action=direct].bind_address_no_port",
    "route.rules[action=direct].routing_mark",
    "route.rules[action=direct].reuse_addr",
@@ -2310,13 +2307,16 @@
    "route.rules[action=direct].domain_resolver",
    "route.rules[action=direct].domain_resolver.server",
    "route.rules[action=direct].domain_resolver.timeout",
+   "route.rules[action=direct].domain_resolver.strategy",
    "route.rules[action=direct].domain_resolver.disable_cache",
    "route.rules[action=direct].domain_resolver.disable_optimistic_cache",
    "route.rules[action=direct].domain_resolver.rewrite_ttl",
+   "route.rules[action=direct].domain_resolver.client_subnet",
    "route.rules[action=direct].network_strategy",
    "route.rules[action=direct].network_type",
    "route.rules[action=direct].fallback_network_type",
-   "route.rules[action=direct].fallback_delay"
+   "route.rules[action=direct].fallback_delay",
+   "route.rules[action=direct].domain_strategy"
   ],
   "sail looks processes up when a rule asks for them": [
    "route.find_process"

@@ -134,8 +134,8 @@ Rust: [`Rule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/mode
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
 | `bind_interface` | string | — | Warned: Accepted, no effect (as sing-box) | `direct`: the interface to send through, by name. |
-| `inet4_bind_address` | string | unset | Supported | `direct`: the local address for IPv4 destinations. |
-| `inet6_bind_address` | string | unset | Supported | `direct`: the local address for IPv6 destinations. |
+| `inet4_bind_address` | string | — | Warned: Accepted, no effect (as sing-box) | `direct`: the local address for IPv4 destinations. |
+| `inet6_bind_address` | string | — | Warned: Accepted, no effect (as sing-box) | `direct`: the local address for IPv6 destinations. |
 | `bind_address_no_port` | bool | — | Warned: Accepted, no effect (as sing-box) | `direct`: `IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address: Linux only. |
 | `protect_path` | string | — | Error: Android's socket protection and Linux network namespaces: sockets would leave another way | — |
 | `routing_mark` | number\|string | — | Warned: Accepted, no effect (as sing-box) | `direct`: `SO_MARK`, Linux only. |
@@ -153,7 +153,7 @@ Rust: [`Rule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/mode
 | `network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Warned: Accepted, no effect (as sing-box) | The kind of network: `wifi`, `cellular`, `ethernet`, `other`. |
 | `fallback_network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Warned: Accepted, no effect (as sing-box) | `direct`: the types of interface its `fallback` strategy falls back to. Its `network_type` is not one: a rule's `network_type` is its condition, as in sing-box. |
 | `fallback_delay` | duration | — | Warned: Accepted, no effect (as sing-box) | `route`, `route-options`: how long a direct outbound the connection goes out of tries one family's addresses, and its first interfaces, before the others race them, instead of its own `fallback_delay`, where `network_strategy` would apply. A later rule's goes before. A duration string, as sing-box's documentation writes it, or a number of nanoseconds, as sing-box 1.14.1 reads it here. `direct`: checked only. |
-| `domain_strategy` | string | unset | Supported (deprecated in sing-box) | `direct`: sing-box's deprecated field for the families names resolve to. |
+| `domain_strategy` | string | — | Warned: Accepted, no effect (as sing-box) (deprecated in sing-box) | `direct`: sing-box's deprecated field for the families names resolve to. |
 
 <a id="route-rules-action-direct-domain-resolver"></a>
 
@@ -165,11 +165,11 @@ Rust: [`DomainResolver`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/c
 | --- | --- | --- | --- | --- |
 | `server` | string | required | Warned: Accepted, no effect (as sing-box) | — |
 | `timeout` | duration | — | Warned: Accepted, no effect (as sing-box) | — |
-| `strategy` | string, one of `as_is`, `prefer_ipv4`, `prefer_ipv6`, `ipv4_only`, `ipv6_only` | unset | Supported | — |
+| `strategy` | string, one of `as_is`, `prefer_ipv4`, `prefer_ipv6`, `ipv4_only`, `ipv6_only` | — | Warned: Accepted, no effect (as sing-box) | — |
 | `disable_cache` | bool | — | Warned: Accepted, no effect (as sing-box) | — |
 | `disable_optimistic_cache` | bool | — | Warned: Accepted, no effect (as sing-box) | — |
 | `rewrite_ttl` | number | — | Warned: Accepted, no effect (as sing-box) | — |
-| `client_subnet` | string | unset | Supported | — |
+| `client_subnet` | string | — | Warned: Accepted, no effect (as sing-box) | — |
 
 <a id="route-rules-action-reject"></a>
 

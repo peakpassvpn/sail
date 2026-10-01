@@ -21,13 +21,13 @@ Full table: [docs/compat/sing-box.md](https://github.com/peakpassvpn/sail/blob/d
 | `certificate_providers` | 212 | 0 | 0 | 212 |
 | `http_clients` | 80 | 29 | 11 | 40 |
 | `network_namespaces` | 6 | 0 | 0 | 6 |
-| `endpoints` | 433 | 56 | 13 | 364 |
+| `endpoints` | 433 | 47 | 13 | 373 |
 | `inbounds` | 1367 | 585 | 151 | 631 |
-| `outbounds` | 1228 | 678 | 76 | 474 |
-| `route` | 268 | 171 | 36 | 61 |
+| `outbounds` | 1228 | 668 | 76 | 484 |
+| `route` | 268 | 166 | 41 | 61 |
 | `services` | 751 | 1 | 166 | 584 |
 | `experimental` | 34 | 16 | 17 | 1 |
-| **All** | **5003** | **1903** | **571** | **2529** |
+| **All** | **5003** | **1879** | **576** | **2548** |
 
 ## Clash / Mihomo
 

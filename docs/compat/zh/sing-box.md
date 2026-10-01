@@ -22,13 +22,13 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `certificate_providers` | 212 | 0 | 0 | 212 |
 | `http_clients` | 80 | 29 | 11 | 40 |
 | `network_namespaces` | 6 | 0 | 0 | 6 |
-| `endpoints` | 433 | 56 | 13 | 364 |
+| `endpoints` | 433 | 47 | 13 | 373 |
 | `inbounds` | 1367 | 585 | 151 | 631 |
-| `outbounds` | 1228 | 678 | 76 | 474 |
-| `route` | 268 | 171 | 36 | 61 |
+| `outbounds` | 1228 | 668 | 76 | 484 |
+| `route` | 268 | 166 | 41 | 61 |
 | `services` | 751 | 1 | 166 | 584 |
 | `experimental` | 34 | 16 | 17 | 1 |
-| **全部** | **5003** | **1903** | **571** | **2529** |
+| **全部** | **5003** | **1879** | **576** | **2548** |
 
 ## `$schema`
 
@@ -2856,8 +2856,8 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | 字段 | 处理 | 说明 |
 |---|---|---|
 | `bind_interface` | 警告 | Accepted, no effect (as sing-box) |
-| `inet4_bind_address` | 支持 |  |
-| `inet6_bind_address` | 支持 |  |
+| `inet4_bind_address` | 警告 | Accepted, no effect (as sing-box) |
+| `inet6_bind_address` | 警告 | Accepted, no effect (as sing-box) |
 | `bind_address_no_port` | 警告 | Accepted, no effect (as sing-box) |
 | `protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `routing_mark` | 警告 | Accepted, no effect (as sing-box) |
@@ -2875,7 +2875,7 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `network_type` | 警告 | Accepted, no effect (as sing-box) |
 | `fallback_network_type` | 警告 | Accepted, no effect (as sing-box) |
 | `fallback_delay` | 警告 | Accepted, no effect (as sing-box) |
-| `domain_strategy` (已弃用) | 支持 |  |
+| `domain_strategy` (已弃用) | 警告 | Accepted, no effect (as sing-box) |
 
 ### `route.rules[action=bypass]`
 

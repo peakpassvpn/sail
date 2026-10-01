@@ -24094,11 +24094,13 @@
     },
     "inet4_bind_address": {
      "type": "string",
-     "description": "`direct`: the local address for IPv4 destinations."
+     "deprecated": true,
+     "description": "sail ignores this field, with a warning: Accepted, no effect (as sing-box). `direct`: the local address for IPv4 destinations."
     },
     "inet6_bind_address": {
      "type": "string",
-     "description": "`direct`: the local address for IPv6 destinations."
+     "deprecated": true,
+     "description": "sail ignores this field, with a warning: Accepted, no effect (as sing-box). `direct`: the local address for IPv6 destinations."
     },
     "bind_address_no_port": {
      "type": "boolean",
@@ -24212,8 +24214,8 @@
       "ipv4_only",
       "ipv6_only"
      ],
-     "description": "`direct`: sing-box's deprecated field for the families names resolve to.",
-     "deprecated": true
+     "deprecated": true,
+     "description": "sail ignores this field, with a warning: Accepted, no effect (as sing-box). `direct`: sing-box's deprecated field for the families names resolve to."
     },
     "method": {
      "type": "string",
@@ -24343,7 +24345,9 @@
       "prefer_ipv6",
       "ipv4_only",
       "ipv6_only"
-     ]
+     ],
+     "deprecated": true,
+     "description": "sail ignores this field, with a warning: Accepted, no effect (as sing-box)"
     },
     "disable_cache": {
      "type": "boolean",
@@ -24361,7 +24365,9 @@
      "description": "sail ignores this field, with a warning: Accepted, no effect (as sing-box)"
     },
     "client_subnet": {
-     "type": "string"
+     "type": "string",
+     "deprecated": true,
+     "description": "sail ignores this field, with a warning: Accepted, no effect (as sing-box)"
     }
    },
    "additionalProperties": false
@@ -24496,11 +24502,13 @@
     },
     "inet4_bind_address": {
      "type": "string",
-     "description": "`direct`: the local address for IPv4 destinations."
+     "deprecated": true,
+     "description": "sail ignores this field, with a warning: Accepted, no effect (as sing-box). `direct`: the local address for IPv4 destinations."
     },
     "inet6_bind_address": {
      "type": "string",
-     "description": "`direct`: the local address for IPv6 destinations."
+     "deprecated": true,
+     "description": "sail ignores this field, with a warning: Accepted, no effect (as sing-box). `direct`: the local address for IPv6 destinations."
     },
     "bind_address_no_port": {
      "type": "boolean",
@@ -24635,8 +24643,8 @@
       "ipv4_only",
       "ipv6_only"
      ],
-     "description": "`direct`: sing-box's deprecated field for the families names resolve to.",
-     "deprecated": true
+     "deprecated": true,
+     "description": "sail ignores this field, with a warning: Accepted, no effect (as sing-box). `direct`: sing-box's deprecated field for the families names resolve to."
     },
     "method": {
      "type": "string",
