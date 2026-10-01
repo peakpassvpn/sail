@@ -11,12 +11,14 @@ mod detour;
 mod dialer;
 pub mod fields;
 mod happy;
+mod networks;
 mod sockopt;
 mod spec;
 
 pub use detour::Outbounds;
 pub use dialer::{DialDefaults, DialEnv, Dialer, InboundDialer, InstanceDial, SharedDialDefaults};
 pub use fields::DialFields;
+pub use networks::{BoundInterface, Egress, NetworkStrategy, Networks};
 pub use spec::{DialSpec, ResolveSpec, RouteDefaults};
 
 #[cfg(all(test, unix))]
@@ -67,12 +69,24 @@ pub enum SocketProtect {
 ///
 /// A socket to a loopback address is bound to loopback and nothing else:
 /// binding it to an interface would make the destination unreachable.
+#[cfg(test)]
 pub(crate) fn bind(
     socket: &socket2::Socket,
     target: &SocketAddr,
     spec: &DialSpec,
     auto: Option<&super::interface::AutoInterface>,
 ) -> io::Result<bool> {
+    bind_egress(socket, target, spec, auto).map(|(bound, _)| bound)
+}
+
+/// `bind`, and where the socket goes out: the interface it bound it to,
+/// or the default route.
+pub(crate) fn bind_egress(
+    socket: &socket2::Socket,
+    target: &SocketAddr,
+    spec: &DialSpec,
+    auto: Option<&super::interface::AutoInterface>,
+) -> io::Result<(bool, Egress)> {
     // Loopback destinations go over loopback whatever the binds say, so
     // that a bind does not cut sail off from local services. sing-box
     // applies an explicit bind to them too (sing's common/control has no
@@ -86,11 +100,11 @@ pub(crate) fn bind(
         };
         socket.bind(&loopback.into())?;
         debug!("socket bind loopback {}", loopback);
-        return Ok(true);
+        return Ok((true, Egress::DefaultRoute));
     }
     let auto = auto.filter(|_| spec.auto_detect_interface);
     if !spec.binds() && auto.is_none() {
-        return Ok(false);
+        return Ok((false, Egress::DefaultRoute));
     }
     let detected = match (&spec.bind_interface, auto) {
         (None, Some(auto)) => Some(auto.for_target(target.ip()).ok_or_else(|| {
@@ -101,10 +115,15 @@ pub(crate) fn bind(
         })?),
         _ => None,
     };
+    let mut egress = Egress::DefaultRoute;
     if let Some(iface) = spec.bind_interface.as_ref().or(detected.as_ref()) {
-        bind_interface(socket, target, iface)
+        bind_interface(socket, target, iface, None)
             .map_err(|e| io::Error::new(e.kind(), format!("bind to interface {}: {}", iface, e)))?;
         debug!("socket bind {}", iface);
+        egress = Egress::Interface {
+            name: iface.clone(),
+            index: None,
+        };
     }
     let address = spec.bind_address(target.ip());
     if let Some(address) = address {
@@ -117,18 +136,54 @@ pub(crate) fn bind(
     if let Some(mark) = spec.routing_mark {
         set_mark(socket, mark)?;
     }
-    Ok(address.is_some())
+    Ok((address.is_some(), egress))
 }
 
-#[cfg(target_os = "macos")]
-fn bind_interface(socket: &socket2::Socket, target: &SocketAddr, iface: &str) -> io::Result<()> {
-    use std::os::unix::io::AsRawFd;
+/// Applies the mark of `spec` to `socket`, and binds it to `via`, by
+/// index where known, unless that is the default interface: one
+/// `network_strategy` races (default_parallel_interface.go:33-36). The
+/// system's error stays beneath what it says, for `EPERM` to be told.
+pub(crate) fn bind_via(
+    socket: &socket2::Socket,
+    target: &SocketAddr,
+    spec: &DialSpec,
+    via: &networks::Via,
+) -> io::Result<()> {
+    if !via.default {
+        bind_interface(socket, target, &via.name, via.index)
+            .map_err(|e| networks::Context::wrap(format!("bind to interface {}", via.name), e))?;
+        debug!("socket bind {}", via);
+    }
+    if let Some(mark) = spec.routing_mark {
+        set_mark(socket, mark)?;
+    }
+    Ok(())
+}
+
+/// The index of the interface `iface`, as the system knows it now.
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "android"))]
+fn index_of(iface: &str) -> io::Result<u32> {
     let name = std::ffi::CString::new(iface.as_bytes())
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid interface name"))?;
-    let index = unsafe { libc::if_nametoindex(name.as_ptr()) };
-    if index == 0 {
-        return Err(io::Error::last_os_error());
+    match unsafe { libc::if_nametoindex(name.as_ptr()) } {
+        0 => Err(io::Error::last_os_error()),
+        index => Ok(index),
     }
+}
+
+/// `iface` by `index` where that is known, else by its name.
+#[cfg(target_os = "macos")]
+fn bind_interface(
+    socket: &socket2::Socket,
+    target: &SocketAddr,
+    iface: &str,
+    index: Option<u32>,
+) -> io::Result<()> {
+    use std::os::unix::io::AsRawFd;
+    let index = match index {
+        Some(index) => index,
+        None => index_of(iface)?,
+    };
     let (level, option) = match target {
         SocketAddr::V4(_) => (libc::IPPROTO_IP, libc::IP_BOUND_IF),
         SocketAddr::V6(_) => (libc::IPPROTO_IPV6, libc::IPV6_BOUND_IF),
@@ -152,19 +207,22 @@ fn bind_interface(socket: &socket2::Socket, target: &SocketAddr, iface: &str) ->
 /// `SO_BINDTODEVICE` where the kernel does not know that, from then on, as
 /// sing-box does.
 #[cfg(any(target_os = "linux", target_os = "android"))]
-fn bind_interface(socket: &socket2::Socket, _target: &SocketAddr, iface: &str) -> io::Result<()> {
+fn bind_interface(
+    socket: &socket2::Socket,
+    _target: &SocketAddr,
+    iface: &str,
+    index: Option<u32>,
+) -> io::Result<()> {
     use std::os::unix::io::AsRawFd;
     use std::sync::atomic::{AtomicBool, Ordering};
     /// `SO_BINDTOIFINDEX`, which the libc crate has for Android only.
     const SO_BINDTOIFINDEX: libc::c_int = 62;
     static BY_NAME: AtomicBool = AtomicBool::new(false);
     if !BY_NAME.load(Ordering::Relaxed) {
-        let name = std::ffi::CString::new(iface.as_bytes())
-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid interface name"))?;
-        let index = unsafe { libc::if_nametoindex(name.as_ptr()) } as libc::c_int;
-        if index == 0 {
-            return Err(io::Error::last_os_error());
-        }
+        let index = match index {
+            Some(index) => index,
+            None => index_of(iface)?,
+        } as libc::c_int;
         let ret = unsafe {
             libc::setsockopt(
                 socket.as_raw_fd(),
@@ -190,12 +248,20 @@ fn bind_interface(socket: &socket2::Socket, _target: &SocketAddr, iface: &str) -
 /// (bind_windows.go): the route is chosen among the interface's own. The
 /// IPv4 index goes in network byte order, the IPv6 one in host order.
 #[cfg(target_os = "windows")]
-fn bind_interface(socket: &socket2::Socket, target: &SocketAddr, iface: &str) -> io::Result<()> {
+fn bind_interface(
+    socket: &socket2::Socket,
+    target: &SocketAddr,
+    iface: &str,
+    index: Option<u32>,
+) -> io::Result<()> {
     use std::os::windows::io::AsRawSocket;
     use windows_sys::Win32::Networking::WinSock::{
         setsockopt, IPPROTO_IP, IPPROTO_IPV6, IPV6_UNICAST_IF, IP_UNICAST_IF, SOCKET_ERROR,
     };
-    let index = crate::platform::windows::ip_helper::Luid::by_alias(iface)?.index()?;
+    let index = match index {
+        Some(index) => index,
+        None => crate::platform::windows::ip_helper::Luid::by_alias(iface)?.index()?,
+    };
     let (level, option, value) = match target {
         SocketAddr::V4(_) => (IPPROTO_IP, IP_UNICAST_IF, index.to_be()),
         SocketAddr::V6(_) => (IPPROTO_IPV6, IPV6_UNICAST_IF, index),
@@ -222,7 +288,12 @@ fn bind_interface(socket: &socket2::Socket, target: &SocketAddr, iface: &str) ->
     target_os = "android",
     target_os = "windows"
 )))]
-fn bind_interface(_socket: &socket2::Socket, _target: &SocketAddr, _iface: &str) -> io::Result<()> {
+fn bind_interface(
+    _socket: &socket2::Socket,
+    _target: &SocketAddr,
+    _iface: &str,
+    _index: Option<u32>,
+) -> io::Result<()> {
     Err(io::Error::new(
         io::ErrorKind::Unsupported,
         "bind_interface is not supported on this platform",

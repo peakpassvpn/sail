@@ -20,15 +20,15 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `ntp` | 35 | 0 | 35 | 0 |
 | `certificate` | 5 | 5 | 0 | 0 |
 | `certificate_providers` | 212 | 0 | 0 | 212 |
-| `http_clients` | 80 | 26 | 11 | 43 |
+| `http_clients` | 80 | 29 | 11 | 40 |
 | `network_namespaces` | 6 | 0 | 0 | 6 |
 | `endpoints` | 433 | 56 | 13 | 364 |
-| `inbounds` | 1367 | 561 | 151 | 655 |
-| `outbounds` | 1228 | 645 | 76 | 507 |
-| `route` | 268 | 153 | 15 | 100 |
+| `inbounds` | 1367 | 585 | 151 | 631 |
+| `outbounds` | 1228 | 678 | 76 | 474 |
+| `route` | 268 | 160 | 15 | 93 |
 | `services` | 751 | 1 | 166 | 584 |
 | `experimental` | 34 | 16 | 17 | 1 |
-| **All** | **5003** | **1825** | **550** | **2628** |
+| **All** | **5003** | **1892** | **550** | **2561** |
 
 ## `$schema`
 
@@ -124,9 +124,9 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `domain_resolver.disable_optimistic_cache` | Supported |  |
 | `domain_resolver.rewrite_ttl` | Supported |  |
 | `domain_resolver.client_subnet` | Supported |  |
-| `network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
+| `network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
+| `fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
 | `fallback_delay` | Supported |  |
 | `server` | Supported |  |
 | `server_port` | Supported |  |
@@ -204,9 +204,9 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `domain_resolver.disable_optimistic_cache` | Supported |  |
 | `domain_resolver.rewrite_ttl` | Supported |  |
 | `domain_resolver.client_subnet` | Supported |  |
-| `network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
+| `network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
+| `fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
 | `fallback_delay` | Supported |  |
 | `server` | Supported |  |
 | `server_port` | Supported |  |
@@ -271,9 +271,9 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `tcp_keep_alive_interval` | Supported |  |
 | `udp_fragment` | Supported |  |
 | `domain_resolver` | Warned | A local server's servers are the system's, addresses: it has no name to resolve (and the 7 fields in it) |
-| `network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
+| `network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
+| `fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
 | `fallback_delay` | Supported |  |
 | `prefer_go` | Warned | Go's own resolver rather than the system's: sail is not Go |
 | `neighbor_domain` | Supported |  |
@@ -301,9 +301,9 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `tcp_keep_alive_interval` | Warned | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
 | `udp_fragment` | Warned | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
 | `domain_resolver` | Warned | An mDNS server asks on each interface itself, as sing-box's, which dials nothing (and the 7 fields in it) |
-| `network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
+| `network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
+| `fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
 | `fallback_delay` | Warned | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
 | `prefer_go` | Warned | Go's own resolver rather than the system's: sail is not Go |
 | `neighbor_domain` | Warned | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
@@ -339,9 +339,9 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `domain_resolver.disable_optimistic_cache` | Supported |  |
 | `domain_resolver.rewrite_ttl` | Supported |  |
 | `domain_resolver.client_subnet` | Supported |  |
-| `network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
+| `network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
+| `fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
 | `fallback_delay` | Supported |  |
 | `server` | Supported |  |
 | `server_port` | Supported |  |
@@ -408,9 +408,9 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `domain_resolver.disable_optimistic_cache` | Supported |  |
 | `domain_resolver.rewrite_ttl` | Supported |  |
 | `domain_resolver.client_subnet` | Supported |  |
-| `network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
+| `network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
+| `fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
 | `fallback_delay` | Supported |  |
 | `server` | Supported |  |
 | `server_port` | Supported |  |
@@ -445,9 +445,9 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `domain_resolver.disable_optimistic_cache` | Supported |  |
 | `domain_resolver.rewrite_ttl` | Supported |  |
 | `domain_resolver.client_subnet` | Supported |  |
-| `network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
+| `network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
+| `fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
 | `fallback_delay` | Supported |  |
 | `server` | Supported |  |
 | `server_port` | Supported |  |
@@ -516,9 +516,9 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `domain_resolver.disable_optimistic_cache` | Supported |  |
 | `domain_resolver.rewrite_ttl` | Supported |  |
 | `domain_resolver.client_subnet` | Supported |  |
-| `network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
+| `network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
+| `fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
 | `fallback_delay` | Supported |  |
 | `server` | Supported |  |
 | `server_port` | Supported |  |
@@ -731,9 +731,9 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `[].domain_resolver.disable_optimistic_cache` | Supported |  |
 | `[].domain_resolver.rewrite_ttl` | Supported |  |
 | `[].domain_resolver.client_subnet` | Supported |  |
-| `[].network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `[].network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `[].fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `[].network_strategy` | Supported |  |
+| `[].network_type` | Supported |  |
+| `[].fallback_network_type` | Supported |  |
 | `[].fallback_delay` | Supported |  |
 | `[].idle_timeout` | Warned | HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download |
 | `[].keep_alive_period` | Warned | HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download |
@@ -824,9 +824,9 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `domain_resolver.disable_optimistic_cache` | Supported |  |
 | `domain_resolver.rewrite_ttl` | Supported |  |
 | `domain_resolver.client_subnet` | Supported |  |
-| `network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
+| `network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
+| `fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
 | `fallback_delay` | Supported |  |
 | `domain_strategy` (deprecated) | Supported |  |
 
@@ -918,9 +918,9 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `tls.reality.handshake.domain_resolver.disable_optimistic_cache` | Supported |  |
 | `tls.reality.handshake.domain_resolver.rewrite_ttl` | Supported |  |
 | `tls.reality.handshake.domain_resolver.client_subnet` | Supported |  |
-| `tls.reality.handshake.network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `tls.reality.handshake.network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `tls.reality.handshake.fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `tls.reality.handshake.network_strategy` | Supported |  |
+| `tls.reality.handshake.network_type` | Supported |  |
+| `tls.reality.handshake.fallback_network_type` | Supported |  |
 | `tls.reality.handshake.fallback_delay` | Supported |  |
 | `tls.reality.handshake.domain_strategy` (deprecated) | Supported |  |
 | `tls.reality.private_key` | Supported |  |
@@ -1030,9 +1030,9 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `tls.reality.handshake.domain_resolver.disable_optimistic_cache` | Supported |  |
 | `tls.reality.handshake.domain_resolver.rewrite_ttl` | Supported |  |
 | `tls.reality.handshake.domain_resolver.client_subnet` | Supported |  |
-| `tls.reality.handshake.network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `tls.reality.handshake.network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `tls.reality.handshake.fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `tls.reality.handshake.network_strategy` | Supported |  |
+| `tls.reality.handshake.network_type` | Supported |  |
+| `tls.reality.handshake.fallback_network_type` | Supported |  |
 | `tls.reality.handshake.fallback_delay` | Supported |  |
 | `tls.reality.handshake.domain_strategy` (deprecated) | Supported |  |
 | `tls.reality.private_key` | Supported |  |
@@ -1122,9 +1122,9 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `tls.reality.handshake.domain_resolver.disable_optimistic_cache` | Supported |  |
 | `tls.reality.handshake.domain_resolver.rewrite_ttl` | Supported |  |
 | `tls.reality.handshake.domain_resolver.client_subnet` | Supported |  |
-| `tls.reality.handshake.network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `tls.reality.handshake.network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `tls.reality.handshake.fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `tls.reality.handshake.network_strategy` | Supported |  |
+| `tls.reality.handshake.network_type` | Supported |  |
+| `tls.reality.handshake.fallback_network_type` | Supported |  |
 | `tls.reality.handshake.fallback_delay` | Supported |  |
 | `tls.reality.handshake.domain_strategy` (deprecated) | Supported |  |
 | `tls.reality.private_key` | Supported |  |
@@ -1275,9 +1275,9 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `handshake.domain_resolver.disable_optimistic_cache` | Supported |  |
 | `handshake.domain_resolver.rewrite_ttl` | Supported |  |
 | `handshake.domain_resolver.client_subnet` | Supported |  |
-| `handshake.network_strategy` | Error | The protocol's own check: not implemented yet |
-| `handshake.network_type` | Error | The protocol's own check: not implemented yet |
-| `handshake.fallback_network_type` | Error | The protocol's own check: not implemented yet |
+| `handshake.network_strategy` | Supported |  |
+| `handshake.network_type` | Supported |  |
+| `handshake.fallback_network_type` | Supported |  |
 | `handshake.fallback_delay` | Supported |  |
 | `handshake.domain_strategy` (deprecated) | Supported |  |
 | `handshake_for_server_name` | Supported |  |
@@ -1405,9 +1405,9 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `tls.reality.handshake.domain_resolver.disable_optimistic_cache` | Supported |  |
 | `tls.reality.handshake.domain_resolver.rewrite_ttl` | Supported |  |
 | `tls.reality.handshake.domain_resolver.client_subnet` | Supported |  |
-| `tls.reality.handshake.network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `tls.reality.handshake.network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `tls.reality.handshake.fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `tls.reality.handshake.network_strategy` | Supported |  |
+| `tls.reality.handshake.network_type` | Supported |  |
+| `tls.reality.handshake.fallback_network_type` | Supported |  |
 | `tls.reality.handshake.fallback_delay` | Supported |  |
 | `tls.reality.handshake.domain_strategy` (deprecated) | Supported |  |
 | `tls.reality.private_key` | Supported |  |
@@ -1523,9 +1523,9 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `tls.reality.handshake.domain_resolver.disable_optimistic_cache` | Supported |  |
 | `tls.reality.handshake.domain_resolver.rewrite_ttl` | Supported |  |
 | `tls.reality.handshake.domain_resolver.client_subnet` | Supported |  |
-| `tls.reality.handshake.network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `tls.reality.handshake.network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `tls.reality.handshake.fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `tls.reality.handshake.network_strategy` | Supported |  |
+| `tls.reality.handshake.network_type` | Supported |  |
+| `tls.reality.handshake.fallback_network_type` | Supported |  |
 | `tls.reality.handshake.fallback_delay` | Supported |  |
 | `tls.reality.handshake.domain_strategy` (deprecated) | Supported |  |
 | `tls.reality.private_key` | Supported |  |
@@ -1660,9 +1660,9 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `tls.reality.handshake.domain_resolver.disable_optimistic_cache` | Supported |  |
 | `tls.reality.handshake.domain_resolver.rewrite_ttl` | Supported |  |
 | `tls.reality.handshake.domain_resolver.client_subnet` | Supported |  |
-| `tls.reality.handshake.network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `tls.reality.handshake.network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `tls.reality.handshake.fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `tls.reality.handshake.network_strategy` | Supported |  |
+| `tls.reality.handshake.network_type` | Supported |  |
+| `tls.reality.handshake.fallback_network_type` | Supported |  |
 | `tls.reality.handshake.fallback_delay` | Supported |  |
 | `tls.reality.handshake.domain_strategy` (deprecated) | Supported |  |
 | `tls.reality.private_key` | Supported |  |
@@ -1770,9 +1770,9 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `tls.reality.handshake.domain_resolver.disable_optimistic_cache` | Supported |  |
 | `tls.reality.handshake.domain_resolver.rewrite_ttl` | Supported |  |
 | `tls.reality.handshake.domain_resolver.client_subnet` | Supported |  |
-| `tls.reality.handshake.network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `tls.reality.handshake.network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `tls.reality.handshake.fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `tls.reality.handshake.network_strategy` | Supported |  |
+| `tls.reality.handshake.network_type` | Supported |  |
+| `tls.reality.handshake.fallback_network_type` | Supported |  |
 | `tls.reality.handshake.fallback_delay` | Supported |  |
 | `tls.reality.handshake.domain_strategy` (deprecated) | Supported |  |
 | `tls.reality.private_key` | Supported |  |
@@ -1855,9 +1855,9 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `domain_resolver.disable_optimistic_cache` | Supported |  |
 | `domain_resolver.rewrite_ttl` | Supported |  |
 | `domain_resolver.client_subnet` | Supported |  |
-| `network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `network_strategy` | Supported |  |
+| `network_type` | Supported |  |
+| `fallback_network_type` | Supported |  |
 | `fallback_delay` | Supported |  |
 | `server` | Supported |  |
 | `server_port` | Supported |  |
@@ -1941,9 +1941,9 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `domain_resolver.disable_optimistic_cache` | Supported |  |
 | `domain_resolver.rewrite_ttl` | Supported |  |
 | `domain_resolver.client_subnet` | Supported |  |
-| `network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `network_strategy` | Supported |  |
+| `network_type` | Supported |  |
+| `fallback_network_type` | Supported |  |
 | `fallback_delay` | Supported |  |
 | `domain_strategy` (deprecated) | Supported |  |
 
@@ -1976,9 +1976,9 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `domain_resolver.disable_optimistic_cache` | Supported |  |
 | `domain_resolver.rewrite_ttl` | Supported |  |
 | `domain_resolver.client_subnet` | Supported |  |
-| `network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `network_strategy` | Supported |  |
+| `network_type` | Supported |  |
+| `fallback_network_type` | Supported |  |
 | `fallback_delay` | Supported |  |
 | `server` | Supported |  |
 | `server_port` | Supported |  |
@@ -2055,9 +2055,9 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `domain_resolver.disable_optimistic_cache` | Supported |  |
 | `domain_resolver.rewrite_ttl` | Supported |  |
 | `domain_resolver.client_subnet` | Supported |  |
-| `network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `network_strategy` | Supported |  |
+| `network_type` | Supported |  |
+| `fallback_network_type` | Supported |  |
 | `fallback_delay` | Supported |  |
 | `server` | Supported |  |
 | `server_port` | Supported |  |
@@ -2161,9 +2161,9 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `domain_resolver.disable_optimistic_cache` | Supported |  |
 | `domain_resolver.rewrite_ttl` | Supported |  |
 | `domain_resolver.client_subnet` | Supported |  |
-| `network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `network_strategy` | Supported |  |
+| `network_type` | Supported |  |
+| `fallback_network_type` | Supported |  |
 | `fallback_delay` | Supported |  |
 | `server` | Supported |  |
 | `server_port` | Supported |  |
@@ -2217,9 +2217,9 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `domain_resolver.disable_optimistic_cache` | Supported |  |
 | `domain_resolver.rewrite_ttl` | Supported |  |
 | `domain_resolver.client_subnet` | Supported |  |
-| `network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `network_strategy` | Supported |  |
+| `network_type` | Supported |  |
+| `fallback_network_type` | Supported |  |
 | `fallback_delay` | Supported |  |
 | `server` | Supported |  |
 | `server_port` | Supported |  |
@@ -2294,9 +2294,9 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `domain_resolver.disable_optimistic_cache` | Supported |  |
 | `domain_resolver.rewrite_ttl` | Supported |  |
 | `domain_resolver.client_subnet` | Supported |  |
-| `network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `network_strategy` | Supported |  |
+| `network_type` | Supported |  |
+| `fallback_network_type` | Supported |  |
 | `fallback_delay` | Supported |  |
 | `server` | Supported |  |
 | `server_port` | Supported |  |
@@ -2338,9 +2338,9 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `domain_resolver.disable_optimistic_cache` | Supported |  |
 | `domain_resolver.rewrite_ttl` | Supported |  |
 | `domain_resolver.client_subnet` | Supported |  |
-| `network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `network_strategy` | Supported |  |
+| `network_type` | Supported |  |
+| `fallback_network_type` | Supported |  |
 | `fallback_delay` | Supported |  |
 | `server` | Supported |  |
 | `server_port` | Supported |  |
@@ -2445,9 +2445,9 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `domain_resolver.disable_optimistic_cache` | Supported |  |
 | `domain_resolver.rewrite_ttl` | Supported |  |
 | `domain_resolver.client_subnet` | Supported |  |
-| `network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `network_strategy` | Supported |  |
+| `network_type` | Supported |  |
+| `fallback_network_type` | Supported |  |
 | `fallback_delay` | Supported |  |
 | `server` | Supported |  |
 | `server_port` | Supported |  |
@@ -2545,9 +2545,9 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `domain_resolver.disable_optimistic_cache` | Supported |  |
 | `domain_resolver.rewrite_ttl` | Supported |  |
 | `domain_resolver.client_subnet` | Supported |  |
-| `network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `network_strategy` | Supported |  |
+| `network_type` | Supported |  |
+| `fallback_network_type` | Supported |  |
 | `fallback_delay` | Supported |  |
 | `server` | Supported |  |
 | `server_port` | Supported |  |
@@ -2654,9 +2654,9 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `domain_resolver.disable_optimistic_cache` | Supported |  |
 | `domain_resolver.rewrite_ttl` | Supported |  |
 | `domain_resolver.client_subnet` | Supported |  |
-| `network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `network_strategy` | Supported |  |
+| `network_type` | Supported |  |
+| `fallback_network_type` | Supported |  |
 | `fallback_delay` | Supported |  |
 | `server` | Supported |  |
 | `server_port` | Supported |  |
@@ -2766,10 +2766,10 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `default_domain_resolver.disable_optimistic_cache` | Supported |  |
 | `default_domain_resolver.rewrite_ttl` | Supported |  |
 | `default_domain_resolver.client_subnet` | Supported |  |
-| `default_network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `default_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `default_fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `default_fallback_delay` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `default_network_strategy` | Supported |  |
+| `default_network_type` | Supported |  |
+| `default_fallback_network_type` | Supported |  |
+| `default_fallback_delay` | Supported |  |
 | `default_http_client` | Supported |  |
 | `geoip` (deprecated) | Warned | sing-box removed it in 1.12, and ignores it |
 | `geosite` (deprecated) | Warned | sing-box removed it in 1.12, and ignores it |
@@ -2829,8 +2829,8 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `outbound` | Supported |  |
 | `override_address` | Supported |  |
 | `override_port` | Supported |  |
-| `network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_delay` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
+| `fallback_delay` | Error | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
 | `udp_disable_domain_unmapping` | Supported |  |
 | `udp_connect` | Supported |  |
 | `udp_timeout` | Supported |  |
@@ -2846,8 +2846,8 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 |---|---|---|
 | `override_address` | Supported |  |
 | `override_port` | Supported |  |
-| `network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_delay` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
+| `fallback_delay` | Error | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
 | `udp_disable_domain_unmapping` | Supported |  |
 | `udp_connect` | Supported |  |
 | `udp_timeout` | Supported |  |
@@ -2864,8 +2864,8 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `outbound` | Supported |  |
 | `override_address` | Supported |  |
 | `override_port` | Supported |  |
-| `network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_delay` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
+| `fallback_delay` | Error | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
 | `udp_disable_domain_unmapping` | Supported |  |
 | `udp_connect` | Supported |  |
 | `udp_timeout` | Supported |  |
@@ -2998,9 +2998,9 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `http_client.domain_resolver.disable_optimistic_cache` | Supported |  |
 | `http_client.domain_resolver.rewrite_ttl` | Supported |  |
 | `http_client.domain_resolver.client_subnet` | Supported |  |
-| `http_client.network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `http_client.network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `http_client.fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `http_client.network_strategy` | Supported |  |
+| `http_client.network_type` | Supported |  |
+| `http_client.fallback_network_type` | Supported |  |
 | `http_client.fallback_delay` | Supported |  |
 | `http_client.idle_timeout` | Warned | HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download |
 | `http_client.keep_alive_period` | Warned | HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download |

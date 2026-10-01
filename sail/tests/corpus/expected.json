@@ -996,7 +996,7 @@
     "error": "dns.servers[0]: missing field `type`"
   },
   "sing-box/0087.json": {
-    "error": "route.default_domain_match_strategy: unknown field `default_domain_match_strategy`, expected one of `rules`, `rule_set`, `final`, `default_interface`, `default_mark`, `auto_detect_interface`, `default_domain_resolver`, `find_neighbor`, `dhcp_lease_files`, `default_http_client`"
+    "error": "route.default_domain_match_strategy: unknown field `default_domain_match_strategy`, expected one of `rules`, `rule_set`, `final`, `default_interface`, `default_mark`, `auto_detect_interface`, `default_domain_resolver`, `default_network_strategy`, `default_network_type`, `default_fallback_network_type`, `default_fallback_delay`, `find_neighbor`, `dhcp_lease_files`, `default_http_client`"
   },
   "sing-box/0088.json": {
     "ok": true,

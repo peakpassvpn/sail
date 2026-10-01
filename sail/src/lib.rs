@@ -1332,6 +1332,15 @@ pub(crate) fn dial_defaults(
         _ => env.host.socket_protect.clone(),
     };
     defaults.route.ipv6 = config.dns.strategy.ipv6();
+    // What network_strategy chooses among, and never: sail's own TUNs.
+    let own_interfaces: Vec<String> = config
+        .inbounds
+        .iter()
+        .filter(|i| i.protocol == "tun")
+        .filter_map(|i| i.options.get("interface_name")?.as_str().map(str::to_owned))
+        .collect();
+    defaults.env.network = Some(env.network.clone());
+    defaults.env.own_interfaces = own_interfaces.clone();
     let host_routes = env
         .host
         .platform
@@ -1346,15 +1355,9 @@ pub(crate) fn dial_defaults(
     }
     #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
     {
-        let skip = config
-            .inbounds
-            .iter()
-            .filter(|i| i.protocol == "tun")
-            .filter_map(|i| i.options.get("interface_name")?.as_str().map(str::to_owned))
-            .collect();
         defaults.route.auto_detect_interface = true;
         defaults.env.auto_interface = Some(net::interface::AutoInterface::new(
-            skip,
+            own_interfaces,
             platform::detect_default_interface,
         ));
         Ok(Arc::new(defaults))

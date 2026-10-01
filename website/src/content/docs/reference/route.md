@@ -32,10 +32,10 @@ Rust: [`Route`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/mod
 | `default_interface` | string | unset | Supported | The interface outbounds that name none of their own send through. |
 | `default_mark` | number\|string | unset | Supported | The routing mark (`SO_MARK`, Linux) of outbounds that set none. |
 | `default_domain_resolver` | string\|object → [object](/sail/reference/shared/#domain-resolver-default-domain-resolver) | unset | Supported | The DNS server that resolves the names outbounds dial, for those that name no `domain_resolver` of their own. Unset, the DNS rules decide. |
-| `default_network_strategy` | string, one of `default`, `fallback`, `hybrid` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | — |
-| `default_network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | — |
-| `default_fallback_network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | — |
-| `default_fallback_delay` | duration | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | — |
+| `default_network_strategy` | string, one of `default`, `fallback`, `hybrid` | unset | Supported | The `network_strategy`, `network_type`, `fallback_network_type` and `fallback_delay` of what sets none of the first three, or no delay; the strategy needs `auto_detect_interface`. |
+| `default_network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | `[]` | Supported | — |
+| `default_fallback_network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | `[]` | Supported | — |
+| `default_fallback_delay` | duration | unset | Supported | — |
 | `default_http_client` | string | unset | Supported | The HTTP client of what names none, by tag; the first of `http_clients` when unset, or with none, the default outbound. |
 | `geoip` | object | — | Warned: sing-box removed it in 1.12, and ignores it (deprecated in sing-box) | — |
 | `geosite` | object | — | Warned: sing-box removed it in 1.12, and ignores it (deprecated in sing-box) | — |
@@ -114,8 +114,8 @@ Rust: [`Rule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/mode
 | `outbound` | string | unset | Supported | `route`: where a matching connection goes. |
 | `override_address` | string | unset | Supported | `route`, `route-options`: connects to this address, an IP or a domain, instead of the one asked for, on the same port. |
 | `override_port` | number | unset | Supported | `route`, `route-options`: connects to this port instead. |
-| `network_strategy` | string, one of `default`, `fallback`, `hybrid` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | — |
-| `fallback_delay` | number | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | — |
+| `network_strategy` | string, one of `default`, `fallback`, `hybrid` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say | — |
+| `fallback_delay` | number | — | Error: Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say | — |
 | `udp_disable_domain_unmapping` | bool | `false` | Supported | `route`, `route-options`: answers to UDP sent to a domain come back from the address it resolved to, not from the domain. |
 | `udp_connect` | bool | `false` | Supported | `route`, `route-options`: a direct outbound sends UDP from a connected socket. |
 | `udp_timeout` | duration | unset | Supported | `route`, `route-options`: how long a UDP session lasts idle, instead of its inbound's `udp_timeout`. |
@@ -165,8 +165,8 @@ Rust: [`Rule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/mode
 | `outbound` | string | unset | Supported | `route`: where a matching connection goes. |
 | `override_address` | string | unset | Supported | `route`, `route-options`: connects to this address, an IP or a domain, instead of the one asked for, on the same port. |
 | `override_port` | number | unset | Supported | `route`, `route-options`: connects to this port instead. |
-| `network_strategy` | string, one of `default`, `fallback`, `hybrid` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | — |
-| `fallback_delay` | number | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | — |
+| `network_strategy` | string, one of `default`, `fallback`, `hybrid` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say | — |
+| `fallback_delay` | number | — | Error: Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say | — |
 | `udp_disable_domain_unmapping` | bool | `false` | Supported | `route`, `route-options`: answers to UDP sent to a domain come back from the address it resolved to, not from the domain. |
 | `udp_connect` | bool | `false` | Supported | `route`, `route-options`: a direct outbound sends UDP from a connected socket. |
 | `udp_timeout` | duration | unset | Supported | `route`, `route-options`: how long a UDP session lasts idle, instead of its inbound's `udp_timeout`. |
@@ -186,8 +186,8 @@ Rust: [`Rule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/mode
 | --- | --- | --- | --- | --- |
 | `override_address` | string | unset | Supported | `route`, `route-options`: connects to this address, an IP or a domain, instead of the one asked for, on the same port. |
 | `override_port` | number | unset | Supported | `route`, `route-options`: connects to this port instead. |
-| `network_strategy` | string, one of `default`, `fallback`, `hybrid` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | — |
-| `fallback_delay` | number | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | — |
+| `network_strategy` | string, one of `default`, `fallback`, `hybrid` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say | — |
+| `fallback_delay` | number | — | Error: Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say | — |
 | `udp_disable_domain_unmapping` | bool | `false` | Supported | `route`, `route-options`: answers to UDP sent to a domain come back from the address it resolved to, not from the domain. |
 | `udp_connect` | bool | `false` | Supported | `route`, `route-options`: a direct outbound sends UDP from a connected socket. |
 | `udp_timeout` | duration | unset | Supported | `route`, `route-options`: how long a UDP session lasts idle, instead of its inbound's `udp_timeout`. |
@@ -352,9 +352,9 @@ Rust: [`RuleSet`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/r
 | `tcp_keep_alive_interval` | duration | — | Supported | — |
 | `udp_fragment` | bool | — | Supported | — |
 | `domain_resolver` | string\|object → [object](/sail/reference/shared/#domain-resolver-inbounds-route-rule-set) | — | Supported | — |
-| `network_strategy` | string, one of `default`, `fallback`, `hybrid` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | — |
-| `network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | — |
-| `fallback_network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | — |
+| `network_strategy` | string, one of `default`, `fallback`, `hybrid` | — | Supported | — |
+| `network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Supported | — |
+| `fallback_network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Supported | — |
 | `fallback_delay` | duration | — | Supported | — |
 | `idle_timeout` | duration | — | Warned: HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download | — |
 | `keep_alive_period` | duration | — | Warned: HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download | — |

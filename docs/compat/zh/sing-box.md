@@ -20,15 +20,15 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `ntp` | 35 | 0 | 35 | 0 |
 | `certificate` | 5 | 5 | 0 | 0 |
 | `certificate_providers` | 212 | 0 | 0 | 212 |
-| `http_clients` | 80 | 26 | 11 | 43 |
+| `http_clients` | 80 | 29 | 11 | 40 |
 | `network_namespaces` | 6 | 0 | 0 | 6 |
 | `endpoints` | 433 | 56 | 13 | 364 |
-| `inbounds` | 1367 | 561 | 151 | 655 |
-| `outbounds` | 1228 | 645 | 76 | 507 |
-| `route` | 268 | 153 | 15 | 100 |
+| `inbounds` | 1367 | 585 | 151 | 631 |
+| `outbounds` | 1228 | 678 | 76 | 474 |
+| `route` | 268 | 160 | 15 | 93 |
 | `services` | 751 | 1 | 166 | 584 |
 | `experimental` | 34 | 16 | 17 | 1 |
-| **全部** | **5003** | **1825** | **550** | **2628** |
+| **全部** | **5003** | **1892** | **550** | **2561** |
 
 ## `$schema`
 
@@ -124,9 +124,9 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `domain_resolver.disable_optimistic_cache` | 支持 |  |
 | `domain_resolver.rewrite_ttl` | 支持 |  |
 | `domain_resolver.client_subnet` | 支持 |  |
-| `network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
+| `network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
+| `fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
 | `fallback_delay` | 支持 |  |
 | `server` | 支持 |  |
 | `server_port` | 支持 |  |
@@ -204,9 +204,9 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `domain_resolver.disable_optimistic_cache` | 支持 |  |
 | `domain_resolver.rewrite_ttl` | 支持 |  |
 | `domain_resolver.client_subnet` | 支持 |  |
-| `network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
+| `network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
+| `fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
 | `fallback_delay` | 支持 |  |
 | `server` | 支持 |  |
 | `server_port` | 支持 |  |
@@ -271,9 +271,9 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `tcp_keep_alive_interval` | 支持 |  |
 | `udp_fragment` | 支持 |  |
 | `domain_resolver` | 警告 | A local server's servers are the system's, addresses: it has no name to resolve (含其下 7 个字段) |
-| `network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
+| `network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
+| `fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
 | `fallback_delay` | 支持 |  |
 | `prefer_go` | 警告 | Go's own resolver rather than the system's: sail is not Go |
 | `neighbor_domain` | 支持 |  |
@@ -301,9 +301,9 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `tcp_keep_alive_interval` | 警告 | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
 | `udp_fragment` | 警告 | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
 | `domain_resolver` | 警告 | An mDNS server asks on each interface itself, as sing-box's, which dials nothing (含其下 7 个字段) |
-| `network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
+| `network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
+| `fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
 | `fallback_delay` | 警告 | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
 | `prefer_go` | 警告 | Go's own resolver rather than the system's: sail is not Go |
 | `neighbor_domain` | 警告 | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
@@ -339,9 +339,9 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `domain_resolver.disable_optimistic_cache` | 支持 |  |
 | `domain_resolver.rewrite_ttl` | 支持 |  |
 | `domain_resolver.client_subnet` | 支持 |  |
-| `network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
+| `network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
+| `fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
 | `fallback_delay` | 支持 |  |
 | `server` | 支持 |  |
 | `server_port` | 支持 |  |
@@ -408,9 +408,9 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `domain_resolver.disable_optimistic_cache` | 支持 |  |
 | `domain_resolver.rewrite_ttl` | 支持 |  |
 | `domain_resolver.client_subnet` | 支持 |  |
-| `network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
+| `network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
+| `fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
 | `fallback_delay` | 支持 |  |
 | `server` | 支持 |  |
 | `server_port` | 支持 |  |
@@ -445,9 +445,9 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `domain_resolver.disable_optimistic_cache` | 支持 |  |
 | `domain_resolver.rewrite_ttl` | 支持 |  |
 | `domain_resolver.client_subnet` | 支持 |  |
-| `network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
+| `network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
+| `fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
 | `fallback_delay` | 支持 |  |
 | `server` | 支持 |  |
 | `server_port` | 支持 |  |
@@ -516,9 +516,9 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `domain_resolver.disable_optimistic_cache` | 支持 |  |
 | `domain_resolver.rewrite_ttl` | 支持 |  |
 | `domain_resolver.client_subnet` | 支持 |  |
-| `network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
+| `network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
+| `fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
 | `fallback_delay` | 支持 |  |
 | `server` | 支持 |  |
 | `server_port` | 支持 |  |
@@ -731,9 +731,9 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `[].domain_resolver.disable_optimistic_cache` | 支持 |  |
 | `[].domain_resolver.rewrite_ttl` | 支持 |  |
 | `[].domain_resolver.client_subnet` | 支持 |  |
-| `[].network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `[].network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `[].fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `[].network_strategy` | 支持 |  |
+| `[].network_type` | 支持 |  |
+| `[].fallback_network_type` | 支持 |  |
 | `[].fallback_delay` | 支持 |  |
 | `[].idle_timeout` | 警告 | HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download |
 | `[].keep_alive_period` | 警告 | HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download |
@@ -824,9 +824,9 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `domain_resolver.disable_optimistic_cache` | 支持 |  |
 | `domain_resolver.rewrite_ttl` | 支持 |  |
 | `domain_resolver.client_subnet` | 支持 |  |
-| `network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
+| `network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
+| `fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
 | `fallback_delay` | 支持 |  |
 | `domain_strategy` (已弃用) | 支持 |  |
 
@@ -918,9 +918,9 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `tls.reality.handshake.domain_resolver.disable_optimistic_cache` | 支持 |  |
 | `tls.reality.handshake.domain_resolver.rewrite_ttl` | 支持 |  |
 | `tls.reality.handshake.domain_resolver.client_subnet` | 支持 |  |
-| `tls.reality.handshake.network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `tls.reality.handshake.network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `tls.reality.handshake.fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `tls.reality.handshake.network_strategy` | 支持 |  |
+| `tls.reality.handshake.network_type` | 支持 |  |
+| `tls.reality.handshake.fallback_network_type` | 支持 |  |
 | `tls.reality.handshake.fallback_delay` | 支持 |  |
 | `tls.reality.handshake.domain_strategy` (已弃用) | 支持 |  |
 | `tls.reality.private_key` | 支持 |  |
@@ -1030,9 +1030,9 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `tls.reality.handshake.domain_resolver.disable_optimistic_cache` | 支持 |  |
 | `tls.reality.handshake.domain_resolver.rewrite_ttl` | 支持 |  |
 | `tls.reality.handshake.domain_resolver.client_subnet` | 支持 |  |
-| `tls.reality.handshake.network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `tls.reality.handshake.network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `tls.reality.handshake.fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `tls.reality.handshake.network_strategy` | 支持 |  |
+| `tls.reality.handshake.network_type` | 支持 |  |
+| `tls.reality.handshake.fallback_network_type` | 支持 |  |
 | `tls.reality.handshake.fallback_delay` | 支持 |  |
 | `tls.reality.handshake.domain_strategy` (已弃用) | 支持 |  |
 | `tls.reality.private_key` | 支持 |  |
@@ -1122,9 +1122,9 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `tls.reality.handshake.domain_resolver.disable_optimistic_cache` | 支持 |  |
 | `tls.reality.handshake.domain_resolver.rewrite_ttl` | 支持 |  |
 | `tls.reality.handshake.domain_resolver.client_subnet` | 支持 |  |
-| `tls.reality.handshake.network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `tls.reality.handshake.network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `tls.reality.handshake.fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `tls.reality.handshake.network_strategy` | 支持 |  |
+| `tls.reality.handshake.network_type` | 支持 |  |
+| `tls.reality.handshake.fallback_network_type` | 支持 |  |
 | `tls.reality.handshake.fallback_delay` | 支持 |  |
 | `tls.reality.handshake.domain_strategy` (已弃用) | 支持 |  |
 | `tls.reality.private_key` | 支持 |  |
@@ -1275,9 +1275,9 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `handshake.domain_resolver.disable_optimistic_cache` | 支持 |  |
 | `handshake.domain_resolver.rewrite_ttl` | 支持 |  |
 | `handshake.domain_resolver.client_subnet` | 支持 |  |
-| `handshake.network_strategy` | 报错 | The protocol's own check: not implemented yet |
-| `handshake.network_type` | 报错 | The protocol's own check: not implemented yet |
-| `handshake.fallback_network_type` | 报错 | The protocol's own check: not implemented yet |
+| `handshake.network_strategy` | 支持 |  |
+| `handshake.network_type` | 支持 |  |
+| `handshake.fallback_network_type` | 支持 |  |
 | `handshake.fallback_delay` | 支持 |  |
 | `handshake.domain_strategy` (已弃用) | 支持 |  |
 | `handshake_for_server_name` | 支持 |  |
@@ -1405,9 +1405,9 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `tls.reality.handshake.domain_resolver.disable_optimistic_cache` | 支持 |  |
 | `tls.reality.handshake.domain_resolver.rewrite_ttl` | 支持 |  |
 | `tls.reality.handshake.domain_resolver.client_subnet` | 支持 |  |
-| `tls.reality.handshake.network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `tls.reality.handshake.network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `tls.reality.handshake.fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `tls.reality.handshake.network_strategy` | 支持 |  |
+| `tls.reality.handshake.network_type` | 支持 |  |
+| `tls.reality.handshake.fallback_network_type` | 支持 |  |
 | `tls.reality.handshake.fallback_delay` | 支持 |  |
 | `tls.reality.handshake.domain_strategy` (已弃用) | 支持 |  |
 | `tls.reality.private_key` | 支持 |  |
@@ -1523,9 +1523,9 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `tls.reality.handshake.domain_resolver.disable_optimistic_cache` | 支持 |  |
 | `tls.reality.handshake.domain_resolver.rewrite_ttl` | 支持 |  |
 | `tls.reality.handshake.domain_resolver.client_subnet` | 支持 |  |
-| `tls.reality.handshake.network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `tls.reality.handshake.network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `tls.reality.handshake.fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `tls.reality.handshake.network_strategy` | 支持 |  |
+| `tls.reality.handshake.network_type` | 支持 |  |
+| `tls.reality.handshake.fallback_network_type` | 支持 |  |
 | `tls.reality.handshake.fallback_delay` | 支持 |  |
 | `tls.reality.handshake.domain_strategy` (已弃用) | 支持 |  |
 | `tls.reality.private_key` | 支持 |  |
@@ -1660,9 +1660,9 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `tls.reality.handshake.domain_resolver.disable_optimistic_cache` | 支持 |  |
 | `tls.reality.handshake.domain_resolver.rewrite_ttl` | 支持 |  |
 | `tls.reality.handshake.domain_resolver.client_subnet` | 支持 |  |
-| `tls.reality.handshake.network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `tls.reality.handshake.network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `tls.reality.handshake.fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `tls.reality.handshake.network_strategy` | 支持 |  |
+| `tls.reality.handshake.network_type` | 支持 |  |
+| `tls.reality.handshake.fallback_network_type` | 支持 |  |
 | `tls.reality.handshake.fallback_delay` | 支持 |  |
 | `tls.reality.handshake.domain_strategy` (已弃用) | 支持 |  |
 | `tls.reality.private_key` | 支持 |  |
@@ -1770,9 +1770,9 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `tls.reality.handshake.domain_resolver.disable_optimistic_cache` | 支持 |  |
 | `tls.reality.handshake.domain_resolver.rewrite_ttl` | 支持 |  |
 | `tls.reality.handshake.domain_resolver.client_subnet` | 支持 |  |
-| `tls.reality.handshake.network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `tls.reality.handshake.network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `tls.reality.handshake.fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `tls.reality.handshake.network_strategy` | 支持 |  |
+| `tls.reality.handshake.network_type` | 支持 |  |
+| `tls.reality.handshake.fallback_network_type` | 支持 |  |
 | `tls.reality.handshake.fallback_delay` | 支持 |  |
 | `tls.reality.handshake.domain_strategy` (已弃用) | 支持 |  |
 | `tls.reality.private_key` | 支持 |  |
@@ -1855,9 +1855,9 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `domain_resolver.disable_optimistic_cache` | 支持 |  |
 | `domain_resolver.rewrite_ttl` | 支持 |  |
 | `domain_resolver.client_subnet` | 支持 |  |
-| `network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `network_strategy` | 支持 |  |
+| `network_type` | 支持 |  |
+| `fallback_network_type` | 支持 |  |
 | `fallback_delay` | 支持 |  |
 | `server` | 支持 |  |
 | `server_port` | 支持 |  |
@@ -1941,9 +1941,9 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `domain_resolver.disable_optimistic_cache` | 支持 |  |
 | `domain_resolver.rewrite_ttl` | 支持 |  |
 | `domain_resolver.client_subnet` | 支持 |  |
-| `network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `network_strategy` | 支持 |  |
+| `network_type` | 支持 |  |
+| `fallback_network_type` | 支持 |  |
 | `fallback_delay` | 支持 |  |
 | `domain_strategy` (已弃用) | 支持 |  |
 
@@ -1976,9 +1976,9 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `domain_resolver.disable_optimistic_cache` | 支持 |  |
 | `domain_resolver.rewrite_ttl` | 支持 |  |
 | `domain_resolver.client_subnet` | 支持 |  |
-| `network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `network_strategy` | 支持 |  |
+| `network_type` | 支持 |  |
+| `fallback_network_type` | 支持 |  |
 | `fallback_delay` | 支持 |  |
 | `server` | 支持 |  |
 | `server_port` | 支持 |  |
@@ -2055,9 +2055,9 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `domain_resolver.disable_optimistic_cache` | 支持 |  |
 | `domain_resolver.rewrite_ttl` | 支持 |  |
 | `domain_resolver.client_subnet` | 支持 |  |
-| `network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `network_strategy` | 支持 |  |
+| `network_type` | 支持 |  |
+| `fallback_network_type` | 支持 |  |
 | `fallback_delay` | 支持 |  |
 | `server` | 支持 |  |
 | `server_port` | 支持 |  |
@@ -2161,9 +2161,9 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `domain_resolver.disable_optimistic_cache` | 支持 |  |
 | `domain_resolver.rewrite_ttl` | 支持 |  |
 | `domain_resolver.client_subnet` | 支持 |  |
-| `network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `network_strategy` | 支持 |  |
+| `network_type` | 支持 |  |
+| `fallback_network_type` | 支持 |  |
 | `fallback_delay` | 支持 |  |
 | `server` | 支持 |  |
 | `server_port` | 支持 |  |
@@ -2217,9 +2217,9 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `domain_resolver.disable_optimistic_cache` | 支持 |  |
 | `domain_resolver.rewrite_ttl` | 支持 |  |
 | `domain_resolver.client_subnet` | 支持 |  |
-| `network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `network_strategy` | 支持 |  |
+| `network_type` | 支持 |  |
+| `fallback_network_type` | 支持 |  |
 | `fallback_delay` | 支持 |  |
 | `server` | 支持 |  |
 | `server_port` | 支持 |  |
@@ -2294,9 +2294,9 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `domain_resolver.disable_optimistic_cache` | 支持 |  |
 | `domain_resolver.rewrite_ttl` | 支持 |  |
 | `domain_resolver.client_subnet` | 支持 |  |
-| `network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `network_strategy` | 支持 |  |
+| `network_type` | 支持 |  |
+| `fallback_network_type` | 支持 |  |
 | `fallback_delay` | 支持 |  |
 | `server` | 支持 |  |
 | `server_port` | 支持 |  |
@@ -2338,9 +2338,9 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `domain_resolver.disable_optimistic_cache` | 支持 |  |
 | `domain_resolver.rewrite_ttl` | 支持 |  |
 | `domain_resolver.client_subnet` | 支持 |  |
-| `network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `network_strategy` | 支持 |  |
+| `network_type` | 支持 |  |
+| `fallback_network_type` | 支持 |  |
 | `fallback_delay` | 支持 |  |
 | `server` | 支持 |  |
 | `server_port` | 支持 |  |
@@ -2445,9 +2445,9 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `domain_resolver.disable_optimistic_cache` | 支持 |  |
 | `domain_resolver.rewrite_ttl` | 支持 |  |
 | `domain_resolver.client_subnet` | 支持 |  |
-| `network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `network_strategy` | 支持 |  |
+| `network_type` | 支持 |  |
+| `fallback_network_type` | 支持 |  |
 | `fallback_delay` | 支持 |  |
 | `server` | 支持 |  |
 | `server_port` | 支持 |  |
@@ -2545,9 +2545,9 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `domain_resolver.disable_optimistic_cache` | 支持 |  |
 | `domain_resolver.rewrite_ttl` | 支持 |  |
 | `domain_resolver.client_subnet` | 支持 |  |
-| `network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `network_strategy` | 支持 |  |
+| `network_type` | 支持 |  |
+| `fallback_network_type` | 支持 |  |
 | `fallback_delay` | 支持 |  |
 | `server` | 支持 |  |
 | `server_port` | 支持 |  |
@@ -2654,9 +2654,9 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `domain_resolver.disable_optimistic_cache` | 支持 |  |
 | `domain_resolver.rewrite_ttl` | 支持 |  |
 | `domain_resolver.client_subnet` | 支持 |  |
-| `network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `network_strategy` | 支持 |  |
+| `network_type` | 支持 |  |
+| `fallback_network_type` | 支持 |  |
 | `fallback_delay` | 支持 |  |
 | `server` | 支持 |  |
 | `server_port` | 支持 |  |
@@ -2766,10 +2766,10 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `default_domain_resolver.disable_optimistic_cache` | 支持 |  |
 | `default_domain_resolver.rewrite_ttl` | 支持 |  |
 | `default_domain_resolver.client_subnet` | 支持 |  |
-| `default_network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `default_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `default_fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `default_fallback_delay` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `default_network_strategy` | 支持 |  |
+| `default_network_type` | 支持 |  |
+| `default_fallback_network_type` | 支持 |  |
+| `default_fallback_delay` | 支持 |  |
 | `default_http_client` | 支持 |  |
 | `geoip` (已弃用) | 警告 | sing-box removed it in 1.12, and ignores it |
 | `geosite` (已弃用) | 警告 | sing-box removed it in 1.12, and ignores it |
@@ -2829,8 +2829,8 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `outbound` | 支持 |  |
 | `override_address` | 支持 |  |
 | `override_port` | 支持 |  |
-| `network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_delay` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
+| `fallback_delay` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
 | `udp_disable_domain_unmapping` | 支持 |  |
 | `udp_connect` | 支持 |  |
 | `udp_timeout` | 支持 |  |
@@ -2846,8 +2846,8 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 |---|---|---|
 | `override_address` | 支持 |  |
 | `override_port` | 支持 |  |
-| `network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_delay` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
+| `fallback_delay` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
 | `udp_disable_domain_unmapping` | 支持 |  |
 | `udp_connect` | 支持 |  |
 | `udp_timeout` | 支持 |  |
@@ -2864,8 +2864,8 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `outbound` | 支持 |  |
 | `override_address` | 支持 |  |
 | `override_port` | 支持 |  |
-| `network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_delay` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
+| `fallback_delay` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
 | `udp_disable_domain_unmapping` | 支持 |  |
 | `udp_connect` | 支持 |  |
 | `udp_timeout` | 支持 |  |
@@ -2998,9 +2998,9 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `http_client.domain_resolver.disable_optimistic_cache` | 支持 |  |
 | `http_client.domain_resolver.rewrite_ttl` | 支持 |  |
 | `http_client.domain_resolver.client_subnet` | 支持 |  |
-| `http_client.network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `http_client.network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `http_client.fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `http_client.network_strategy` | 支持 |  |
+| `http_client.network_type` | 支持 |  |
+| `http_client.fallback_network_type` | 支持 |  |
 | `http_client.fallback_delay` | 支持 |  |
 | `http_client.idle_timeout` | 警告 | HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download |
 | `http_client.keep_alive_period` | 警告 | HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download |

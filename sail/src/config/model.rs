@@ -194,6 +194,9 @@ const HTTP_CLIENT_DIAL: &[&str] = &[
     "reuse_addr",
     "tcp_fast_open",
     "udp_fragment",
+    "network_strategy",
+    "network_type",
+    "fallback_network_type",
     "fallback_delay",
 ];
 
@@ -2017,6 +2020,17 @@ pub struct Route {
     /// decide.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_domain_resolver: Option<DomainResolver>,
+    /// The `network_strategy`, `network_type`, `fallback_network_type`
+    /// and `fallback_delay` of what sets none of the first three, or no
+    /// delay; the strategy needs `auto_detect_interface`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_network_strategy: Option<crate::net::dial::NetworkStrategy>,
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub default_network_type: Vec<crate::net::network::NetworkType>,
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub default_fallback_network_type: Vec<crate::net::network::NetworkType>,
+    #[serde(default, with = "duration", skip_serializing_if = "Option::is_none")]
+    pub default_fallback_delay: Option<std::time::Duration>,
     /// Looks up the LAN device of each connection's source even without a
     /// rule on it, for the logs (sing-box's, since 1.14).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]

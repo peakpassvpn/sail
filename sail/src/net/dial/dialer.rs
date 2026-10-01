@@ -5,6 +5,7 @@
 
 use std::io;
 use std::net::{IpAddr, SocketAddr};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -13,9 +14,9 @@ use arc_swap::ArcSwap;
 use socket2::{Domain, SockRef, Socket, Type};
 use tokio::net::{TcpSocket, TcpStream, UdpSocket};
 use tokio::time::timeout;
-use tracing::debug;
 #[cfg(unix)]
 use tracing::trace;
+use tracing::{debug, warn};
 
 #[cfg(unix)]
 use {
@@ -26,6 +27,7 @@ use {
 
 use super::detour::{DetourDialer, Outbounds, Target};
 use super::happy::Order;
+use super::networks::{self, BoundInterface, Egress, FallbackState, Networks, Via};
 use super::{DialFields, DialSpec, ResolveSpec, RouteDefaults, SocketProtect};
 use crate::adapter::{AnyOutboundDatagram, AnyOutboundHandler, AnyStream};
 use crate::app::SyncDnsClient;
@@ -47,6 +49,11 @@ pub struct DialEnv {
     /// The outbounds the detour of a DNS server or an HTTP client goes
     /// through.
     pub outbounds: Outbounds,
+    /// The network the host is on: the interfaces `network_strategy`
+    /// chooses among, as it is when a connection is dialled.
+    pub network: Option<crate::net::network::Network>,
+    /// sail's own interfaces, its TUNs', which it never goes out of.
+    pub own_interfaces: Vec<String>,
 }
 
 /// What an instance builds its dialers from: its defaults, and the
@@ -243,6 +250,8 @@ impl std::fmt::Debug for InboundDialer {
 #[derive(Debug, Clone)]
 pub struct Dialer(Arc<Kind>);
 
+/// One per dialer, behind its `Arc`: the size of a variant costs nothing.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 enum Kind {
     /// Opens sockets of its own.
@@ -257,11 +266,48 @@ struct SocketDialer {
     spec: DialSpec,
     resolve: ResolveSpec,
     env: DialEnv,
+    /// Its `network_strategy`, if it has one.
+    racing: Option<Racing>,
+}
+
+/// What a dialer with a `network_strategy` keeps between its connections.
+#[derive(Debug)]
+struct Racing {
+    networks: Networks,
+    /// What the socket for one interface is opened with: no interface or
+    /// address of the defaults', the strategy choosing; nor Fast Open,
+    /// which sing-box's racers go without (default.go:311).
+    spec: DialSpec,
+    fallback: FallbackState,
+    /// Turned off for good by `EPERM`, the strategy being implicit
+    /// (default.go:328-335).
+    off: AtomicBool,
+    /// Whether it was told that the host lists no interfaces.
+    told: AtomicBool,
 }
 
 impl Dialer {
     pub fn new(spec: DialSpec, resolve: ResolveSpec, env: DialEnv) -> Dialer {
-        Dialer(Arc::new(Kind::Socket(SocketDialer { spec, resolve, env })))
+        let racing = spec.networks.clone().map(|networks| Racing {
+            networks,
+            spec: DialSpec {
+                bind_interface: None,
+                auto_detect_interface: false,
+                inet4_bind_address: None,
+                inet6_bind_address: None,
+                tcp_fast_open: false,
+                ..spec.clone()
+            },
+            fallback: FallbackState::default(),
+            off: AtomicBool::new(false),
+            told: AtomicBool::new(false),
+        });
+        Dialer(Arc::new(Kind::Socket(SocketDialer {
+            spec,
+            resolve,
+            env,
+            racing,
+        })))
     }
 
     /// A dialer of no configuration and no instance: nothing bound, nothing
@@ -374,7 +420,11 @@ impl Dialer {
         to: &SocksAddr,
     ) -> io::Result<AnyStream> {
         match &*self.0 {
-            Kind::Socket(_) => Ok(Box::new(self.tcp(dns, &to.host(), to.port()).await?)),
+            Kind::Socket(_) => {
+                let (stream, egress) = self.tcp_out(dns, &to.host(), to.port()).await?;
+                record(sess, egress);
+                Ok(Box::new(stream))
+            }
             Kind::Detour(detour) => detour.stream(dns, sess, to).await,
         }
     }
@@ -389,12 +439,12 @@ impl Dialer {
     ) -> io::Result<AnyOutboundDatagram> {
         match &*self.0 {
             Kind::Socket(_) => {
-                let socket = match to.ip() {
-                    Some(ip) if ip.is_loopback() => {
-                        self.udp_socket(&SocketAddr::new(ip, 0)).await?
-                    }
-                    _ => self.udp_socket(&self.unspecified()).await?,
+                let indicator = match to.ip() {
+                    Some(ip) if ip.is_loopback() => SocketAddr::new(ip, 0),
+                    _ => self.unspecified(),
                 };
+                let (socket, egress) = self.udp_out(&indicator).await?;
+                record(sess, egress);
                 Ok(Box::new(crate::net::DomainResolveOutboundDatagram::new(
                     socket,
                     dns.clone(),
@@ -437,6 +487,18 @@ impl Dialer {
     /// its two families raced (Happy Eyeballs), or, with TCP Fast Open,
     /// its addresses tried one by one. A dialer with a detour has none.
     pub async fn tcp(&self, dns: &SyncDnsClient, host: &str, port: u16) -> io::Result<TcpStream> {
+        self.tcp_out(dns, host, port)
+            .await
+            .map(|(stream, _)| stream)
+    }
+
+    /// `tcp`, and where the connection went out.
+    async fn tcp_out(
+        &self,
+        dns: &SyncDnsClient,
+        host: &str,
+        port: u16,
+    ) -> io::Result<(TcpStream, Egress)> {
         let SocketDialer { spec, resolve, .. } = self.socket()?;
         let addrs: Vec<SocketAddr> = Resolver::new(dns.clone(), host, port, resolve)
             .await
@@ -455,25 +517,71 @@ impl Dialer {
             prefer_ipv6: resolve.prefers_ipv6(),
             fallback_delay: spec.fallback_delay,
         };
-        super::happy::connect(&addrs, order, |addr| self.tcp_to(addr)).await
+        // The families race outside, the interfaces of each address
+        // inside, as sing-box's resolving dialer has it (resolve.go:108).
+        super::happy::connect(&addrs, order, |addr| self.tcp_to_out(addr)).await
     }
 
     /// A TCP connection to `addr`.
     pub async fn tcp_to(&self, addr: SocketAddr) -> io::Result<TcpStream> {
-        let SocketDialer { spec, env, .. } = self.socket()?;
+        self.tcp_to_out(addr).await.map(|(stream, _)| stream)
+    }
+
+    /// `tcp_to`, and where the connection went out: out of the interfaces
+    /// its `network_strategy` races, if it has one.
+    async fn tcp_to_out(&self, addr: SocketAddr) -> io::Result<(TcpStream, Egress)> {
+        let socket = self.socket()?;
         // On an IPv6-only network, IPv4 is reached through NAT64.
         let addr = crate::net::nat64::map(addr);
+        let Some((racing, primaries, fallbacks)) = socket.candidates(addr.ip()) else {
+            return self.tcp_via(addr, None).await;
+        };
+        let this = self.clone();
+        let raced = networks::race(
+            primaries,
+            fallbacks,
+            racing.networks.fallback_delay,
+            &racing.fallback,
+            move |via| {
+                let this = this.clone();
+                async move { this.tcp_via(addr, Some(via)).await }
+            },
+        )
+        .await;
+        match raced {
+            Ok((connected, _)) => Ok(connected),
+            Err(failed) => {
+                racing.permission_refused(failed)?;
+                self.tcp_via(addr, None).await
+            }
+        }
+    }
+
+    /// A TCP connection to `addr`, out of `via` if one is given.
+    async fn tcp_via(&self, addr: SocketAddr, via: Option<Via>) -> io::Result<(TcpStream, Egress)> {
+        let SocketDialer {
+            spec, env, racing, ..
+        } = self.socket()?;
         let socket = match addr {
             SocketAddr::V4(..) => TcpSocket::new_v4()?,
             SocketAddr::V6(..) => TcpSocket::new_v6()?,
         };
 
-        super::bind(
-            &SockRef::from(&socket),
-            &addr,
-            spec,
-            env.auto_interface.as_deref(),
-        )?;
+        let (spec, egress) = match (&via, racing) {
+            (Some(via), Some(racing)) => {
+                super::bind_via(&SockRef::from(&socket), &addr, &racing.spec, via)?;
+                (&racing.spec, Egress::of(via))
+            }
+            _ => {
+                let (_, egress) = super::bind_egress(
+                    &SockRef::from(&socket),
+                    &addr,
+                    spec,
+                    env.auto_interface.as_deref(),
+                )?;
+                (spec, egress)
+            }
+        };
 
         #[cfg(unix)]
         protect_socket(socket.as_raw_fd(), env.protect.as_ref()).await?;
@@ -497,16 +605,59 @@ impl Dialer {
             &addr,
             elapsed.as_millis()
         );
-        Ok(stream)
+        Ok((stream, egress))
     }
 
     /// A UDP socket for talking to `indicator`'s address family; bound to
     /// `indicator` itself where that is unspecified and nothing else binds
     /// it. A dialer with a detour has none.
     pub async fn udp_socket(&self, indicator: &SocketAddr) -> io::Result<UdpSocket> {
-        let SocketDialer { spec, env, .. } = self.socket()?;
+        self.udp_out(indicator).await.map(|(socket, _)| socket)
+    }
+
+    /// `udp_socket`, its interface recorded on `sess` as the connection's.
+    pub async fn udp_socket_for(
+        &self,
+        sess: &Session,
+        indicator: &SocketAddr,
+    ) -> io::Result<UdpSocket> {
+        let (socket, egress) = self.udp_out(indicator).await?;
+        record(Some(sess), egress);
+        Ok(socket)
+    }
+
+    /// `udp_socket`, and where it goes out: the first of the interfaces its
+    /// `network_strategy` chooses that takes it, if it has one
+    /// (default.go:377-408).
+    async fn udp_out(&self, indicator: &SocketAddr) -> io::Result<(UdpSocket, Egress)> {
+        let dialer = self.socket()?;
         // On an IPv6-only network, IPv4 is reached through NAT64, over IPv6.
         let indicator = &crate::net::nat64::map(*indicator);
+        let Some((racing, primaries, fallbacks)) = dialer.candidates(indicator.ip()) else {
+            return self.udp_via(indicator, None).await;
+        };
+        let opened = networks::serial(primaries, fallbacks, |via| {
+            self.udp_via(indicator, Some(via))
+        })
+        .await;
+        match opened {
+            Ok((opened, _)) => Ok(opened),
+            Err(failed) => {
+                racing.permission_refused(failed)?;
+                self.udp_via(indicator, None).await
+            }
+        }
+    }
+
+    /// A UDP socket for `indicator`, bound to `via` if one is given.
+    async fn udp_via(
+        &self,
+        indicator: &SocketAddr,
+        via: Option<Via>,
+    ) -> io::Result<(UdpSocket, Egress)> {
+        let SocketDialer {
+            spec, env, racing, ..
+        } = self.socket()?;
         let socket = Socket::new(Domain::for_address(*indicator), Type::DGRAM, None)?;
         socket.set_nonblocking(true)?;
         crate::net::fit_largest_datagram(SockRef::from(&socket))?;
@@ -516,7 +667,13 @@ impl Dialer {
         if !spec.udp_fragment {
             super::sockopt::dont_fragment(SockRef::from(&socket), indicator.is_ipv6())?;
         }
-        let bound = super::bind(&socket, indicator, spec, env.auto_interface.as_deref())?;
+        let (bound, egress) = match (&via, racing) {
+            (Some(via), Some(racing)) => {
+                super::bind_via(&socket, indicator, &racing.spec, via)?;
+                (false, Egress::of(via))
+            }
+            _ => super::bind_egress(&socket, indicator, spec, env.auto_interface.as_deref())?,
+        };
         if !bound && indicator.ip().is_unspecified() {
             socket.bind(&(*indicator).into())?;
         }
@@ -524,7 +681,60 @@ impl Dialer {
         #[cfg(unix)]
         protect_socket(socket.as_raw_fd(), env.protect.as_ref()).await?;
 
-        UdpSocket::from_std(socket.into())
+        Ok((UdpSocket::from_std(socket.into())?, egress))
+    }
+}
+
+impl SocketDialer {
+    /// The interfaces its `network_strategy` chooses for `target`, first
+    /// and fallback, from the host's as they are now; none where it has
+    /// no strategy, or it does not apply. It does not to loopback, which
+    /// is never bound, nor while the host lists no interfaces: its
+    /// connections then go out the default route, as without one, and it
+    /// says so once.
+    fn candidates(&self, target: IpAddr) -> Option<(&Racing, Vec<Via>, Vec<Via>)> {
+        let racing = self.racing.as_ref()?;
+        if racing.off.load(Ordering::Relaxed) || target.is_loopback() {
+            return None;
+        }
+        let state = self.env.network.as_ref().map(|network| network.snapshot());
+        let Some(state) = state.filter(|state| !state.interfaces.is_empty()) else {
+            if !racing.told.swap(true, Ordering::Relaxed) {
+                warn!(
+                    "network_strategy: the host lists no interfaces; connections go out the \
+                     default route until it does"
+                );
+            }
+            return None;
+        };
+        let (primaries, fallbacks) =
+            networks::select(&state, &self.env.own_interfaces, &racing.networks);
+        Some((racing, primaries, fallbacks))
+    }
+}
+
+impl Racing {
+    /// Every interface failed: the error, unless one was refused for want
+    /// of permission and the strategy is implicit, which turns it off for
+    /// good, for the caller to dial as without one (default.go:328-335).
+    fn permission_refused(&self, failed: networks::Failed) -> io::Result<()> {
+        if !(failed.permission && self.networks.implicit) {
+            return Err(failed.error);
+        }
+        warn!(
+            "network_strategy: binding to an interface is not permitted; connections go out \
+             the default route from now on: {}",
+            failed.error
+        );
+        self.off.store(true, Ordering::Relaxed);
+        Ok(())
+    }
+}
+
+/// Records on `sess`, if there is one, where its connection went out.
+fn record(sess: Option<&Session>, egress: Egress) {
+    if let Some(sess) = sess {
+        sess.state.get::<BoundInterface>().set(egress);
     }
 }
 
@@ -748,6 +958,172 @@ mod tests {
         if let Err(e) = built {
             assert_eq!(e.to_string(), "routing_mark: only supported on Linux");
         }
+    }
+
+    /// A dialer of `strategy` over `state`, the host's network.
+    fn racing(json: serde_json::Value, state: crate::net::network::NetworkState) -> Dialer {
+        let network = crate::net::network::Network::default();
+        network.push(state);
+        let defaults = DialDefaults {
+            env: DialEnv {
+                network: Some(network),
+                own_interfaces: vec!["utun99".into()],
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        defaults
+            .dialer(&serde_json::from_value(json).unwrap(), None)
+            .unwrap()
+    }
+
+    #[cfg(target_os = "macos")]
+    fn listed(default: &str, names: &[&str]) -> crate::net::network::NetworkState {
+        use crate::net::network::{NetworkInterface, NetworkType};
+        crate::net::network::NetworkState {
+            interface: Some(default.into()),
+            interfaces: names
+                .iter()
+                .map(|name| NetworkInterface {
+                    name: name.to_string(),
+                    index: None,
+                    kind: NetworkType::Ethernet,
+                    addresses: Vec::new(),
+                    expensive: false,
+                    constrained: false,
+                })
+                .collect(),
+            ..Default::default()
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    const LOOPBACK: &str = "lo0";
+
+    /// UDP goes out the first interface the strategy chooses that takes
+    /// it: the default one unbound, another bound to it.
+    // Binding to an interface takes no privilege on macOS.
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn udp_goes_out_the_interfaces_in_turn() {
+        let any: SocketAddr = "0.0.0.0:0".parse().unwrap();
+        let hybrid = || serde_json::json!({ "network_strategy": "hybrid" });
+        let dialer = racing(hybrid(), listed(LOOPBACK, &[LOOPBACK]));
+        let (_, egress) = dialer.udp_out(&any).await.unwrap();
+        assert_eq!(egress, Egress::DefaultRoute);
+        // One that cannot be bound, then one that can.
+        let dialer = racing(hybrid(), listed("en9", &["no-such-if0", LOOPBACK]));
+        let (_, egress) = dialer.udp_out(&any).await.unwrap();
+        assert_eq!(
+            egress,
+            Egress::Interface {
+                name: LOOPBACK.into(),
+                index: None
+            }
+        );
+        // None of the host's to choose: an error.
+        let fallback = serde_json::json!({ "network_strategy": "default" });
+        let dialer = racing(fallback, listed("utun99", &["utun99", LOOPBACK]));
+        let e = dialer.udp_out(&any).await.unwrap_err();
+        assert_eq!(e.to_string(), "no available network interface");
+        // Loopback is never raced.
+        let (_, egress) = dialer
+            .udp_out(&"127.0.0.1:0".parse().unwrap())
+            .await
+            .unwrap();
+        assert_eq!(egress, Egress::DefaultRoute);
+    }
+
+    /// Without the host's interfaces listed, it goes out the default route,
+    /// as without a strategy.
+    #[tokio::test]
+    async fn with_no_interfaces_listed_it_goes_out_the_default_route() {
+        let dialer = racing(
+            serde_json::json!({ "network_strategy": "default" }),
+            Default::default(),
+        );
+        let (_, egress) = dialer.udp_out(&"0.0.0.0:0".parse().unwrap()).await.unwrap();
+        assert_eq!(egress, Egress::DefaultRoute);
+    }
+
+    /// The interface a connection went out on is on its session.
+    // Binding to an interface takes no privilege on macOS.
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn the_interface_is_recorded_on_the_session() {
+        let dialer = racing(
+            serde_json::json!({ "network_strategy": "hybrid" }),
+            listed("en9", &[LOOPBACK]),
+        );
+        let sess = Session::default();
+        dialer
+            .udp_socket_for(&sess, &"0.0.0.0:0".parse().unwrap())
+            .await
+            .unwrap();
+        assert_eq!(
+            sess.state.get::<BoundInterface>().get(),
+            Some(Egress::Interface {
+                name: LOOPBACK.into(),
+                index: None
+            })
+        );
+        // Its copies share it.
+        let sess = Session::default();
+        let copy = sess.clone();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let to = SocksAddr::from(listener.local_addr().unwrap());
+        let dns = InstanceDial::default().dns;
+        dialer.stream(&dns, Some(&sess), &to).await.unwrap();
+        assert_eq!(
+            copy.state.get::<BoundInterface>().get(),
+            Some(Egress::DefaultRoute)
+        );
+    }
+
+    /// `EPERM` binding turns an implicit strategy off for good; an explicit
+    /// one fails (default.go:328-335).
+    #[cfg(unix)]
+    #[test]
+    fn a_refused_bind_turns_off_an_implicit_strategy_only() {
+        let refused = || networks::Failed {
+            error: io::Error::from_raw_os_error(libc::EPERM),
+            permission: true,
+        };
+        let implicit = racing(
+            serde_json::json!({ "network_type": "wifi" }),
+            Default::default(),
+        );
+        let Kind::Socket(socket) = &*implicit.0 else {
+            unreachable!()
+        };
+        let racing_ = socket.racing.as_ref().unwrap();
+        racing_.permission_refused(refused()).unwrap();
+        assert!(racing_.off.load(Ordering::Relaxed));
+        assert!(socket.candidates("192.0.2.1".parse().unwrap()).is_none());
+        let explicit = racing(
+            serde_json::json!({ "network_strategy": "default" }),
+            Default::default(),
+        );
+        let Kind::Socket(socket) = &*explicit.0 else {
+            unreachable!()
+        };
+        let racing_ = socket.racing.as_ref().unwrap();
+        assert!(racing_.permission_refused(refused()).is_err());
+        assert!(!racing_.off.load(Ordering::Relaxed));
+        // Nor does another refusal.
+        let other = networks::Failed {
+            error: io::Error::from(io::ErrorKind::ConnectionRefused),
+            permission: false,
+        };
+        let Kind::Socket(socket) = &*implicit.0 else {
+            unreachable!()
+        };
+        assert!(socket
+            .racing
+            .as_ref()
+            .unwrap()
+            .permission_refused(other)
+            .is_err());
     }
 
     /// A connect to one address that is never answered gives up after 5s,

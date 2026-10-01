@@ -8,11 +8,13 @@ use std::time::Duration;
 
 use anyhow::{anyhow, Result};
 
+use super::networks::{NetworkStrategy, Networks};
 use super::{
     interface_exists, supports_bind_interface, supports_routing_mark, tcp_keep_alive, DialFields,
     TcpKeepAlive, DEFAULT_CONNECT_TIMEOUT, DEFAULT_FALLBACK_DELAY,
 };
 use crate::config::model::{DnsStrategy, DomainResolver};
+use crate::net::network::NetworkType;
 
 /// What an instance gives every dialer that its own fields leave unset:
 /// `route.default_*`, and what the instance adds to them, auto_redirect's
@@ -36,6 +38,12 @@ pub struct RouteDefaults {
     /// Whether IPv6 is used at all (`dns.strategy`), which makes the UDP
     /// sockets that are not bound to anything in particular dual-stack.
     pub ipv6: bool,
+    /// `route.default_network_strategy`, `default_network_type`,
+    /// `default_fallback_network_type` and `default_fallback_delay`.
+    pub network_strategy: Option<NetworkStrategy>,
+    pub network_type: Vec<NetworkType>,
+    pub fallback_network_type: Vec<NetworkType>,
+    pub fallback_delay: Option<Duration>,
 }
 
 impl RouteDefaults {
@@ -47,8 +55,26 @@ impl RouteDefaults {
             bind_interface: route.default_interface.clone(),
             routing_mark: route.default_mark,
             domain_resolver: route.default_domain_resolver.clone(),
+            network_strategy: route.default_network_strategy,
+            network_type: route.default_network_type.clone(),
+            fallback_network_type: route.default_fallback_network_type.clone(),
+            fallback_delay: route.default_fallback_delay,
             ..Default::default()
         };
+        // As sing-box's network manager has it (route/network.go:111-118).
+        if defaults.network_strategy.is_some() {
+            if defaults.bind_interface.is_some() {
+                return Err(anyhow!(
+                    "route.default_network_strategy: not with default_interface, \
+                     which binds every socket itself"
+                ));
+            }
+            if !route.auto_detect_interface {
+                return Err(anyhow!(
+                    "route.default_network_strategy: needs auto_detect_interface"
+                ));
+            }
+        }
         if defaults.routing_mark.is_some() && !supports_routing_mark() {
             return Err(anyhow!("route.default_mark: only supported on Linux"));
         }
@@ -104,6 +130,9 @@ pub struct DialSpec {
     /// How long one family's addresses are tried before the other's race
     /// them.
     pub fallback_delay: Duration,
+    /// Which of the host's interfaces its connections go out of, where it
+    /// chooses: with no bind of its own or of `route.default_interface`.
+    pub networks: Option<Networks>,
 }
 
 impl Default for DialSpec {
@@ -119,6 +148,18 @@ impl DialSpec {
     /// names the field; the place puts where it is before it.
     pub fn resolve(fields: &DialFields, defaults: &RouteDefaults) -> Result<DialSpec> {
         DialSpec::check(fields)?;
+        // sing-box drops the place's strategy then (default.go:101).
+        if defaults.bind_interface.is_some() {
+            if let Some(name) = fields
+                .set()
+                .find(|n| ["network_strategy", "network_type", "fallback_network_type"].contains(n))
+            {
+                return Err(anyhow!(
+                    "{}: not with route.default_interface, which binds every socket itself",
+                    name
+                ));
+            }
+        }
         Ok(DialSpec::merge(fields, defaults))
     }
 
@@ -193,6 +234,9 @@ impl DialSpec {
                 .fallback_delay
                 .filter(|d| !d.is_zero())
                 .unwrap_or(DEFAULT_FALLBACK_DELAY),
+            networks: (!binds_itself && defaults.bind_interface.is_none())
+                .then(|| networks(fields, defaults))
+                .flatten(),
         }
     }
 
@@ -222,6 +266,44 @@ impl DialSpec {
             IpAddr::V6(_) => self.inet6_bind_address.map(IpAddr::V6),
         }
     }
+}
+
+/// The interfaces `fields` choose among, over `defaults`, as sing-box
+/// merges them (common/dialer/default.go:107-122): the place's strategy and
+/// types where it sets any, else the route's; the strategy `default` where
+/// only types are given; the place's delay, else the route's, else 300ms.
+fn networks(fields: &DialFields, defaults: &RouteDefaults) -> Option<Networks> {
+    let own = fields.network_strategy.is_some()
+        || !fields.network_type.is_empty()
+        || !fields.fallback_network_type.is_empty();
+    let from = if own {
+        (
+            fields.network_strategy,
+            &fields.network_type,
+            &fields.fallback_network_type,
+        )
+    } else {
+        (
+            defaults.network_strategy,
+            &defaults.network_type,
+            &defaults.fallback_network_type,
+        )
+    };
+    let (strategy, network_type, fallback_network_type) = from;
+    if strategy.is_none() && network_type.is_empty() && fallback_network_type.is_empty() {
+        return None;
+    }
+    // Zero is unset, as in sing-box.
+    let set = |d: Option<Duration>| d.filter(|d| !d.is_zero());
+    Some(Networks {
+        strategy: strategy.unwrap_or(NetworkStrategy::Default),
+        implicit: strategy.is_none(),
+        network_type: network_type.clone(),
+        fallback_network_type: fallback_network_type.clone(),
+        fallback_delay: set(fields.fallback_delay)
+            .or(set(defaults.fallback_delay))
+            .unwrap_or(DEFAULT_FALLBACK_DELAY),
+    })
 }
 
 /// How the names a dialer dials resolve: the DNS server and families to
@@ -512,6 +594,113 @@ mod tests {
                 "route.default_interface: there is no interface \"no-such-if0\""
             );
         }
+    }
+
+    #[test]
+    fn the_strategy_is_the_place_s_else_the_route_s() {
+        use NetworkType::*;
+        let route = RouteDefaults {
+            network_strategy: Some(NetworkStrategy::Hybrid),
+            network_type: vec![Wifi],
+            fallback_network_type: vec![Cellular],
+            fallback_delay: Some(Duration::from_millis(500)),
+            ..Default::default()
+        };
+        let networks =
+            |json, defaults: &RouteDefaults| DialSpec::merge(&fields(json), defaults).networks;
+        // None set anywhere, none.
+        assert_eq!(
+            networks(serde_json::json!({}), &RouteDefaults::default()),
+            None
+        );
+        // The route's, the three together, and its delay.
+        assert_eq!(
+            networks(serde_json::json!({}), &route),
+            Some(Networks {
+                strategy: NetworkStrategy::Hybrid,
+                implicit: false,
+                network_type: vec![Wifi],
+                fallback_network_type: vec![Cellular],
+                fallback_delay: Duration::from_millis(500),
+            })
+        );
+        // Any one of the place's three, and the route's are left whole;
+        // types alone are the default strategy, implicitly.
+        assert_eq!(
+            networks(serde_json::json!({ "network_type": "ethernet" }), &route),
+            Some(Networks {
+                strategy: NetworkStrategy::Default,
+                implicit: true,
+                network_type: vec![Ethernet],
+                fallback_network_type: vec![],
+                fallback_delay: Duration::from_millis(500),
+            })
+        );
+        // The place's delay goes first; zero is unset; 300ms otherwise.
+        let delay = |json| networks(json, &route).unwrap().fallback_delay;
+        assert_eq!(
+            delay(serde_json::json!({ "fallback_delay": "50ms" })),
+            Duration::from_millis(50)
+        );
+        assert_eq!(
+            delay(serde_json::json!({ "fallback_delay": "0s" })),
+            Duration::from_millis(500)
+        );
+        let fallback = serde_json::json!({ "network_strategy": "fallback" });
+        let alone = networks(fallback.clone(), &RouteDefaults::default()).unwrap();
+        assert_eq!(alone.fallback_delay, Duration::from_millis(300));
+        assert!(!alone.implicit);
+        // A bind of its own, or the route's interface, and none.
+        assert_eq!(
+            networks(
+                serde_json::json!({ "inet4_bind_address": "10.0.0.2" }),
+                &route
+            ),
+            None
+        );
+        let bound = RouteDefaults {
+            bind_interface: Some("en0".into()),
+            ..route.clone()
+        };
+        assert_eq!(networks(serde_json::json!({}), &bound), None);
+        // Which, for the place's own, is an error.
+        assert_eq!(
+            DialSpec::resolve(&fields(fallback), &bound)
+                .unwrap_err()
+                .to_string(),
+            "network_strategy: not with route.default_interface, which binds every socket itself"
+        );
+    }
+
+    #[test]
+    fn the_route_s_strategy_needs_auto_detection_and_no_interface() {
+        let route = |json| -> crate::config::Route { serde_json::from_value(json).unwrap() };
+        let err = |json| RouteDefaults::new(&route(json)).unwrap_err().to_string();
+        assert_eq!(
+            err(serde_json::json!({ "default_network_strategy": "hybrid" })),
+            "route.default_network_strategy: needs auto_detect_interface"
+        );
+        assert_eq!(
+            err(serde_json::json!({ "default_network_strategy": "hybrid",
+                "default_interface": "lo" })),
+            "route.default_network_strategy: not with default_interface, \
+             which binds every socket itself"
+        );
+        let defaults = RouteDefaults::new(&route(serde_json::json!({
+            "default_network_strategy": "fallback", "auto_detect_interface": true,
+            "default_network_type": "wifi", "default_fallback_network_type": ["cellular"],
+            "default_fallback_delay": "1s",
+        })))
+        .unwrap();
+        assert_eq!(defaults.network_strategy, Some(NetworkStrategy::Fallback));
+        assert_eq!(defaults.network_type, [NetworkType::Wifi]);
+        assert_eq!(defaults.fallback_network_type, [NetworkType::Cellular]);
+        assert_eq!(defaults.fallback_delay, Some(Duration::from_secs(1)));
+        // Types alone need nothing (route/network.go:111).
+        RouteDefaults::new(&route(
+            serde_json::json!({ "default_network_type": "wifi" }),
+        ))
+        .unwrap();
     }
 
     #[test]

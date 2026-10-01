@@ -88,7 +88,7 @@ pub const EMPTIED: &[&str] = &["experimental"];
 
 // Reasons several groups share.
 const NETWORKS: &str =
-    "Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route";
+    "Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say";
 const PROTECT: &str =
     "Android's socket protection and Linux network namespaces: sockets would leave another way";
 const SOCKET: &str = "Socket tuning: connections go the same way without it";
@@ -183,18 +183,6 @@ pub const GROUPS: &[Group] = &[
             "http_clients.*.netns",
             "route.rule_set.*.http_client.protect_path",
             "route.rule_set.*.http_client.netns",
-        ],
-    ),
-    g(
-        NETWORKS,
-        Unsupported,
-        &[
-            "http_clients.*.network_strategy",
-            "http_clients.*.network_type",
-            "http_clients.*.fallback_network_type",
-            "route.rule_set.*.http_client.network_strategy",
-            "route.rule_set.*.http_client.network_type",
-            "route.rule_set.*.http_client.fallback_network_type",
         ],
     ),
     g(
@@ -325,16 +313,6 @@ pub const GROUPS: &[Group] = &[
     ),
     // Routing.
     g(
-        NETWORKS,
-        Unsupported,
-        &[
-            "route.default_network_strategy",
-            "route.default_network_type",
-            "route.default_fallback_network_type",
-            "route.default_fallback_delay",
-        ],
-    ),
-    g(
         "sail looks processes up when a rule asks for them",
         Ignored,
         &["route.find_process"],
@@ -398,15 +376,6 @@ pub const GROUPS: &[Group] = &[
         PROTECT,
         Unsupported,
         &["outbounds.*.protect_path", "outbounds.*.netns"],
-    ),
-    g(
-        NETWORKS,
-        Unsupported,
-        &[
-            "outbounds.*.network_strategy",
-            "outbounds.*.network_type",
-            "outbounds.*.fallback_network_type",
-        ],
     ),
     g(
         SOCKET,
@@ -484,15 +453,6 @@ pub const GROUPS: &[Group] = &[
         &[
             "inbounds.*.tls.reality.handshake.protect_path",
             "inbounds.*.tls.reality.handshake.netns",
-        ],
-    ),
-    g(
-        NETWORKS,
-        Unsupported,
-        &[
-            "inbounds.*.tls.reality.handshake.network_strategy",
-            "inbounds.*.tls.reality.handshake.network_type",
-            "inbounds.*.tls.reality.handshake.fallback_network_type",
         ],
     ),
     g(

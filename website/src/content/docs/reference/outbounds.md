@@ -49,10 +49,10 @@ Rust: [`AnyTlsOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sai
 | `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
 | `udp_fragment` | bool | unset | Supported | Whether UDP datagrams may be fragmented on the way; unset, as the place says, see `udp_fragment_default`. |
 | `domain_resolver` | string\|object → [object](/sail/reference/shared/#domain-resolver-default-domain-resolver) | unset | Supported | The DNS server that resolves the names dialled. |
-| `network_strategy` | string, one of `default`, `fallback`, `hybrid` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
-| `network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
-| `fallback_network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
-| `fallback_delay` | duration | unset | Supported | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs); 300ms when unset. |
+| `network_strategy` | string, one of `default`, `fallback`, `hybrid` | unset | Supported | Which of the host's interfaces a connection goes out of, and how they race; `default` where only types are given. Only where the host lists its interfaces (`NetworkState::interfaces`). |
+| `network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | `[]` | Supported | The types of interface the strategy goes out of first. |
+| `fallback_network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | `[]` | Supported | The types it falls back to, with `fallback`. |
+| `fallback_delay` | duration | unset | Supported | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs), and the first interfaces before the fallback ones; 300ms when unset. |
 | `server` | string | required | Supported | — |
 | `server_port` | number | required | Supported | — |
 | `tls` | object → [object](/sail/reference/shared/#tls-outbounds) | unset | Supported | — |
@@ -100,10 +100,10 @@ Rust: [`DirectOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/pr
 | `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
 | `udp_fragment` | bool | unset | Supported | Whether UDP datagrams may be fragmented on the way; unset, as the place says, see `udp_fragment_default`. |
 | `domain_resolver` | string\|object → [object](/sail/reference/shared/#domain-resolver-default-domain-resolver) | unset | Supported | The DNS server that resolves the names dialled. |
-| `network_strategy` | string, one of `default`, `fallback`, `hybrid` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
-| `network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
-| `fallback_network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
-| `fallback_delay` | duration | unset | Supported | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs); 300ms when unset. |
+| `network_strategy` | string, one of `default`, `fallback`, `hybrid` | unset | Supported | Which of the host's interfaces a connection goes out of, and how they race; `default` where only types are given. Only where the host lists its interfaces (`NetworkState::interfaces`). |
+| `network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | `[]` | Supported | The types of interface the strategy goes out of first. |
+| `fallback_network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | `[]` | Supported | The types it falls back to, with `fallback`. |
+| `fallback_delay` | duration | unset | Supported | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs), and the first interfaces before the fallback ones; 300ms when unset. |
 | `domain_strategy` | string | unset | Supported (deprecated in sing-box) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
 | `skip_default_domain_resolver` | bool | `false` | sail extension | A sail extension: without a `domain_resolver` of its own, the names dialled resolve as the DNS rules say, not as `route.default_domain_resolver` does; as Mihomo's DIRECT resolves apart from the proxies' servers. |
 
@@ -154,10 +154,10 @@ Rust: [`HttpOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/
 | `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
 | `udp_fragment` | bool | unset | Supported | Whether UDP datagrams may be fragmented on the way; unset, as the place says, see `udp_fragment_default`. |
 | `domain_resolver` | string\|object → [object](/sail/reference/shared/#domain-resolver-default-domain-resolver) | unset | Supported | The DNS server that resolves the names dialled. |
-| `network_strategy` | string, one of `default`, `fallback`, `hybrid` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
-| `network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
-| `fallback_network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
-| `fallback_delay` | duration | unset | Supported | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs); 300ms when unset. |
+| `network_strategy` | string, one of `default`, `fallback`, `hybrid` | unset | Supported | Which of the host's interfaces a connection goes out of, and how they race; `default` where only types are given. Only where the host lists its interfaces (`NetworkState::interfaces`). |
+| `network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | `[]` | Supported | The types of interface the strategy goes out of first. |
+| `fallback_network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | `[]` | Supported | The types it falls back to, with `fallback`. |
+| `fallback_delay` | duration | unset | Supported | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs), and the first interfaces before the fallback ones; 300ms when unset. |
 | `server` | string | required | Supported | — |
 | `server_port` | number | required | Supported | — |
 | `username` | string | unset | Supported | — |
@@ -194,10 +194,10 @@ Rust: [`Hysteria2OutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/
 | `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
 | `udp_fragment` | bool | unset | Supported | Whether UDP datagrams may be fragmented on the way; unset, as the place says, see `udp_fragment_default`. |
 | `domain_resolver` | string\|object → [object](/sail/reference/shared/#domain-resolver-default-domain-resolver) | unset | Supported | The DNS server that resolves the names dialled. |
-| `network_strategy` | string, one of `default`, `fallback`, `hybrid` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
-| `network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
-| `fallback_network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
-| `fallback_delay` | duration | unset | Supported | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs); 300ms when unset. |
+| `network_strategy` | string, one of `default`, `fallback`, `hybrid` | unset | Supported | Which of the host's interfaces a connection goes out of, and how they race; `default` where only types are given. Only where the host lists its interfaces (`NetworkState::interfaces`). |
+| `network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | `[]` | Supported | The types of interface the strategy goes out of first. |
+| `fallback_network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | `[]` | Supported | The types it falls back to, with `fallback`. |
+| `fallback_delay` | duration | unset | Supported | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs), and the first interfaces before the fallback ones; 300ms when unset. |
 | `server` | string | required | Supported | — |
 | `server_port` | number | unset | Supported | The one port; with `server_ports`, not needed. |
 | `server_ports` | listable-string | unset | Supported | Ports or ranges ("20000:30000") to hop between. |
@@ -400,10 +400,10 @@ Rust: [`RedirectOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/
 | `domain_resolver` | object → [object](#outbounds-redirect-domain-resolver) | unset | sail extension | The DNS server that resolves the names dialled. |
 | `skip_default_domain_resolver` | bool | `false` | sail extension | A sail extension: without a `domain_resolver` of its own, the names dialled resolve as the DNS rules say, not as `route.default_domain_resolver` does; as Mihomo's DIRECT resolves apart from the proxies' servers. |
 | `domain_strategy` | string, one of `prefer_ipv4`, `prefer_ipv6`, `ipv4_only`, `ipv6_only` | unset | sail extension | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
-| `network_strategy` | any JSON | unset | sail extension | Not implemented yet. |
-| `network_type` | any JSON | unset | sail extension | Not implemented yet. |
-| `fallback_network_type` | any JSON | unset | sail extension | Not implemented yet. |
-| `fallback_delay` | duration | unset | sail extension | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs); 300ms when unset. |
+| `network_strategy` | string, one of `default`, `hybrid`, `fallback` | unset | sail extension | Which of the host's interfaces a connection goes out of, and how they race; `default` where only types are given. Only where the host lists its interfaces (`NetworkState::interfaces`). |
+| `network_type` | string, one of `wifi`, `cellular`, `ethernet`, `other` or array of string, one of `wifi`, `cellular`, `ethernet`, `other` | `[]` | sail extension | The types of interface the strategy goes out of first. |
+| `fallback_network_type` | string, one of `wifi`, `cellular`, `ethernet`, `other` or array of string, one of `wifi`, `cellular`, `ethernet`, `other` | `[]` | sail extension | The types it falls back to, with `fallback`. |
+| `fallback_delay` | duration | unset | sail extension | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs), and the first interfaces before the fallback ones; 300ms when unset. |
 | `detour` | string | unset | sail extension | The outbound to dial through, in place of a socket of its own. |
 | `bind_interface` | string | unset | sail extension | The interface to send through, by name. Loopback destinations still go over loopback, where sing-box applies the bind to them as well. |
 | `inet4_bind_address` | string | unset | sail extension | The local address for IPv4 destinations, loopback ones aside: as `bind_interface`. |
@@ -423,10 +423,10 @@ Rust: [`RedirectOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/
 | `domain_resolver` | object → [object](#outbounds-redirect-domain-resolver) | unset | sail extension | The DNS server that resolves the names dialled. |
 | `skip_default_domain_resolver` | bool | `false` | sail extension | A sail extension: without a `domain_resolver` of its own, the names dialled resolve as the DNS rules say, not as `route.default_domain_resolver` does; as Mihomo's DIRECT resolves apart from the proxies' servers. |
 | `domain_strategy` | string, one of `prefer_ipv4`, `prefer_ipv6`, `ipv4_only`, `ipv6_only` | unset | sail extension | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
-| `network_strategy` | any JSON | unset | sail extension | Not implemented yet. |
-| `network_type` | any JSON | unset | sail extension | Not implemented yet. |
-| `fallback_network_type` | any JSON | unset | sail extension | Not implemented yet. |
-| `fallback_delay` | duration | unset | sail extension | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs); 300ms when unset. |
+| `network_strategy` | string, one of `default`, `hybrid`, `fallback` | unset | sail extension | Which of the host's interfaces a connection goes out of, and how they race; `default` where only types are given. Only where the host lists its interfaces (`NetworkState::interfaces`). |
+| `network_type` | string, one of `wifi`, `cellular`, `ethernet`, `other` or array of string, one of `wifi`, `cellular`, `ethernet`, `other` | `[]` | sail extension | The types of interface the strategy goes out of first. |
+| `fallback_network_type` | string, one of `wifi`, `cellular`, `ethernet`, `other` or array of string, one of `wifi`, `cellular`, `ethernet`, `other` | `[]` | sail extension | The types it falls back to, with `fallback`. |
+| `fallback_delay` | duration | unset | sail extension | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs), and the first interfaces before the fallback ones; 300ms when unset. |
 | `server` | string | required | sail extension | — |
 | `server_port` | number | required | sail extension | — |
 
@@ -490,10 +490,10 @@ Rust: [`ShadowsocksOutboundOptions`](https://github.com/peakpassvpn/sail/blob/de
 | `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
 | `udp_fragment` | bool | unset | Supported | Whether UDP datagrams may be fragmented on the way; unset, as the place says, see `udp_fragment_default`. |
 | `domain_resolver` | string\|object → [object](/sail/reference/shared/#domain-resolver-default-domain-resolver) | unset | Supported | The DNS server that resolves the names dialled. |
-| `network_strategy` | string, one of `default`, `fallback`, `hybrid` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
-| `network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
-| `fallback_network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
-| `fallback_delay` | duration | unset | Supported | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs); 300ms when unset. |
+| `network_strategy` | string, one of `default`, `fallback`, `hybrid` | unset | Supported | Which of the host's interfaces a connection goes out of, and how they race; `default` where only types are given. Only where the host lists its interfaces (`NetworkState::interfaces`). |
+| `network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | `[]` | Supported | The types of interface the strategy goes out of first. |
+| `fallback_network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | `[]` | Supported | The types it falls back to, with `fallback`. |
+| `fallback_delay` | duration | unset | Supported | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs), and the first interfaces before the fallback ones; 300ms when unset. |
 | `server` | string | required | Supported | — |
 | `server_port` | number | required | Supported | — |
 | `method` | string, one of `none`, `aes-128-gcm`, `aes-192-gcm`, `aes-256-gcm`, `chacha20-ietf-poly1305`, `xchacha20-ietf-poly1305`, `2022-blake3-aes-128-gcm`, `2022-blake3-aes-256-gcm`, `2022-blake3-chacha20-poly1305`, `aes-128-ctr`, `aes-192-ctr`, `aes-256-ctr`, `aes-128-cfb`, `aes-192-cfb`, `aes-256-cfb`, `rc4-md5`, `chacha20-ietf`, `xchacha20` | required | Supported | — |
@@ -533,10 +533,10 @@ Rust: [`ShadowTlsOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/
 | `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
 | `udp_fragment` | bool | unset | Supported | Whether UDP datagrams may be fragmented on the way; unset, as the place says, see `udp_fragment_default`. |
 | `domain_resolver` | string\|object → [object](/sail/reference/shared/#domain-resolver-default-domain-resolver) | unset | Supported | The DNS server that resolves the names dialled. |
-| `network_strategy` | string, one of `default`, `fallback`, `hybrid` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
-| `network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
-| `fallback_network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
-| `fallback_delay` | duration | unset | Supported | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs); 300ms when unset. |
+| `network_strategy` | string, one of `default`, `fallback`, `hybrid` | unset | Supported | Which of the host's interfaces a connection goes out of, and how they race; `default` where only types are given. Only where the host lists its interfaces (`NetworkState::interfaces`). |
+| `network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | `[]` | Supported | The types of interface the strategy goes out of first. |
+| `fallback_network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | `[]` | Supported | The types it falls back to, with `fallback`. |
+| `fallback_delay` | duration | unset | Supported | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs), and the first interfaces before the fallback ones; 300ms when unset. |
 | `server` | string | required | Supported | — |
 | `server_port` | number | required | Supported | — |
 | `version` | number, one of `1`, `2`, `3` | `1` | Supported | Must be 3: versions 1 and 2 are not supported. sing-box's default is 1. |
@@ -611,10 +611,10 @@ Rust: [`SocksOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail
 | `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
 | `udp_fragment` | bool | unset | Supported | Whether UDP datagrams may be fragmented on the way; unset, as the place says, see `udp_fragment_default`. |
 | `domain_resolver` | string\|object → [object](/sail/reference/shared/#domain-resolver-default-domain-resolver) | unset | Supported | The DNS server that resolves the names dialled. |
-| `network_strategy` | string, one of `default`, `fallback`, `hybrid` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
-| `network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
-| `fallback_network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
-| `fallback_delay` | duration | unset | Supported | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs); 300ms when unset. |
+| `network_strategy` | string, one of `default`, `fallback`, `hybrid` | unset | Supported | Which of the host's interfaces a connection goes out of, and how they race; `default` where only types are given. Only where the host lists its interfaces (`NetworkState::interfaces`). |
+| `network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | `[]` | Supported | The types of interface the strategy goes out of first. |
+| `fallback_network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | `[]` | Supported | The types it falls back to, with `fallback`. |
+| `fallback_delay` | duration | unset | Supported | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs), and the first interfaces before the fallback ones; 300ms when unset. |
 | `server` | string | required | Supported | — |
 | `server_port` | number | required | Supported | — |
 | `version` | string, one of `4`, `4a`, `5` | — | Warned: sail speaks SOCKS 5, the default, and drops the field; 4 and 4a are errors | — |
@@ -651,10 +651,10 @@ Rust: [`TrojanOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sai
 | `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
 | `udp_fragment` | bool | unset | Supported | Whether UDP datagrams may be fragmented on the way; unset, as the place says, see `udp_fragment_default`. |
 | `domain_resolver` | string\|object → [object](/sail/reference/shared/#domain-resolver-default-domain-resolver) | unset | Supported | The DNS server that resolves the names dialled. |
-| `network_strategy` | string, one of `default`, `fallback`, `hybrid` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
-| `network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
-| `fallback_network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
-| `fallback_delay` | duration | unset | Supported | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs); 300ms when unset. |
+| `network_strategy` | string, one of `default`, `fallback`, `hybrid` | unset | Supported | Which of the host's interfaces a connection goes out of, and how they race; `default` where only types are given. Only where the host lists its interfaces (`NetworkState::interfaces`). |
+| `network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | `[]` | Supported | The types of interface the strategy goes out of first. |
+| `fallback_network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | `[]` | Supported | The types it falls back to, with `fallback`. |
+| `fallback_delay` | duration | unset | Supported | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs), and the first interfaces before the fallback ones; 300ms when unset. |
 | `server` | string | required | Supported | — |
 | `server_port` | number | required | Supported | — |
 | `password` | string | required | Supported | — |
@@ -703,10 +703,10 @@ Rust: [`TuicOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/
 | `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
 | `udp_fragment` | bool | unset | Supported | Whether UDP datagrams may be fragmented on the way; unset, as the place says, see `udp_fragment_default`. |
 | `domain_resolver` | string\|object → [object](/sail/reference/shared/#domain-resolver-default-domain-resolver) | unset | Supported | The DNS server that resolves the names dialled. |
-| `network_strategy` | string, one of `default`, `fallback`, `hybrid` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
-| `network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
-| `fallback_network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
-| `fallback_delay` | duration | unset | Supported | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs); 300ms when unset. |
+| `network_strategy` | string, one of `default`, `fallback`, `hybrid` | unset | Supported | Which of the host's interfaces a connection goes out of, and how they race; `default` where only types are given. Only where the host lists its interfaces (`NetworkState::interfaces`). |
+| `network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | `[]` | Supported | The types of interface the strategy goes out of first. |
+| `fallback_network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | `[]` | Supported | The types it falls back to, with `fallback`. |
+| `fallback_delay` | duration | unset | Supported | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs), and the first interfaces before the fallback ones; 300ms when unset. |
 | `server` | string | required | Supported | — |
 | `server_port` | number | required | Supported | — |
 | `uuid` | string | required | Supported | — |
@@ -824,10 +824,10 @@ Rust: [`VlessOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail
 | `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
 | `udp_fragment` | bool | unset | Supported | Whether UDP datagrams may be fragmented on the way; unset, as the place says, see `udp_fragment_default`. |
 | `domain_resolver` | string\|object → [object](/sail/reference/shared/#domain-resolver-default-domain-resolver) | unset | Supported | The DNS server that resolves the names dialled. |
-| `network_strategy` | string, one of `default`, `fallback`, `hybrid` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
-| `network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
-| `fallback_network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
-| `fallback_delay` | duration | unset | Supported | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs); 300ms when unset. |
+| `network_strategy` | string, one of `default`, `fallback`, `hybrid` | unset | Supported | Which of the host's interfaces a connection goes out of, and how they race; `default` where only types are given. Only where the host lists its interfaces (`NetworkState::interfaces`). |
+| `network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | `[]` | Supported | The types of interface the strategy goes out of first. |
+| `fallback_network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | `[]` | Supported | The types it falls back to, with `fallback`. |
+| `fallback_delay` | duration | unset | Supported | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs), and the first interfaces before the fallback ones; 300ms when unset. |
 | `server` | string | required | Supported | — |
 | `server_port` | number | required | Supported | — |
 | `uuid` | string | required | Supported | — |
@@ -866,10 +866,10 @@ Rust: [`VMessOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail
 | `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
 | `udp_fragment` | bool | unset | Supported | Whether UDP datagrams may be fragmented on the way; unset, as the place says, see `udp_fragment_default`. |
 | `domain_resolver` | string\|object → [object](/sail/reference/shared/#domain-resolver-default-domain-resolver) | unset | Supported | The DNS server that resolves the names dialled. |
-| `network_strategy` | string, one of `default`, `fallback`, `hybrid` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
-| `network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
-| `fallback_network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
-| `fallback_delay` | duration | unset | Supported | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs); 300ms when unset. |
+| `network_strategy` | string, one of `default`, `fallback`, `hybrid` | unset | Supported | Which of the host's interfaces a connection goes out of, and how they race; `default` where only types are given. Only where the host lists its interfaces (`NetworkState::interfaces`). |
+| `network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | `[]` | Supported | The types of interface the strategy goes out of first. |
+| `fallback_network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | `[]` | Supported | The types it falls back to, with `fallback`. |
+| `fallback_delay` | duration | unset | Supported | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs), and the first interfaces before the fallback ones; 300ms when unset. |
 | `server` | string | required | Supported | — |
 | `server_port` | number | required | Supported | — |
 | `uuid` | string | required | Supported | — |

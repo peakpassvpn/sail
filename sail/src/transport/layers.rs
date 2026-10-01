@@ -1523,6 +1523,9 @@ pub(crate) const HANDSHAKE_DIAL: &[&str] = &[
     "reuse_addr",
     "tcp_fast_open",
     "udp_fragment",
+    "network_strategy",
+    "network_type",
+    "fallback_network_type",
     "fallback_delay",
 ];
 

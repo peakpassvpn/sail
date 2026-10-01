@@ -32,10 +32,10 @@ Rust 定义：[`Route`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/co
 | `default_interface` | string | 未设置 | 支持 | The interface outbounds that name none of their own send through. |
 | `default_mark` | number\|string | 未设置 | 支持 | The routing mark (`SO_MARK`, Linux) of outbounds that set none. |
 | `default_domain_resolver` | string\|object → [对象](/sail/zh/reference/shared/#domain-resolver-default-domain-resolver) | 未设置 | 支持 | The DNS server that resolves the names outbounds dial, for those that name no `domain_resolver` of their own. Unset, the DNS rules decide. |
-| `default_network_strategy` | string, 取值 `default`, `fallback`, `hybrid` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | — |
-| `default_network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | — |
-| `default_fallback_network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | — |
-| `default_fallback_delay` | duration | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | — |
+| `default_network_strategy` | string, 取值 `default`, `fallback`, `hybrid` | 未设置 | 支持 | The `network_strategy`, `network_type`, `fallback_network_type` and `fallback_delay` of what sets none of the first three, or no delay; the strategy needs `auto_detect_interface`. |
+| `default_network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | `[]` | 支持 | — |
+| `default_fallback_network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | `[]` | 支持 | — |
+| `default_fallback_delay` | duration | 未设置 | 支持 | — |
 | `default_http_client` | string | 未设置 | 支持 | The HTTP client of what names none, by tag; the first of `http_clients` when unset, or with none, the default outbound. |
 | `geoip` | object | — | 警告：sing-box removed it in 1.12, and ignores it (sing-box 已弃用) | — |
 | `geosite` | object | — | 警告：sing-box removed it in 1.12, and ignores it (sing-box 已弃用) | — |
@@ -114,8 +114,8 @@ Rust 定义：[`Rule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/con
 | `outbound` | string | 未设置 | 支持 | `route`: where a matching connection goes. |
 | `override_address` | string | 未设置 | 支持 | `route`, `route-options`: connects to this address, an IP or a domain, instead of the one asked for, on the same port. |
 | `override_port` | number | 未设置 | 支持 | `route`, `route-options`: connects to this port instead. |
-| `network_strategy` | string, 取值 `default`, `fallback`, `hybrid` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | — |
-| `fallback_delay` | number | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | — |
+| `network_strategy` | string, 取值 `default`, `fallback`, `hybrid` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say | — |
+| `fallback_delay` | number | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say | — |
 | `udp_disable_domain_unmapping` | bool | `false` | 支持 | `route`, `route-options`: answers to UDP sent to a domain come back from the address it resolved to, not from the domain. |
 | `udp_connect` | bool | `false` | 支持 | `route`, `route-options`: a direct outbound sends UDP from a connected socket. |
 | `udp_timeout` | duration | 未设置 | 支持 | `route`, `route-options`: how long a UDP session lasts idle, instead of its inbound's `udp_timeout`. |
@@ -165,8 +165,8 @@ Rust 定义：[`Rule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/con
 | `outbound` | string | 未设置 | 支持 | `route`: where a matching connection goes. |
 | `override_address` | string | 未设置 | 支持 | `route`, `route-options`: connects to this address, an IP or a domain, instead of the one asked for, on the same port. |
 | `override_port` | number | 未设置 | 支持 | `route`, `route-options`: connects to this port instead. |
-| `network_strategy` | string, 取值 `default`, `fallback`, `hybrid` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | — |
-| `fallback_delay` | number | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | — |
+| `network_strategy` | string, 取值 `default`, `fallback`, `hybrid` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say | — |
+| `fallback_delay` | number | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say | — |
 | `udp_disable_domain_unmapping` | bool | `false` | 支持 | `route`, `route-options`: answers to UDP sent to a domain come back from the address it resolved to, not from the domain. |
 | `udp_connect` | bool | `false` | 支持 | `route`, `route-options`: a direct outbound sends UDP from a connected socket. |
 | `udp_timeout` | duration | 未设置 | 支持 | `route`, `route-options`: how long a UDP session lasts idle, instead of its inbound's `udp_timeout`. |
@@ -186,8 +186,8 @@ Rust 定义：[`Rule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/con
 | --- | --- | --- | --- | --- |
 | `override_address` | string | 未设置 | 支持 | `route`, `route-options`: connects to this address, an IP or a domain, instead of the one asked for, on the same port. |
 | `override_port` | number | 未设置 | 支持 | `route`, `route-options`: connects to this port instead. |
-| `network_strategy` | string, 取值 `default`, `fallback`, `hybrid` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | — |
-| `fallback_delay` | number | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | — |
+| `network_strategy` | string, 取值 `default`, `fallback`, `hybrid` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say | — |
+| `fallback_delay` | number | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say | — |
 | `udp_disable_domain_unmapping` | bool | `false` | 支持 | `route`, `route-options`: answers to UDP sent to a domain come back from the address it resolved to, not from the domain. |
 | `udp_connect` | bool | `false` | 支持 | `route`, `route-options`: a direct outbound sends UDP from a connected socket. |
 | `udp_timeout` | duration | 未设置 | 支持 | `route`, `route-options`: how long a UDP session lasts idle, instead of its inbound's `udp_timeout`. |
@@ -352,9 +352,9 @@ Rust 定义：[`RuleSet`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/
 | `tcp_keep_alive_interval` | duration | — | 支持 | — |
 | `udp_fragment` | bool | — | 支持 | — |
 | `domain_resolver` | string\|object → [对象](/sail/zh/reference/shared/#domain-resolver-inbounds-route-rule-set) | — | 支持 | — |
-| `network_strategy` | string, 取值 `default`, `fallback`, `hybrid` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | — |
-| `network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | — |
-| `fallback_network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | — |
+| `network_strategy` | string, 取值 `default`, `fallback`, `hybrid` | — | 支持 | — |
+| `network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 支持 | — |
+| `fallback_network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 支持 | — |
 | `fallback_delay` | duration | — | 支持 | — |
 | `idle_timeout` | duration | — | 警告：HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download | — |
 | `keep_alive_period` | duration | — | 警告：HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download | — |

@@ -258,7 +258,7 @@ pub async fn connect_datagram_outbound(
                     SocketAddr::new(*ip, *port)
                 }
             };
-            let socket = dialer.udp_socket(&addr).await?;
+            let socket = dialer.udp_socket_for(sess, &addr).await?;
             socket.connect(addr).await?;
             let from = match &sess.destination {
                 SocksAddr::Domain(..) if !sess.route.udp_disable_domain_unmapping => {
@@ -272,7 +272,7 @@ pub async fn connect_datagram_outbound(
         }
         OutboundConnect::Direct(dialer) => match &sess.destination {
             SocksAddr::Domain(domain, port) => {
-                let socket = dialer.udp_socket(&dialer.unspecified()).await?;
+                let socket = dialer.udp_socket_for(sess, &dialer.unspecified()).await?;
                 Ok(Some(OutboundTransport::Datagram(Box::new(
                     DomainAssociatedOutboundDatagram::new(
                         socket,
@@ -284,7 +284,7 @@ pub async fn connect_datagram_outbound(
                 ))))
             }
             SocksAddr::Ip(addr) => {
-                let socket = dialer.udp_socket(addr).await?;
+                let socket = dialer.udp_socket_for(sess, addr).await?;
                 Ok(Some(OutboundTransport::Datagram(Box::new(
                     StdOutboundDatagram::new(socket),
                 ))))

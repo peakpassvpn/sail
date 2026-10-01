@@ -10,7 +10,9 @@ use serde::de::{self, Deserializer, MapAccess, Visitor};
 use serde::{Deserialize, Serialize, Serializer};
 use serde_json::Value;
 
+use super::networks::NetworkStrategy;
 use crate::config::model::{DnsStrategy, DomainResolver};
+use crate::net::network::NetworkType;
 
 /// How something dials: sing-box's dial fields (`DialerOptions` in 1.14),
 /// by their names, and one sail extension. Outbounds and endpoints, DNS
@@ -110,17 +112,28 @@ pub struct DialFields {
     /// which a resolver's own `strategy` goes before.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub domain_strategy: Option<DnsStrategy>,
-    /// Not implemented yet.
+    /// Which of the host's interfaces a connection goes out of, and how
+    /// they race; `default` where only types are given. Only where the
+    /// host lists its interfaces (`NetworkState::interfaces`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub network_strategy: Option<Value>,
-    /// Not implemented yet.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub network_type: Option<Value>,
-    /// Not implemented yet.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub fallback_network_type: Option<Value>,
+    pub network_strategy: Option<NetworkStrategy>,
+    /// The types of interface the strategy goes out of first.
+    #[serde(
+        default,
+        with = "crate::config::model::listable",
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub network_type: Vec<NetworkType>,
+    /// The types it falls back to, with `fallback`.
+    #[serde(
+        default,
+        with = "crate::config::model::listable",
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub fallback_network_type: Vec<NetworkType>,
     /// How long the addresses of one family are tried before those of the
-    /// other are raced against them (Happy Eyeballs); 300ms when unset.
+    /// other are raced against them (Happy Eyeballs), and the first
+    /// interfaces before the fallback ones; 300ms when unset.
     #[serde(
         default,
         with = "crate::config::model::duration",
@@ -148,6 +161,9 @@ pub const IMPLEMENTED: &[&str] = &[
     "domain_resolver",
     "skip_default_domain_resolver",
     "domain_strategy",
+    "network_strategy",
+    "network_type",
+    "fallback_network_type",
     "fallback_delay",
 ];
 
@@ -214,10 +230,10 @@ impl DialFields {
             ),
             ("domain_strategy", self.domain_strategy.is_some()),
             ("network_strategy", self.network_strategy.is_some()),
-            ("network_type", self.network_type.is_some()),
+            ("network_type", !self.network_type.is_empty()),
             (
                 "fallback_network_type",
-                self.fallback_network_type.is_some(),
+                !self.fallback_network_type.is_empty(),
             ),
             ("fallback_delay", self.fallback_delay.is_some()),
         ]
@@ -237,10 +253,34 @@ impl DialFields {
         if let Some(name) = self.set().find(|name| !taken.contains(name)) {
             return Err(anyhow!("{}: sail does not implement this field yet", name));
         }
-        if self.tcp_fast_open && self.network_strategy.is_some() {
-            return Err(anyhow!(
-                "tcp_fast_open: not with network_strategy, which races the interfaces"
-            ));
+        // As sing-box has it (common/dialer/default.go:92-96): types alone
+        // are no strategy where a fallback type or delay goes with them.
+        let networks = if self.network_strategy.is_some() {
+            Some("network_strategy")
+        } else {
+            let delay = self.fallback_delay.is_some_and(|d| !d.is_zero());
+            (!self.network_type.is_empty() && self.fallback_network_type.is_empty() && !delay)
+                .then_some("network_type")
+        };
+        let binds = "which binds the socket itself";
+        let own = [
+            ("bind_interface", self.bind_interface.is_some(), binds),
+            (
+                "inet4_bind_address",
+                self.inet4_bind_address.is_some(),
+                binds,
+            ),
+            (
+                "inet6_bind_address",
+                self.inet6_bind_address.is_some(),
+                binds,
+            ),
+            ("tcp_fast_open", self.tcp_fast_open, "which cannot race"),
+        ]
+        .into_iter()
+        .find(|(_, set, _)| *set);
+        if let (Some(networks), Some((own, _, why))) = (networks, own) {
+            return Err(anyhow!("{}: not with {}, {}", networks, own, why));
         }
         if self.skip_default_domain_resolver && self.domain_resolver.is_some() {
             return Err(anyhow!(
@@ -470,6 +510,41 @@ mod tests {
     }
 
     #[test]
+    fn the_network_fields_read_as_sing_box_writes_them() {
+        let read: DialFields = serde_json::from_value(serde_json::json!({
+            "network_strategy": "fallback", "network_type": "wifi",
+            "fallback_network_type": ["cellular", "ethernet"],
+        }))
+        .unwrap();
+        assert_eq!(read.network_strategy, Some(NetworkStrategy::Fallback));
+        assert_eq!(read.network_type, [NetworkType::Wifi]);
+        assert_eq!(
+            read.fallback_network_type,
+            [NetworkType::Cellular, NetworkType::Ethernet]
+        );
+        let err = serde_json::from_value::<DialFields>(serde_json::json!({
+            "network_strategy": "parallel"
+        }))
+        .unwrap_err()
+        .to_string();
+        assert!(
+            err.starts_with("network_strategy: unknown variant `parallel`"),
+            "{}",
+            err
+        );
+        let err = serde_json::from_value::<DialFields>(serde_json::json!({
+            "network_type": ["wifi", "wired"]
+        }))
+        .unwrap_err()
+        .to_string();
+        assert!(
+            err.starts_with("network_type[1]: unknown variant `wired`"),
+            "{}",
+            err
+        );
+    }
+
+    #[test]
     fn checked_against_the_place_and_each_other() {
         let fields =
             |json: serde_json::Value| -> DialFields { serde_json::from_value(json).unwrap() };
@@ -480,17 +555,30 @@ mod tests {
             check(serde_json::json!({ "tcp_multi_path": true }), IMPLEMENTED),
             Err("tcp_multi_path: sail does not implement this field yet".into())
         );
-        // Where network_strategy is taken, not with Fast Open, as in
+        // A strategy, not with Fast Open or a bind of its own, as in
         // sing-box.
-        let mut with_networks = IMPLEMENTED.to_vec();
-        with_networks.push("network_strategy");
         assert_eq!(
             check(
                 serde_json::json!({ "tcp_fast_open": true, "network_strategy": "hybrid" }),
-                &with_networks
+                IMPLEMENTED
             ),
-            Err("tcp_fast_open: not with network_strategy, which races the interfaces".into())
+            Err("network_strategy: not with tcp_fast_open, which cannot race".into())
         );
+        assert_eq!(
+            check(
+                serde_json::json!({ "inet6_bind_address": "::1", "network_type": "wifi" }),
+                IMPLEMENTED
+            ),
+            Err("network_type: not with inet6_bind_address, which binds the socket itself".into())
+        );
+        // Types with a fallback type or delay are let be, and left
+        // unapplied by the bind (default.go:93).
+        check(
+            serde_json::json!({ "bind_interface": "en0", "network_type": "wifi",
+                "fallback_delay": "1s" }),
+            IMPLEMENTED,
+        )
+        .unwrap();
         // False is unset.
         assert_eq!(
             fields(serde_json::json!({ "tcp_fast_open": false })),
