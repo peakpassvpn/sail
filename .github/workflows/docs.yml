@@ -1,6 +1,6 @@
 name: docs
 
-# Published when master moves; dev pushes do not publish. It can also be
+# Published when master moves. It can also be
 # run by hand from the Actions page.
 on:
   push:
