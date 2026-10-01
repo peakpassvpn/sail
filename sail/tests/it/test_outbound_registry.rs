@@ -5,6 +5,7 @@ use serde_json::json;
 use sail::app::dns_client::DnsClient;
 use sail::app::outbound::manager::OutboundManager;
 use sail::config;
+#[cfg(not(windows))]
 use sail::net::dial::DialSpec;
 #[cfg(not(windows))]
 use sail::net::dial::RouteDefaults;
@@ -313,6 +314,7 @@ fn chain_and_transports_are_not_types_of_their_own() {
 }
 
 /// What `tag` asks to have dialled, and how its dialer opens sockets.
+#[cfg(not(windows))]
 fn dial_of(m: &OutboundManager, tag: &str) -> (sail::adapter::OutboundConnect, DialSpec) {
     let connect = m.get(tag).unwrap().stream().unwrap().connect_addr();
     let spec = match &connect {
@@ -323,6 +325,7 @@ fn dial_of(m: &OutboundManager, tag: &str) -> (sail::adapter::OutboundConnect, D
     (connect, spec)
 }
 
+#[cfg(not(windows))]
 fn server_of(connect: &sail::adapter::OutboundConnect) -> u16 {
     match connect {
         sail::adapter::OutboundConnect::Proxy(_, _, port, _) => *port,
@@ -331,6 +334,7 @@ fn server_of(connect: &sail::adapter::OutboundConnect) -> u16 {
 }
 
 /// An interface every host has, for dial fields that name one.
+#[cfg(not(windows))]
 const LOOPBACK: &str = if cfg!(target_os = "macos") {
     "lo0"
 } else {
