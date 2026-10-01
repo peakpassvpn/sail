@@ -8,9 +8,9 @@ Run as root on the Linux test host, from this directory:
         [--inbound socks|tun] \\
         [--only SUBSTR] [--quick]
 
-Two network namespaces (netns.sh): nc5 holds the client under test and the
-traffic tool, ns5 the protocol server (sing-box, the reference) and the
-traffic tool's server. Every scenario shapes the link between them with
+Two network namespaces (netns.sh): nc5 (nc$NETEM_NS) holds the client under
+test and the traffic tool, ns5 (ns$NETEM_NS) the protocol server (sing-box,
+the reference) and the traffic tool's server. Every scenario shapes the link between them with
 netem, runs the traffic tool's checked workloads through the client's
 SOCKS inbound, and samples the client's memory, CPU, descriptors and TCP
 states. Results: <work>/results/<run>/summary.json, and the raw records
@@ -31,11 +31,21 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 NETNS = os.path.join(HERE, "netns.sh")
-CLIENT_NS, SERVER_NS = "nc5", "ns5"
-SERVER_ADDR = "10.95.0.2"
+# Which pair of namespaces, as netns.sh takes them: NETEM_NS (default 5)
+# and NETEM_NET (default 95), so that two runs side by side do not meet.
+NETEM_NS = os.environ.get("NETEM_NS", "5")
+NETEM_NET = os.environ.get("NETEM_NET", "95")
+# Digits without a leading zero, as netns.sh takes them: 10.095 is no
+# address, and nc05 is not nc5.
+if not (NETEM_NS.isdigit() and not NETEM_NS.startswith("0") and len(NETEM_NS) <= 3):
+    sys.exit(f"NETEM_NS: 1 to 999, no leading zero, not {NETEM_NS!r}")
+if not (NETEM_NET.isdigit() and not NETEM_NET.startswith("0") and int(NETEM_NET) <= 253):
+    sys.exit(f"NETEM_NET: 1 to 253, no leading zero, not {NETEM_NET!r}")
+CLIENT_NS, SERVER_NS = f"nc{NETEM_NS}", f"ns{NETEM_NS}"
+SERVER_ADDR = f"10.{NETEM_NET}.0.2"
 TARGET = SERVER_ADDR + ":9000"
 # The same server off the link (netns.sh), for a TUN to take the traffic.
-FAR_ADDR = "10.96.0.1"
+FAR_ADDR = f"10.{int(NETEM_NET) + 1}.0.1"
 FAR_TARGET = FAR_ADDR + ":9000"
 LISTEN = "0.0.0.0:9000"
 SOCKS = "127.0.0.1:1081"
@@ -249,7 +259,7 @@ class Sampler:
 
     def one(self):
         pid = self.proc.pid()
-        s = {"t": time.time()}
+        s = {"t": time.time(), "pid": pid}
         if pid:
             try:
                 for line in open(f"/proc/{pid}/status"):
@@ -435,9 +445,17 @@ class Run:
             for workload, flags in plan:
                 idle_before = self.idle(sampler, settle=1)
                 m = sampler.mark()
+                before = sampler.one()
                 res = self.netgen(workload.split("_")[0], *flags)
+                after = sampler.one()
                 rec = self.record(scenario, workload, res, sampler.since(m), idle_before,
                                   self.idle(sampler, settle=2))
+                # The client's CPU over the workload, for its cost per GiB:
+                # one process's, so none when the client was replaced.
+                ticks0, ticks1 = before.get("cpu_ticks"), after.get("cpu_ticks")
+                if (ticks0 is not None and ticks1 is not None and ticks1 >= ticks0
+                        and before["pid"] == after["pid"]):
+                    rec["cpu_s"] = (ticks1 - ticks0) / os.sysconf("SC_CLK_TCK")
                 rec["round"] = round_ + 1
                 self.check(scenario, workload, res)
                 print(f"  {self.name} {scenario} {workload}: {brief(res)}", flush=True)

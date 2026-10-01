@@ -61,7 +61,8 @@ python3 run.py --protocols direct --clients sail-server --only baseline --quick 
 
 ## 共享测试机上的约定
 
-- 只在 `nc5`/`ns5` 和 10.95.0.0/24 里工作；名字或网段已被占用时 `netns.sh up` 拒绝启动，退出时删除命名空间。
+- 两组运行要并行时，用环境变量各占一对命名空间：`NETEM_NS`（默认 5，即 `nc5`/`ns5`）和 `NETEM_NET`（默认 95，即 10.95–10.97 三个 /24）。`netns.sh` 和 `run.py` 读同一组变量，例如 `NETEM_NS=54 NETEM_NET=90` 用 `nc54`/`ns54` 和 10.90–10.92。共享主机上，用前按主机的约定登记占用。
+- 只在自己的一对命名空间和三个网段里工作（默认 `nc5`/`ns5` 和 10.95–10.97）；名字或网段已被占用时 `netns.sh up` 拒绝启动，退出时删除命名空间。
 - 编译和每次运行前检查 `df -h /`；可用空间不足 2 GiB 时 `run.py` 不启动。
 - sail 在临时 target 里用 `CARGO_BUILD_JOBS=2` 编译（默认并行度在这台机器上会被 OOM 杀掉），编完删除 target。
 - 24 小时长跑前先与机器上正在运行的其他长任务协调。
