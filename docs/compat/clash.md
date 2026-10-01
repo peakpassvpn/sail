@@ -34,13 +34,13 @@ Every field Mihomo v1.19.31 takes, and how sail reads it: measured by reading a 
 | `listeners[vmess]` | 116 | 0 | 0 | 116 |
 | `ntp` | 7 | 0 | 7 | 0 |
 | `profile` | 3 | 3 | 0 | 0 |
-| `proxies[anytls]` | 38 | 21 | 4 | 13 |
+| `proxies[anytls]` | 38 | 22 | 4 | 12 |
 | `proxies[direct]` | 7 | 5 | 2 | 0 |
 | `proxies[dns]` | 7 | 1 | 6 | 0 |
 | `proxies[easytier]` | 37 | 0 | 0 | 37 |
 | `proxies[gost-relay]` | 22 | 0 | 0 | 22 |
-| `proxies[http]` | 19 | 15 | 2 | 2 |
-| `proxies[hysteria2]` | 50 | 23 | 10 | 17 |
+| `proxies[http]` | 19 | 16 | 2 | 1 |
+| `proxies[hysteria2]` | 50 | 24 | 10 | 16 |
 | `proxies[hysteria]` | 35 | 0 | 0 | 35 |
 | `proxies[masque]` | 29 | 0 | 0 | 29 |
 | `proxies[mieru]` | 17 | 0 | 0 | 17 |
@@ -49,17 +49,17 @@ Every field Mihomo v1.19.31 takes, and how sail reads it: measured by reading a 
 | `proxies[rematch]` | 9 | 0 | 0 | 9 |
 | `proxies[shadowquic]` | 27 | 0 | 0 | 27 |
 | `proxies[snell]` | 17 | 0 | 0 | 17 |
-| `proxies[socks5]` | 18 | 14 | 2 | 2 |
+| `proxies[socks5]` | 18 | 15 | 2 | 1 |
 | `proxies[ss]` | 93 | 24 | 3 | 66 |
 | `proxies[ssh]` | 15 | 0 | 0 | 15 |
 | `proxies[ssr]` | 16 | 0 | 0 | 16 |
 | `proxies[sudoku]` | 31 | 0 | 0 | 31 |
 | `proxies[tailscale]` | 16 | 0 | 0 | 16 |
-| `proxies[trojan]` | 56 | 37 | 2 | 17 |
+| `proxies[trojan]` | 56 | 38 | 2 | 16 |
 | `proxies[trusttunnel]` | 32 | 0 | 0 | 32 |
-| `proxies[tuic]` | 41 | 25 | 12 | 4 |
-| `proxies[vless]` | 137 | 44 | 2 | 91 |
-| `proxies[vmess]` | 128 | 45 | 2 | 81 |
+| `proxies[tuic]` | 41 | 26 | 12 | 3 |
+| `proxies[vless]` | 137 | 45 | 2 | 90 |
+| `proxies[vmess]` | 128 | 46 | 2 | 80 |
 | `proxies[wireguard]` | 64 | 0 | 0 | 64 |
 | `proxies[zerotier]` | 30 | 0 | 0 | 30 |
 | `proxy-groups` | 23 | 18 | 5 | 0 |
@@ -69,7 +69,7 @@ Every field Mihomo v1.19.31 takes, and how sail reads it: measured by reading a 
 | `tls` | 7 | 0 | 7 | 0 |
 | `tuic-server` | 13 | 0 | 0 | 13 |
 | `tun` | 50 | 33 | 10 | 7 |
-| **All** | **2077** | **451** | **139** | **1487** |
+| **All** | **2077** | **459** | **139** | **1479** |
 
 
 ## `general`
@@ -556,7 +556,7 @@ Every field Mihomo v1.19.31 takes, and how sail reads it: measured by reading a 
 | `proxies[anytls].ech-opts.config` | Supported |  |
 | `proxies[anytls].ech-opts.enable` | Supported |  |
 | `proxies[anytls].ech-opts.query-server-name` | Supported |  |
-| `proxies[anytls].fingerprint` | Error | proxies[0].fingerprint: sail does not implement this field yet |
+| `proxies[anytls].fingerprint` | Supported |  |
 | `proxies[anytls].idle-session-check-interval` | Supported |  |
 | `proxies[anytls].idle-session-timeout` | Supported |  |
 | `proxies[anytls].interface-name` | Supported |  |
@@ -627,7 +627,7 @@ Every field Mihomo v1.19.31 takes, and how sail reads it: measured by reading a 
 |---|---|---|
 | `proxies[http].certificate` | Supported |  |
 | `proxies[http].dialer-proxy` | Supported |  |
-| `proxies[http].fingerprint` | Error | proxies[0].fingerprint: sail does not implement this field yet |
+| `proxies[http].fingerprint` | Supported |  |
 | `proxies[http].headers` | Supported |  |
 | `proxies[http].interface-name` | Supported |  |
 | `proxies[http].ip-version` | Supported | proxies[0].ip-version: "1" is none of dual, ipv4, ipv6, ipv4-prefer and ipv6-prefer |
@@ -659,7 +659,7 @@ Every field Mihomo v1.19.31 takes, and how sail reads it: measured by reading a 
 | `proxies[hysteria2].ech-opts.config` | Supported |  |
 | `proxies[hysteria2].ech-opts.enable` | Supported |  |
 | `proxies[hysteria2].ech-opts.query-server-name` | Supported |  |
-| `proxies[hysteria2].fingerprint` | Error | proxies[0].fingerprint: sail does not implement this field yet |
+| `proxies[hysteria2].fingerprint` | Supported |  |
 | `proxies[hysteria2].handshake-timeout` | Warned | proxies[0].handshake-timeout: sail does not implement this field; ignored |
 | `proxies[hysteria2].hop-interval` | Supported | proxies[0].hop-interval: not a number in range |
 | `proxies[hysteria2].initial-connection-receive-window` | Warned | proxies[0].initial-connection-receive-window: sail does not implement this field; ignored |
@@ -760,7 +760,7 @@ Every field Mihomo v1.19.31 takes, and how sail reads it: measured by reading a 
 |---|---|---|
 | `proxies[socks5].certificate` | Supported |  |
 | `proxies[socks5].dialer-proxy` | Supported |  |
-| `proxies[socks5].fingerprint` | Error | proxies[0].fingerprint: sail does not implement this field yet |
+| `proxies[socks5].fingerprint` | Supported |  |
 | `proxies[socks5].interface-name` | Supported |  |
 | `proxies[socks5].ip-version` | Supported | proxies[0].ip-version: "1" is none of dual, ipv4, ipv6, ipv4-prefer and ipv6-prefer |
 | `proxies[socks5].mptcp` | Warned | proxies[0].mptcp: sail does not implement this field; ignored |
@@ -911,7 +911,7 @@ Every field Mihomo v1.19.31 takes, and how sail reads it: measured by reading a 
 | `proxies[trojan].ech-opts.config` | Supported |  |
 | `proxies[trojan].ech-opts.enable` | Supported |  |
 | `proxies[trojan].ech-opts.query-server-name` | Supported |  |
-| `proxies[trojan].fingerprint` | Error | proxies[0].fingerprint: sail does not implement this field yet |
+| `proxies[trojan].fingerprint` | Supported |  |
 | `proxies[trojan].grpc-opts` | Supported |  |
 | `proxies[trojan].grpc-opts.grpc-service-name` | Supported |  |
 | `proxies[trojan].grpc-opts.grpc-user-agent` | Supported |  |
@@ -983,7 +983,7 @@ Every field Mihomo v1.19.31 takes, and how sail reads it: measured by reading a 
 | `proxies[tuic].ech-opts.enable` | Supported |  |
 | `proxies[tuic].ech-opts.query-server-name` | Supported |  |
 | `proxies[tuic].fast-open` | Warned | proxies[0].fast-open: sail does not implement this field; ignored |
-| `proxies[tuic].fingerprint` | Error | proxies[0].fingerprint: sail does not implement this field yet |
+| `proxies[tuic].fingerprint` | Supported |  |
 | `proxies[tuic].heartbeat-interval` | Supported |  |
 | `proxies[tuic].interface-name` | Supported |  |
 | `proxies[tuic].ip` | Supported |  |
@@ -1025,7 +1025,7 @@ Every field Mihomo v1.19.31 takes, and how sail reads it: measured by reading a 
 | `proxies[vless].ech-opts.enable` | Supported |  |
 | `proxies[vless].ech-opts.query-server-name` | Supported |  |
 | `proxies[vless].encryption` | Error | proxies[0].encryption: sail does not implement VLESS encryption yet |
-| `proxies[vless].fingerprint` | Error | proxies[0].fingerprint: sail does not implement this field yet |
+| `proxies[vless].fingerprint` | Supported |  |
 | `proxies[vless].flow` | Supported |  |
 | `proxies[vless].grpc-opts` | Supported |  |
 | `proxies[vless].grpc-opts.grpc-service-name` | Supported |  |
@@ -1169,7 +1169,7 @@ Every field Mihomo v1.19.31 takes, and how sail reads it: measured by reading a 
 | `proxies[vmess].ech-opts.config` | Supported |  |
 | `proxies[vmess].ech-opts.enable` | Supported |  |
 | `proxies[vmess].ech-opts.query-server-name` | Supported |  |
-| `proxies[vmess].fingerprint` | Error | proxies[0].fingerprint: sail does not implement this field yet |
+| `proxies[vmess].fingerprint` | Supported |  |
 | `proxies[vmess].global-padding` | Supported |  |
 | `proxies[vmess].grpc-opts` | Supported |  |
 | `proxies[vmess].grpc-opts.grpc-service-name` | Supported |  |

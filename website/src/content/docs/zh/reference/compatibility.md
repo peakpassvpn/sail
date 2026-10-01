@@ -64,13 +64,13 @@ sail 直接读取 sing-box、Clash / Mihomo 与 Surge 的配置。每种格式�
 | `listeners[vmess]` | 116 | 0 | 0 | 116 |
 | `ntp` | 7 | 0 | 7 | 0 |
 | `profile` | 3 | 3 | 0 | 0 |
-| `proxies[anytls]` | 38 | 21 | 4 | 13 |
+| `proxies[anytls]` | 38 | 22 | 4 | 12 |
 | `proxies[direct]` | 7 | 5 | 2 | 0 |
 | `proxies[dns]` | 7 | 1 | 6 | 0 |
 | `proxies[easytier]` | 37 | 0 | 0 | 37 |
 | `proxies[gost-relay]` | 22 | 0 | 0 | 22 |
-| `proxies[http]` | 19 | 15 | 2 | 2 |
-| `proxies[hysteria2]` | 50 | 23 | 10 | 17 |
+| `proxies[http]` | 19 | 16 | 2 | 1 |
+| `proxies[hysteria2]` | 50 | 24 | 10 | 16 |
 | `proxies[hysteria]` | 35 | 0 | 0 | 35 |
 | `proxies[masque]` | 29 | 0 | 0 | 29 |
 | `proxies[mieru]` | 17 | 0 | 0 | 17 |
@@ -79,17 +79,17 @@ sail 直接读取 sing-box、Clash / Mihomo 与 Surge 的配置。每种格式�
 | `proxies[rematch]` | 9 | 0 | 0 | 9 |
 | `proxies[shadowquic]` | 27 | 0 | 0 | 27 |
 | `proxies[snell]` | 17 | 0 | 0 | 17 |
-| `proxies[socks5]` | 18 | 14 | 2 | 2 |
+| `proxies[socks5]` | 18 | 15 | 2 | 1 |
 | `proxies[ss]` | 93 | 24 | 3 | 66 |
 | `proxies[ssh]` | 15 | 0 | 0 | 15 |
 | `proxies[ssr]` | 16 | 0 | 0 | 16 |
 | `proxies[sudoku]` | 31 | 0 | 0 | 31 |
 | `proxies[tailscale]` | 16 | 0 | 0 | 16 |
-| `proxies[trojan]` | 56 | 37 | 2 | 17 |
+| `proxies[trojan]` | 56 | 38 | 2 | 16 |
 | `proxies[trusttunnel]` | 32 | 0 | 0 | 32 |
-| `proxies[tuic]` | 41 | 25 | 12 | 4 |
-| `proxies[vless]` | 137 | 44 | 2 | 91 |
-| `proxies[vmess]` | 128 | 45 | 2 | 81 |
+| `proxies[tuic]` | 41 | 26 | 12 | 3 |
+| `proxies[vless]` | 137 | 45 | 2 | 90 |
+| `proxies[vmess]` | 128 | 46 | 2 | 80 |
 | `proxies[wireguard]` | 64 | 0 | 0 | 64 |
 | `proxies[zerotier]` | 30 | 0 | 0 | 30 |
 | `proxy-groups` | 23 | 18 | 5 | 0 |
@@ -99,7 +99,7 @@ sail 直接读取 sing-box、Clash / Mihomo 与 Surge 的配置。每种格式�
 | `tls` | 7 | 0 | 7 | 0 |
 | `tuic-server` | 13 | 0 | 0 | 13 |
 | `tun` | 50 | 33 | 10 | 7 |
-| **All** | **2077** | **451** | **139** | **1487** |
+| **All** | **2077** | **459** | **139** | **1479** |
 
 ## Surge
 
@@ -118,33 +118,33 @@ sail 直接读取 sing-box、Clash / Mihomo 与 Surge 的配置。每种格式�
 | `Proxy Group[ssid]` | 6 | 3 | 3 | 0 | 0 |
 | `Proxy Group[subnet]` | 6 | 3 | 3 | 0 | 0 |
 | `Proxy Group[url-test]` | 17 | 11 | 4 | 2 | 0 |
-| `Proxy[anytls]` | 28 | 15 | 4 | 7 | 2 |
+| `Proxy[anytls]` | 28 | 16 | 4 | 7 | 1 |
 | `Proxy[direct]` | 12 | 3 | 2 | 7 | 0 |
 | `Proxy[external]` | 20 | 0 | 0 | 0 | 20 |
 | `Proxy[h2-connect]` | 32 | 0 | 0 | 0 | 32 |
 | `Proxy[http]` | 24 | 13 | 4 | 7 | 0 |
-| `Proxy[https]` | 30 | 17 | 4 | 7 | 2 |
-| `Proxy[hysteria2]` | 29 | 15 | 4 | 7 | 3 |
+| `Proxy[https]` | 30 | 18 | 4 | 7 | 1 |
+| `Proxy[hysteria2]` | 29 | 16 | 4 | 7 | 2 |
 | `Proxy[masque]` | 27 | 0 | 0 | 0 | 27 |
 | `Proxy[reject-drop]` | 12 | 1 | 4 | 7 | 0 |
 | `Proxy[reject-no-drop]` | 12 | 1 | 4 | 7 | 0 |
 | `Proxy[reject-tinygif]` | 12 | 1 | 4 | 7 | 0 |
 | `Proxy[reject]` | 12 | 1 | 4 | 7 | 0 |
 | `Proxy[snell]` | 28 | 0 | 0 | 0 | 28 |
-| `Proxy[socks5-tls]` | 29 | 16 | 4 | 7 | 2 |
+| `Proxy[socks5-tls]` | 29 | 17 | 4 | 7 | 1 |
 | `Proxy[socks5]` | 23 | 12 | 4 | 7 | 0 |
 | `Proxy[ss]` | 27 | 15 | 4 | 7 | 1 |
 | `Proxy[ssh]` | 25 | 0 | 0 | 0 | 25 |
 | `Proxy[tailscale]` | 5 | 0 | 0 | 0 | 5 |
-| `Proxy[trojan]` | 30 | 17 | 4 | 7 | 2 |
+| `Proxy[trojan]` | 30 | 18 | 4 | 7 | 1 |
 | `Proxy[trust-tunnel]` | 31 | 0 | 0 | 0 | 31 |
-| `Proxy[tuic-v5]` | 27 | 12 | 5 | 7 | 3 |
+| `Proxy[tuic-v5]` | 27 | 13 | 5 | 7 | 2 |
 | `Proxy[tuic]` | 26 | 0 | 0 | 0 | 26 |
-| `Proxy[vmess]` | 33 | 20 | 4 | 7 | 2 |
+| `Proxy[vmess]` | 33 | 21 | 4 | 7 | 1 |
 | `Proxy[wireguard]` | 5 | 3 | 0 | 2 | 0 |
 | `Rule` | 152 | 59 | 75 | 0 | 18 |
 | `SSID Setting` | 6 | 0 | 0 | 6 | 0 |
 | `Sections` | 17 | 3 | 3 | 11 | 0 |
 | `WireGuard` | 13 | 11 | 0 | 2 | 0 |
-| **All** | **874** | **317** | **193** | **135** | **229** |
+| **All** | **874** | **324** | **193** | **135** | **222** |
 

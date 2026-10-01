@@ -15,35 +15,35 @@ Surge 手册（manual.nssurge.com of 2026-09-22）列出的全部字段，以及
 | `Proxy Group[ssid]` | 6 | 3 | 3 | 0 | 0 |
 | `Proxy Group[subnet]` | 6 | 3 | 3 | 0 | 0 |
 | `Proxy Group[url-test]` | 17 | 11 | 4 | 2 | 0 |
-| `Proxy[anytls]` | 28 | 15 | 4 | 7 | 2 |
+| `Proxy[anytls]` | 28 | 16 | 4 | 7 | 1 |
 | `Proxy[direct]` | 12 | 3 | 2 | 7 | 0 |
 | `Proxy[external]` | 20 | 0 | 0 | 0 | 20 |
 | `Proxy[h2-connect]` | 32 | 0 | 0 | 0 | 32 |
 | `Proxy[http]` | 24 | 13 | 4 | 7 | 0 |
-| `Proxy[https]` | 30 | 17 | 4 | 7 | 2 |
-| `Proxy[hysteria2]` | 29 | 15 | 4 | 7 | 3 |
+| `Proxy[https]` | 30 | 18 | 4 | 7 | 1 |
+| `Proxy[hysteria2]` | 29 | 16 | 4 | 7 | 2 |
 | `Proxy[masque]` | 27 | 0 | 0 | 0 | 27 |
 | `Proxy[reject-drop]` | 12 | 1 | 4 | 7 | 0 |
 | `Proxy[reject-no-drop]` | 12 | 1 | 4 | 7 | 0 |
 | `Proxy[reject-tinygif]` | 12 | 1 | 4 | 7 | 0 |
 | `Proxy[reject]` | 12 | 1 | 4 | 7 | 0 |
 | `Proxy[snell]` | 28 | 0 | 0 | 0 | 28 |
-| `Proxy[socks5-tls]` | 29 | 16 | 4 | 7 | 2 |
+| `Proxy[socks5-tls]` | 29 | 17 | 4 | 7 | 1 |
 | `Proxy[socks5]` | 23 | 12 | 4 | 7 | 0 |
 | `Proxy[ss]` | 27 | 15 | 4 | 7 | 1 |
 | `Proxy[ssh]` | 25 | 0 | 0 | 0 | 25 |
 | `Proxy[tailscale]` | 5 | 0 | 0 | 0 | 5 |
-| `Proxy[trojan]` | 30 | 17 | 4 | 7 | 2 |
+| `Proxy[trojan]` | 30 | 18 | 4 | 7 | 1 |
 | `Proxy[trust-tunnel]` | 31 | 0 | 0 | 0 | 31 |
-| `Proxy[tuic-v5]` | 27 | 12 | 5 | 7 | 3 |
+| `Proxy[tuic-v5]` | 27 | 13 | 5 | 7 | 2 |
 | `Proxy[tuic]` | 26 | 0 | 0 | 0 | 26 |
-| `Proxy[vmess]` | 33 | 20 | 4 | 7 | 2 |
+| `Proxy[vmess]` | 33 | 21 | 4 | 7 | 1 |
 | `Proxy[wireguard]` | 5 | 3 | 0 | 2 | 0 |
 | `Rule` | 152 | 59 | 75 | 0 | 18 |
 | `SSID Setting` | 6 | 0 | 0 | 6 | 0 |
 | `Sections` | 17 | 3 | 3 | 11 | 0 |
 | `WireGuard` | 13 | 11 | 0 | 2 | 0 |
-| **All** | **874** | **317** | **193** | **135** | **229** |
+| **All** | **874** | **324** | **193** | **135** | **222** |
 
 
 ## `Sections`
@@ -282,7 +282,7 @@ Surge 手册（manual.nssurge.com of 2026-09-22）列出的全部字段，以及
 | `Proxy[anytls].port` | 支持 |  |
 | `Proxy[anytls].reuse` | 支持 |  |
 | `Proxy[anytls].server` | 支持 |  |
-| `Proxy[anytls].server-cert-fingerprint-sha256` | 报错 | server-cert-fingerprint-sha256: sail does not implement this parameter yet |
+| `Proxy[anytls].server-cert-fingerprint-sha256` | 支持 | Surge 手册没说明指纹不是服务器自身证书时怎么处理；sail 把该证书当作唯一的 CA，并校验服务器名。手册的说法已核实，Surge 的实际行为未核实。 |
 | `Proxy[anytls].server-cert-verify-name` | 报错 | server-cert-verify-name: sail does not implement this parameter yet |
 | `Proxy[anytls].shadow-tls-password` | 支持 |  |
 | `Proxy[anytls].shadow-tls-sni` | 支持 |  |
@@ -374,7 +374,7 @@ Surge 手册（manual.nssurge.com of 2026-09-22）列出的全部字段，以及
 | `Proxy[https].password` | 支持 |  |
 | `Proxy[https].port` | 支持 |  |
 | `Proxy[https].server` | 支持 |  |
-| `Proxy[https].server-cert-fingerprint-sha256` | 报错 | server-cert-fingerprint-sha256: sail does not implement this parameter yet |
+| `Proxy[https].server-cert-fingerprint-sha256` | 支持 | Surge 手册没说明指纹不是服务器自身证书时怎么处理；sail 把该证书当作唯一的 CA，并校验服务器名。手册的说法已核实，Surge 的实际行为未核实。 |
 | `Proxy[https].server-cert-verify-name` | 报错 | server-cert-verify-name: sail does not implement this parameter yet |
 | `Proxy[https].shadow-tls-password` | 支持 |  |
 | `Proxy[https].shadow-tls-sni` | 支持 |  |
@@ -412,7 +412,7 @@ Surge 手册（manual.nssurge.com of 2026-09-22）列出的全部字段，以及
 | `Proxy[hysteria2].port-hopping-interval` | 支持 |  |
 | `Proxy[hysteria2].salamander-password` | 支持 |  |
 | `Proxy[hysteria2].server` | 支持 |  |
-| `Proxy[hysteria2].server-cert-fingerprint-sha256` | 报错 | server-cert-fingerprint-sha256: sail does not implement this parameter yet |
+| `Proxy[hysteria2].server-cert-fingerprint-sha256` | 支持 | Surge 手册没说明指纹不是服务器自身证书时怎么处理；sail 把该证书当作唯一的 CA，并校验服务器名。手册的说法已核实，Surge 的实际行为未核实。 |
 | `Proxy[hysteria2].server-cert-verify-name` | 报错 | server-cert-verify-name: sail does not implement this parameter yet |
 | `Proxy[hysteria2].skip-cert-verify` | 支持 |  |
 | `Proxy[hysteria2].sni` | 支持 |  |
@@ -521,7 +521,7 @@ Surge 手册（manual.nssurge.com of 2026-09-22）列出的全部字段，以及
 | `Proxy[socks5-tls].password` | 支持 |  |
 | `Proxy[socks5-tls].port` | 支持 |  |
 | `Proxy[socks5-tls].server` | 支持 |  |
-| `Proxy[socks5-tls].server-cert-fingerprint-sha256` | 报错 | server-cert-fingerprint-sha256: sail does not implement this parameter yet |
+| `Proxy[socks5-tls].server-cert-fingerprint-sha256` | 支持 | Surge 手册没说明指纹不是服务器自身证书时怎么处理；sail 把该证书当作唯一的 CA，并校验服务器名。手册的说法已核实，Surge 的实际行为未核实。 |
 | `Proxy[socks5-tls].server-cert-verify-name` | 报错 | server-cert-verify-name: sail does not implement this parameter yet |
 | `Proxy[socks5-tls].shadow-tls-password` | 支持 |  |
 | `Proxy[socks5-tls].shadow-tls-sni` | 支持 |  |
@@ -627,7 +627,7 @@ Surge 手册（manual.nssurge.com of 2026-09-22）列出的全部字段，以及
 | `Proxy[trojan].password` | 支持 |  |
 | `Proxy[trojan].port` | 支持 |  |
 | `Proxy[trojan].server` | 支持 |  |
-| `Proxy[trojan].server-cert-fingerprint-sha256` | 报错 | server-cert-fingerprint-sha256: sail does not implement this parameter yet |
+| `Proxy[trojan].server-cert-fingerprint-sha256` | 支持 | Surge 手册没说明指纹不是服务器自身证书时怎么处理；sail 把该证书当作唯一的 CA，并校验服务器名。手册的说法已核实，Surge 的实际行为未核实。 |
 | `Proxy[trojan].server-cert-verify-name` | 报错 | server-cert-verify-name: sail does not implement this parameter yet |
 | `Proxy[trojan].shadow-tls-password` | 支持 |  |
 | `Proxy[trojan].shadow-tls-sni` | 支持 |  |
@@ -670,7 +670,7 @@ Surge 手册（manual.nssurge.com of 2026-09-22）列出的全部字段，以及
 | `Proxy[tuic-v5].port-hopping` | 报错 | port-hopping: sail does not implement this parameter yet |
 | `Proxy[tuic-v5].port-hopping-interval` | 静默忽略 |  |
 | `Proxy[tuic-v5].server` | 支持 |  |
-| `Proxy[tuic-v5].server-cert-fingerprint-sha256` | 报错 | server-cert-fingerprint-sha256: sail does not implement this parameter yet |
+| `Proxy[tuic-v5].server-cert-fingerprint-sha256` | 支持 | Surge 手册没说明指纹不是服务器自身证书时怎么处理；sail 把该证书当作唯一的 CA，并校验服务器名。手册的说法已核实，Surge 的实际行为未核实。 |
 | `Proxy[tuic-v5].server-cert-verify-name` | 报错 | server-cert-verify-name: sail does not implement this parameter yet |
 | `Proxy[tuic-v5].skip-cert-verify` | 支持 |  |
 | `Proxy[tuic-v5].sni` | 支持 |  |
@@ -706,7 +706,7 @@ Surge 手册（manual.nssurge.com of 2026-09-22）列出的全部字段，以及
 | `Proxy[vmess].no-error-alert` | 静默忽略 |  |
 | `Proxy[vmess].port` | 支持 |  |
 | `Proxy[vmess].server` | 支持 |  |
-| `Proxy[vmess].server-cert-fingerprint-sha256` | 报错 | server-cert-fingerprint-sha256: sail does not implement this parameter yet |
+| `Proxy[vmess].server-cert-fingerprint-sha256` | 支持 | Surge 手册没说明指纹不是服务器自身证书时怎么处理；sail 把该证书当作唯一的 CA，并校验服务器名。手册的说法已核实，Surge 的实际行为未核实。 |
 | `Proxy[vmess].server-cert-verify-name` | 报错 | server-cert-verify-name: sail does not implement this parameter yet |
 | `Proxy[vmess].shadow-tls-password` | 支持 |  |
 | `Proxy[vmess].shadow-tls-sni` | 支持 |  |

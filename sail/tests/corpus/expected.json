@@ -652,7 +652,7 @@
     "error": "error: line 21 column 10: a map key must be a scalar"
   },
   "clash/0181.yaml": {
-    "error": "proxies[2].fingerprint: sail does not implement this field yet"
+    "error": "proxies[2].fingerprint: `fingerprint` is used for TLS certificate pinning. If you need to specify the browser fingerprint, use `client-fingerprint`"
   },
   "clash/0182.yaml": {
     "ok": true,

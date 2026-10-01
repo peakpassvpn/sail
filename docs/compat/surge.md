@@ -15,35 +15,35 @@ Every field Surge's manual (manual.nssurge.com of 2026-09-22) lists, and how sai
 | `Proxy Group[ssid]` | 6 | 3 | 3 | 0 | 0 |
 | `Proxy Group[subnet]` | 6 | 3 | 3 | 0 | 0 |
 | `Proxy Group[url-test]` | 17 | 11 | 4 | 2 | 0 |
-| `Proxy[anytls]` | 28 | 15 | 4 | 7 | 2 |
+| `Proxy[anytls]` | 28 | 16 | 4 | 7 | 1 |
 | `Proxy[direct]` | 12 | 3 | 2 | 7 | 0 |
 | `Proxy[external]` | 20 | 0 | 0 | 0 | 20 |
 | `Proxy[h2-connect]` | 32 | 0 | 0 | 0 | 32 |
 | `Proxy[http]` | 24 | 13 | 4 | 7 | 0 |
-| `Proxy[https]` | 30 | 17 | 4 | 7 | 2 |
-| `Proxy[hysteria2]` | 29 | 15 | 4 | 7 | 3 |
+| `Proxy[https]` | 30 | 18 | 4 | 7 | 1 |
+| `Proxy[hysteria2]` | 29 | 16 | 4 | 7 | 2 |
 | `Proxy[masque]` | 27 | 0 | 0 | 0 | 27 |
 | `Proxy[reject-drop]` | 12 | 1 | 4 | 7 | 0 |
 | `Proxy[reject-no-drop]` | 12 | 1 | 4 | 7 | 0 |
 | `Proxy[reject-tinygif]` | 12 | 1 | 4 | 7 | 0 |
 | `Proxy[reject]` | 12 | 1 | 4 | 7 | 0 |
 | `Proxy[snell]` | 28 | 0 | 0 | 0 | 28 |
-| `Proxy[socks5-tls]` | 29 | 16 | 4 | 7 | 2 |
+| `Proxy[socks5-tls]` | 29 | 17 | 4 | 7 | 1 |
 | `Proxy[socks5]` | 23 | 12 | 4 | 7 | 0 |
 | `Proxy[ss]` | 27 | 15 | 4 | 7 | 1 |
 | `Proxy[ssh]` | 25 | 0 | 0 | 0 | 25 |
 | `Proxy[tailscale]` | 5 | 0 | 0 | 0 | 5 |
-| `Proxy[trojan]` | 30 | 17 | 4 | 7 | 2 |
+| `Proxy[trojan]` | 30 | 18 | 4 | 7 | 1 |
 | `Proxy[trust-tunnel]` | 31 | 0 | 0 | 0 | 31 |
-| `Proxy[tuic-v5]` | 27 | 12 | 5 | 7 | 3 |
+| `Proxy[tuic-v5]` | 27 | 13 | 5 | 7 | 2 |
 | `Proxy[tuic]` | 26 | 0 | 0 | 0 | 26 |
-| `Proxy[vmess]` | 33 | 20 | 4 | 7 | 2 |
+| `Proxy[vmess]` | 33 | 21 | 4 | 7 | 1 |
 | `Proxy[wireguard]` | 5 | 3 | 0 | 2 | 0 |
 | `Rule` | 152 | 59 | 75 | 0 | 18 |
 | `SSID Setting` | 6 | 0 | 0 | 6 | 0 |
 | `Sections` | 17 | 3 | 3 | 11 | 0 |
 | `WireGuard` | 13 | 11 | 0 | 2 | 0 |
-| **All** | **874** | **317** | **193** | **135** | **229** |
+| **All** | **874** | **324** | **193** | **135** | **222** |
 
 
 ## `Sections`
@@ -282,7 +282,7 @@ Every field Surge's manual (manual.nssurge.com of 2026-09-22) lists, and how sai
 | `Proxy[anytls].port` | Supported |  |
 | `Proxy[anytls].reuse` | Supported |  |
 | `Proxy[anytls].server` | Supported |  |
-| `Proxy[anytls].server-cert-fingerprint-sha256` | Error | server-cert-fingerprint-sha256: sail does not implement this parameter yet |
+| `Proxy[anytls].server-cert-fingerprint-sha256` | Supported | Surge's manual says nothing of a hash that is not the server's own certificate's; sail takes that certificate as the only CA, with the server name checked. The manual's words are checked; what Surge does is not. |
 | `Proxy[anytls].server-cert-verify-name` | Error | server-cert-verify-name: sail does not implement this parameter yet |
 | `Proxy[anytls].shadow-tls-password` | Supported |  |
 | `Proxy[anytls].shadow-tls-sni` | Supported |  |
@@ -374,7 +374,7 @@ Every field Surge's manual (manual.nssurge.com of 2026-09-22) lists, and how sai
 | `Proxy[https].password` | Supported |  |
 | `Proxy[https].port` | Supported |  |
 | `Proxy[https].server` | Supported |  |
-| `Proxy[https].server-cert-fingerprint-sha256` | Error | server-cert-fingerprint-sha256: sail does not implement this parameter yet |
+| `Proxy[https].server-cert-fingerprint-sha256` | Supported | Surge's manual says nothing of a hash that is not the server's own certificate's; sail takes that certificate as the only CA, with the server name checked. The manual's words are checked; what Surge does is not. |
 | `Proxy[https].server-cert-verify-name` | Error | server-cert-verify-name: sail does not implement this parameter yet |
 | `Proxy[https].shadow-tls-password` | Supported |  |
 | `Proxy[https].shadow-tls-sni` | Supported |  |
@@ -412,7 +412,7 @@ Every field Surge's manual (manual.nssurge.com of 2026-09-22) lists, and how sai
 | `Proxy[hysteria2].port-hopping-interval` | Supported |  |
 | `Proxy[hysteria2].salamander-password` | Supported |  |
 | `Proxy[hysteria2].server` | Supported |  |
-| `Proxy[hysteria2].server-cert-fingerprint-sha256` | Error | server-cert-fingerprint-sha256: sail does not implement this parameter yet |
+| `Proxy[hysteria2].server-cert-fingerprint-sha256` | Supported | Surge's manual says nothing of a hash that is not the server's own certificate's; sail takes that certificate as the only CA, with the server name checked. The manual's words are checked; what Surge does is not. |
 | `Proxy[hysteria2].server-cert-verify-name` | Error | server-cert-verify-name: sail does not implement this parameter yet |
 | `Proxy[hysteria2].skip-cert-verify` | Supported |  |
 | `Proxy[hysteria2].sni` | Supported |  |
@@ -521,7 +521,7 @@ Every field Surge's manual (manual.nssurge.com of 2026-09-22) lists, and how sai
 | `Proxy[socks5-tls].password` | Supported |  |
 | `Proxy[socks5-tls].port` | Supported |  |
 | `Proxy[socks5-tls].server` | Supported |  |
-| `Proxy[socks5-tls].server-cert-fingerprint-sha256` | Error | server-cert-fingerprint-sha256: sail does not implement this parameter yet |
+| `Proxy[socks5-tls].server-cert-fingerprint-sha256` | Supported | Surge's manual says nothing of a hash that is not the server's own certificate's; sail takes that certificate as the only CA, with the server name checked. The manual's words are checked; what Surge does is not. |
 | `Proxy[socks5-tls].server-cert-verify-name` | Error | server-cert-verify-name: sail does not implement this parameter yet |
 | `Proxy[socks5-tls].shadow-tls-password` | Supported |  |
 | `Proxy[socks5-tls].shadow-tls-sni` | Supported |  |
@@ -627,7 +627,7 @@ Every field Surge's manual (manual.nssurge.com of 2026-09-22) lists, and how sai
 | `Proxy[trojan].password` | Supported |  |
 | `Proxy[trojan].port` | Supported |  |
 | `Proxy[trojan].server` | Supported |  |
-| `Proxy[trojan].server-cert-fingerprint-sha256` | Error | server-cert-fingerprint-sha256: sail does not implement this parameter yet |
+| `Proxy[trojan].server-cert-fingerprint-sha256` | Supported | Surge's manual says nothing of a hash that is not the server's own certificate's; sail takes that certificate as the only CA, with the server name checked. The manual's words are checked; what Surge does is not. |
 | `Proxy[trojan].server-cert-verify-name` | Error | server-cert-verify-name: sail does not implement this parameter yet |
 | `Proxy[trojan].shadow-tls-password` | Supported |  |
 | `Proxy[trojan].shadow-tls-sni` | Supported |  |
@@ -670,7 +670,7 @@ Every field Surge's manual (manual.nssurge.com of 2026-09-22) lists, and how sai
 | `Proxy[tuic-v5].port-hopping` | Error | port-hopping: sail does not implement this parameter yet |
 | `Proxy[tuic-v5].port-hopping-interval` | Ignored silently |  |
 | `Proxy[tuic-v5].server` | Supported |  |
-| `Proxy[tuic-v5].server-cert-fingerprint-sha256` | Error | server-cert-fingerprint-sha256: sail does not implement this parameter yet |
+| `Proxy[tuic-v5].server-cert-fingerprint-sha256` | Supported | Surge's manual says nothing of a hash that is not the server's own certificate's; sail takes that certificate as the only CA, with the server name checked. The manual's words are checked; what Surge does is not. |
 | `Proxy[tuic-v5].server-cert-verify-name` | Error | server-cert-verify-name: sail does not implement this parameter yet |
 | `Proxy[tuic-v5].skip-cert-verify` | Supported |  |
 | `Proxy[tuic-v5].sni` | Supported |  |
@@ -706,7 +706,7 @@ Every field Surge's manual (manual.nssurge.com of 2026-09-22) lists, and how sai
 | `Proxy[vmess].no-error-alert` | Ignored silently |  |
 | `Proxy[vmess].port` | Supported |  |
 | `Proxy[vmess].server` | Supported |  |
-| `Proxy[vmess].server-cert-fingerprint-sha256` | Error | server-cert-fingerprint-sha256: sail does not implement this parameter yet |
+| `Proxy[vmess].server-cert-fingerprint-sha256` | Supported | Surge's manual says nothing of a hash that is not the server's own certificate's; sail takes that certificate as the only CA, with the server name checked. The manual's words are checked; what Surge does is not. |
 | `Proxy[vmess].server-cert-verify-name` | Error | server-cert-verify-name: sail does not implement this parameter yet |
 | `Proxy[vmess].shadow-tls-password` | Supported |  |
 | `Proxy[vmess].shadow-tls-sni` | Supported |  |

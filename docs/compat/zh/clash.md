@@ -34,13 +34,13 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `listeners[vmess]` | 116 | 0 | 0 | 116 |
 | `ntp` | 7 | 0 | 7 | 0 |
 | `profile` | 3 | 3 | 0 | 0 |
-| `proxies[anytls]` | 38 | 21 | 4 | 13 |
+| `proxies[anytls]` | 38 | 22 | 4 | 12 |
 | `proxies[direct]` | 7 | 5 | 2 | 0 |
 | `proxies[dns]` | 7 | 1 | 6 | 0 |
 | `proxies[easytier]` | 37 | 0 | 0 | 37 |
 | `proxies[gost-relay]` | 22 | 0 | 0 | 22 |
-| `proxies[http]` | 19 | 15 | 2 | 2 |
-| `proxies[hysteria2]` | 50 | 23 | 10 | 17 |
+| `proxies[http]` | 19 | 16 | 2 | 1 |
+| `proxies[hysteria2]` | 50 | 24 | 10 | 16 |
 | `proxies[hysteria]` | 35 | 0 | 0 | 35 |
 | `proxies[masque]` | 29 | 0 | 0 | 29 |
 | `proxies[mieru]` | 17 | 0 | 0 | 17 |
@@ -49,17 +49,17 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `proxies[rematch]` | 9 | 0 | 0 | 9 |
 | `proxies[shadowquic]` | 27 | 0 | 0 | 27 |
 | `proxies[snell]` | 17 | 0 | 0 | 17 |
-| `proxies[socks5]` | 18 | 14 | 2 | 2 |
+| `proxies[socks5]` | 18 | 15 | 2 | 1 |
 | `proxies[ss]` | 93 | 24 | 3 | 66 |
 | `proxies[ssh]` | 15 | 0 | 0 | 15 |
 | `proxies[ssr]` | 16 | 0 | 0 | 16 |
 | `proxies[sudoku]` | 31 | 0 | 0 | 31 |
 | `proxies[tailscale]` | 16 | 0 | 0 | 16 |
-| `proxies[trojan]` | 56 | 37 | 2 | 17 |
+| `proxies[trojan]` | 56 | 38 | 2 | 16 |
 | `proxies[trusttunnel]` | 32 | 0 | 0 | 32 |
-| `proxies[tuic]` | 41 | 25 | 12 | 4 |
-| `proxies[vless]` | 137 | 44 | 2 | 91 |
-| `proxies[vmess]` | 128 | 45 | 2 | 81 |
+| `proxies[tuic]` | 41 | 26 | 12 | 3 |
+| `proxies[vless]` | 137 | 45 | 2 | 90 |
+| `proxies[vmess]` | 128 | 46 | 2 | 80 |
 | `proxies[wireguard]` | 64 | 0 | 0 | 64 |
 | `proxies[zerotier]` | 30 | 0 | 0 | 30 |
 | `proxy-groups` | 23 | 18 | 5 | 0 |
@@ -69,7 +69,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `tls` | 7 | 0 | 7 | 0 |
 | `tuic-server` | 13 | 0 | 0 | 13 |
 | `tun` | 50 | 33 | 10 | 7 |
-| **All** | **2077** | **451** | **139** | **1487** |
+| **All** | **2077** | **459** | **139** | **1479** |
 
 
 ## `general`
@@ -556,7 +556,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `proxies[anytls].ech-opts.config` | 支持 |  |
 | `proxies[anytls].ech-opts.enable` | 支持 |  |
 | `proxies[anytls].ech-opts.query-server-name` | 支持 |  |
-| `proxies[anytls].fingerprint` | 报错 | proxies[0].fingerprint: sail does not implement this field yet |
+| `proxies[anytls].fingerprint` | 支持 |  |
 | `proxies[anytls].idle-session-check-interval` | 支持 |  |
 | `proxies[anytls].idle-session-timeout` | 支持 |  |
 | `proxies[anytls].interface-name` | 支持 |  |
@@ -627,7 +627,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 |---|---|---|
 | `proxies[http].certificate` | 支持 |  |
 | `proxies[http].dialer-proxy` | 支持 |  |
-| `proxies[http].fingerprint` | 报错 | proxies[0].fingerprint: sail does not implement this field yet |
+| `proxies[http].fingerprint` | 支持 |  |
 | `proxies[http].headers` | 支持 |  |
 | `proxies[http].interface-name` | 支持 |  |
 | `proxies[http].ip-version` | 支持 | proxies[0].ip-version: "1" is none of dual, ipv4, ipv6, ipv4-prefer and ipv6-prefer |
@@ -659,7 +659,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `proxies[hysteria2].ech-opts.config` | 支持 |  |
 | `proxies[hysteria2].ech-opts.enable` | 支持 |  |
 | `proxies[hysteria2].ech-opts.query-server-name` | 支持 |  |
-| `proxies[hysteria2].fingerprint` | 报错 | proxies[0].fingerprint: sail does not implement this field yet |
+| `proxies[hysteria2].fingerprint` | 支持 |  |
 | `proxies[hysteria2].handshake-timeout` | 警告 | proxies[0].handshake-timeout: sail does not implement this field; ignored |
 | `proxies[hysteria2].hop-interval` | 支持 | proxies[0].hop-interval: not a number in range |
 | `proxies[hysteria2].initial-connection-receive-window` | 警告 | proxies[0].initial-connection-receive-window: sail does not implement this field; ignored |
@@ -760,7 +760,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 |---|---|---|
 | `proxies[socks5].certificate` | 支持 |  |
 | `proxies[socks5].dialer-proxy` | 支持 |  |
-| `proxies[socks5].fingerprint` | 报错 | proxies[0].fingerprint: sail does not implement this field yet |
+| `proxies[socks5].fingerprint` | 支持 |  |
 | `proxies[socks5].interface-name` | 支持 |  |
 | `proxies[socks5].ip-version` | 支持 | proxies[0].ip-version: "1" is none of dual, ipv4, ipv6, ipv4-prefer and ipv6-prefer |
 | `proxies[socks5].mptcp` | 警告 | proxies[0].mptcp: sail does not implement this field; ignored |
@@ -911,7 +911,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `proxies[trojan].ech-opts.config` | 支持 |  |
 | `proxies[trojan].ech-opts.enable` | 支持 |  |
 | `proxies[trojan].ech-opts.query-server-name` | 支持 |  |
-| `proxies[trojan].fingerprint` | 报错 | proxies[0].fingerprint: sail does not implement this field yet |
+| `proxies[trojan].fingerprint` | 支持 |  |
 | `proxies[trojan].grpc-opts` | 支持 |  |
 | `proxies[trojan].grpc-opts.grpc-service-name` | 支持 |  |
 | `proxies[trojan].grpc-opts.grpc-user-agent` | 支持 |  |
@@ -983,7 +983,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `proxies[tuic].ech-opts.enable` | 支持 |  |
 | `proxies[tuic].ech-opts.query-server-name` | 支持 |  |
 | `proxies[tuic].fast-open` | 警告 | proxies[0].fast-open: sail does not implement this field; ignored |
-| `proxies[tuic].fingerprint` | 报错 | proxies[0].fingerprint: sail does not implement this field yet |
+| `proxies[tuic].fingerprint` | 支持 |  |
 | `proxies[tuic].heartbeat-interval` | 支持 |  |
 | `proxies[tuic].interface-name` | 支持 |  |
 | `proxies[tuic].ip` | 支持 |  |
@@ -1025,7 +1025,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `proxies[vless].ech-opts.enable` | 支持 |  |
 | `proxies[vless].ech-opts.query-server-name` | 支持 |  |
 | `proxies[vless].encryption` | 报错 | proxies[0].encryption: sail does not implement VLESS encryption yet |
-| `proxies[vless].fingerprint` | 报错 | proxies[0].fingerprint: sail does not implement this field yet |
+| `proxies[vless].fingerprint` | 支持 |  |
 | `proxies[vless].flow` | 支持 |  |
 | `proxies[vless].grpc-opts` | 支持 |  |
 | `proxies[vless].grpc-opts.grpc-service-name` | 支持 |  |
@@ -1169,7 +1169,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `proxies[vmess].ech-opts.config` | 支持 |  |
 | `proxies[vmess].ech-opts.enable` | 支持 |  |
 | `proxies[vmess].ech-opts.query-server-name` | 支持 |  |
-| `proxies[vmess].fingerprint` | 报错 | proxies[0].fingerprint: sail does not implement this field yet |
+| `proxies[vmess].fingerprint` | 支持 |  |
 | `proxies[vmess].global-padding` | 支持 |  |
 | `proxies[vmess].grpc-opts` | 支持 |  |
 | `proxies[vmess].grpc-opts.grpc-service-name` | 支持 |  |
