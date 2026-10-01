@@ -145,17 +145,15 @@ impl Providers {
         }
         let providers = self.clone();
         let task = tokio::spawn(async move {
+            let Some(network) = dispatcher.upgrade().map(|d| d.env().network.clone()) else {
+                return;
+            };
+            let mut changes = network.changes();
             loop {
-                let now = SystemTime::now();
-                let next = providers
-                    .providers
-                    .iter()
-                    .filter_map(|p| p.due_in(now))
-                    .min()
-                    .unwrap_or(RETIRED_CHECK)
-                    .min(RETIRED_CHECK);
-                // At least a second apart, whatever the clock does.
-                tokio::time::sleep(next.max(Duration::from_secs(1))).await;
+                until_due(&providers.providers, &network, &mut changes, || {
+                    providers.retired.check()
+                })
+                .await;
                 let Some(dispatcher) = dispatcher.upgrade() else {
                     return;
                 };
@@ -177,6 +175,43 @@ impl Providers {
             }
         });
         Some(task.abort_handle())
+    }
+}
+
+/// Waits until one of `providers` falls due, or it is time to let the
+/// retired go (`retired`), while the network is up. While it is down,
+/// downloads wait rather than fail, and the retired are let go meanwhile;
+/// the change that ends it sends those due by then at once.
+async fn until_due(
+    providers: &[Arc<one::Provider>],
+    network: &crate::net::network::Network,
+    changes: &mut tokio::sync::watch::Receiver<Option<Arc<crate::net::network::NetworkChange>>>,
+    retired: impl Fn(),
+) {
+    loop {
+        changes.borrow_and_update();
+        if network.is_down() {
+            tracing::debug!("outbound providers: the network is down, updates wait for it");
+            if tokio::time::timeout(RETIRED_CHECK, changes.changed())
+                .await
+                .is_err()
+            {
+                retired();
+            }
+            continue;
+        }
+        let now = SystemTime::now();
+        let next = providers
+            .iter()
+            .filter_map(|p| p.due_in(now))
+            .min()
+            .unwrap_or(RETIRED_CHECK)
+            .min(RETIRED_CHECK);
+        // At least a second apart, whatever the clock does.
+        tokio::time::sleep(next.max(Duration::from_secs(1))).await;
+        if !network.is_down() {
+            return;
+        }
     }
 }
 

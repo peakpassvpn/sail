@@ -555,6 +555,42 @@ mod tests {
         serde_json::from_value(json).unwrap()
     }
 
+    /// While the network is down, a provider due waits for it rather than
+    /// fail, and goes the moment it is back.
+    #[tokio::test]
+    async fn updates_wait_while_the_network_is_down() {
+        use crate::net::network::{Network, NetworkState, NetworkType};
+        let env = RuntimeEnv::default();
+        let config = config(serde_json::json!({
+            "type": "remote", "tag": "p", "url": "https://a.example/p"
+        }));
+        // Never downloaded: due at once.
+        let providers = vec![Arc::new(load(&config, &env, None))];
+        assert_eq!(providers[0].due_in(SystemTime::now()), Some(Duration::ZERO));
+        let network = Network::default();
+        let up = NetworkState {
+            interface: Some("en0".into()),
+            kind: Some(NetworkType::Wifi),
+            ..Default::default()
+        };
+        network.push(up.clone());
+        network.push(NetworkState::default());
+        assert!(network.is_down());
+        let mut changes = network.changes();
+        let wait = super::super::until_due(&providers, &network, &mut changes, || {});
+        tokio::pin!(wait);
+        assert!(
+            tokio::time::timeout(Duration::from_millis(1500), &mut wait)
+                .await
+                .is_err(),
+            "due, but the network is down"
+        );
+        network.push(up);
+        tokio::time::timeout(Duration::from_secs(3), wait)
+            .await
+            .expect("the network is back: it goes");
+    }
+
     fn load(config: &OutboundProvider, env: &RuntimeEnv, previous: Option<&Provider>) -> Provider {
         Provider::load(
             config,
