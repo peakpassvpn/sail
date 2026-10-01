@@ -1949,3 +1949,100 @@ fn the_system_log_lets_the_platform_go_with_the_instance() {
         }
     });
 }
+
+/// No secret of the configuration comes out through the C ABI: not in the
+/// log lines a host follows at trace, not in what it reads of the
+/// instance, not in the error a mistaken secret is refused with.
+#[test]
+fn no_secret_comes_out_through_the_c_abi() {
+    const PASSWORD: &str = "pw-7e57-s3cr3t";
+    const UUID: &str = "5ec7e7a1-1111-4111-8111-111111111111";
+    // 32 bytes of 0x44, a Shadowsocks 2022 key.
+    const PSK: &str = "REREREREREREREREREREREREREREREREREREREREREQ=";
+    // 32 bytes of 0x33 and of 0x55, WireGuard keys.
+    const WG_PRIVATE: &str = "MzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzM=";
+    const WG_PRESHARED: &str = "VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVU=";
+    const TOKEN: &str = "sub-7e57-t0ken";
+    let secrets = [PASSWORD, UUID, PSK, WG_PRIVATE, WG_PRESHARED, TOKEN];
+    let leaks = move |text: &str| -> Vec<&str> {
+        secrets
+            .iter()
+            .copied()
+            .filter(|s| text.contains(s))
+            .collect()
+    };
+    let _serial = serial();
+    within(Duration::from_secs(60), move || {
+        let port = free_port();
+        let config = serde_json::json!({
+            "log": { "level": "trace" },
+            "inbounds": [{ "type": "socks", "tag": "socks-in", "listen": "127.0.0.1", "listen_port": port }],
+            "outbounds": [
+                { "type": "selector", "tag": "sel",
+                  "outbounds": ["direct", "trojan", "vless", "ss", "hy2"], "providers": "sub" },
+                { "type": "direct", "tag": "direct" },
+                { "type": "trojan", "tag": "trojan", "server": "127.0.0.1", "server_port": 9,
+                  "password": PASSWORD, "tls": { "enabled": true, "server_name": "localhost" } },
+                { "type": "vless", "tag": "vless", "server": "127.0.0.1", "server_port": 9, "uuid": UUID },
+                { "type": "shadowsocks", "tag": "ss", "server": "127.0.0.1", "server_port": 9,
+                  "method": "2022-blake3-aes-256-gcm", "password": PSK },
+                { "type": "hysteria2", "tag": "hy2", "server": "127.0.0.1", "server_port": 9,
+                  "password": PASSWORD, "tls": { "enabled": true, "server_name": "localhost" } },
+            ],
+            "endpoints": [{ "type": "wireguard", "tag": "wg", "address": ["10.0.0.2/32"],
+                "private_key": WG_PRIVATE,
+                "peers": [{ "address": "127.0.0.1", "port": 9, "public_key": WG_PRIVATE,
+                            "pre_shared_key": WG_PRESHARED, "allowed_ips": ["0.0.0.0/0"] }] }],
+            "outbound_providers": [{ "type": "remote", "tag": "sub",
+                "url": format!("http://127.0.0.1:9/sub?token={}", TOKEN) }],
+            "route": { "final": "direct" },
+        })
+        .to_string();
+        let instance = new_instance(Some(r#"{"log_lines": 10000}"#), None);
+        let logs = Recorder::new();
+        let log_sub = subscribe(
+            instance,
+            SAIL_EVENT_LOG,
+            Some(r#"{"level": "trace"}"#),
+            &logs,
+            record,
+        );
+        start(instance, &config);
+        echo_through(port);
+        let sub = c"sub";
+        // The download fails, and says so without the URL's token.
+        let _ = code(|err| unsafe { sail_update_provider(instance, sub.as_ptr(), err) });
+        let mut told = String::new();
+        for value in [
+            json_of(|out, err| unsafe { sail_instance_state(instance, out, err) }),
+            json_of(|out, err| unsafe { sail_outbounds(instance, out, err) }),
+            json_of(|out, err| unsafe { sail_groups(instance, out, err) }),
+            json_of(|out, err| unsafe { sail_connections(instance, out, err) }),
+            json_of(|out, err| unsafe { sail_providers(instance, out, err) }),
+            json_of(|out, err| unsafe { sail_rule_sets(instance, out, err) }),
+        ] {
+            told.push_str(&value.to_string());
+        }
+        stop(instance);
+        ok("unsubscribe", |err| sail_unsubscribe(log_sub, err));
+        let logged = serde_json::to_string(&*logs.events.lock().unwrap()).unwrap();
+        assert!(
+            logged.len() > 1000,
+            "too little logged at trace: {}",
+            logged
+        );
+        assert_eq!(leaks(&told), Vec::<&str>::new(), "{}", told);
+        assert_eq!(leaks(&logged), Vec::<&str>::new(), "{}", logged);
+
+        // Refused: the error names the field, not its value.
+        let bad = "not-a-uuid-7e57-s3cr3t";
+        let refused = config.replace(UUID, bad);
+        let config = CString::new(refused).unwrap();
+        let mut err = std::ptr::null_mut();
+        let code = unsafe { sail_instance_start(instance, config.as_ptr(), &mut err) };
+        assert_ne!(code, SAIL_OK);
+        let message = take(err);
+        assert!(!message.contains(bad), "{}", message);
+        sail_instance_free(instance);
+    });
+}
