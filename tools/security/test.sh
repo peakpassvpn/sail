@@ -43,15 +43,15 @@ python3 "$fixture/tools/security/check_sources.py" >/dev/null
 
 python3 - "$fixture/Cargo.toml" <<'PY'
 from pathlib import Path
+import re
 import sys
 
+# The first pinned revision, whichever it is, becomes a branch: a pin that
+# moves must not leave this case testing nothing.
 path = Path(sys.argv[1])
-text = path.read_text()
-text = text.replace(
-    'rev = "4123de36dc5ac86914c8a744f958025e598aa712"',
-    'branch = "main"',
-    1,
-)
+text, count = re.subn(r'rev = "[0-9a-f]{40}"', 'branch = "main"', path.read_text(), count=1)
+if count != 1:
+    sys.exit("no pinned revision in Cargo.toml to unpin")
 path.write_text(text)
 PY
 expect_exit 1 python3 "$fixture/tools/security/check_sources.py"
