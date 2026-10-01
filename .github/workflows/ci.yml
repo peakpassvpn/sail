@@ -102,6 +102,11 @@ jobs:
             echo "::endgroup::"
           done
 
+      # The generated configuration reference (website) must match the
+      # code's fields and tiers; a field change regenerates it.
+      - name: configuration reference is current
+        run: cd website && node scripts/build-config.mjs --check
+
   # Every non-Apple release target, built from Linux with the scripts the
   # release uses. A debug build: it links, which `cargo check` would not,
   # and BoringSSL is compiled either way. Then, where the runner can run
