@@ -9,6 +9,7 @@
 //	netgen echo       -proxy P -target T -conns 16 -rounds 200 -size 4096
 //	netgen setup      -proxy P -target T -n 500
 //	netgen concurrent -proxy P -target T -conns 2000 -hold 20s
+//	netgen hold       -proxies P1,P2 -target T -conns 100000 -rate 2000 -hold 60s
 //	netgen churn      -proxy P -target T -rate 200 -duration 30s
 //	netgen halfclose  -proxy P -target T -n 50 -bytes 1048576
 //	netgen probe      -proxy P -target T -duration 60s -interval 100ms
@@ -29,6 +30,7 @@ import (
 	"os"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -53,28 +55,42 @@ const ackTimeout = 120 * time.Second
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: netgen serve|bulk|echo|setup|concurrent|churn|halfclose|probe [flags]")
+		fmt.Fprintln(os.Stderr, "usage: netgen serve|bulk|echo|setup|concurrent|hold|churn|halfclose|probe [flags]")
 		os.Exit(2)
 	}
 	fs := flag.NewFlagSet(os.Args[1], flag.ExitOnError)
 	listen := fs.String("listen", "127.0.0.1:9000", "serve: listen address")
 	proxy := fs.String("proxy", "", "SOCKS5 proxy; empty dials the target directly")
+	proxies := fs.String("proxies", "", "hold: SOCKS5 proxies, comma-separated, taken in turn; overrides -proxy")
 	target := fs.String("target", "127.0.0.1:9000", "server address, as the proxy sees it")
 	streams := fs.Int("streams", 8, "bulk: parallel streams")
 	size := fs.Int64("bytes", 64<<20, "bulk/halfclose: bytes per stream")
 	dir := fs.String("dir", "down", "bulk: down|up")
-	conns := fs.Int("conns", 16, "echo/concurrent: connections")
+	conns := fs.Int("conns", 16, "echo/concurrent/hold: connections")
 	rounds := fs.Int("rounds", 200, "echo: round trips per connection")
 	msg := fs.Int("size", 4096, "echo: largest message")
 	n := fs.Int("n", 500, "setup/halfclose: connections")
-	hold := fs.Duration("hold", 20*time.Second, "concurrent: how long connections stay open")
-	rate := fs.Int("rate", 200, "churn: connections per second")
+	hold := fs.Duration("hold", 20*time.Second, "concurrent/hold: how long connections stay open")
+	rate := fs.Int("rate", 200, "churn/hold: connections per second")
 	duration := fs.Duration("duration", 30*time.Second, "churn/probe: how long")
 	interval := fs.Duration("interval", 100*time.Millisecond, "probe: between attempts")
 	fs.DurationVar(&timeout, "timeout", 10*time.Second, "per-operation timeout")
 	fs.Parse(os.Args[2:])
 
 	d := dialer{proxy: *proxy, target: *target}
+	switch os.Args[1] {
+	case "hold", "churn":
+		// A ticker needs an interval of at least a nanosecond.
+		if *rate <= 0 || time.Second/time.Duration(*rate) <= 0 {
+			usage("-rate must be 1 to 1000000000 a second")
+		}
+	}
+	switch os.Args[1] {
+	case "hold", "concurrent", "echo":
+		if *conns <= 0 {
+			usage("-conns must be at least 1")
+		}
+	}
 	var res any
 	var err error
 	switch os.Args[1] {
@@ -88,6 +104,15 @@ func main() {
 		res = runSetup(d, *n)
 	case "concurrent":
 		res = runConcurrent(d, *conns, *hold)
+	case "hold":
+		ds := []dialer{d}
+		if *proxies != "" {
+			ds = nil
+			for _, p := range strings.Split(*proxies, ",") {
+				ds = append(ds, dialer{proxy: p, target: *target})
+			}
+		}
+		res = runHold(ds, *conns, *rate, *hold)
 	case "churn":
 		res = runChurn(d, *rate, *duration)
 	case "halfclose":
@@ -102,6 +127,11 @@ func main() {
 		os.Exit(1)
 	}
 	json.NewEncoder(os.Stdout).Encode(res)
+}
+
+func usage(why string) {
+	fmt.Fprintln(os.Stderr, "usage:", why)
+	os.Exit(2)
 }
 
 // ---- the pattern ----
@@ -409,10 +439,11 @@ func (c *idleConn) Write(b []byte) (int, error) {
 }
 
 type latencies struct {
-	P50ms float64 `json:"p50_ms"`
-	P90ms float64 `json:"p90_ms"`
-	P99ms float64 `json:"p99_ms"`
-	MaxMs float64 `json:"max_ms"`
+	P50ms  float64 `json:"p50_ms"`
+	P90ms  float64 `json:"p90_ms"`
+	P99ms  float64 `json:"p99_ms"`
+	P999ms float64 `json:"p999_ms"`
+	MaxMs  float64 `json:"max_ms"`
 }
 
 func summarize(ds []time.Duration) latencies {
@@ -430,7 +461,7 @@ func summarize(ds []time.Duration) latencies {
 		}
 		return float64(ds[i].Microseconds()) / 1000
 	}
-	return latencies{at(0.50), at(0.90), at(0.99), at(1)}
+	return latencies{at(0.50), at(0.90), at(0.99), at(0.999), at(1)}
 }
 
 type echoResult struct {
@@ -595,6 +626,92 @@ func runConcurrent(d dialer, conns int, hold time.Duration) any {
 			}
 			c.Close()
 		}(c)
+	}
+	wg.Wait()
+	r.Survived = int(survived.Load())
+	return r
+}
+
+type holdResult struct {
+	counts
+	Conns       int `json:"conns"`
+	Rate        int `json:"rate"`
+	Established int `json:"established"`
+	// Until the last dial started: conns over it is the rate offered,
+	// lower than -rate when the dials fell behind the ticker.
+	OfferedSeconds float64 `json:"offered_seconds"`
+	// Until the slowest dial finished.
+	OpenSeconds float64 `json:"open_seconds"`
+	// From dialing to the first checked echo, for those established. With
+	// fewer than about 1000 samples, p999 is the maximum.
+	Setup        latencies `json:"setup"`
+	SetupSamples int       `json:"setup_samples"`
+	// Those still echoing checked bytes after the hold.
+	Survived int `json:"survived"`
+}
+
+// runHold opens `conns` echo connections at `rate` a second, through the
+// dialers in turn, each checked by a seeded echo; keeps those established
+// open for `hold` (the harness samples meanwhile; "HOLDING n" on stderr
+// marks the start), then checks each again with seeded bytes.
+func runHold(ds []dialer, conns, rate int, hold time.Duration) any {
+	r := &holdResult{Conns: conns, Rate: rate}
+	var mu sync.Mutex
+	open := make([]net.Conn, 0, conns)
+	setups := make([]time.Duration, 0, conns)
+	var wg sync.WaitGroup
+	tick := time.NewTicker(time.Second / time.Duration(rate))
+	start := time.Now()
+	for i := 0; i < conns; i++ {
+		<-tick.C
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			t0 := time.Now()
+			c, err := ds[i%len(ds)].dial()
+			if err == nil {
+				msg := make([]byte, 64)
+				newPattern(uint64(i)).fill(msg)
+				err = roundTrip(c, append(header(cmdEcho, 0, 0, 0), msg...), len(msg))
+			}
+			r.add(err)
+			if err != nil {
+				if c != nil {
+					c.Close()
+				}
+				return
+			}
+			took := time.Since(t0)
+			mu.Lock()
+			open = append(open, c)
+			setups = append(setups, took)
+			mu.Unlock()
+		}(i)
+	}
+	r.OfferedSeconds = time.Since(start).Seconds()
+	tick.Stop()
+	wg.Wait()
+	r.OpenSeconds = time.Since(start).Seconds()
+	r.Established = len(open)
+	r.SetupSamples = len(setups)
+	r.Setup = summarize(setups)
+	fmt.Fprintf(os.Stderr, "HOLDING %d\n", len(open))
+	time.Sleep(hold)
+	var survived atomic.Int32
+	sem := make(chan struct{}, 200)
+	for i, c := range open {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(i int, c net.Conn) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			msg := make([]byte, 16)
+			newPattern(uint64(i) << 32).fill(msg)
+			if roundTrip(c, msg, len(msg)) == nil {
+				survived.Add(1)
+			}
+			c.Close()
+		}(i, c)
 	}
 	wg.Wait()
 	r.Survived = int(survived.Load())
