@@ -35,9 +35,30 @@ pub(crate) enum NeighborEvent {
 const EVENT_QUEUE: usize = 256;
 
 /// How long the watching thread waits for the kernel before it checks
-/// whether anyone still reads: sing-box's read deadline (3 s).
+/// whether anyone still reads, should the stop signal be missed: sing-box's
+/// read deadline (3 s). Dropping the watch wakes the thread at once.
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 const WATCH_POLL: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// Changes to the neighbor table, from a thread of their own, until this
+/// is dropped: that closes a pipe the thread waits on beside the kernel's
+/// socket, so the thread ends at once rather than at its next timeout.
+#[cfg_attr(not(any(target_os = "linux", target_os = "macos")), allow(dead_code))]
+pub(crate) struct NeighborWatch {
+    events: tokio::sync::mpsc::Receiver<NeighborEvent>,
+    /// The pipe's write end, whose closing stops the thread.
+    #[cfg(unix)]
+    _stop: std::os::fd::OwnedFd,
+    #[cfg(test)]
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl NeighborWatch {
+    /// The next change; `None` once the thread stopped.
+    pub(crate) async fn recv(&mut self) -> Option<NeighborEvent> {
+        self.events.recv().await
+    }
+}
 
 /// The neighbor table now: address and MAC of each entry sing-box keeps.
 /// Ports `ReadNeighborEntries` (and `loadNeighborTable`, which on Linux is
@@ -57,10 +78,10 @@ pub(crate) fn read_neighbors() -> io::Result<Vec<(IpAddr, Mac)>> {
     }
 }
 
-/// Changes to the table as the system reports them, until the receiver is
+/// Changes to the table as the system reports them, until the watch is
 /// dropped. Ports `subscribeNeighborUpdates`: a thread reads the kernel's
-/// notices and stops within `WATCH_POLL` of the receiver going away.
-pub(crate) fn watch_neighbors() -> io::Result<tokio::sync::mpsc::Receiver<NeighborEvent>> {
+/// notices and stops as soon as the watch goes away.
+pub(crate) fn watch_neighbors() -> io::Result<NeighborWatch> {
     #[cfg(target_os = "linux")]
     {
         linux::watch_neighbors()
@@ -83,22 +104,34 @@ fn unsupported() -> io::Error {
     )
 }
 
-/// Runs `next` on a thread of its own, sending what it returns, until the
-/// receiver is dropped. A read that timed out only lets it check for that;
-/// any other error is logged and reading goes on, as sing-box does.
+/// Reads `fd` with `read` on a thread of its own, sending what it returns,
+/// whenever the kernel has something, until the watch is dropped. A read
+/// that timed out only lets it check for that; any other error is logged
+/// and reading goes on, as sing-box does.
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-fn spawn_watch<F>(mut next: F) -> io::Result<tokio::sync::mpsc::Receiver<NeighborEvent>>
+fn spawn_watch<F>(fd: std::os::fd::OwnedFd, mut read: F) -> io::Result<NeighborWatch>
 where
-    F: FnMut() -> io::Result<Vec<NeighborEvent>> + Send + 'static,
+    F: FnMut(&std::os::fd::OwnedFd) -> io::Result<Vec<NeighborEvent>> + Send + 'static,
 {
+    let (stop, stopped) = pipe()?;
     let (tx, rx) = tokio::sync::mpsc::channel(EVENT_QUEUE);
-    std::thread::Builder::new()
+    let thread = std::thread::Builder::new()
         .name("sail-neighbors".into())
         .spawn(move || loop {
             if tx.is_closed() {
                 return;
             }
-            match next() {
+            match wait(&fd, &stopped) {
+                Ok(Wake::Stop) => return,
+                Ok(Wake::Readable) => {}
+                Ok(Wake::Timeout) => continue,
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+                Err(e) => {
+                    tracing::warn!("wait for neighbor updates: {}", e);
+                    return;
+                }
+            }
+            match read(&fd) {
                 Ok(events) => {
                     for event in events {
                         if tx.blocking_send(event).is_err() {
@@ -121,7 +154,79 @@ where
                 }
             }
         })?;
-    Ok(rx)
+    #[cfg(not(test))]
+    drop(thread);
+    Ok(NeighborWatch {
+        events: rx,
+        _stop: stop,
+        #[cfg(test)]
+        thread: Some(thread),
+    })
+}
+
+/// What woke the watching thread.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+enum Wake {
+    Readable,
+    Stop,
+    Timeout,
+}
+
+/// Waits until `fd` has something, `stopped` is closed (or written), or
+/// `WATCH_POLL` passed.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn wait(fd: &std::os::fd::OwnedFd, stopped: &std::os::fd::OwnedFd) -> io::Result<Wake> {
+    use std::os::fd::AsRawFd;
+    let mut fds = [
+        libc::pollfd {
+            fd: fd.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        },
+        libc::pollfd {
+            fd: stopped.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        },
+    ];
+    // SAFETY: two pollfds, of descriptors this holds.
+    let n = unsafe {
+        libc::poll(
+            fds.as_mut_ptr(),
+            fds.len() as libc::nfds_t,
+            WATCH_POLL.as_millis() as libc::c_int,
+        )
+    };
+    if n < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    if fds[1].revents != 0 {
+        return Ok(Wake::Stop);
+    }
+    if fds[0].revents != 0 {
+        return Ok(Wake::Readable);
+    }
+    Ok(Wake::Timeout)
+}
+
+/// A pipe, its write end first, both closed on exec.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn pipe() -> io::Result<(std::os::fd::OwnedFd, std::os::fd::OwnedFd)> {
+    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+    let mut ends = [0; 2];
+    // SAFETY: `ends` holds the two descriptors pipe(2) writes.
+    if unsafe { libc::pipe(ends.as_mut_ptr()) } < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: two descriptors just opened, owned by none else.
+    let (read, write) = unsafe { (OwnedFd::from_raw_fd(ends[0]), OwnedFd::from_raw_fd(ends[1])) };
+    for fd in [&read, &write] {
+        // SAFETY: fcntl on a descriptor this owns.
+        if unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_SETFD, libc::FD_CLOEXEC) } < 0 {
+            return Err(io::Error::last_os_error());
+        }
+    }
+    Ok((write, read))
 }
 
 /// Sets how long a receive on `fd` waits.
@@ -463,10 +568,10 @@ mod linux {
     }
 
     /// Ports `subscribeNeighborUpdates`: the `RTNLGRP_NEIGH` group.
-    pub(super) fn watch_neighbors() -> io::Result<tokio::sync::mpsc::Receiver<NeighborEvent>> {
+    pub(super) fn watch_neighbors() -> io::Result<super::NeighborWatch> {
         let fd =
             open(RTMGRP_NEIGH, WATCH_POLL).map_err(|e| context("subscribe neighbor updates", e))?;
-        spawn_watch(move || Ok(parse_neighbor_datagram(&recv(&fd)?)))
+        spawn_watch(fd, |fd| Ok(parse_neighbor_datagram(&recv(fd)?)))
     }
 
     fn context(what: &str, e: io::Error) -> io::Error {
@@ -854,10 +959,10 @@ mod macos {
     }
 
     /// Ports `subscribeNeighborUpdates`: a routing socket.
-    pub(super) fn watch_neighbors() -> io::Result<tokio::sync::mpsc::Receiver<NeighborEvent>> {
+    pub(super) fn watch_neighbors() -> io::Result<super::NeighborWatch> {
         let fd = open().map_err(|e| context("subscribe neighbor updates", e))?;
         let mut buf = vec![0u8; READ_BUFFER];
-        spawn_watch(move || {
+        spawn_watch(fd, move |fd| {
             // SAFETY: `buf` is writable for its length.
             let n = unsafe {
                 libc::read(
@@ -1498,11 +1603,23 @@ mod tests {
         }
     }
 
-    /// Watching opens; its thread ends once the receiver is dropped.
+    /// Watching opens, and its thread ends as soon as the watch is dropped,
+    /// not at its next timeout (WATCH_POLL, 3 s).
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
-    fn watching_opens() {
-        drop(watch_neighbors().unwrap());
+    fn a_dropped_watch_stops_its_thread_at_once() {
+        let mut watch = watch_neighbors().unwrap();
+        let thread = watch.thread.take().unwrap();
+        // Waiting on the kernel by now.
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        drop(watch);
+        let dropped = std::time::Instant::now();
+        thread.join().unwrap();
+        assert!(
+            dropped.elapsed() < std::time::Duration::from_millis(500),
+            "the thread ended {:?} after the watch went",
+            dropped.elapsed()
+        );
     }
 
     #[cfg(not(any(target_os = "linux", target_os = "macos")))]
