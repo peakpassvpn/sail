@@ -1,0 +1,43 @@
+{
+  "log": {
+    "level": "info"
+  },
+  "inbounds": [
+    {
+      "type": "mixed",
+      "tag": "mixed-in",
+      "listen": "127.0.0.1",
+      "listen_port": 2080
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "vless",
+      "tag": "vless",
+      "server": "s1.example.net",
+      "server_port": 443,
+      "uuid": "1b0e0a3e-1c2d-4e5f-8a9b-0c1d2e3f4a5b",
+      "flow": "xtls-rprx-vision",
+      "tls": {
+        "enabled": true,
+        "server_name": "www.example.com",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        },
+        "reality": {
+          "enabled": true,
+          "public_key": "ERERERERERERERERERERERERERERERERERERERERERE",
+          "short_id": "0123"
+        }
+      }
+    },
+    {
+      "type": "direct",
+      "tag": "direct"
+    }
+  ],
+  "route": {
+    "final": "vless"
+  }
+}

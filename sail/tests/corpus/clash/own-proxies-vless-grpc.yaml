@@ -1,0 +1,12 @@
+mixed-port: 7890
+allow-lan: false
+mode: rule
+log-level: info
+proxies:
+  - { name: vless-grpc, type: vless, server: s1.example.net, port: 443, uuid: 1b0e0a3e-1c2d-4e5f-8a9b-0c1d2e3f4a5b, network: grpc, tls: true, udp: true, servername: server.example.com, grpc-opts: { grpc-service-name: TunService } }
+proxy-groups:
+  - name: PROXY
+    type: select
+    proxies: [vless-grpc, DIRECT]
+rules:
+  - MATCH,PROXY

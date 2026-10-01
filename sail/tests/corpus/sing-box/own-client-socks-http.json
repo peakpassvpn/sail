@@ -1,0 +1,43 @@
+{
+  "log": {
+    "level": "info"
+  },
+  "inbounds": [
+    {
+      "type": "mixed",
+      "tag": "mixed-in",
+      "listen": "127.0.0.1",
+      "listen_port": 2080
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "socks",
+      "tag": "socks",
+      "server": "s1.example.net",
+      "server_port": 1080,
+      "username": "user1",
+      "password": "a synthetic password",
+      "udp_over_tcp": false
+    },
+    {
+      "type": "http",
+      "tag": "http",
+      "server": "s2.example.net",
+      "server_port": 3128,
+      "username": "user1",
+      "password": "a synthetic password",
+      "path": "/",
+      "headers": {
+        "X-Example": "1"
+      }
+    },
+    {
+      "type": "direct",
+      "tag": "direct"
+    }
+  ],
+  "route": {
+    "final": "socks"
+  }
+}

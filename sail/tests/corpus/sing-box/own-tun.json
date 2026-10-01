@@ -1,0 +1,72 @@
+{
+  "log": {
+    "level": "info"
+  },
+  "dns": {
+    "servers": [
+      {
+        "type": "https",
+        "tag": "remote",
+        "server": "1.1.1.1",
+        "detour": "proxy"
+      },
+      {
+        "type": "local",
+        "tag": "local"
+      }
+    ],
+    "final": "remote"
+  },
+  "inbounds": [
+    {
+      "type": "tun",
+      "tag": "tun",
+      "address": [
+        "172.19.0.1/30",
+        "fdfe:dcba:9876::1/126"
+      ],
+      "mtu": 9000,
+      "auto_route": true,
+      "strict_route": true,
+      "route_exclude_address": [
+        "192.168.0.0/16",
+        "fc00::/7"
+      ]
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "trojan",
+      "tag": "proxy",
+      "server": "s1.example.net",
+      "server_port": 443,
+      "password": "p1",
+      "tls": {
+        "enabled": true,
+        "server_name": "server.example.com"
+      }
+    },
+    {
+      "type": "direct",
+      "tag": "direct"
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "action": "sniff"
+      },
+      {
+        "protocol": "dns",
+        "action": "hijack-dns"
+      },
+      {
+        "ip_is_private": true,
+        "outbound": "direct"
+      }
+    ],
+    "final": "proxy",
+    "auto_detect_interface": true,
+    "default_domain_resolver": "local"
+  }
+}

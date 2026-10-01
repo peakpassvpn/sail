@@ -1,0 +1,12 @@
+mixed-port: 7890
+allow-lan: false
+mode: rule
+log-level: info
+proxies:
+  - { name: vless, type: vless, server: s1.example.net, port: 443, uuid: 1b0e0a3e-1c2d-4e5f-8a9b-0c1d2e3f4a5b, network: tcp, tls: true, udp: true, flow: xtls-rprx-vision, servername: www.example.com, client-fingerprint: chrome, reality-opts: { public-key: ERERERERERERERERERERERERERERERERERERERERERE, short-id: '0123' } }
+proxy-groups:
+  - name: PROXY
+    type: select
+    proxies: [vless, DIRECT]
+rules:
+  - MATCH,PROXY

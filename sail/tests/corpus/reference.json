@@ -727,6 +727,57 @@
     "clash/0200.yaml": {
       "ok": true
     },
+    "clash/own-dns.yaml": {
+      "ok": true
+    },
+    "clash/own-general.yaml": {
+      "ok": true
+    },
+    "clash/own-groups.yaml": {
+      "ok": true
+    },
+    "clash/own-listeners.yaml": {
+      "ok": true
+    },
+    "clash/own-providers.yaml": {
+      "ok": true
+    },
+    "clash/own-proxies-anytls.yaml": {
+      "ok": true
+    },
+    "clash/own-proxies-hysteria2.yaml": {
+      "ok": true
+    },
+    "clash/own-proxies-shadowsocks-shadow-tls.yaml": {
+      "ok": true
+    },
+    "clash/own-proxies-shadowsocks.yaml": {
+      "ok": true
+    },
+    "clash/own-proxies-socks-http.yaml": {
+      "ok": true
+    },
+    "clash/own-proxies-trojan.yaml": {
+      "ok": true
+    },
+    "clash/own-proxies-tuic.yaml": {
+      "ok": true
+    },
+    "clash/own-proxies-vless-grpc.yaml": {
+      "ok": true
+    },
+    "clash/own-proxies-vless-reality.yaml": {
+      "ok": true
+    },
+    "clash/own-proxies-vmess-ws.yaml": {
+      "ok": true
+    },
+    "clash/own-rules.yaml": {
+      "ok": true
+    },
+    "clash/own-tun-sniffer.yaml": {
+      "ok": true
+    },
     "sing-box/0001.json": {
       "errors": [
         "decode config at 0001.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
@@ -1431,6 +1482,78 @@
       "errors": [
         "initialize router: parse rule-set[0]: open ./path-1.srs: no such file or directory"
       ]
+    },
+    "sing-box/own-client-anytls.json": {
+      "ok": true
+    },
+    "sing-box/own-client-groups.json": {
+      "ok": true
+    },
+    "sing-box/own-client-hysteria2.json": {
+      "ok": true
+    },
+    "sing-box/own-client-shadowsocks-multiplex.json": {
+      "ok": true
+    },
+    "sing-box/own-client-shadowsocks.json": {
+      "ok": true
+    },
+    "sing-box/own-client-shadowtls.json": {
+      "ok": true
+    },
+    "sing-box/own-client-socks-http.json": {
+      "ok": true
+    },
+    "sing-box/own-client-trojan-httpupgrade.json": {
+      "ok": true
+    },
+    "sing-box/own-client-tuic.json": {
+      "ok": true
+    },
+    "sing-box/own-client-vless-grpc.json": {
+      "ok": true
+    },
+    "sing-box/own-client-vless-reality.json": {
+      "ok": true
+    },
+    "sing-box/own-client-vmess-ws.json": {
+      "ok": true
+    },
+    "sing-box/own-client-wireguard.json": {
+      "ok": true
+    },
+    "sing-box/own-dns.json": {
+      "ok": true
+    },
+    "sing-box/own-experimental.json": {
+      "ok": true
+    },
+    "sing-box/own-route-actions.json": {
+      "ok": true
+    },
+    "sing-box/own-server-anytls-shadowtls.json": {
+      "ok": true
+    },
+    "sing-box/own-server-local-proxies.json": {
+      "ok": true
+    },
+    "sing-box/own-server-quic.json": {
+      "ok": true
+    },
+    "sing-box/own-server-shadowsocks.json": {
+      "ok": true
+    },
+    "sing-box/own-server-vless-reality.json": {
+      "ok": true
+    },
+    "sing-box/own-server-vmess-vless-trojan.json": {
+      "ok": true
+    },
+    "sing-box/own-tls-ech.json": {
+      "ok": true
+    },
+    "sing-box/own-tun.json": {
+      "ok": true
     }
   }
 }

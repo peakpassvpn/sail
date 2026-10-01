@@ -1,0 +1,13 @@
+mixed-port: 7890
+allow-lan: false
+mode: rule
+log-level: info
+proxies:
+  - { name: trojan, type: trojan, server: s1.example.net, port: 443, password: a synthetic password, udp: true, sni: server.example.com, alpn: [h2, http/1.1], skip-cert-verify: false }
+  - { name: trojan-ws, type: trojan, server: s2.example.net, port: 443, password: a synthetic password, network: ws, sni: server.example.com, ws-opts: { path: /ws } }
+proxy-groups:
+  - name: PROXY
+    type: select
+    proxies: [trojan, trojan-ws, DIRECT]
+rules:
+  - MATCH,PROXY

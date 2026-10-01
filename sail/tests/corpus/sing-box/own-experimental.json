@@ -1,0 +1,45 @@
+{
+  "log": {
+    "level": "info"
+  },
+  "inbounds": [
+    {
+      "type": "mixed",
+      "tag": "mixed-in",
+      "listen": "127.0.0.1",
+      "listen_port": 2080
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "trojan",
+      "tag": "proxy",
+      "server": "s1.example.net",
+      "server_port": 443,
+      "password": "p1",
+      "tls": {
+        "enabled": true,
+        "server_name": "server.example.com"
+      }
+    },
+    {
+      "type": "direct",
+      "tag": "direct"
+    }
+  ],
+  "route": {
+    "final": "proxy"
+  },
+  "experimental": {
+    "cache_file": {
+      "enabled": true,
+      "path": "cache.db",
+      "store_fakeip": true
+    },
+    "clash_api": {
+      "external_controller": "127.0.0.1:9090",
+      "secret": "a synthetic secret",
+      "default_mode": "Rule"
+    }
+  }
+}

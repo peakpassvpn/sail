@@ -1,0 +1,12 @@
+mixed-port: 7890
+allow-lan: false
+mode: rule
+log-level: info
+proxies:
+  - { name: ss-stls, type: ss, server: s1.example.net, port: 443, cipher: 2022-blake3-aes-128-gcm, password: AAECAwQFBgcICQoLDA0ODw==, plugin: shadow-tls, client-fingerprint: chrome, plugin-opts: { host: www.example.com, password: a synthetic password, version: 3 } }
+proxy-groups:
+  - name: PROXY
+    type: select
+    proxies: [ss-stls, DIRECT]
+rules:
+  - MATCH,PROXY

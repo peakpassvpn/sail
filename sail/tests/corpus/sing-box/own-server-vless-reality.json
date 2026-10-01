@@ -1,0 +1,43 @@
+{
+  "log": {
+    "level": "info"
+  },
+  "inbounds": [
+    {
+      "type": "vless",
+      "tag": "reality-in",
+      "listen": "::",
+      "listen_port": 443,
+      "users": [
+        {
+          "name": "alice",
+          "uuid": "1b0e0a3e-1c2d-4e5f-8a9b-0c1d2e3f4a5b",
+          "flow": "xtls-rprx-vision"
+        }
+      ],
+      "tls": {
+        "enabled": true,
+        "server_name": "www.example.com",
+        "reality": {
+          "enabled": true,
+          "handshake": {
+            "server": "www.example.com",
+            "server_port": 443
+          },
+          "private_key": "IiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiI",
+          "short_id": [
+            "0123",
+            "abcd"
+          ],
+          "max_time_difference": "1m"
+        }
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "direct",
+      "tag": "direct"
+    }
+  ]
+}

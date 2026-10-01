@@ -1,0 +1,13 @@
+mixed-port: 7890
+allow-lan: false
+mode: rule
+log-level: info
+proxies:
+  - { name: ss, type: ss, server: s1.example.net, port: 8388, cipher: 2022-blake3-aes-256-gcm, password: AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=, udp: true, udp-over-tcp: true, udp-over-tcp-version: 2 }
+  - { name: ss-aead, type: ss, server: s2.example.net, port: 8388, cipher: chacha20-ietf-poly1305, password: a synthetic password, udp: true }
+proxy-groups:
+  - name: PROXY
+    type: select
+    proxies: [ss, ss-aead, DIRECT]
+rules:
+  - MATCH,PROXY

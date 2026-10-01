@@ -1,0 +1,77 @@
+{
+  "log": {
+    "level": "info"
+  },
+  "inbounds": [
+    {
+      "type": "anytls",
+      "tag": "anytls-in",
+      "listen": "::",
+      "listen_port": 443,
+      "users": [
+        {
+          "name": "alice",
+          "password": "a synthetic password"
+        }
+      ],
+      "tls": {
+        "enabled": true,
+        "server_name": "server.example.com",
+        "certificate": [
+          "-----BEGIN CERTIFICATE-----",
+          "MIIBsDCCAVagAwIBAgIUNOp9Cv5R2DAL2vVbHARZDVvIyM0wCgYIKoZIzj0EAwIw",
+          "HTEbMBkGA1UEAwwSc2VydmVyLmV4YW1wbGUuY29tMCAXDTI2MTAwMTEyMzkyNFoY",
+          "DzIxMjYwOTA3MTIzOTI0WjAdMRswGQYDVQQDDBJzZXJ2ZXIuZXhhbXBsZS5jb20w",
+          "WTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAARs2Moa34H00xgbw7heEtk+oBA0sSnY",
+          "UXqAWZBDZXtFbul5u1wLmlEdSqVXMRYgH3seGcdNjAv4hE85UHKH5AD4o3IwcDAd",
+          "BgNVHQ4EFgQUYRpeQ3jdEB6ukrYRgXhpbOIlf/wwHwYDVR0jBBgwFoAUYRpeQ3jd",
+          "EB6ukrYRgXhpbOIlf/wwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHREEFjAUghJzZXJ2",
+          "ZXIuZXhhbXBsZS5jb20wCgYIKoZIzj0EAwIDSAAwRQIgeQ/o0QJxyG3mmHlOIohx",
+          "J0ntMGPXYMWZ13pWkSzvbccCIQCywngC04QkTERW5aMDvz7q68kouEgVk2o7Ohdl",
+          "iGyV9Q==",
+          "-----END CERTIFICATE-----"
+        ],
+        "key": [
+          "-----BEGIN PRIVATE KEY-----",
+          "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgcyDrWjh95qsxv7VR",
+          "mvt+CUZHMTWN1A3Y0fOTwM2TQJOhRANCAARs2Moa34H00xgbw7heEtk+oBA0sSnY",
+          "UXqAWZBDZXtFbul5u1wLmlEdSqVXMRYgH3seGcdNjAv4hE85UHKH5AD4",
+          "-----END PRIVATE KEY-----"
+        ]
+      }
+    },
+    {
+      "type": "shadowtls",
+      "tag": "shadowtls-in",
+      "listen": "::",
+      "listen_port": 8443,
+      "version": 3,
+      "users": [
+        {
+          "name": "alice",
+          "password": "a synthetic password"
+        }
+      ],
+      "handshake": {
+        "server": "www.example.com",
+        "server_port": 443
+      },
+      "strict_mode": true,
+      "detour": "ss-in"
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "ss-in",
+      "listen": "127.0.0.1",
+      "listen_port": 18388,
+      "method": "2022-blake3-aes-128-gcm",
+      "password": "AAECAwQFBgcICQoLDA0ODw=="
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "direct",
+      "tag": "direct"
+    }
+  ]
+}

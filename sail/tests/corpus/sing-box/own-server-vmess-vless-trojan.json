@@ -1,0 +1,138 @@
+{
+  "log": {
+    "level": "info"
+  },
+  "inbounds": [
+    {
+      "type": "vmess",
+      "tag": "vmess-in",
+      "listen": "::",
+      "listen_port": 8443,
+      "users": [
+        {
+          "name": "alice",
+          "uuid": "1b0e0a3e-1c2d-4e5f-8a9b-0c1d2e3f4a5b",
+          "alterId": 0
+        }
+      ],
+      "tls": {
+        "enabled": true,
+        "server_name": "server.example.com",
+        "certificate": [
+          "-----BEGIN CERTIFICATE-----",
+          "MIIBsDCCAVagAwIBAgIUNOp9Cv5R2DAL2vVbHARZDVvIyM0wCgYIKoZIzj0EAwIw",
+          "HTEbMBkGA1UEAwwSc2VydmVyLmV4YW1wbGUuY29tMCAXDTI2MTAwMTEyMzkyNFoY",
+          "DzIxMjYwOTA3MTIzOTI0WjAdMRswGQYDVQQDDBJzZXJ2ZXIuZXhhbXBsZS5jb20w",
+          "WTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAARs2Moa34H00xgbw7heEtk+oBA0sSnY",
+          "UXqAWZBDZXtFbul5u1wLmlEdSqVXMRYgH3seGcdNjAv4hE85UHKH5AD4o3IwcDAd",
+          "BgNVHQ4EFgQUYRpeQ3jdEB6ukrYRgXhpbOIlf/wwHwYDVR0jBBgwFoAUYRpeQ3jd",
+          "EB6ukrYRgXhpbOIlf/wwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHREEFjAUghJzZXJ2",
+          "ZXIuZXhhbXBsZS5jb20wCgYIKoZIzj0EAwIDSAAwRQIgeQ/o0QJxyG3mmHlOIohx",
+          "J0ntMGPXYMWZ13pWkSzvbccCIQCywngC04QkTERW5aMDvz7q68kouEgVk2o7Ohdl",
+          "iGyV9Q==",
+          "-----END CERTIFICATE-----"
+        ],
+        "key": [
+          "-----BEGIN PRIVATE KEY-----",
+          "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgcyDrWjh95qsxv7VR",
+          "mvt+CUZHMTWN1A3Y0fOTwM2TQJOhRANCAARs2Moa34H00xgbw7heEtk+oBA0sSnY",
+          "UXqAWZBDZXtFbul5u1wLmlEdSqVXMRYgH3seGcdNjAv4hE85UHKH5AD4",
+          "-----END PRIVATE KEY-----"
+        ]
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/ws"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "vless-in",
+      "listen": "::",
+      "listen_port": 8444,
+      "users": [
+        {
+          "name": "alice",
+          "uuid": "2c1f1b4f-2d3e-4f60-9bac-1d2e3f4a5b6c",
+          "flow": ""
+        }
+      ],
+      "tls": {
+        "enabled": true,
+        "server_name": "server.example.com",
+        "certificate": [
+          "-----BEGIN CERTIFICATE-----",
+          "MIIBsDCCAVagAwIBAgIUNOp9Cv5R2DAL2vVbHARZDVvIyM0wCgYIKoZIzj0EAwIw",
+          "HTEbMBkGA1UEAwwSc2VydmVyLmV4YW1wbGUuY29tMCAXDTI2MTAwMTEyMzkyNFoY",
+          "DzIxMjYwOTA3MTIzOTI0WjAdMRswGQYDVQQDDBJzZXJ2ZXIuZXhhbXBsZS5jb20w",
+          "WTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAARs2Moa34H00xgbw7heEtk+oBA0sSnY",
+          "UXqAWZBDZXtFbul5u1wLmlEdSqVXMRYgH3seGcdNjAv4hE85UHKH5AD4o3IwcDAd",
+          "BgNVHQ4EFgQUYRpeQ3jdEB6ukrYRgXhpbOIlf/wwHwYDVR0jBBgwFoAUYRpeQ3jd",
+          "EB6ukrYRgXhpbOIlf/wwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHREEFjAUghJzZXJ2",
+          "ZXIuZXhhbXBsZS5jb20wCgYIKoZIzj0EAwIDSAAwRQIgeQ/o0QJxyG3mmHlOIohx",
+          "J0ntMGPXYMWZ13pWkSzvbccCIQCywngC04QkTERW5aMDvz7q68kouEgVk2o7Ohdl",
+          "iGyV9Q==",
+          "-----END CERTIFICATE-----"
+        ],
+        "key": [
+          "-----BEGIN PRIVATE KEY-----",
+          "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgcyDrWjh95qsxv7VR",
+          "mvt+CUZHMTWN1A3Y0fOTwM2TQJOhRANCAARs2Moa34H00xgbw7heEtk+oBA0sSnY",
+          "UXqAWZBDZXtFbul5u1wLmlEdSqVXMRYgH3seGcdNjAv4hE85UHKH5AD4",
+          "-----END PRIVATE KEY-----"
+        ]
+      },
+      "transport": {
+        "type": "grpc",
+        "service_name": "TunService"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "trojan-in",
+      "listen": "::",
+      "listen_port": 8445,
+      "users": [
+        {
+          "name": "alice",
+          "password": "a synthetic password"
+        }
+      ],
+      "tls": {
+        "enabled": true,
+        "server_name": "server.example.com",
+        "certificate": [
+          "-----BEGIN CERTIFICATE-----",
+          "MIIBsDCCAVagAwIBAgIUNOp9Cv5R2DAL2vVbHARZDVvIyM0wCgYIKoZIzj0EAwIw",
+          "HTEbMBkGA1UEAwwSc2VydmVyLmV4YW1wbGUuY29tMCAXDTI2MTAwMTEyMzkyNFoY",
+          "DzIxMjYwOTA3MTIzOTI0WjAdMRswGQYDVQQDDBJzZXJ2ZXIuZXhhbXBsZS5jb20w",
+          "WTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAARs2Moa34H00xgbw7heEtk+oBA0sSnY",
+          "UXqAWZBDZXtFbul5u1wLmlEdSqVXMRYgH3seGcdNjAv4hE85UHKH5AD4o3IwcDAd",
+          "BgNVHQ4EFgQUYRpeQ3jdEB6ukrYRgXhpbOIlf/wwHwYDVR0jBBgwFoAUYRpeQ3jd",
+          "EB6ukrYRgXhpbOIlf/wwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHREEFjAUghJzZXJ2",
+          "ZXIuZXhhbXBsZS5jb20wCgYIKoZIzj0EAwIDSAAwRQIgeQ/o0QJxyG3mmHlOIohx",
+          "J0ntMGPXYMWZ13pWkSzvbccCIQCywngC04QkTERW5aMDvz7q68kouEgVk2o7Ohdl",
+          "iGyV9Q==",
+          "-----END CERTIFICATE-----"
+        ],
+        "key": [
+          "-----BEGIN PRIVATE KEY-----",
+          "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgcyDrWjh95qsxv7VR",
+          "mvt+CUZHMTWN1A3Y0fOTwM2TQJOhRANCAARs2Moa34H00xgbw7heEtk+oBA0sSnY",
+          "UXqAWZBDZXtFbul5u1wLmlEdSqVXMRYgH3seGcdNjAv4hE85UHKH5AD4",
+          "-----END PRIVATE KEY-----"
+        ]
+      },
+      "fallback": {
+        "server": "127.0.0.1",
+        "server_port": 8080
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "direct",
+      "tag": "direct"
+    }
+  ]
+}

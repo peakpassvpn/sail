@@ -923,6 +923,91 @@
     "ok": true,
     "warnings": 0
   },
+  "clash/own-dns.yaml": {
+    "check": "ok",
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/own-general.yaml": {
+    "check": "ok",
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/own-groups.yaml": {
+    "check": "ok",
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/own-listeners.yaml": {
+    "check": "ok",
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/own-providers.yaml": {
+    "check": "ok",
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/own-proxies-anytls.yaml": {
+    "check": "ok",
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/own-proxies-hysteria2.yaml": {
+    "check": "ok",
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/own-proxies-shadowsocks-shadow-tls.yaml": {
+    "check": "ok",
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/own-proxies-shadowsocks.yaml": {
+    "check": "ok",
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/own-proxies-socks-http.yaml": {
+    "check": "ok",
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/own-proxies-trojan.yaml": {
+    "check": "ok",
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/own-proxies-tuic.yaml": {
+    "check": "ok",
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/own-proxies-vless-grpc.yaml": {
+    "check": "ok",
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/own-proxies-vless-reality.yaml": {
+    "check": "ok",
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/own-proxies-vmess-ws.yaml": {
+    "check": "ok",
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/own-rules.yaml": {
+    "check": "ok",
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/own-tun-sniffer.yaml": {
+    "check": "ok",
+    "ok": true,
+    "warnings": 0
+  },
   "sing-box/0001.json": {
     "error": "dns.servers[0]: missing field `type`"
   },
@@ -1437,6 +1522,126 @@
   "sing-box/0150.json": {
     "error": "[Proxy 1] outbound: tls.reality.public_key: must be 32 bytes"
   },
+  "sing-box/own-client-anytls.json": {
+    "check": "ok",
+    "ok": true,
+    "warnings": 0
+  },
+  "sing-box/own-client-groups.json": {
+    "check": "ok",
+    "ok": true,
+    "warnings": 0
+  },
+  "sing-box/own-client-hysteria2.json": {
+    "check": "ok",
+    "ok": true,
+    "warnings": 0
+  },
+  "sing-box/own-client-shadowsocks-multiplex.json": {
+    "check": "ok",
+    "ok": true,
+    "warnings": 0
+  },
+  "sing-box/own-client-shadowsocks.json": {
+    "check": "ok",
+    "ok": true,
+    "warnings": 0
+  },
+  "sing-box/own-client-shadowtls.json": {
+    "check": "ok",
+    "ok": true,
+    "warnings": 0
+  },
+  "sing-box/own-client-socks-http.json": {
+    "check": "ok",
+    "ok": true,
+    "warnings": 0
+  },
+  "sing-box/own-client-trojan-httpupgrade.json": {
+    "check": "ok",
+    "ok": true,
+    "warnings": 0
+  },
+  "sing-box/own-client-tuic.json": {
+    "check": "ok",
+    "ok": true,
+    "warnings": 0
+  },
+  "sing-box/own-client-vless-grpc.json": {
+    "check": "ok",
+    "ok": true,
+    "warnings": 0
+  },
+  "sing-box/own-client-vless-reality.json": {
+    "check": "ok",
+    "ok": true,
+    "warnings": 0
+  },
+  "sing-box/own-client-vmess-ws.json": {
+    "check": "ok",
+    "ok": true,
+    "warnings": 0
+  },
+  "sing-box/own-client-wireguard.json": {
+    "check": "ok",
+    "ok": true,
+    "warnings": 0
+  },
+  "sing-box/own-dns.json": {
+    "check": "ok",
+    "ok": true,
+    "warnings": 0
+  },
+  "sing-box/own-experimental.json": {
+    "check": "ok",
+    "ok": true,
+    "warnings": 0
+  },
+  "sing-box/own-route-actions.json": {
+    "check": "ok",
+    "ok": true,
+    "warnings": 0
+  },
+  "sing-box/own-server-anytls-shadowtls.json": {
+    "check": "ok",
+    "ok": true,
+    "warnings": 0
+  },
+  "sing-box/own-server-local-proxies.json": {
+    "check": "ok",
+    "ok": true,
+    "warnings": 0
+  },
+  "sing-box/own-server-quic.json": {
+    "check": "ok",
+    "ok": true,
+    "warnings": 0
+  },
+  "sing-box/own-server-shadowsocks.json": {
+    "check": "ok",
+    "ok": true,
+    "warnings": 0
+  },
+  "sing-box/own-server-vless-reality.json": {
+    "check": "ok",
+    "ok": true,
+    "warnings": 0
+  },
+  "sing-box/own-server-vmess-vless-trojan.json": {
+    "check": "ok",
+    "ok": true,
+    "warnings": 0
+  },
+  "sing-box/own-tls-ech.json": {
+    "check": "ok",
+    "ok": true,
+    "warnings": 0
+  },
+  "sing-box/own-tun.json": {
+    "check": "ok",
+    "ok": true,
+    "warnings": 0
+  },
   "surge/0001.conf": {
     "error": "[Rule] line 44: no policy or group is named \"Proxy 1\""
   },
@@ -1838,10 +2043,10 @@
     "error": "[Proxy Group] line 34: Group 1: no policy or group is named \"Proxy 2\""
   },
   "surge/0097.conf": {
-    "error": "[Proxy] line 26: Proxy 5: \"password4\" is not a port"
+    "error": "[Proxy] line 25: Proxy 4: socks5: sail does not implement SOCKS5 over TLS yet"
   },
   "surge/0098.conf": {
-    "error": "[Proxy] line 26: Proxy 6: \"password8\" is not key=value, and the values in places of their own are all given"
+    "error": "[Proxy] line 25: Proxy 5: socks5: sail does not implement SOCKS5 over TLS yet"
   },
   "surge/0099.conf": {
     "check": "outbound_providers[0]: [Group 14]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
@@ -2721,5 +2926,40 @@
   },
   "surge/0300.conf": {
     "error": "[Proxy Group] line 34: Group 10: no policy or group is named \"Proxy 1\""
+  },
+  "surge/own-general.conf": {
+    "check": "ok",
+    "ok": true,
+    "warnings": 0
+  },
+  "surge/own-groups.conf": {
+    "check": "ok",
+    "ok": true,
+    "warnings": 0
+  },
+  "surge/own-host.conf": {
+    "check": "ok",
+    "ok": true,
+    "warnings": 0
+  },
+  "surge/own-hybrid.conf": {
+    "check": "ok",
+    "ok": true,
+    "warnings": 0
+  },
+  "surge/own-proxies.conf": {
+    "check": "ok",
+    "ok": true,
+    "warnings": 0
+  },
+  "surge/own-rules.conf": {
+    "check": "ok",
+    "ok": true,
+    "warnings": 0
+  },
+  "surge/own-wireguard.conf": {
+    "check": "ok",
+    "ok": true,
+    "warnings": 0
   }
 }

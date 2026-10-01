@@ -1,0 +1,32 @@
+mixed-port: 7890
+allow-lan: false
+mode: rule
+log-level: info
+tun:
+  enable: true
+  auto-route: true
+  auto-detect-interface: true
+  dns-hijack:
+    - any:53
+  route-exclude-address:
+    - 192.168.0.0/16
+sniffer:
+  enable: true
+  sniff:
+    HTTP:
+      ports: [80, 8080-8880]
+      override-destination: true
+    TLS:
+      ports: [443, 8443]
+    QUIC:
+      ports: [443]
+  skip-domain:
+    - "+.push.example"
+proxies:
+  - { name: a, type: trojan, server: s1.example.net, port: 443, password: p1, sni: server.example.com }
+proxy-groups:
+  - name: PROXY
+    type: select
+    proxies: [a, DIRECT]
+rules:
+  - MATCH,PROXY

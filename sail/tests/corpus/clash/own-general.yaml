@@ -1,0 +1,24 @@
+mixed-port: 7890
+allow-lan: false
+mode: rule
+log-level: info
+socks-port: 7891
+port: 7892
+bind-address: 127.0.0.1
+ipv6: true
+external-controller: 127.0.0.1:9090
+secret: a synthetic secret
+profile:
+  store-selected: true
+  store-fake-ip: true
+hosts:
+  router.lan: 192.168.1.1
+  "*.dev.example": 127.0.0.1
+proxies:
+  - { name: a, type: trojan, server: s1.example.net, port: 443, password: p1, sni: server.example.com }
+proxy-groups:
+  - name: PROXY
+    type: select
+    proxies: [a, DIRECT]
+rules:
+  - MATCH,PROXY

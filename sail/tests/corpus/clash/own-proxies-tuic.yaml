@@ -1,0 +1,12 @@
+mixed-port: 7890
+allow-lan: false
+mode: rule
+log-level: info
+proxies:
+  - { name: tuic, type: tuic, server: s1.example.net, port: 443, uuid: 1b0e0a3e-1c2d-4e5f-8a9b-0c1d2e3f4a5b, password: a synthetic password, alpn: [h3], congestion-controller: bbr, udp-relay-mode: native, reduce-rtt: false, heartbeat-interval: 10000, sni: server.example.com }
+proxy-groups:
+  - name: PROXY
+    type: select
+    proxies: [tuic, DIRECT]
+rules:
+  - MATCH,PROXY

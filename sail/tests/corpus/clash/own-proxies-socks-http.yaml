@@ -1,0 +1,13 @@
+mixed-port: 7890
+allow-lan: false
+mode: rule
+log-level: info
+proxies:
+  - { name: socks, type: socks5, server: s1.example.net, port: 1080, username: user1, password: a synthetic password, udp: true }
+  - { name: http, type: http, server: s2.example.net, port: 3128, username: user1, password: a synthetic password, tls: true, sni: server.example.com, headers: { X-Example: '1' } }
+proxy-groups:
+  - name: PROXY
+    type: select
+    proxies: [socks, http, DIRECT]
+rules:
+  - MATCH,PROXY

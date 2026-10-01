@@ -1,0 +1,76 @@
+{
+  "log": {
+    "level": "info"
+  },
+  "outbounds": [
+    {
+      "type": "selector",
+      "tag": "proxy",
+      "outbounds": [
+        "auto",
+        "a",
+        "b",
+        "direct"
+      ],
+      "default": "auto",
+      "interrupt_exist_connections": true
+    },
+    {
+      "type": "urltest",
+      "tag": "auto",
+      "outbounds": [
+        "a",
+        "b"
+      ],
+      "url": "https://www.example.com/generate_204",
+      "interval": "3m",
+      "tolerance": 50,
+      "idle_timeout": "30m"
+    },
+    {
+      "type": "trojan",
+      "tag": "a",
+      "server": "s1.example.net",
+      "server_port": 443,
+      "password": "p1",
+      "tls": {
+        "enabled": true,
+        "server_name": "server.example.com"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "b",
+      "server": "s2.example.net",
+      "server_port": 443,
+      "password": "p2",
+      "tls": {
+        "enabled": true,
+        "server_name": "server.example.com"
+      }
+    },
+    {
+      "type": "direct",
+      "tag": "direct"
+    },
+    {
+      "type": "block",
+      "tag": "block"
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "domain_suffix": [
+          "ads.example"
+        ],
+        "outbound": "block"
+      },
+      {
+        "ip_is_private": true,
+        "outbound": "direct"
+      }
+    ],
+    "final": "proxy"
+  }
+}

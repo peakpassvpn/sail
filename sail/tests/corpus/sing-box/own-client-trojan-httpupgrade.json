@@ -1,0 +1,38 @@
+{
+  "log": {
+    "level": "info"
+  },
+  "inbounds": [
+    {
+      "type": "mixed",
+      "tag": "mixed-in",
+      "listen": "127.0.0.1",
+      "listen_port": 2080
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "trojan",
+      "tag": "trojan",
+      "server": "s1.example.net",
+      "server_port": 443,
+      "password": "a synthetic password",
+      "tls": {
+        "enabled": true,
+        "server_name": "server.example.com"
+      },
+      "transport": {
+        "type": "httpupgrade",
+        "host": "server.example.com",
+        "path": "/upgrade"
+      }
+    },
+    {
+      "type": "direct",
+      "tag": "direct"
+    }
+  ],
+  "route": {
+    "final": "trojan"
+  }
+}

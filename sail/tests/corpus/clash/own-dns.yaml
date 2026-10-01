@@ -1,0 +1,32 @@
+mixed-port: 7890
+allow-lan: false
+mode: rule
+log-level: info
+dns:
+  enable: true
+  ipv6: true
+  listen: 127.0.0.1:1053
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  fake-ip-filter:
+    - "*.lan"
+    - "+.local.example"
+  default-nameserver:
+    - 192.0.2.53
+  nameserver:
+    - https://dns.example.com/dns-query
+    - tls://dns.example.com
+  proxy-server-nameserver:
+    - 192.0.2.53
+  nameserver-policy:
+    "+.cn.example": 192.0.2.54
+    "router.lan": system
+  respect-rules: true
+proxies:
+  - { name: a, type: trojan, server: s1.example.net, port: 443, password: p1, sni: server.example.com }
+proxy-groups:
+  - name: PROXY
+    type: select
+    proxies: [a, DIRECT]
+rules:
+  - MATCH,PROXY

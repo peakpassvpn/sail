@@ -1,0 +1,41 @@
+mixed-port: 7890
+allow-lan: false
+mode: rule
+log-level: info
+proxy-providers:
+  subscription:
+    type: http
+    url: https://provider.example.com/sub.yaml
+    interval: 43200
+    path: ./providers/subscription.yaml
+    filter: "(?i)hong kong|singapore"
+    exclude-filter: "(?i)expire"
+rule-providers:
+  ads:
+    type: http
+    behavior: domain
+    format: yaml
+    url: https://rules.example.com/ads.yaml
+    path: ./rules/ads.yaml
+    interval: 86400
+  private:
+    type: http
+    behavior: ipcidr
+    format: text
+    url: https://rules.example.com/private.txt
+    path: ./rules/private.txt
+    interval: 86400
+proxy-groups:
+  - name: PROXY
+    type: select
+    use: [subscription]
+    proxies: [DIRECT]
+  - name: fastest
+    type: url-test
+    use: [subscription]
+    url: https://www.example.com/generate_204
+    interval: 300
+rules:
+  - RULE-SET,ads,REJECT
+  - RULE-SET,private,DIRECT,no-resolve
+  - MATCH,PROXY

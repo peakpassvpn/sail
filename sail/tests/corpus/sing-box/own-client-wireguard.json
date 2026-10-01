@@ -1,0 +1,39 @@
+{
+  "log": {
+    "level": "info"
+  },
+  "endpoints": [
+    {
+      "type": "wireguard",
+      "tag": "wg",
+      "system": false,
+      "mtu": 1408,
+      "address": [
+        "10.0.0.2/32",
+        "fd00::2/128"
+      ],
+      "private_key": "yAnz5TF+lXXJte14tji3zlMNq+hd2rYUIgJBgB3fBmk=",
+      "peers": [
+        {
+          "address": "s1.example.net",
+          "port": 51820,
+          "public_key": "xTIBA5rboUvnH4htodjb6e697QjLERt1NAB4mZqp8Dg=",
+          "allowed_ips": [
+            "0.0.0.0/0",
+            "::/0"
+          ],
+          "persistent_keepalive_interval": 25
+        }
+      ]
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "direct",
+      "tag": "direct"
+    }
+  ],
+  "route": {
+    "final": "wg"
+  }
+}

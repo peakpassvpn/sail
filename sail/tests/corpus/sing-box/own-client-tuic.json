@@ -1,0 +1,41 @@
+{
+  "log": {
+    "level": "info"
+  },
+  "inbounds": [
+    {
+      "type": "mixed",
+      "tag": "mixed-in",
+      "listen": "127.0.0.1",
+      "listen_port": 2080
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "tuic",
+      "tag": "tuic",
+      "server": "s1.example.net",
+      "server_port": 443,
+      "uuid": "1b0e0a3e-1c2d-4e5f-8a9b-0c1d2e3f4a5b",
+      "password": "a synthetic password",
+      "congestion_control": "bbr",
+      "udp_relay_mode": "native",
+      "zero_rtt_handshake": false,
+      "heartbeat": "10s",
+      "tls": {
+        "enabled": true,
+        "server_name": "server.example.com",
+        "alpn": [
+          "h3"
+        ]
+      }
+    },
+    {
+      "type": "direct",
+      "tag": "direct"
+    }
+  ],
+  "route": {
+    "final": "tuic"
+  }
+}

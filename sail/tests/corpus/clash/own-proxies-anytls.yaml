@@ -1,0 +1,12 @@
+mixed-port: 7890
+allow-lan: false
+mode: rule
+log-level: info
+proxies:
+  - { name: anytls, type: anytls, server: s1.example.net, port: 443, password: a synthetic password, client-fingerprint: chrome, udp: true, idle-session-check-interval: 30, idle-session-timeout: 30, min-idle-session: 0, sni: server.example.com }
+proxy-groups:
+  - name: PROXY
+    type: select
+    proxies: [anytls, DIRECT]
+rules:
+  - MATCH,PROXY

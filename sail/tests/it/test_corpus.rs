@@ -241,3 +241,60 @@ fn a_file_and_its_text_read_alike() {
     }
     assert!(differ.is_empty(), "{}", differ.join("\n"));
 }
+
+/// The corpus's own examples (`own-*`), written here for the features the
+/// upstream documentation shows: each is taken whole, read without a
+/// warning and built, as its upstream takes it (reference.json).
+#[cfg(all(
+    feature = "config-surge",
+    feature = "all-endpoints",
+    feature = "rule-set",
+    feature = "outbound-provider"
+))]
+#[test]
+fn own_examples_are_taken_whole() {
+    use std::path::Path;
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/corpus");
+    let mut problems = Vec::new();
+    let mut seen = 0;
+    for dir in ["sing-box", "clash", "surge"] {
+        for entry in std::fs::read_dir(root.join(dir)).unwrap() {
+            let path = entry.unwrap().path();
+            let name = path.file_name().unwrap().to_string_lossy().to_string();
+            if !name.starts_with("own-") {
+                continue;
+            }
+            seen += 1;
+            let data_dir = std::env::temp_dir()
+                .join("sail-corpus-own")
+                .join(std::process::id().to_string())
+                .join(&name);
+            let env = sail::runtime::RuntimeEnv {
+                host: sail::runtime::Host {
+                    data_dir: Some(data_dir),
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+            match sail::config::from_file_for(path.to_str().unwrap(), &env.host) {
+                Err(e) => problems.push(format!("{}/{}: {:#}", dir, name, e)),
+                Ok(config) if !config.warnings.is_empty() => {
+                    problems.push(format!("{}/{}: {}", dir, name, config.warnings.join("; ")))
+                }
+                Ok(config) => {
+                    if let Err(e) = sail::check_config(&config, &env) {
+                        problems.push(format!("{}/{}: {:#}", dir, name, e));
+                    }
+                }
+            }
+        }
+    }
+    let _ = std::fs::remove_dir_all(
+        std::env::temp_dir()
+            .join("sail-corpus-own")
+            .join(std::process::id().to_string()),
+    );
+    assert!(seen > 0, "no own example");
+    assert!(problems.is_empty(), "{}", problems.join("\n"));
+}

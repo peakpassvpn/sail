@@ -1,0 +1,32 @@
+mixed-port: 7890
+allow-lan: false
+mode: rule
+log-level: info
+proxies:
+  - { name: a, type: trojan, server: s1.example.net, port: 443, password: p1, sni: server.example.com }
+  - { name: b, type: trojan, server: s2.example.net, port: 443, password: p2, sni: server.example.com }
+  - { name: c, type: trojan, server: s3.example.net, port: 443, password: p3, sni: server.example.com }
+proxy-groups:
+  - name: PROXY
+    type: select
+    proxies: [auto, fallback, balance, a, b, c, DIRECT]
+  - name: auto
+    type: url-test
+    proxies: [a, b, c]
+    url: https://www.example.com/generate_204
+    interval: 300
+    tolerance: 50
+  - name: fallback
+    type: fallback
+    proxies: [a, b]
+    url: https://www.example.com/generate_204
+    interval: 300
+  - name: balance
+    type: load-balance
+    proxies: [a, b, c]
+    url: https://www.example.com/generate_204
+    interval: 300
+    strategy: consistent-hashing
+rules:
+  - DOMAIN-SUFFIX,video.example,balance
+  - MATCH,PROXY

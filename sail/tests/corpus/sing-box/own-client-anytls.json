@@ -1,0 +1,36 @@
+{
+  "log": {
+    "level": "info"
+  },
+  "inbounds": [
+    {
+      "type": "mixed",
+      "tag": "mixed-in",
+      "listen": "127.0.0.1",
+      "listen_port": 2080
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "anytls",
+      "tag": "anytls",
+      "server": "s1.example.net",
+      "server_port": 443,
+      "password": "a synthetic password",
+      "idle_session_check_interval": "30s",
+      "idle_session_timeout": "30s",
+      "min_idle_session": 1,
+      "tls": {
+        "enabled": true,
+        "server_name": "server.example.com"
+      }
+    },
+    {
+      "type": "direct",
+      "tag": "direct"
+    }
+  ],
+  "route": {
+    "final": "anytls"
+  }
+}

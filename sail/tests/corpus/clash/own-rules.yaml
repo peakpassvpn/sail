@@ -1,0 +1,30 @@
+mixed-port: 7890
+allow-lan: false
+mode: rule
+log-level: info
+sub-rules:
+  sub:
+    - DOMAIN-SUFFIX,sub.example,DIRECT
+    - MATCH,PROXY
+proxies:
+  - { name: a, type: trojan, server: s1.example.net, port: 443, password: p1, sni: server.example.com }
+proxy-groups:
+  - name: PROXY
+    type: select
+    proxies: [a, DIRECT]
+rules:
+  - DOMAIN,exact.example,DIRECT
+  - DOMAIN-SUFFIX,suffix.example,PROXY
+  - DOMAIN-KEYWORD,keyword,PROXY
+  - DOMAIN-REGEX,^api\.regex\.example$,PROXY
+  - IP-CIDR,192.0.2.0/24,DIRECT,no-resolve
+  - IP-CIDR6,2001:db8::/32,DIRECT,no-resolve
+  - SRC-IP-CIDR,198.51.100.0/24,DIRECT
+  - DST-PORT,22,DIRECT
+  - SRC-PORT,10000-20000,PROXY
+  - NETWORK,udp,PROXY
+  - AND,((NETWORK,udp),(DST-PORT,443)),REJECT
+  - OR,((DOMAIN-SUFFIX,a.example),(DOMAIN-SUFFIX,b.example)),PROXY
+  - NOT,((DOMAIN-SUFFIX,c.example)),PROXY
+  - SUB-RULE,(NETWORK,tcp),sub
+  - MATCH,PROXY

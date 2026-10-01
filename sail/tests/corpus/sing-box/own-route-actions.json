@@ -1,0 +1,139 @@
+{
+  "log": {
+    "level": "info"
+  },
+  "dns": {
+    "servers": [
+      {
+        "type": "local",
+        "tag": "local"
+      }
+    ]
+  },
+  "inbounds": [
+    {
+      "type": "mixed",
+      "tag": "mixed-in",
+      "listen": "127.0.0.1",
+      "listen_port": 2080
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "trojan",
+      "tag": "proxy",
+      "server": "s1.example.net",
+      "server_port": 443,
+      "password": "p1",
+      "tls": {
+        "enabled": true,
+        "server_name": "server.example.com"
+      }
+    },
+    {
+      "type": "direct",
+      "tag": "direct"
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "inbound": "mixed-in",
+        "action": "sniff",
+        "timeout": "300ms"
+      },
+      {
+        "protocol": "dns",
+        "action": "hijack-dns"
+      },
+      {
+        "domain_suffix": [
+          "blocked.example"
+        ],
+        "action": "reject",
+        "method": "default"
+      },
+      {
+        "domain_suffix": [
+          "resolved.example"
+        ],
+        "action": "resolve",
+        "strategy": "prefer_ipv4"
+      },
+      {
+        "type": "logical",
+        "mode": "and",
+        "rules": [
+          {
+            "network": "udp"
+          },
+          {
+            "port": [
+              443
+            ]
+          }
+        ],
+        "action": "reject"
+      },
+      {
+        "domain_keyword": [
+          "video"
+        ],
+        "action": "route-options",
+        "udp_timeout": "1m"
+      },
+      {
+        "rule_set": [
+          "local-set"
+        ],
+        "outbound": "direct"
+      },
+      {
+        "domain_regex": [
+          "^api\\.example\\.(com|net)$"
+        ],
+        "action": "route",
+        "outbound": "proxy"
+      },
+      {
+        "ip_cidr": [
+          "192.0.2.0/24"
+        ],
+        "invert": true,
+        "source_port_range": [
+          "10000:20000"
+        ],
+        "outbound": "proxy"
+      }
+    ],
+    "rule_set": [
+      {
+        "type": "inline",
+        "tag": "local-set",
+        "rules": [
+          {
+            "domain_suffix": [
+              "lan.example"
+            ]
+          },
+          {
+            "ip_cidr": [
+              "198.51.100.0/24"
+            ]
+          }
+        ]
+      },
+      {
+        "type": "remote",
+        "tag": "remote-set",
+        "format": "binary",
+        "url": "https://rules.example.com/set.srs",
+        "download_detour": "direct",
+        "update_interval": "1d"
+      }
+    ],
+    "final": "proxy",
+    "auto_detect_interface": true,
+    "default_domain_resolver": "local"
+  }
+}

@@ -1,0 +1,37 @@
+mixed-port: 7890
+allow-lan: false
+mode: rule
+log-level: info
+listeners:
+  - name: mixed-in
+    type: mixed
+    port: 17890
+    listen: 127.0.0.1
+    udp: true
+  - name: socks-in
+    type: socks
+    port: 17891
+    listen: 127.0.0.1
+    udp: true
+    users:
+      - username: user1
+        password: a synthetic password
+  - name: http-in
+    type: http
+    port: 17892
+    listen: 127.0.0.1
+  - name: ss-in
+    type: shadowsocks
+    port: 17893
+    listen: 127.0.0.1
+    udp: true
+    cipher: 2022-blake3-aes-128-gcm
+    password: AAECAwQFBgcICQoLDA0ODw==
+proxies:
+  - { name: a, type: trojan, server: s1.example.net, port: 443, password: p1, sni: server.example.com }
+proxy-groups:
+  - name: PROXY
+    type: select
+    proxies: [a, DIRECT]
+rules:
+  - MATCH,PROXY
