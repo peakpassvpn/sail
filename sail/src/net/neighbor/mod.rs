@@ -178,7 +178,8 @@ impl NeighborResolver {
     /// The device at `ip`, when anything is known of it.
     pub fn neighbor(&self, ip: IpAddr) -> Option<Neighbor> {
         let mac = self.lookup_mac(ip);
-        let hostname = self.lookup_hostname(ip);
+        // An empty name is none, as sing-box's source_hostname takes it.
+        let hostname = self.lookup_hostname(ip).filter(|h| !h.is_empty());
         (mac.is_some() || hostname.is_some()).then_some(Neighbor { mac, hostname })
     }
 

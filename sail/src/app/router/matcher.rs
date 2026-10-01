@@ -1481,11 +1481,12 @@ impl Matcher {
     }
 }
 
-/// A record type as sing-box writes one: its name, or its number.
 /// `mac` as sing-box compares it: Go's net.ParseMAC then String(), lower
 /// case and colon-separated, for the forms `01:23:45:67:89:ab`,
 /// `01-23-45-67-89-ab` and `0123.4567.89ab`; kept as written otherwise, as
-/// sing-box keeps it, matching nothing.
+/// sing-box keeps it, matching nothing. Unlike Go, the 8-byte (EUI-64) and
+/// 20-byte (IPoIB) forms are kept as written too: a LAN device's MAC here
+/// has 6 bytes.
 fn normalized_mac(mac: &str) -> String {
     let hex = |s: &str| u8::from_str_radix(s, 16).ok().filter(|_| s.len() == 2);
     let groups: Option<Vec<u8>> = if mac.contains(':') || mac.contains('-') {
@@ -1510,6 +1511,7 @@ fn normalized_mac(mac: &str) -> String {
     }
 }
 
+/// A record type as sing-box writes one: its name, or its number.
 pub(crate) fn query_type(value: &serde_json::Value) -> Result<u16> {
     use std::str::FromStr;
     match value {
