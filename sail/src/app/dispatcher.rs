@@ -778,8 +778,6 @@ impl Dispatcher {
         self.router.load_full().pre_match(sess, &*outbounds).await
     }
 
-    /// Where `sess` goes, as the rules decide; an error when a rule rejects
-    /// it.
     /// The LAN device the session comes from, when the instance looks
     /// devices up, as sing-box's prepareMatchMetadata finds it.
     fn find_neighbor(&self, sess: &mut Session) {
@@ -788,6 +786,8 @@ impl Dispatcher {
         }
     }
 
+    /// Where `sess` goes, as the rules decide; an error when a rule rejects
+    /// it.
     async fn route(&self, sess: &mut Session, sniffer: &mut dyn Sniffer) -> io::Result<Routed> {
         self.find_neighbor(sess);
         let outbounds = self.outbound_manager.load_full();
