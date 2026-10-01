@@ -229,6 +229,26 @@ public final class Sail {
         try decode(Outbounds.self, json { sail_groups(handle, $0, $1) }).outbounds
     }
 
+    /// The outbound providers, in the configuration's order.
+    public func providers() throws -> [Provider] {
+        try decode(Providers.self, json { sail_providers(handle, $0, $1) }).providers
+    }
+
+    /// Updates the provider `tag` now, and waits until its members are in
+    /// place.
+    public func updateProvider(_ tag: String) throws {
+        try check { sail_update_provider(handle, tag, $0) }
+    }
+
+    public func ruleSets() throws -> [RuleSet] {
+        try decode(RuleSets.self, json { sail_rule_sets(handle, $0, $1) }).ruleSets
+    }
+
+    /// Updates the remote rule-set `tag` now, and waits.
+    public func updateRuleSet(_ tag: String) throws {
+        try check { sail_update_rule_set(handle, tag, $0) }
+    }
+
     // MARK: What it is told
 
     public func select(group: String, member: String) throws {

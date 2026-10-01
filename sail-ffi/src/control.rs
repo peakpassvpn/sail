@@ -219,6 +219,122 @@ pub unsafe extern "C" fn sail_select(
     })
 }
 
+/// The outbound providers, as JSON: `{"providers": [{"tag", "source":
+/// "remote" | "local" | "inline", "members", "updated_ms",
+/// "next_update_ms" (null when it is not updated by itself), "failure":
+/// {"at_ms", "error"} (the last update's, null after a success),
+/// "subscription": {"upload", "download", "total", "expire_ms"} (what the
+/// server says of it, or null)}]}`, in the configuration's order. No URL:
+/// a subscription's carries its token. Their members are among
+/// `sail_outbounds`, with their `provider`.
+#[no_mangle]
+pub unsafe extern "C" fn sail_providers(
+    instance: SailInstance,
+    out: *mut *mut c_char,
+    err: *mut *mut c_char,
+) -> i32 {
+    call(err, || {
+        let providers = match target(instance)? {
+            Target::Local(i) => i
+                .run(|m| Box::pin(async move { m.providers().await }))?
+                .iter()
+                .map(json::Provider::of)
+                .collect(),
+            #[cfg(feature = "command-server")]
+            Target::Remote(c) => c
+                .unary(|mut s| async move { s.get_providers(proto::Empty {}).await })?
+                .providers
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+        };
+        out_json(out, &json::Providers { providers })
+    })
+}
+
+/// Downloads the outbound provider `tag` again, or reads its file again,
+/// and waits until its members are in place.
+///
+/// @return SAIL_ERR_NOT_FOUND with no such provider; SAIL_ERR_IO when the
+///     update failed, which `sail_providers` then tells too;
+///     SAIL_ERR_STATE when the instance is stopping.
+#[no_mangle]
+pub unsafe extern "C" fn sail_update_provider(
+    instance: SailInstance,
+    tag: *const c_char,
+    err: *mut *mut c_char,
+) -> i32 {
+    call(err, || {
+        let tag = unsafe { str_arg(tag, "tag") }?.to_string();
+        match target(instance)? {
+            Target::Local(i) => i
+                .run(move |m| Box::pin(async move { m.update_provider(&tag).await }))?
+                .map_err(Failure::from),
+            #[cfg(feature = "command-server")]
+            Target::Remote(c) => c
+                .unary(
+                    move |mut s| async move { s.update_provider(proto::TagRequest { tag }).await },
+                )
+                .map(|_| ()),
+        }
+    })
+}
+
+/// The rule-sets, as JSON: `{"rule_sets": [{"tag", "source": "remote" |
+/// "local" | "inline", "format", "behavior", "rules", "updated_ms",
+/// "next_update_ms", "failure": {"at_ms", "error"}}]}`, by tag.
+#[no_mangle]
+pub unsafe extern "C" fn sail_rule_sets(
+    instance: SailInstance,
+    out: *mut *mut c_char,
+    err: *mut *mut c_char,
+) -> i32 {
+    call(err, || {
+        let rule_sets = match target(instance)? {
+            Target::Local(i) => i
+                .run(|m| Box::pin(async move { m.rule_sets().await }))?
+                .iter()
+                .map(json::RuleSet::of)
+                .collect(),
+            #[cfg(feature = "command-server")]
+            Target::Remote(c) => c
+                .unary(|mut s| async move { s.get_rule_sets(proto::Empty {}).await })?
+                .rule_sets
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+        };
+        out_json(out, &json::RuleSets { rule_sets })
+    })
+}
+
+/// Downloads the remote rule-set `tag` again and waits until its rules are
+/// in place; a local or inline one is as it is.
+///
+/// @return SAIL_ERR_NOT_FOUND with no such rule-set; SAIL_ERR_IO when the
+///     update failed; SAIL_ERR_STATE when the instance is stopping.
+#[no_mangle]
+pub unsafe extern "C" fn sail_update_rule_set(
+    instance: SailInstance,
+    tag: *const c_char,
+    err: *mut *mut c_char,
+) -> i32 {
+    call(err, || {
+        let tag = unsafe { str_arg(tag, "tag") }?.to_string();
+        match target(instance)? {
+            Target::Local(i) => i
+                .run(move |m| Box::pin(async move { m.update_rule_set(&tag).await }))?
+                .map_err(Failure::from),
+            #[cfg(feature = "command-server")]
+            Target::Remote(c) => c
+                .unary(
+                    move |mut s| async move { s.update_rule_set(proto::TagRequest { tag }).await },
+                )
+                .map(|_| ()),
+        }
+    })
+}
+
 fn timeout(timeout_ms: u32) -> Result<Duration, Failure> {
     match timeout_ms {
         0 => Err(Failure::invalid("the timeout is 0")),

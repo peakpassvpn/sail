@@ -273,6 +273,79 @@ pub struct DelayReply {
     pub delay_ms: u64,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct TagRequest {
+    #[prost(string, tag = "1")]
+    pub tag: ::prost::alloc::string::String,
+}
+/// The last update's failure.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct UpdateFailure {
+    #[prost(uint64, tag = "1")]
+    pub at_ms: u64,
+    #[prost(string, tag = "2")]
+    pub error: ::prost::alloc::string::String,
+}
+/// What a subscription's server says of it (subscription-userinfo).
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct Subscription {
+    #[prost(uint64, tag = "1")]
+    pub upload: u64,
+    #[prost(uint64, tag = "2")]
+    pub download: u64,
+    #[prost(uint64, tag = "3")]
+    pub total: u64,
+    #[prost(uint64, optional, tag = "4")]
+    pub expire_ms: ::core::option::Option<u64>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct Provider {
+    #[prost(string, tag = "1")]
+    pub tag: ::prost::alloc::string::String,
+    /// remote, local or inline.
+    #[prost(string, tag = "2")]
+    pub source: ::prost::alloc::string::String,
+    #[prost(uint64, tag = "3")]
+    pub members: u64,
+    #[prost(uint64, optional, tag = "4")]
+    pub updated_ms: ::core::option::Option<u64>,
+    #[prost(uint64, optional, tag = "5")]
+    pub next_update_ms: ::core::option::Option<u64>,
+    #[prost(message, optional, tag = "6")]
+    pub failure: ::core::option::Option<UpdateFailure>,
+    #[prost(message, optional, tag = "7")]
+    pub subscription: ::core::option::Option<Subscription>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct Providers {
+    #[prost(message, repeated, tag = "1")]
+    pub providers: ::prost::alloc::vec::Vec<Provider>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct RuleSet {
+    #[prost(string, tag = "1")]
+    pub tag: ::prost::alloc::string::String,
+    /// remote, local or inline.
+    #[prost(string, tag = "2")]
+    pub source: ::prost::alloc::string::String,
+    #[prost(string, optional, tag = "3")]
+    pub format: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(string, optional, tag = "4")]
+    pub behavior: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(uint64, tag = "5")]
+    pub rules: u64,
+    #[prost(uint64, optional, tag = "6")]
+    pub updated_ms: ::core::option::Option<u64>,
+    #[prost(uint64, optional, tag = "7")]
+    pub next_update_ms: ::core::option::Option<u64>,
+    #[prost(message, optional, tag = "8")]
+    pub failure: ::core::option::Option<UpdateFailure>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RuleSets {
+    #[prost(message, repeated, tag = "1")]
+    pub rule_sets: ::prost::alloc::vec::Vec<RuleSet>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ClashModeStatus {
     #[prost(string, repeated, tag = "1")]
     pub modes: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
@@ -655,6 +728,67 @@ pub mod started_client {
                 .insert(GrpcMethod::new("sail.command.v1.Started", "Delay"));
             self.inner.unary(req, path, codec).await
         }
+        /// The outbound providers and the rule-sets, and an update of one by hand,
+        /// which waits for it (sail's, as Mihomo's API has them).
+        pub async fn get_providers(
+            &mut self,
+            request: impl tonic::IntoRequest<super::Empty>,
+        ) -> std::result::Result<tonic::Response<super::Providers>, tonic::Status> {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
+            })?;
+            let codec = tonic_prost::ProstCodec::default();
+            let path =
+                http::uri::PathAndQuery::from_static("/sail.command.v1.Started/GetProviders");
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("sail.command.v1.Started", "GetProviders"));
+            self.inner.unary(req, path, codec).await
+        }
+        pub async fn update_provider(
+            &mut self,
+            request: impl tonic::IntoRequest<super::TagRequest>,
+        ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status> {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
+            })?;
+            let codec = tonic_prost::ProstCodec::default();
+            let path =
+                http::uri::PathAndQuery::from_static("/sail.command.v1.Started/UpdateProvider");
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("sail.command.v1.Started", "UpdateProvider"));
+            self.inner.unary(req, path, codec).await
+        }
+        pub async fn get_rule_sets(
+            &mut self,
+            request: impl tonic::IntoRequest<super::Empty>,
+        ) -> std::result::Result<tonic::Response<super::RuleSets>, tonic::Status> {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
+            })?;
+            let codec = tonic_prost::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static("/sail.command.v1.Started/GetRuleSets");
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("sail.command.v1.Started", "GetRuleSets"));
+            self.inner.unary(req, path, codec).await
+        }
+        pub async fn update_rule_set(
+            &mut self,
+            request: impl tonic::IntoRequest<super::TagRequest>,
+        ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status> {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
+            })?;
+            let codec = tonic_prost::ProstCodec::default();
+            let path =
+                http::uri::PathAndQuery::from_static("/sail.command.v1.Started/UpdateRuleSet");
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("sail.command.v1.Started", "UpdateRuleSet"));
+            self.inner.unary(req, path, codec).await
+        }
         pub async fn get_clash_mode_status(
             &mut self,
             request: impl tonic::IntoRequest<super::Empty>,
@@ -839,6 +973,24 @@ pub mod started_server {
             &self,
             request: tonic::Request<super::UrlTestRequest>,
         ) -> std::result::Result<tonic::Response<super::DelayReply>, tonic::Status>;
+        /// The outbound providers and the rule-sets, and an update of one by hand,
+        /// which waits for it (sail's, as Mihomo's API has them).
+        async fn get_providers(
+            &self,
+            request: tonic::Request<super::Empty>,
+        ) -> std::result::Result<tonic::Response<super::Providers>, tonic::Status>;
+        async fn update_provider(
+            &self,
+            request: tonic::Request<super::TagRequest>,
+        ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status>;
+        async fn get_rule_sets(
+            &self,
+            request: tonic::Request<super::Empty>,
+        ) -> std::result::Result<tonic::Response<super::RuleSets>, tonic::Status>;
+        async fn update_rule_set(
+            &self,
+            request: tonic::Request<super::TagRequest>,
+        ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status>;
         async fn get_clash_mode_status(
             &self,
             request: tonic::Request<super::Empty>,
@@ -1542,6 +1694,154 @@ pub mod started_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = DelaySvc(inner);
+                        let codec = tonic_prost::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/sail.command.v1.Started/GetProviders" => {
+                    #[allow(non_camel_case_types)]
+                    struct GetProvidersSvc<T: Started>(pub Arc<T>);
+                    impl<T: Started> tonic::server::UnaryService<super::Empty> for GetProvidersSvc<T> {
+                        type Response = super::Providers;
+                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        fn call(&mut self, request: tonic::Request<super::Empty>) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut =
+                                async move { <T as Started>::get_providers(&inner, request).await };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = GetProvidersSvc(inner);
+                        let codec = tonic_prost::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/sail.command.v1.Started/UpdateProvider" => {
+                    #[allow(non_camel_case_types)]
+                    struct UpdateProviderSvc<T: Started>(pub Arc<T>);
+                    impl<T: Started> tonic::server::UnaryService<super::TagRequest> for UpdateProviderSvc<T> {
+                        type Response = super::Empty;
+                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::TagRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as Started>::update_provider(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = UpdateProviderSvc(inner);
+                        let codec = tonic_prost::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/sail.command.v1.Started/GetRuleSets" => {
+                    #[allow(non_camel_case_types)]
+                    struct GetRuleSetsSvc<T: Started>(pub Arc<T>);
+                    impl<T: Started> tonic::server::UnaryService<super::Empty> for GetRuleSetsSvc<T> {
+                        type Response = super::RuleSets;
+                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        fn call(&mut self, request: tonic::Request<super::Empty>) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut =
+                                async move { <T as Started>::get_rule_sets(&inner, request).await };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = GetRuleSetsSvc(inner);
+                        let codec = tonic_prost::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/sail.command.v1.Started/UpdateRuleSet" => {
+                    #[allow(non_camel_case_types)]
+                    struct UpdateRuleSetSvc<T: Started>(pub Arc<T>);
+                    impl<T: Started> tonic::server::UnaryService<super::TagRequest> for UpdateRuleSetSvc<T> {
+                        type Response = super::Empty;
+                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::TagRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as Started>::update_rule_set(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = UpdateRuleSetSvc(inner);
                         let codec = tonic_prost::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

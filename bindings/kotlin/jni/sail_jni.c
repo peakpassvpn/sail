@@ -262,6 +262,8 @@ STRING_CALL(instanceReload, sail_instance_reload)
 STRING_CALL(instanceServe, sail_instance_serve)
 STRING_CALL(setMode, sail_set_mode)
 STRING_CALL(setNetworkState, sail_set_network_state)
+STRING_CALL(updateProvider, sail_update_provider)
+STRING_CALL(updateRuleSet, sail_update_rule_set)
 
 /* A call answering JSON. */
 #define JSON_CALL(name, function)                                             \
@@ -280,6 +282,8 @@ JSON_CALL(connections, sail_connections)
 JSON_CALL(outbounds, sail_outbounds)
 JSON_CALL(groups, sail_groups)
 JSON_CALL(mode, sail_mode)
+JSON_CALL(providers, sail_providers)
+JSON_CALL(ruleSets, sail_rule_sets)
 
 JNIEXPORT jstring JNICALL NATIVE(capabilities)(JNIEnv *env, jclass cls) {
     (void)cls;

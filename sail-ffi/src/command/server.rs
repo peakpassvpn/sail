@@ -401,6 +401,58 @@ impl Started for StartedService {
         ok(proto::Empty {})
     }
 
+    async fn get_providers(
+        &self,
+        _: Request<proto::Empty>,
+    ) -> Result<Response<proto::Providers>, Status> {
+        let list = self
+            .on_instance(|m| Box::pin(async move { m.providers().await }))
+            .await?;
+        ok(proto::Providers {
+            providers: list
+                .iter()
+                .map(|p| (&json::Provider::of(p)).into())
+                .collect(),
+        })
+    }
+
+    async fn update_provider(
+        &self,
+        request: Request<proto::TagRequest>,
+    ) -> Result<Response<proto::Empty>, Status> {
+        let tag = request.into_inner().tag;
+        self.on_instance(move |m| Box::pin(async move { m.update_provider(&tag).await }))
+            .await?
+            .map_err(|e| status_of(e.into()))?;
+        ok(proto::Empty {})
+    }
+
+    async fn get_rule_sets(
+        &self,
+        _: Request<proto::Empty>,
+    ) -> Result<Response<proto::RuleSets>, Status> {
+        let list = self
+            .on_instance(|m| Box::pin(async move { m.rule_sets().await }))
+            .await?;
+        ok(proto::RuleSets {
+            rule_sets: list
+                .iter()
+                .map(|r| (&json::RuleSet::of(r)).into())
+                .collect(),
+        })
+    }
+
+    async fn update_rule_set(
+        &self,
+        request: Request<proto::TagRequest>,
+    ) -> Result<Response<proto::Empty>, Status> {
+        let tag = request.into_inner().tag;
+        self.on_instance(move |m| Box::pin(async move { m.update_rule_set(&tag).await }))
+            .await?
+            .map_err(|e| status_of(e.into()))?;
+        ok(proto::Empty {})
+    }
+
     async fn url_test(
         &self,
         request: Request<proto::UrlTestRequest>,

@@ -140,8 +140,8 @@ final class Tracked: @unchecked Sendable {
 final class SailTests: XCTestCase {
     func testCapabilities() throws {
         let capabilities = try Sail.capabilities()
-        XCTAssertEqual(capabilities.apiVersion, 2)
-        XCTAssertEqual(capabilities.jsonVersion, 2)
+        XCTAssertEqual(capabilities.apiVersion, 3)
+        XCTAssertEqual(capabilities.jsonVersion, 3)
         XCTAssertTrue(capabilities.features.contains("inbound-socks"))
     }
 
@@ -258,6 +258,33 @@ final class SailTests: XCTestCase {
         asked.lock()
         XCTAssertEqual(queries.first?.network, "tcp")
         asked.unlock()
+        try sail.stop()
+    }
+
+    func testProvidersAndRuleSetsAreToldAndUpdated() throws {
+        let sail = try Sail()
+        try sail.start(config: """
+        {
+          "inbounds": [{ "type": "socks", "listen": "127.0.0.1", "listen_port": \(freePort()) }],
+          "outbounds": [{ "type": "selector", "tag": "g", "providers": "p" }, { "type": "direct", "tag": "direct" }],
+          "outbound_providers": [{ "type": "inline", "tag": "p",
+            "outbounds": [{ "type": "direct", "tag": "m1" }, { "type": "direct", "tag": "m2" }] }],
+          "route": {
+            "rule_set": [{ "type": "inline", "tag": "r", "rules": [{ "domain_suffix": ["a.example"] }] }],
+            "rules": [{ "rule_set": "r", "outbound": "direct" }]
+          }
+        }
+        """)
+        let providers = try sail.providers()
+        XCTAssertEqual(providers.first?.tag, "p")
+        XCTAssertEqual(providers.first?.source, "inline")
+        XCTAssertEqual(providers.first?.members, 2)
+        try sail.updateProvider("p")
+        XCTAssertThrowsError(try sail.updateProvider("nope")) { error in
+            XCTAssertEqual((error as? SailError)?.code, SailError.notFound)
+        }
+        XCTAssertEqual(try sail.ruleSets().first?.tag, "r")
+        try sail.updateRuleSet("r")
         try sail.stop()
     }
 

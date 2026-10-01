@@ -43,6 +43,13 @@ service Started {
   // Measures one outbound, and waits.
   rpc Delay(URLTestRequest) returns (DelayReply);
 
+  // The outbound providers and the rule-sets, and an update of one by hand,
+  // which waits for it (sail's, as Mihomo's API has them).
+  rpc GetProviders(Empty) returns (Providers);
+  rpc UpdateProvider(TagRequest) returns (Empty);
+  rpc GetRuleSets(Empty) returns (RuleSets);
+  rpc UpdateRuleSet(TagRequest) returns (Empty);
+
   rpc GetClashModeStatus(Empty) returns (ClashModeStatus);
   rpc SubscribeClashMode(Empty) returns (stream ClashMode);
   rpc SetClashMode(ClashMode) returns (Empty);
@@ -220,6 +227,55 @@ message URLTestRequest {
 
 message DelayReply {
   uint64 delay_ms = 1;
+}
+
+message TagRequest {
+  string tag = 1;
+}
+
+// The last update's failure.
+message UpdateFailure {
+  uint64 at_ms = 1;
+  string error = 2;
+}
+
+// What a subscription's server says of it (subscription-userinfo).
+message Subscription {
+  uint64 upload = 1;
+  uint64 download = 2;
+  uint64 total = 3;
+  optional uint64 expire_ms = 4;
+}
+
+message Provider {
+  string tag = 1;
+  // remote, local or inline.
+  string source = 2;
+  uint64 members = 3;
+  optional uint64 updated_ms = 4;
+  optional uint64 next_update_ms = 5;
+  optional UpdateFailure failure = 6;
+  optional Subscription subscription = 7;
+}
+
+message Providers {
+  repeated Provider providers = 1;
+}
+
+message RuleSet {
+  string tag = 1;
+  // remote, local or inline.
+  string source = 2;
+  optional string format = 3;
+  optional string behavior = 4;
+  uint64 rules = 5;
+  optional uint64 updated_ms = 6;
+  optional uint64 next_update_ms = 7;
+  optional UpdateFailure failure = 8;
+}
+
+message RuleSets {
+  repeated RuleSet rule_sets = 1;
 }
 
 message ClashModeStatus {

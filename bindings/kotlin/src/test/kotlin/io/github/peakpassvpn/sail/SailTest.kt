@@ -74,8 +74,8 @@ class SailTest {
     @Test
     fun theCapabilitiesNameTheApi() {
         val capabilities = Sail.capabilities()
-        assertEquals(2, capabilities.apiVersion)
-        assertEquals(2, capabilities.jsonVersion)
+        assertEquals(3, capabilities.apiVersion)
+        assertEquals(3, capabilities.jsonVersion)
         assertTrue("inbound-socks" in capabilities.features)
     }
 
@@ -181,6 +181,34 @@ class SailTest {
             """.trimIndent())
             assertTrue(!echoThroughSocks(port), "the app's connection was not rejected")
             assertTrue(asked.get() >= 1)
+            sail.stop()
+        }
+    }
+
+    @Test
+    fun providersAndRuleSetsAreToldAndUpdated() {
+        Sail.create().use { sail ->
+            sail.start("""
+                {
+                  "inbounds": [{ "type": "socks", "listen": "127.0.0.1", "listen_port": ${freePort()} }],
+                  "outbounds": [{ "type": "selector", "tag": "g", "providers": "p" }, { "type": "direct", "tag": "direct" }],
+                  "outbound_providers": [{ "type": "inline", "tag": "p",
+                    "outbounds": [{ "type": "direct", "tag": "m1" }, { "type": "direct", "tag": "m2" }] }],
+                  "route": {
+                    "rule_set": [{ "type": "inline", "tag": "r", "rules": [{ "domain_suffix": ["a.example"] }] }],
+                    "rules": [{ "rule_set": "r", "outbound": "direct" }]
+                  }
+                }
+            """.trimIndent())
+            val provider = sail.providers().single()
+            assertEquals("p", provider.tag)
+            assertEquals("inline", provider.source)
+            assertEquals(2L, provider.members)
+            sail.updateProvider("p")
+            val error = assertFailsWith<SailException> { sail.updateProvider("nope") }
+            assertEquals(SailException.NOT_FOUND, error.code)
+            assertEquals("r", sail.ruleSets().single().tag)
+            sail.updateRuleSet("r")
             sail.stop()
         }
     }

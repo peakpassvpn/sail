@@ -124,6 +124,7 @@ and the next start with the same directories runs.
 | Connections | `sail_connections`, `sail_close_connection`, `sail_close_all_connections` | `SAIL_EVENT_CONNECTIONS` |
 | Outbounds and groups | `sail_outbounds`, `sail_groups`, `sail_select` | `SAIL_EVENT_OUTBOUNDS` (on change) |
 | Delays | `sail_delay` (waits), `sail_url_test` (does not; a group's members), `sail_cancel` | through `SAIL_EVENT_OUTBOUNDS` |
+| Providers and rule-sets | `sail_providers`, `sail_update_provider`, `sail_rule_sets`, `sail_update_rule_set` (an update waits for it; no URL is told, as a subscription's carries its token) | |
 | Mode | `sail_mode`, `sail_set_mode` (an instance has modes though its configuration has no Clash API, as libbox's apps do) | |
 | Log | `sail_clear_logs` | `SAIL_EVENT_LOG` |
 | Network | `sail_set_network_state`, `sail_network_changed` | `SAIL_EVENT_NETWORK` (each change the connections do not survive) |
@@ -138,8 +139,8 @@ measured of each outbound (the last ten), with or without a Clash API.
 
 ## Android: per-app proxying
 
-**For hosts**: this is API and JSON version 2, with no compatibility with
-version 1. The TUN request no longer carries `include_android_user`;
+**For hosts**: since API and JSON version 2, with no compatibility with
+version 1 (version 3 adds the providers and rule-sets). The TUN request no longer carries `include_android_user`;
 `SailPlatform` gains `find_connection_owner`; a connection's JSON gains
 `uid` and `packages`. Matching rules by app needs Android API 29 or later
 (`getConnectionOwnerUid`).

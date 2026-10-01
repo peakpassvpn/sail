@@ -1101,6 +1101,159 @@ mod command {
         local
     }
 
+    /// A subscription's server: `/sub` a list that says what it used,
+    /// `/broken` a failure.
+    fn subscription_server() -> u16 {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut s) = stream else { break };
+                let mut buf = [0u8; 1024];
+                let n = s.read(&mut buf).unwrap_or(0);
+                let request = String::from_utf8_lossy(&buf[..n]);
+                let response = if request.starts_with("GET /sub ") {
+                    // Clash's YAML, as a proxy-provider holds it.
+                    let body =
+                        "proxies:\n  - { name: s1, type: socks5, server: 127.0.0.1, port: 1 }\n";
+                    format!(
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\
+                         subscription-userinfo: upload=1; download=2; total=3; expire=1767225600\r\n\
+                         Connection: close\r\n\r\n{}",
+                        body.len(),
+                        body
+                    )
+                } else {
+                    "HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                        .to_string()
+                };
+                let _ = s.write_all(response.as_bytes());
+            }
+        });
+        port
+    }
+
+    #[test]
+    fn providers_and_rule_sets_are_told_and_updated_here_and_through_a_client() {
+        let _serial = serial();
+        within(Duration::from_secs(60), || {
+            let web = subscription_server();
+            let path = socket("providers");
+            let instance = new_instance(None, None);
+            let options = serde_json::json!({ "path": path }).to_string();
+            assert_eq!(serve(instance, &options), SAIL_OK);
+            let client = connect(&options).unwrap();
+            let config = serde_json::json!({
+                "inbounds": [{ "type": "socks", "listen": "127.0.0.1", "listen_port": free_port() }],
+                "outbounds": [
+                    { "type": "selector", "tag": "g", "providers": ["p", "sub"] },
+                    { "type": "direct", "tag": "direct" },
+                ],
+                "outbound_providers": [{
+                    "type": "inline", "tag": "p",
+                    "outbounds": [{ "type": "direct", "tag": "m1" }, { "type": "direct", "tag": "m2" }]
+                }, {
+                    "type": "remote", "tag": "sub",
+                    "url": format!("http://127.0.0.1:{}/sub", web), "download_detour": "direct"
+                }, {
+                    "type": "remote", "tag": "broken",
+                    "url": format!("http://127.0.0.1:{}/broken", web), "download_detour": "direct"
+                }],
+                "route": {
+                    "rule_set": [{
+                        "type": "inline", "tag": "r",
+                        "rules": [{ "domain_suffix": ["a.example"] }]
+                    }],
+                    "rules": [{ "rule_set": "r", "outbound": "direct" }],
+                },
+            });
+            start(instance, &config.to_string());
+            // A remote provider is downloaded once the instance runs.
+            eventually("the subscription is downloaded", || {
+                json_of(|o, e| unsafe { sail_providers(instance, o, e) })["providers"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|p| p["tag"] == "sub" && p["members"] == 1)
+            });
+
+            let providers = same(instance, client, |i, o, e| unsafe {
+                sail_providers(i, o, e)
+            });
+            let by_tag = |tag: &str| {
+                providers["providers"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|p| p["tag"] == tag)
+                    .cloned()
+                    .unwrap_or_else(|| panic!("no provider {}: {}", tag, providers))
+            };
+            let inline = by_tag("p");
+            assert_eq!(inline["source"], "inline");
+            assert_eq!(inline["members"], 2);
+            let sub = by_tag("sub");
+            assert_eq!(sub["source"], "remote");
+            assert_eq!(sub["members"], 1);
+            assert_eq!(
+                sub["subscription"],
+                serde_json::json!({ "upload": 1, "download": 2, "total": 3, "expire_ms": 1_767_225_600_000u64 })
+            );
+            assert!(sub["updated_ms"].as_u64().is_some());
+
+            // An update waits for it; one that fails says so, and the list
+            // tells the failure, without the URL.
+            ok("update", |err| unsafe {
+                sail_update_provider(client, c"sub".as_ptr(), err)
+            });
+            assert_eq!(
+                code(|err| unsafe { sail_update_provider(instance, c"broken".as_ptr(), err) }),
+                SAIL_ERR_IO
+            );
+            assert_eq!(
+                code(|err| unsafe { sail_update_provider(client, c"broken".as_ptr(), err) }),
+                SAIL_ERR_IO,
+                "the instance's own code, through the service"
+            );
+            let providers = same(instance, client, |i, o, e| unsafe {
+                sail_providers(i, o, e)
+            });
+            let broken = providers["providers"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|p| p["tag"] == "broken")
+                .cloned()
+                .unwrap();
+            let error = broken["failure"]["error"].as_str().unwrap();
+            assert!(!error.is_empty());
+            assert!(!error.contains(&format!("127.0.0.1:{}", web)), "{}", error);
+            for call in [sail_update_provider, sail_update_rule_set] {
+                assert_eq!(
+                    code(|err| unsafe { call(instance, c"nope".as_ptr(), err) }),
+                    SAIL_ERR_NOT_FOUND
+                );
+                assert_eq!(
+                    code(|err| unsafe { call(client, c"nope".as_ptr(), err) }),
+                    SAIL_ERR_NOT_FOUND
+                );
+            }
+
+            let rule_sets = same(instance, client, |i, o, e| unsafe {
+                sail_rule_sets(i, o, e)
+            });
+            assert_eq!(rule_sets["rule_sets"][0]["tag"], "r");
+            assert_eq!(rule_sets["rule_sets"][0]["source"], "inline");
+            ok("update rule-set", |err| unsafe {
+                sail_update_rule_set(client, c"r".as_ptr(), err)
+            });
+
+            stop(instance);
+            sail_instance_free(client);
+            sail_instance_free(instance);
+        });
+    }
+
     #[test]
     fn a_client_answers_as_the_instance_it_reaches() {
         let _serial = serial();

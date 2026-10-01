@@ -106,6 +106,14 @@ class Sail private constructor(private val handle: Long) : AutoCloseable {
     fun outbounds(): List<Outbound> = json.decodeFromString<Outbounds>(Native.outbounds(handle)).outbounds
     fun groups(): List<Outbound> = json.decodeFromString<Outbounds>(Native.groups(handle)).outbounds
 
+    /** The outbound providers, in the configuration's order. */
+    fun providers(): List<Provider> = json.decodeFromString<Providers>(Native.providers(handle)).providers
+    /** Updates the provider [tag] now, and waits until its members are in place. */
+    fun updateProvider(tag: String) = Native.updateProvider(handle, tag)
+    fun ruleSets(): List<RuleSet> = json.decodeFromString<RuleSets>(Native.ruleSets(handle)).ruleSets
+    /** Updates the remote rule-set [tag] now, and waits. */
+    fun updateRuleSet(tag: String) = Native.updateRuleSet(handle, tag)
+
     fun select(group: String, member: String) = Native.select(handle, group, member)
     fun delay(tag: String, url: String? = null, timeoutMs: Int = 5_000): Long =
         Native.delay(handle, tag, url, timeoutMs)

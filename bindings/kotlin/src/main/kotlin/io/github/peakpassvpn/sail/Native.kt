@@ -22,6 +22,10 @@ internal object Native {
     @JvmStatic external fun closeAllConnections(instance: Long): Long
     @JvmStatic external fun outbounds(instance: Long): String
     @JvmStatic external fun groups(instance: Long): String
+    @JvmStatic external fun providers(instance: Long): String
+    @JvmStatic external fun updateProvider(instance: Long, tag: String)
+    @JvmStatic external fun ruleSets(instance: Long): String
+    @JvmStatic external fun updateRuleSet(instance: Long, tag: String)
     @JvmStatic external fun select(instance: Long, group: String, member: String)
     @JvmStatic external fun delay(instance: Long, tag: String, url: String?, timeoutMs: Int): Long
     @JvmStatic external fun urlTest(instance: Long, tag: String, url: String?, timeoutMs: Int): Long

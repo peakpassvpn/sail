@@ -275,6 +275,92 @@ impl From<proto::Log> for json::Log {
     }
 }
 
+impl From<&json::Failure> for proto::UpdateFailure {
+    fn from(f: &json::Failure) -> Self {
+        Self {
+            at_ms: f.at_ms,
+            error: f.error.clone(),
+        }
+    }
+}
+
+impl From<proto::UpdateFailure> for json::Failure {
+    fn from(f: proto::UpdateFailure) -> Self {
+        Self {
+            at_ms: f.at_ms,
+            error: f.error,
+        }
+    }
+}
+
+impl From<&json::Provider> for proto::Provider {
+    fn from(p: &json::Provider) -> Self {
+        Self {
+            tag: p.tag.clone(),
+            source: p.source.clone(),
+            members: p.members,
+            updated_ms: p.updated_ms,
+            next_update_ms: p.next_update_ms,
+            failure: p.failure.as_ref().map(Into::into),
+            subscription: p.subscription.as_ref().map(|s| proto::Subscription {
+                upload: s.upload,
+                download: s.download,
+                total: s.total,
+                expire_ms: s.expire_ms,
+            }),
+        }
+    }
+}
+
+impl From<proto::Provider> for json::Provider {
+    fn from(p: proto::Provider) -> Self {
+        Self {
+            tag: p.tag,
+            source: p.source,
+            members: p.members,
+            updated_ms: p.updated_ms,
+            next_update_ms: p.next_update_ms,
+            failure: p.failure.map(Into::into),
+            subscription: p.subscription.map(|s| json::Subscription {
+                upload: s.upload,
+                download: s.download,
+                total: s.total,
+                expire_ms: s.expire_ms,
+            }),
+        }
+    }
+}
+
+impl From<&json::RuleSet> for proto::RuleSet {
+    fn from(r: &json::RuleSet) -> Self {
+        Self {
+            tag: r.tag.clone(),
+            source: r.source.clone(),
+            format: r.format.clone(),
+            behavior: r.behavior.clone(),
+            rules: r.rules,
+            updated_ms: r.updated_ms,
+            next_update_ms: r.next_update_ms,
+            failure: r.failure.as_ref().map(Into::into),
+        }
+    }
+}
+
+impl From<proto::RuleSet> for json::RuleSet {
+    fn from(r: proto::RuleSet) -> Self {
+        Self {
+            tag: r.tag,
+            source: r.source,
+            format: r.format,
+            behavior: r.behavior,
+            rules: r.rules,
+            updated_ms: r.updated_ms,
+            next_update_ms: r.next_update_ms,
+            failure: r.failure.map(Into::into),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

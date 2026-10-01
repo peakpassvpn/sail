@@ -75,7 +75,7 @@
 /*
  The version of this C ABI: raised when a function changes.
  */
-#define SAIL_API_VERSION 2
+#define SAIL_API_VERSION 3
 
 /*
  The instance's state, as `sail_instance_state` gives it: now, then on
@@ -292,6 +292,44 @@ int32_t sail_groups(SailInstance instance, char **out, char **err);
      when it is not a selector, or has no such member.
  */
 int32_t sail_select(SailInstance instance, const char *group, const char *member, char **err);
+
+/*
+ The outbound providers, as JSON: `{"providers": [{"tag", "source":
+ "remote" | "local" | "inline", "members", "updated_ms",
+ "next_update_ms" (null when it is not updated by itself), "failure":
+ {"at_ms", "error"} (the last update's, null after a success),
+ "subscription": {"upload", "download", "total", "expire_ms"} (what the
+ server says of it, or null)}]}`, in the configuration's order. No URL:
+ a subscription's carries its token. Their members are among
+ `sail_outbounds`, with their `provider`.
+ */
+int32_t sail_providers(SailInstance instance, char **out, char **err);
+
+/*
+ Downloads the outbound provider `tag` again, or reads its file again,
+ and waits until its members are in place.
+
+ @return SAIL_ERR_NOT_FOUND with no such provider; SAIL_ERR_IO when the
+     update failed, which `sail_providers` then tells too;
+     SAIL_ERR_STATE when the instance is stopping.
+ */
+int32_t sail_update_provider(SailInstance instance, const char *tag, char **err);
+
+/*
+ The rule-sets, as JSON: `{"rule_sets": [{"tag", "source": "remote" |
+ "local" | "inline", "format", "behavior", "rules", "updated_ms",
+ "next_update_ms", "failure": {"at_ms", "error"}}]}`, by tag.
+ */
+int32_t sail_rule_sets(SailInstance instance, char **out, char **err);
+
+/*
+ Downloads the remote rule-set `tag` again and waits until its rules are
+ in place; a local or inline one is as it is.
+
+ @return SAIL_ERR_NOT_FOUND with no such rule-set; SAIL_ERR_IO when the
+     update failed; SAIL_ERR_STATE when the instance is stopping.
+ */
+int32_t sail_update_rule_set(SailInstance instance, const char *tag, char **err);
 
 /*
  Measures the delay of the outbound `tag` now, with an HTTP request to

@@ -132,9 +132,12 @@ impl From<sail::control::ControlError> for Failure {
     fn from(e: sail::control::ControlError) -> Self {
         use sail::control::ControlError as E;
         let code = match &e {
-            E::NotFound(_) | E::NoMode(_) => SAIL_ERR_NOT_FOUND,
+            E::NotFound(_) | E::NoMode(_) | E::NoProvider(_) | E::NoRuleSet(_) => {
+                SAIL_ERR_NOT_FOUND
+            }
             E::NotSelector(_) | E::Rejected(_) | E::InvalidUrl(_) => SAIL_ERR_INVALID_ARGUMENT,
-            E::Failed(_) => SAIL_ERR_IO,
+            E::Failed(_) | E::UpdateFailed(_) => SAIL_ERR_IO,
+            E::Stopping => SAIL_ERR_STATE,
             E::Timeout => SAIL_ERR_TIMEOUT,
             E::NoModes => SAIL_ERR_UNSUPPORTED,
             _ => SAIL_ERR_INTERNAL,
@@ -235,7 +238,7 @@ pub unsafe extern "C" fn sail_free_string(s: *mut c_char) {
 }
 
 /// The version of this C ABI: raised when a function changes.
-pub const SAIL_API_VERSION: u32 = 2;
+pub const SAIL_API_VERSION: u32 = 3;
 
 /// What this build of sail has, as JSON: `{"api_version", "json_version"
 /// (the shape of the JSON sail answers with), "version", "features":

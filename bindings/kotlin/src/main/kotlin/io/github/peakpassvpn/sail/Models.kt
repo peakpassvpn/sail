@@ -135,3 +135,50 @@ internal data class Connections(val connections: List<Connection>)
 
 @Serializable
 internal data class Outbounds(val outbounds: List<Outbound>)
+
+/** An update's failure: when, and why (with no URL in it). */
+@Serializable
+data class UpdateFailure(@SerialName("at_ms") val atMs: Long, val error: String)
+
+/** What a subscription's server says of it. */
+@Serializable
+data class Subscription(
+    val upload: Long,
+    val download: Long,
+    val total: Long,
+    @SerialName("expire_ms") val expireMs: Long? = null,
+)
+
+/** An outbound provider: its members are among the outbounds. */
+@Serializable
+data class Provider(
+    val tag: String,
+    /** remote, local or inline. */
+    val source: String,
+    val members: Long,
+    @SerialName("updated_ms") val updatedMs: Long? = null,
+    /** Null when it is not updated by itself. */
+    @SerialName("next_update_ms") val nextUpdateMs: Long? = null,
+    /** The last update's, null after a success. */
+    val failure: UpdateFailure? = null,
+    val subscription: Subscription? = null,
+)
+
+@Serializable
+data class RuleSet(
+    val tag: String,
+    /** remote, local or inline. */
+    val source: String,
+    val format: String? = null,
+    val behavior: String? = null,
+    val rules: Long,
+    @SerialName("updated_ms") val updatedMs: Long? = null,
+    @SerialName("next_update_ms") val nextUpdateMs: Long? = null,
+    val failure: UpdateFailure? = null,
+)
+
+@Serializable
+internal data class Providers(val providers: List<Provider>)
+
+@Serializable
+internal data class RuleSets(@SerialName("rule_sets") val ruleSets: List<RuleSet>)

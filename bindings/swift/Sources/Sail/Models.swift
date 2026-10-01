@@ -112,6 +112,46 @@ public struct ConnectionOwner: Encodable, Equatable, Sendable {
     }
 }
 
+/// An update's failure: when, and why (with no URL in it).
+public struct UpdateFailure: Decodable, Equatable, Sendable {
+    public let atMs: UInt64
+    public let error: String
+}
+
+/// What a subscription's server says of it.
+public struct Subscription: Decodable, Equatable, Sendable {
+    public let upload: UInt64
+    public let download: UInt64
+    public let total: UInt64
+    public let expireMs: UInt64?
+}
+
+/// An outbound provider: its members are among the outbounds.
+public struct Provider: Decodable, Equatable, Sendable {
+    public let tag: String
+    /// remote, local or inline.
+    public let source: String
+    public let members: UInt64
+    public let updatedMs: UInt64?
+    /// Nil when it is not updated by itself.
+    public let nextUpdateMs: UInt64?
+    /// The last update's, nil after a success.
+    public let failure: UpdateFailure?
+    public let subscription: Subscription?
+}
+
+public struct RuleSet: Decodable, Equatable, Sendable {
+    public let tag: String
+    /// remote, local or inline.
+    public let source: String
+    public let format: String?
+    public let behavior: String?
+    public let rules: UInt64
+    public let updatedMs: UInt64?
+    public let nextUpdateMs: UInt64?
+    public let failure: UpdateFailure?
+}
+
 public struct Mode: Decodable, Equatable, Sendable {
     public let mode: String
     public let modes: [String]
@@ -147,6 +187,8 @@ public struct Capabilities: Decodable, Equatable, Sendable {
 
 struct Connections: Decodable { let connections: [Connection] }
 struct Outbounds: Decodable { let outbounds: [Outbound] }
+struct Providers: Decodable { let providers: [Provider] }
+struct RuleSets: Decodable { let ruleSets: [RuleSet] }
 
 let decoder: JSONDecoder = {
     let decoder = JSONDecoder()
