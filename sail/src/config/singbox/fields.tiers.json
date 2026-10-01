@@ -1,6 +1,7 @@
 {
  "sing_box": "v1.14.2",
  "supported": [
+  "$schema",
   "log",
   "log.disabled",
   "log.level",

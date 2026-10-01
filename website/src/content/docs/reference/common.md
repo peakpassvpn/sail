@@ -21,6 +21,7 @@ Rust: [`Config`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/mo
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
+| `$schema` | string | — | Supported | — |
 | `log` | object → [object](#log) | each field's default | Supported | — |
 | `dns` | object → [object](/sail/reference/dns/#dns) | each field's default | Supported | — |
 | `ntp` | object → [object](#ntp) | — | Warned: sail keeps the system's clock | — |

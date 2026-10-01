@@ -520,7 +520,6 @@ def main() -> None:
     walker = Walker(schema, GoTypes(checkout))
     walker.value("", schema.root, ())
     fields = [dict(f, path=f["path"].lstrip(".")) for f in walker.fields.values()]
-    fields = [f for f in fields if f["path"] != "$schema"]
     doc = {
         "sing_box": version(checkout),
         "generated_by": "tools/singbox-fields/extract.py",

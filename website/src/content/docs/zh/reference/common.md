@@ -21,6 +21,7 @@ Rust 定义：[`Config`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/c
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
+| `$schema` | string | — | 支持 | — |
 | `log` | object → [对象](#log) | 各字段取默认值 | 支持 | — |
 | `dns` | object → [对象](/sail/zh/reference/dns/#dns) | 各字段取默认值 | 支持 | — |
 | `ntp` | object → [对象](#ntp) | — | 警告：sail keeps the system's clock | — |
