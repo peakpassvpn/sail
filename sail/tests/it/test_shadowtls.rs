@@ -160,7 +160,9 @@ async fn echo_stream(
     Ok(())
 }
 
-/// A SOCKS inbound, and Shadowsocks through ShadowTLS to `server_port`.
+/// A SOCKS inbound, and Shadowsocks through ShadowTLS to `server_port`:
+/// the Shadowsocks outbound has no server, as in sing-box's documented
+/// pair, for its detour dials one.
 fn client(socks_port: u16, server_port: u16, password: &str, certs: &Certs) -> serde_json::Value {
     serde_json::json!({
         "inbounds": [{ "type": "socks", "listen": "127.0.0.1", "listen_port": socks_port }],
@@ -168,8 +170,6 @@ fn client(socks_port: u16, server_port: u16, password: &str, certs: &Certs) -> s
             {
                 "type": "shadowsocks",
                 "tag": "ss",
-                "server": "127.0.0.1",
-                "server_port": server_port,
                 "method": METHOD,
                 "password": SS_PASSWORD,
                 "detour": "shadowtls"

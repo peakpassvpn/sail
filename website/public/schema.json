@@ -14055,7 +14055,8 @@
      "description": "How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs), and the first interfaces before the fallback ones; 300ms when unset."
     },
     "server": {
-     "type": "string"
+     "type": "string",
+     "description": "May be left out, with `server_port`, by an outbound with a `detour`: one over ShadowTLS, which dials its own server."
     },
     "server_port": {
      "type": "number"
@@ -14895,7 +14896,8 @@
      "description": "How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs), and the first interfaces before the fallback ones; 300ms when unset."
     },
     "server": {
-     "type": "string"
+     "type": "string",
+     "description": "May be left out, with `server_port`, by an outbound with a `detour`: one over ShadowTLS, which dials its own server."
     },
     "server_port": {
      "type": "number"
@@ -17078,7 +17080,8 @@
      "description": "How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs), and the first interfaces before the fallback ones; 300ms when unset."
     },
     "server": {
-     "type": "string"
+     "type": "string",
+     "description": "May be left out, with `server_port`, by an outbound with a `detour`: one over ShadowTLS, which dials its own server."
     },
     "server_port": {
      "type": "number"
@@ -18096,7 +18099,8 @@
      "description": "How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs), and the first interfaces before the fallback ones; 300ms when unset."
     },
     "server": {
-     "type": "string"
+     "type": "string",
+     "description": "May be left out, with `server_port`, by an outbound with a `detour`: one over ShadowTLS, which dials its own server."
     },
     "server_port": {
      "type": "number"
@@ -18361,7 +18365,8 @@
      "description": "How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs), and the first interfaces before the fallback ones; 300ms when unset."
     },
     "server": {
-     "type": "string"
+     "type": "string",
+     "description": "May be left out, with `server_port`, by an outbound with a `detour`: one over ShadowTLS, which dials its own server."
     },
     "server_port": {
      "type": "number"
@@ -19819,7 +19824,8 @@
      "description": "How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs), and the first interfaces before the fallback ones; 300ms when unset."
     },
     "server": {
-     "type": "string"
+     "type": "string",
+     "description": "May be left out, with `server_port`, by an outbound with a `detour`: one over ShadowTLS, which dials its own server."
     },
     "server_port": {
      "type": "number"
@@ -20580,7 +20586,8 @@
      "description": "How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs), and the first interfaces before the fallback ones; 300ms when unset."
     },
     "server": {
-     "type": "string"
+     "type": "string",
+     "description": "May be left out, with `server_port`, by an outbound with a `detour`: one over ShadowTLS, which dials its own server."
     },
     "server_port": {
      "type": "number"

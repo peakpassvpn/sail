@@ -40,12 +40,12 @@ Internal endpoints also include `direct`, `drop` and redirect-style handlers use
 
 ### ShadowTLS
 
-ShadowTLS v3 relays a real TLS handshake with a site the server imitates, and carries another protocol, usually Shadowsocks, after it. As in sing-box, the protocol's outbound names the ShadowTLS outbound as its `detour`, and the ShadowTLS inbound hands its connections to the inbound its `detour` names. Versions 1 and 2 are configuration errors.
+ShadowTLS v3 relays a real TLS handshake with a site the server imitates, and carries another protocol, usually Shadowsocks, after it. As in sing-box, the protocol's outbound names the ShadowTLS outbound as its `detour`, and may leave out `server` and `server_port`, which ShadowTLS dials in its place (a `server` given is not dialled); and the ShadowTLS inbound hands its connections to the inbound its `detour` names. Versions 1 and 2 are configuration errors.
 
 ```json
 {
   "outbounds": [
-    { "type": "shadowsocks", "tag": "ss", "server": "203.0.113.1", "server_port": 443,
+    { "type": "shadowsocks", "tag": "ss",
       "method": "2022-blake3-aes-128-gcm", "password": "<psk>", "detour": "shadowtls" },
     { "type": "shadowtls", "tag": "shadowtls", "server": "203.0.113.1", "server_port": 443,
       "version": 3, "password": "<password>",

@@ -34,8 +34,12 @@ pub(crate) fn register(registry: &mut OutboundRegistry) {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct HttpOutboundOptions {
-    server: String,
-    server_port: u16,
+    /// May be left out, with `server_port`, by an outbound with a
+    /// `detour`: one over ShadowTLS, which dials its own server.
+    #[serde(default)]
+    server: Option<String>,
+    #[serde(default)]
+    server_port: Option<u16>,
     #[serde(default)]
     username: Option<String>,
     #[serde(default)]
@@ -59,6 +63,7 @@ fn is_token(name: &str) -> bool {
 
 fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
     let options: HttpOutboundOptions = ctx.options()?;
+    let (server, server_port) = ctx.server(options.server.clone(), options.server_port)?;
     let tag = ctx.tag;
 
     let authorization = match (options.username, options.password) {
@@ -116,8 +121,8 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
     }
 
     let stream = Arc::new(StreamHandler {
-        address: options.server,
-        port: options.server_port,
+        address: server,
+        port: server_port,
         dialer: ctx.dialer.clone(),
         authorization,
         path,

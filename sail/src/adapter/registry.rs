@@ -204,6 +204,13 @@ impl OutboundContext<'_> {
         })
     }
 
+    /// The server this outbound dials, from its `server` and
+    /// `server_port`, which a detour lets it leave out: see
+    /// `layers::server_address`.
+    pub fn server(&self, server: Option<String>, port: Option<u16>) -> Result<(String, u16)> {
+        layers::server_address(self.tag, server, port, &self.dialer)
+    }
+
     /// Like `actors`, for a group that needs at least one member.
     pub fn members(&self, tags: &[String]) -> Result<Vec<AnyOutboundHandler>> {
         non_empty("outbound", self.tag, self.actors(tags)?)

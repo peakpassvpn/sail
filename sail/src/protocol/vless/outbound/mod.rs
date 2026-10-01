@@ -43,8 +43,12 @@ fn check(tag: &str, options: &Options, blocks: &OutboundBlocks) -> Result<()> {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct VlessOutboundOptions {
-    server: String,
-    server_port: u16,
+    /// May be left out, with `server_port`, by an outbound with a
+    /// `detour`: one over ShadowTLS, which dials its own server.
+    #[serde(default)]
+    server: Option<String>,
+    #[serde(default)]
+    server_port: Option<u16>,
     uuid: String,
     /// `""` or `xtls-rprx-vision`.
     #[serde(default)]
@@ -83,6 +87,7 @@ impl PacketEncoding {
 
 fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
     let options: VlessOutboundOptions = ctx.options()?;
+    let (server, server_port) = ctx.server(options.server.clone(), options.server_port)?;
     let uuid = *uuid::Uuid::parse_str(&options.uuid)
         .map_err(|e| anyhow!("[{}] outbound: uuid: {}", ctx.tag, e))?
         .as_bytes();
@@ -101,15 +106,15 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         ));
     }
     let stream = Arc::new(StreamHandler {
-        address: options.server.clone(),
-        port: options.server_port,
+        address: server.clone(),
+        port: server_port,
         dialer: ctx.dialer.clone(),
         uuid,
         flow,
     });
     let datagram = Arc::new(DatagramHandler {
-        address: options.server,
-        port: options.server_port,
+        address: server,
+        port: server_port,
         dialer: ctx.dialer.clone(),
         uuid,
         flow,

@@ -284,6 +284,40 @@ mod tests {
         .unwrap();
     }
 
+    #[cfg(all(
+        feature = "outbound-shadowsocks",
+        feature = "outbound-shadowtls",
+        feature = "outbound-trojan"
+    ))]
+    #[test]
+    fn a_protocol_over_shadowtls_may_leave_its_server_out() {
+        let shadowtls = serde_json::json!({ "type": "shadowtls", "tag": "stls",
+            "server": "example.com", "server_port": 443, "version": 3, "password": "pw",
+            "tls": { "enabled": true, "server_name": "www.example.com" } });
+        // sing-box's ShadowTLS v3 pair, and the same with a server, which
+        // the detour does not dial.
+        for ss in [
+            serde_json::json!({ "type": "shadowsocks", "tag": "ss",
+                "method": "aes-128-gcm", "password": "pw", "detour": "stls" }),
+            serde_json::json!({ "type": "shadowsocks", "tag": "ss", "server": "192.0.2.1",
+                "server_port": 443, "method": "aes-128-gcm", "password": "pw", "detour": "stls" }),
+            serde_json::json!({ "type": "trojan", "tag": "ss", "password": "pw",
+                "detour": "stls", "tls": { "enabled": true, "server_name": "a.example" } }),
+        ] {
+            built(serde_json::json!({ "outbounds": [ss, shadowtls] })).unwrap();
+        }
+        fails(
+            serde_json::json!({ "outbounds": [{ "type": "shadowsocks", "tag": "ss",
+                "method": "aes-128-gcm", "password": "pw" }] }),
+            "[ss] outbound: missing field `server`; only an outbound with a detour may leave it out",
+        );
+        fails(
+            serde_json::json!({ "outbounds": [{ "type": "trojan", "tag": "t",
+                "server": "192.0.2.1", "password": "pw" }] }),
+            "[t] outbound: missing field `server_port`",
+        );
+    }
+
     #[cfg(all(feature = "outbound-hysteria2", feature = "outbound-socks"))]
     #[test]
     fn hysteria2_takes_a_detour() {

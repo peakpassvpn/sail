@@ -33,8 +33,12 @@ pub(crate) fn register(registry: &mut OutboundRegistry) {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ShadowsocksOutboundOptions {
-    server: String,
-    server_port: u16,
+    /// May be left out, with `server_port`, by an outbound with a
+    /// `detour`: one over ShadowTLS, which dials its own server.
+    #[serde(default)]
+    server: Option<String>,
+    #[serde(default)]
+    server_port: Option<u16>,
     method: String,
     /// With a 2022 method, the base64 PSK, or `iPSK:uPSK` for a server
     /// with users.
@@ -57,25 +61,26 @@ struct ShadowsocksOutboundOptions {
 
 fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
     let options: ShadowsocksOutboundOptions = ctx.options()?;
+    let server = ctx.server(options.server.clone(), options.server_port)?;
     let udp_over_tcp = match &options.udp_over_tcp {
         Some(uot) => uot.enabled(ctx.tag)?,
         None => false,
     };
     let ss = if sip022::is_2022(&options.method) {
-        build_2022(ctx.tag, &options, &ctx.dialer)?
+        build_2022(ctx.tag, &options, server, &ctx.dialer)?
     } else {
         shadow::check_method("outbound", ctx.tag, &options.method)?;
         let stream = Arc::new(StreamHandler::new(
-            options.server.clone(),
-            options.server_port,
+            server.0.clone(),
+            server.1,
             options.method.clone(),
             options.password.clone(),
             options.prefix.clone(),
             ctx.dialer.clone(),
         )?);
         let datagram = Arc::new(DatagramHandler {
-            address: options.server.clone(),
-            port: options.server_port,
+            address: server.0,
+            port: server.1,
             dialer: ctx.dialer.clone(),
             cipher: options.method.clone(),
             password: options.password.clone(),
@@ -108,6 +113,7 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
 fn build_2022(
     tag: &str,
     options: &ShadowsocksOutboundOptions,
+    (address, port): (String, u16),
     dialer: &crate::net::Dialer,
 ) -> Result<AnyOutboundHandler> {
     let method = sip022::Method::from_name(&options.method)
@@ -123,15 +129,15 @@ fn build_2022(
     }
     let psks = Arc::new(psks);
     let stream = Arc::new(ss2022::StreamHandler {
-        address: options.server.clone(),
-        port: options.server_port,
+        address: address.clone(),
+        port,
         dialer: dialer.clone(),
         method,
         psks: psks.clone(),
     });
     let datagram = Arc::new(ss2022::DatagramHandler {
-        address: options.server.clone(),
-        port: options.server_port,
+        address,
+        port,
         dialer: dialer.clone(),
         method,
         psks,

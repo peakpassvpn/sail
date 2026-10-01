@@ -51,8 +51,12 @@ pub(crate) fn register(registry: &mut OutboundRegistry) {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AnyTlsOutboundOptions {
-    server: String,
-    server_port: u16,
+    /// May be left out, with `server_port`, by an outbound with a
+    /// `detour`: one over ShadowTLS, which dials its own server.
+    #[serde(default)]
+    server: Option<String>,
+    #[serde(default)]
+    server_port: Option<u16>,
     password: String,
     #[serde(default, with = "crate::config::model::duration")]
     idle_session_check_interval: Option<Duration>,
@@ -87,6 +91,7 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         return Err(anyhow!("[{}] outbound: tls: anytls needs it enabled", tag));
     }
     let options: AnyTlsOutboundOptions = ctx.options()?;
+    let (server, server_port) = ctx.server(options.server.clone(), options.server_port)?;
     let client_options = ClientOptions {
         check_interval: duration(
             tag,
@@ -106,8 +111,8 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
     };
 
     let (client, cleanup) = Client::new(
-        options.server,
-        options.server_port,
+        server,
+        server_port,
         &options.password,
         connector,
         client_options,

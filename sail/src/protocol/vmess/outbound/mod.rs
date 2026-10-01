@@ -27,8 +27,12 @@ pub(crate) fn register(registry: &mut OutboundRegistry) {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct VMessOutboundOptions {
-    server: String,
-    server_port: u16,
+    /// May be left out, with `server_port`, by an outbound with a
+    /// `detour`: one over ShadowTLS, which dials its own server.
+    #[serde(default)]
+    server: Option<String>,
+    #[serde(default)]
+    server_port: Option<u16>,
     uuid: String,
     /// `auto`, `aes-128-gcm`, `chacha20-poly1305`, `none` or `zero`.
     #[serde(default = "default_security")]
@@ -111,6 +115,7 @@ fn auto_security() -> Security {
 
 fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
     let options: VMessOutboundOptions = ctx.options()?;
+    let (server, server_port) = ctx.server(options.server.clone(), options.server_port)?;
     let uuid = *uuid::Uuid::parse_str(&options.uuid)
         .map_err(|e| anyhow!("[{}] outbound: uuid: {}", ctx.tag, e))?
         .as_bytes();
@@ -139,14 +144,14 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         global_padding: options.global_padding,
     });
     let stream = Arc::new(StreamHandler {
-        address: options.server.clone(),
-        port: options.server_port,
+        address: server.clone(),
+        port: server_port,
         dialer: ctx.dialer.clone(),
         client: client.clone(),
     });
     let datagram = Arc::new(DatagramHandler {
-        address: options.server,
-        port: options.server_port,
+        address: server,
+        port: server_port,
         dialer: ctx.dialer.clone(),
         client,
         xudp,

@@ -53,8 +53,8 @@ Rust: [`AnyTlsOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sai
 | `network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | `[]` | Supported | The types of interface the strategy goes out of first. |
 | `fallback_network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | `[]` | Supported | The types it falls back to, with `fallback`. |
 | `fallback_delay` | duration | unset | Supported | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs), and the first interfaces before the fallback ones; 300ms when unset. |
-| `server` | string | required | Supported | — |
-| `server_port` | number | required | Supported | — |
+| `server` | string | unset | Supported | May be left out, with `server_port`, by an outbound with a `detour`: one over ShadowTLS, which dials its own server. |
+| `server_port` | number | unset | Supported | — |
 | `tls` | object → [object](/sail/reference/shared/#tls-outbounds) | unset | Supported | — |
 | `password` | string | required | Supported | — |
 | `idle_session_check_interval` | duration | unset | Supported | — |
@@ -158,8 +158,8 @@ Rust: [`HttpOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/
 | `network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | `[]` | Supported | The types of interface the strategy goes out of first. |
 | `fallback_network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | `[]` | Supported | The types it falls back to, with `fallback`. |
 | `fallback_delay` | duration | unset | Supported | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs), and the first interfaces before the fallback ones; 300ms when unset. |
-| `server` | string | required | Supported | — |
-| `server_port` | number | required | Supported | — |
+| `server` | string | unset | Supported | May be left out, with `server_port`, by an outbound with a `detour`: one over ShadowTLS, which dials its own server. |
+| `server_port` | number | unset | Supported | — |
 | `username` | string | unset | Supported | — |
 | `password` | string | unset | Supported | — |
 | `tls` | object → [object](/sail/reference/shared/#tls-outbounds) | unset | Supported | — |
@@ -494,8 +494,8 @@ Rust: [`ShadowsocksOutboundOptions`](https://github.com/peakpassvpn/sail/blob/de
 | `network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | `[]` | Supported | The types of interface the strategy goes out of first. |
 | `fallback_network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | `[]` | Supported | The types it falls back to, with `fallback`. |
 | `fallback_delay` | duration | unset | Supported | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs), and the first interfaces before the fallback ones; 300ms when unset. |
-| `server` | string | required | Supported | — |
-| `server_port` | number | required | Supported | — |
+| `server` | string | unset | Supported | May be left out, with `server_port`, by an outbound with a `detour`: one over ShadowTLS, which dials its own server. |
+| `server_port` | number | unset | Supported | — |
 | `method` | string, one of `none`, `aes-128-gcm`, `aes-192-gcm`, `aes-256-gcm`, `chacha20-ietf-poly1305`, `xchacha20-ietf-poly1305`, `2022-blake3-aes-128-gcm`, `2022-blake3-aes-256-gcm`, `2022-blake3-chacha20-poly1305`, `aes-128-ctr`, `aes-192-ctr`, `aes-256-ctr`, `aes-128-cfb`, `aes-192-cfb`, `aes-256-cfb`, `rc4-md5`, `chacha20-ietf`, `xchacha20` | required | Supported | — |
 | `password` | string | required | Supported | With a 2022 method, the base64 PSK, or `iPSK:uPSK` for a server with users. |
 | `plugin` | string | unset | Supported | Only `obfs-local` (simple-obfs) is supported. |
@@ -615,8 +615,8 @@ Rust: [`SocksOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail
 | `network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | `[]` | Supported | The types of interface the strategy goes out of first. |
 | `fallback_network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | `[]` | Supported | The types it falls back to, with `fallback`. |
 | `fallback_delay` | duration | unset | Supported | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs), and the first interfaces before the fallback ones; 300ms when unset. |
-| `server` | string | required | Supported | — |
-| `server_port` | number | required | Supported | — |
+| `server` | string | unset | Supported | May be left out, with `server_port`, by an outbound with a `detour`: one over ShadowTLS, which dials its own server. |
+| `server_port` | number | unset | Supported | — |
 | `version` | string, one of `4`, `4a`, `5` | — | Warned: sail speaks SOCKS 5, the default, and drops the field; 4 and 4a are errors | — |
 | `username` | string | `""` | Supported | — |
 | `password` | string | `""` | Supported | — |
@@ -655,8 +655,8 @@ Rust: [`TrojanOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sai
 | `network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | `[]` | Supported | The types of interface the strategy goes out of first. |
 | `fallback_network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | `[]` | Supported | The types it falls back to, with `fallback`. |
 | `fallback_delay` | duration | unset | Supported | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs), and the first interfaces before the fallback ones; 300ms when unset. |
-| `server` | string | required | Supported | — |
-| `server_port` | number | required | Supported | — |
+| `server` | string | unset | Supported | May be left out, with `server_port`, by an outbound with a `detour`: one over ShadowTLS, which dials its own server. |
+| `server_port` | number | unset | Supported | — |
 | `password` | string | required | Supported | — |
 | `network` | listable-string, one of `tcp`, `udp` | — | Error: Which networks an outbound carries: connections it should refuse would go through it | — |
 | `tls` | object → [object](/sail/reference/shared/#tls-outbounds) | unset | Supported | — |
@@ -828,8 +828,8 @@ Rust: [`VlessOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail
 | `network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | `[]` | Supported | The types of interface the strategy goes out of first. |
 | `fallback_network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | `[]` | Supported | The types it falls back to, with `fallback`. |
 | `fallback_delay` | duration | unset | Supported | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs), and the first interfaces before the fallback ones; 300ms when unset. |
-| `server` | string | required | Supported | — |
-| `server_port` | number | required | Supported | — |
+| `server` | string | unset | Supported | May be left out, with `server_port`, by an outbound with a `detour`: one over ShadowTLS, which dials its own server. |
+| `server_port` | number | unset | Supported | — |
 | `uuid` | string | required | Supported | — |
 | `flow` | string | `""` | Supported | `""` or `xtls-rprx-vision`. |
 | `network` | listable-string, one of `tcp`, `udp` | — | Error: Which networks an outbound carries: connections it should refuse would go through it | — |
@@ -870,8 +870,8 @@ Rust: [`VMessOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail
 | `network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | `[]` | Supported | The types of interface the strategy goes out of first. |
 | `fallback_network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | `[]` | Supported | The types it falls back to, with `fallback`. |
 | `fallback_delay` | duration | unset | Supported | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs), and the first interfaces before the fallback ones; 300ms when unset. |
-| `server` | string | required | Supported | — |
-| `server_port` | number | required | Supported | — |
+| `server` | string | unset | Supported | May be left out, with `server_port`, by an outbound with a `detour`: one over ShadowTLS, which dials its own server. |
+| `server_port` | number | unset | Supported | — |
 | `uuid` | string | required | Supported | — |
 | `security` | string, one of `auto`, `none`, `zero`, `aes-128-cfb`, `aes-128-gcm`, `chacha20-poly1305` | `"auto"` | Supported | `auto`, `aes-128-gcm`, `chacha20-poly1305`, `none` or `zero`. |
 | `alter_id` | number | `0` | Supported | Only 0: legacy VMess is not spoken. |

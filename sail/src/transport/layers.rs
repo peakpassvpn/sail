@@ -735,18 +735,40 @@ pub struct OutboundLayering<'a> {
 }
 
 /// The server a protocol's options name, which the layers under it dial.
-fn server(tag: &str, options: &Options) -> Result<(String, u16)> {
-    let missing = |field| anyhow!("[{}] outbound: {} is needed by its layers", tag, field);
+fn server(tag: &str, options: &Options, dialer: &Dialer) -> Result<(String, u16)> {
     let server = options
         .get("server")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| missing("server"))?;
+        .map(str::to_owned);
     let port = options
         .get("server_port")
         .and_then(|v| v.as_u64())
-        .and_then(|p| u16::try_from(p).ok())
-        .ok_or_else(|| missing("server_port"))?;
-    Ok((server.to_string(), port))
+        .and_then(|p| u16::try_from(p).ok());
+    server_address(tag, server, port, dialer)
+}
+
+/// The server an outbound dials: its `server` and `server_port`. Through a
+/// detour both may be left out, as sing-box requires neither
+/// (option/outbound.go:183): the address is then empty, as sing-box's
+/// `ServerOptions.Build` makes it (option/outbound.go:188), and the detour
+/// is handed it. ShadowTLS, the detour this is for, dials its own server
+/// whatever it is handed (protocol/shadowtls/outbound.go:90); the
+/// protocol over it still names the session's destination.
+pub fn server_address(
+    tag: &str,
+    server: Option<String>,
+    port: Option<u16>,
+    dialer: &Dialer,
+) -> Result<(String, u16)> {
+    match (server, port) {
+        (Some(server), Some(port)) => Ok((server, port)),
+        (Some(_), None) => Err(anyhow!("[{}] outbound: missing field `server_port`", tag)),
+        (None, port) if dialer.detour().is_some() => Ok((String::new(), port.unwrap_or(0))),
+        (None, _) => Err(anyhow!(
+            "[{}] outbound: missing field `server`; only an outbound with a detour may leave it out",
+            tag
+        )),
+    }
 }
 
 /// Puts `core` inside the layers `blocks` configure.
@@ -823,7 +845,7 @@ fn layered(
                 tag
             )
         })?;
-        let (address, port) = server(tag, layering.options)?;
+        let (address, port) = server(tag, layering.options, &dialer)?;
         actors.push(quic_outbound(
             tag,
             tls,
@@ -872,7 +894,7 @@ fn layered(
                 actors.push(amux_outbound(
                     tag,
                     mux,
-                    server(tag, layering.options)?,
+                    server(tag, layering.options, &dialer)?,
                     under_mux,
                     layering.dns_client,
                     &dialer,
@@ -955,7 +977,7 @@ impl Connector {
         layering: OutboundLayering<'_>,
         with_transport: bool,
     ) -> Result<Self> {
-        let (server, port) = server(layering.tag, layering.options)?;
+        let (server, port) = server(layering.tag, layering.options, &layering.dialer)?;
         let dns_client = layering.dns_client.clone();
         let handover = crate::adapter::outbound::HandlerBuilder::default()
             .tag(layering.tag.to_owned())

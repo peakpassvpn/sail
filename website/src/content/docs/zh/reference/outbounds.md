@@ -53,8 +53,8 @@ Rust 定义：[`AnyTlsOutboundOptions`](https://github.com/peakpassvpn/sail/blob
 | `network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | `[]` | 支持 | The types of interface the strategy goes out of first. |
 | `fallback_network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | `[]` | 支持 | The types it falls back to, with `fallback`. |
 | `fallback_delay` | duration | 未设置 | 支持 | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs), and the first interfaces before the fallback ones; 300ms when unset. |
-| `server` | string | 必填 | 支持 | — |
-| `server_port` | number | 必填 | 支持 | — |
+| `server` | string | 未设置 | 支持 | May be left out, with `server_port`, by an outbound with a `detour`: one over ShadowTLS, which dials its own server. |
+| `server_port` | number | 未设置 | 支持 | — |
 | `tls` | object → [对象](/sail/zh/reference/shared/#tls-outbounds) | 未设置 | 支持 | — |
 | `password` | string | 必填 | 支持 | — |
 | `idle_session_check_interval` | duration | 未设置 | 支持 | — |
@@ -158,8 +158,8 @@ Rust 定义：[`HttpOutboundOptions`](https://github.com/peakpassvpn/sail/blob/d
 | `network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | `[]` | 支持 | The types of interface the strategy goes out of first. |
 | `fallback_network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | `[]` | 支持 | The types it falls back to, with `fallback`. |
 | `fallback_delay` | duration | 未设置 | 支持 | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs), and the first interfaces before the fallback ones; 300ms when unset. |
-| `server` | string | 必填 | 支持 | — |
-| `server_port` | number | 必填 | 支持 | — |
+| `server` | string | 未设置 | 支持 | May be left out, with `server_port`, by an outbound with a `detour`: one over ShadowTLS, which dials its own server. |
+| `server_port` | number | 未设置 | 支持 | — |
 | `username` | string | 未设置 | 支持 | — |
 | `password` | string | 未设置 | 支持 | — |
 | `tls` | object → [对象](/sail/zh/reference/shared/#tls-outbounds) | 未设置 | 支持 | — |
@@ -494,8 +494,8 @@ Rust 定义：[`ShadowsocksOutboundOptions`](https://github.com/peakpassvpn/sail
 | `network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | `[]` | 支持 | The types of interface the strategy goes out of first. |
 | `fallback_network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | `[]` | 支持 | The types it falls back to, with `fallback`. |
 | `fallback_delay` | duration | 未设置 | 支持 | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs), and the first interfaces before the fallback ones; 300ms when unset. |
-| `server` | string | 必填 | 支持 | — |
-| `server_port` | number | 必填 | 支持 | — |
+| `server` | string | 未设置 | 支持 | May be left out, with `server_port`, by an outbound with a `detour`: one over ShadowTLS, which dials its own server. |
+| `server_port` | number | 未设置 | 支持 | — |
 | `method` | string, 取值 `none`, `aes-128-gcm`, `aes-192-gcm`, `aes-256-gcm`, `chacha20-ietf-poly1305`, `xchacha20-ietf-poly1305`, `2022-blake3-aes-128-gcm`, `2022-blake3-aes-256-gcm`, `2022-blake3-chacha20-poly1305`, `aes-128-ctr`, `aes-192-ctr`, `aes-256-ctr`, `aes-128-cfb`, `aes-192-cfb`, `aes-256-cfb`, `rc4-md5`, `chacha20-ietf`, `xchacha20` | 必填 | 支持 | — |
 | `password` | string | 必填 | 支持 | With a 2022 method, the base64 PSK, or `iPSK:uPSK` for a server with users. |
 | `plugin` | string | 未设置 | 支持 | Only `obfs-local` (simple-obfs) is supported. |
@@ -615,8 +615,8 @@ Rust 定义：[`SocksOutboundOptions`](https://github.com/peakpassvpn/sail/blob/
 | `network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | `[]` | 支持 | The types of interface the strategy goes out of first. |
 | `fallback_network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | `[]` | 支持 | The types it falls back to, with `fallback`. |
 | `fallback_delay` | duration | 未设置 | 支持 | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs), and the first interfaces before the fallback ones; 300ms when unset. |
-| `server` | string | 必填 | 支持 | — |
-| `server_port` | number | 必填 | 支持 | — |
+| `server` | string | 未设置 | 支持 | May be left out, with `server_port`, by an outbound with a `detour`: one over ShadowTLS, which dials its own server. |
+| `server_port` | number | 未设置 | 支持 | — |
 | `version` | string, 取值 `4`, `4a`, `5` | — | 警告：sail speaks SOCKS 5, the default, and drops the field; 4 and 4a are errors | — |
 | `username` | string | `""` | 支持 | — |
 | `password` | string | `""` | 支持 | — |
@@ -655,8 +655,8 @@ Rust 定义：[`TrojanOutboundOptions`](https://github.com/peakpassvpn/sail/blob
 | `network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | `[]` | 支持 | The types of interface the strategy goes out of first. |
 | `fallback_network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | `[]` | 支持 | The types it falls back to, with `fallback`. |
 | `fallback_delay` | duration | 未设置 | 支持 | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs), and the first interfaces before the fallback ones; 300ms when unset. |
-| `server` | string | 必填 | 支持 | — |
-| `server_port` | number | 必填 | 支持 | — |
+| `server` | string | 未设置 | 支持 | May be left out, with `server_port`, by an outbound with a `detour`: one over ShadowTLS, which dials its own server. |
+| `server_port` | number | 未设置 | 支持 | — |
 | `password` | string | 必填 | 支持 | — |
 | `network` | listable-string, 取值 `tcp`, `udp` | — | 报错：Which networks an outbound carries: connections it should refuse would go through it | — |
 | `tls` | object → [对象](/sail/zh/reference/shared/#tls-outbounds) | 未设置 | 支持 | — |
@@ -828,8 +828,8 @@ Rust 定义：[`VlessOutboundOptions`](https://github.com/peakpassvpn/sail/blob/
 | `network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | `[]` | 支持 | The types of interface the strategy goes out of first. |
 | `fallback_network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | `[]` | 支持 | The types it falls back to, with `fallback`. |
 | `fallback_delay` | duration | 未设置 | 支持 | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs), and the first interfaces before the fallback ones; 300ms when unset. |
-| `server` | string | 必填 | 支持 | — |
-| `server_port` | number | 必填 | 支持 | — |
+| `server` | string | 未设置 | 支持 | May be left out, with `server_port`, by an outbound with a `detour`: one over ShadowTLS, which dials its own server. |
+| `server_port` | number | 未设置 | 支持 | — |
 | `uuid` | string | 必填 | 支持 | — |
 | `flow` | string | `""` | 支持 | `""` or `xtls-rprx-vision`. |
 | `network` | listable-string, 取值 `tcp`, `udp` | — | 报错：Which networks an outbound carries: connections it should refuse would go through it | — |
@@ -870,8 +870,8 @@ Rust 定义：[`VMessOutboundOptions`](https://github.com/peakpassvpn/sail/blob/
 | `network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | `[]` | 支持 | The types of interface the strategy goes out of first. |
 | `fallback_network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | `[]` | 支持 | The types it falls back to, with `fallback`. |
 | `fallback_delay` | duration | 未设置 | 支持 | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs), and the first interfaces before the fallback ones; 300ms when unset. |
-| `server` | string | 必填 | 支持 | — |
-| `server_port` | number | 必填 | 支持 | — |
+| `server` | string | 未设置 | 支持 | May be left out, with `server_port`, by an outbound with a `detour`: one over ShadowTLS, which dials its own server. |
+| `server_port` | number | 未设置 | 支持 | — |
 | `uuid` | string | 必填 | 支持 | — |
 | `security` | string, 取值 `auto`, `none`, `zero`, `aes-128-cfb`, `aes-128-gcm`, `chacha20-poly1305` | `"auto"` | 支持 | `auto`, `aes-128-gcm`, `chacha20-poly1305`, `none` or `zero`. |
 | `alter_id` | number | `0` | 支持 | Only 0: legacy VMess is not spoken. |
