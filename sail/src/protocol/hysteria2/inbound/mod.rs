@@ -20,8 +20,8 @@ use super::proto::MBPS_TO_BPS;
 use super::quic;
 use super::Obfs;
 
-mod masquerade;
-mod server;
+pub(super) mod masquerade;
+pub(super) mod server;
 
 use masquerade::{Masquerade, MasqueradeOptions};
 pub(crate) use server::Resources;

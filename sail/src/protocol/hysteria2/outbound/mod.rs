@@ -165,6 +165,10 @@ impl OutboundStreamHandler for StreamHandler {
         let stream = self.0.open_stream(&sess.destination, &payload).await?;
         Ok(Box::new(stream))
     }
+
+    fn network_changed(&self, _change: &crate::net::network::NetworkChange) {
+        self.0.network_changed();
+    }
 }
 
 struct DatagramHandler(Arc<Client>);
@@ -190,6 +194,10 @@ impl OutboundDatagramHandler for DatagramHandler {
             session: Arc::new(session),
             rx,
         }))
+    }
+
+    fn network_changed(&self, _change: &crate::net::network::NetworkChange) {
+        self.0.network_changed();
     }
 }
 
@@ -257,5 +265,141 @@ impl OutboundDatagramSendHalf for DatagramSendHalf {
     async fn close(&mut self) -> io::Result<()> {
         self.0 = None;
         Ok(())
+    }
+}
+
+#[cfg(all(test, feature = "inbound-hysteria2"))]
+mod tests {
+    use futures::StreamExt;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::time::timeout;
+
+    use super::super::inbound::masquerade::Masquerade;
+    use super::super::inbound::server::{DatagramHandler as ServerHandler, Server};
+    use super::*;
+    use crate::net::network::{ChangeReason, NetworkChange};
+    use crate::transport::quic::{alpn_protocols, client_crypto, server_config, server_crypto};
+
+    /// A client of a server in process, and what the server accepts.
+    async fn fixture() -> (Arc<Client>, AnyIncomingTransport) {
+        let rcgen::CertifiedKey { cert, key_pair } =
+            rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
+        let alpns = alpn_protocols(None, quic::DEFAULT_ALPN);
+        let crypto = server_crypto(&cert.pem(), &key_pair.serialize_pem(), &alpns).unwrap();
+        let server = Arc::new(Server {
+            tag: "hy2".into(),
+            users: [("pw".to_string(), None)].into(),
+            send_bps: 0,
+            recv_bps: 0,
+            ignore_client_bandwidth: false,
+            masquerade: Masquerade::NotFound,
+            handshake_timeout: Duration::from_secs(5),
+            tuning: Default::default(),
+        });
+        let socket = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let port = socket.local_addr().unwrap().port();
+        let transport = ServerHandler::new(server_config(crypto).unwrap(), None, server)
+            .handle(Box::new(crate::net::SimpleInboundDatagram(socket)))
+            .await
+            .unwrap();
+        let InboundTransport::Incoming(incoming) = transport else {
+            panic!("not incoming");
+        };
+
+        let dns = crate::app::dns::DnsClient::new(
+            &crate::config::Dns::default(),
+            Default::default(),
+            &Default::default(),
+        )
+        .unwrap()
+        .into_shared();
+        let crypto = client_crypto(
+            Some(&cert.pem()),
+            false,
+            &alpns,
+            &crate::transport::tls::tests::test_roots(),
+        )
+        .unwrap();
+        let client = Arc::new(Client::new(ClientOptions {
+            server: "127.0.0.1".into(),
+            ports: vec![port],
+            hop_interval: None,
+            password: "pw".into(),
+            send_bps: 0,
+            recv_bps: 0,
+            obfs: None,
+            server_name: "localhost".into(),
+            crypto: Arc::new(crypto),
+            tuning: Default::default(),
+            dns_client: dns,
+            dialer: crate::net::Dialer::system(),
+        }));
+        (client, incoming)
+    }
+
+    /// A stream through the client, and the server's end of it.
+    async fn stream(
+        client: &Arc<Client>,
+        incoming: &mut AnyIncomingTransport,
+    ) -> (AnyStream, AnyStream) {
+        let sess = Session {
+            destination: SocksAddr::Domain("example.com".into(), 80),
+            ..Default::default()
+        };
+        let stream = StreamHandler(client.clone())
+            .handle(&sess, None, None)
+            .await
+            .unwrap();
+        let accepted = timeout(Duration::from_secs(5), incoming.next())
+            .await
+            .expect("no stream within 5s")
+            .expect("server gone");
+        let BaseInboundTransport::Stream(served, _) = accepted else {
+            panic!("not a stream");
+        };
+        (stream, served)
+    }
+
+    fn change(generation: u64) -> NetworkChange {
+        NetworkChange {
+            generation,
+            reason: ChangeReason::DefaultInterface,
+            old: Arc::default(),
+            new: Arc::default(),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_network_change_closes_the_connection() {
+        let (client, mut incoming) = fixture().await;
+        let (mut open, mut served) = stream(&client, &mut incoming).await;
+        open.write_all(b"ping").await.unwrap();
+        let mut got = [0; 4];
+        served.read_exact(&mut got).await.unwrap();
+        let old = client.current().expect("connected");
+        let (session, mut rx) = client.connection().await.unwrap().open_session().unwrap();
+
+        // Both handlers hear of it, as an outbound's do.
+        StreamHandler(client.clone()).network_changed(&change(1));
+        DatagramHandler(client.clone()).network_changed(&change(1));
+
+        assert!(matches!(
+            old.close_reason(),
+            Some(quinn::ConnectionError::LocallyClosed)
+        ));
+        assert!(client.current().is_none());
+        assert!(open.read(&mut got).await.is_err());
+        assert!(session
+            .send(b"x", &SocksAddr::Domain("example.com".into(), 53))
+            .is_err());
+        let ended = timeout(Duration::from_secs(5), rx.recv()).await.unwrap();
+        assert!(ended.is_none());
+
+        // The next stream dials anew.
+        let (mut open, mut served) = stream(&client, &mut incoming).await;
+        assert_ne!(client.current().unwrap().stable_id(), old.stable_id());
+        open.write_all(b"pong").await.unwrap();
+        served.read_exact(&mut got).await.unwrap();
+        assert_eq!(&got, b"pong");
     }
 }

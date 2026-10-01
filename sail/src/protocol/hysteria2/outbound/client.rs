@@ -32,6 +32,9 @@ use super::super::salamander::Salamander;
 const MAX_UDP_SESSIONS: usize = 1024;
 /// Packets queued for a UDP session before more are dropped.
 const UDP_SESSION_QUEUE: usize = 256;
+/// What a connection closed for a network change is closed with.
+const NETWORK_CHANGED_CODE: quinn::VarInt = quinn::VarInt::from_u32(0);
+const NETWORK_CHANGED: &[u8] = b"network changed";
 
 /// What the client is configured with.
 pub struct ClientOptions {
@@ -54,45 +57,97 @@ pub struct ClientOptions {
 
 pub struct Client {
     options: ClientOptions,
-    conn: tokio::sync::Mutex<Option<Arc<Connection>>>,
+    /// The connection in use, and the network it was dialled on.
+    conn: Mutex<Current>,
+    /// Held while dialling, so that requests arriving meanwhile wait for
+    /// the one connection being made.
+    dialing: tokio::sync::Mutex<()>,
+}
+
+#[derive(Default)]
+struct Current {
+    conn: Option<Arc<Connection>>,
+    /// Counts the network changes; a connection dialled across one is
+    /// not kept.
+    network: u64,
 }
 
 impl Client {
     pub fn new(options: ClientOptions) -> Self {
         Self {
             options,
-            conn: tokio::sync::Mutex::new(None),
+            conn: Mutex::default(),
+            dialing: tokio::sync::Mutex::new(()),
         }
+    }
+
+    fn slot(&self) -> std::sync::MutexGuard<'_, Current> {
+        self.conn.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// The live connection, if there is one.
+    fn live(&self) -> Option<Arc<Connection>> {
+        let mut current = self.slot();
+        let conn = current.conn.as_ref()?;
+        if conn.conn.close_reason().is_none() {
+            return Some(conn.clone());
+        }
+        debug!(
+            "hysteria2 connection closed: {:?}",
+            conn.conn.close_reason()
+        );
+        current.conn = None;
+        None
+    }
+
+    /// The connection in use, if any.
+    #[cfg(all(test, feature = "inbound-hysteria2"))]
+    pub fn current(&self) -> Option<quinn::Connection> {
+        self.slot().conn.as_ref().map(|c| c.conn.clone())
     }
 
     /// The live connection, dialling one if there is none.
     pub async fn connection(&self) -> io::Result<Arc<Connection>> {
-        let mut guard = self.conn.lock().await;
-        if let Some(conn) = guard.as_ref() {
-            if conn.conn.close_reason().is_none() {
-                return Ok(conn.clone());
-            }
-            debug!(
-                "hysteria2 connection closed: {:?}",
-                conn.conn.close_reason()
-            );
+        if let Some(conn) = self.live() {
+            return Ok(conn);
         }
-        *guard = None;
+        let _dialing = self.dialing.lock().await;
+        if let Some(conn) = self.live() {
+            return Ok(conn);
+        }
+        let network = self.slot().network;
         let conn = Arc::new(
             self.connect()
                 .await
                 .map_err(|e| io::Error::other(format!("hysteria2 connect failed: {:#}", e)))?,
         );
-        *guard = Some(conn.clone());
+        let mut current = self.slot();
+        if current.network != network {
+            conn.conn.close(NETWORK_CHANGED_CODE, NETWORK_CHANGED);
+            return Err(io::Error::other("hysteria2: network changed"));
+        }
+        current.conn = Some(conn.clone());
         Ok(conn)
     }
 
     /// Forgets `conn` if it is the current connection, so that the next
     /// request dials a new one.
-    pub async fn discard(&self, conn: &Arc<Connection>) {
-        let mut guard = self.conn.lock().await;
-        if guard.as_ref().is_some_and(|c| Arc::ptr_eq(c, conn)) {
-            *guard = None;
+    pub fn discard(&self, conn: &Arc<Connection>) {
+        let mut current = self.slot();
+        if current.conn.as_ref().is_some_and(|c| Arc::ptr_eq(c, conn)) {
+            current.conn = None;
+        }
+    }
+
+    /// Closes the connection in use, whose streams and UDP sessions fail
+    /// with it, and drops one being dialled, as sing-box's
+    /// CloseWithError: the next request dials on the new network.
+    pub fn network_changed(&self) {
+        let mut current = self.slot();
+        current.network += 1;
+        if let Some(conn) = current.conn.take() {
+            debug!("hysteria2: network changed, closing the connection");
+            conn.conn.close(NETWORK_CHANGED_CODE, NETWORK_CHANGED);
         }
     }
 
@@ -107,7 +162,7 @@ impl Client {
         let (mut send, mut recv) = match conn.conn.open_bi().await {
             Ok(s) => s,
             Err(e) => {
-                self.discard(&conn).await;
+                self.discard(&conn);
                 return Err(io::Error::other(e));
             }
         };
