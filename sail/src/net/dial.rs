@@ -161,7 +161,12 @@ pub(crate) fn bind_via(
 }
 
 /// The index of the interface `iface`, as the system knows it now.
-#[cfg(any(target_os = "macos", target_os = "linux", target_os = "android"))]
+#[cfg(any(
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "linux",
+    target_os = "android"
+))]
 fn index_of(iface: &str) -> io::Result<u32> {
     let name = std::ffi::CString::new(iface.as_bytes())
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid interface name"))?;
@@ -172,10 +177,10 @@ fn index_of(iface: &str) -> io::Result<u32> {
 }
 
 /// `iface` by `index` where that is known, else by its name.
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 fn bind_interface(
     socket: &socket2::Socket,
-    target: &SocketAddr,
+    _target: &SocketAddr,
     iface: &str,
     index: Option<u32>,
 ) -> io::Result<()> {
@@ -184,9 +189,12 @@ fn bind_interface(
         Some(index) => index,
         None => index_of(iface)?,
     };
-    let (level, option) = match target {
-        SocketAddr::V4(_) => (libc::IPPROTO_IP, libc::IP_BOUND_IF),
-        SocketAddr::V6(_) => (libc::IPPROTO_IPV6, libc::IPV6_BOUND_IF),
+    // By the socket's own family: a dual-stack IPv6 socket sending to an
+    // IPv4-mapped address is bound with IPV6_BOUND_IF.
+    // (getsockname tells the family of a socket not bound yet.)
+    let (level, option) = match socket.local_addr()?.is_ipv6() {
+        true => (libc::IPPROTO_IPV6, libc::IPV6_BOUND_IF),
+        false => (libc::IPPROTO_IP, libc::IP_BOUND_IF),
     };
     let ret = unsafe {
         libc::setsockopt(
@@ -284,6 +292,7 @@ fn bind_interface(
 
 #[cfg(not(any(
     target_os = "macos",
+    target_os = "ios",
     target_os = "linux",
     target_os = "android",
     target_os = "windows"
@@ -323,7 +332,7 @@ pub fn supports_routing_mark() -> bool {
 /// asked. It is not asked on Android, where interfaces come and go with the
 /// network.
 pub fn interface_exists(name: &str) -> Option<bool> {
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[cfg(any(target_os = "macos", target_os = "ios", target_os = "linux"))]
     {
         let name = std::ffi::CString::new(name).ok()?;
         Some(unsafe { libc::if_nametoindex(name.as_ptr()) } != 0)
@@ -332,7 +341,12 @@ pub fn interface_exists(name: &str) -> Option<bool> {
     {
         Some(crate::platform::windows::ip_helper::interface_exists(name))
     }
-    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+    #[cfg(not(any(
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "linux",
+        target_os = "windows"
+    )))]
     {
         let _ = name;
         None
@@ -343,6 +357,7 @@ pub fn interface_exists(name: &str) -> Option<bool> {
 pub fn supports_bind_interface() -> bool {
     cfg!(any(
         target_os = "macos",
+        target_os = "ios",
         target_os = "linux",
         target_os = "android",
         target_os = "windows"
@@ -384,6 +399,37 @@ mod tests {
         .unwrap();
         // Bound to an interface, not to an address.
         assert!(!bound);
+    }
+
+    /// A dual-stack IPv6 socket is bound with IPV6_BOUND_IF, whatever the
+    /// family of its target: the option goes by the socket's own family.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_dual_stack_socket_is_bound_by_its_own_family() {
+        use std::os::unix::io::AsRawFd;
+        let socket =
+            socket2::Socket::new(socket2::Domain::IPV6, socket2::Type::DGRAM, None).unwrap();
+        socket.set_only_v6(false).unwrap();
+        bind(
+            &socket,
+            &"1.1.1.1:53".parse().unwrap(),
+            &bound_to("lo0"),
+            None,
+        )
+        .unwrap();
+        let mut index: libc::c_uint = 0;
+        let mut len = std::mem::size_of::<libc::c_uint>() as libc::socklen_t;
+        let ret = unsafe {
+            libc::getsockopt(
+                socket.as_raw_fd(),
+                libc::IPPROTO_IPV6,
+                libc::IPV6_BOUND_IF,
+                &mut index as *mut _ as *mut libc::c_void,
+                &mut len,
+            )
+        };
+        assert_eq!(ret, 0, "{}", io::Error::last_os_error());
+        assert_eq!(index, index_of("lo0").unwrap());
     }
 
     #[cfg(any(target_os = "macos", target_os = "linux"))]
