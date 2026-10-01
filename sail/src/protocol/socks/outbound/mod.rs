@@ -39,7 +39,8 @@ struct SocksOutboundOptions {
     username: String,
     #[serde(default)]
     password: String,
-    /// UDP over its TCP, to `sp.v2.udp-over-tcp.arpa`, instead of UDP
+    /// UDP over its TCP, to `sp.v2.udp-over-tcp.arpa` (version 2, the
+    /// default) or `sp.udp-over-tcp.arpa` (version 1), instead of UDP
     /// ASSOCIATE.
     #[serde(default)]
     udp_over_tcp: Option<uot::UdpOverTcpOptions>,
@@ -67,8 +68,8 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
     }
     let (server, server_port) = ctx.server(options.server.clone(), options.server_port)?;
     let udp_over_tcp = match &options.udp_over_tcp {
-        Some(uot) => uot.enabled(ctx.tag)?,
-        None => false,
+        Some(uot) => uot.version(ctx.tag)?,
+        None => None,
     };
     let stream = Arc::new(StreamHandler {
         address: server.clone(),
@@ -90,8 +91,8 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         .stream_handler(stream)
         .datagram_handler(datagram)
         .build();
-    if udp_over_tcp {
-        return Ok(uot::over_stream(socks)?);
+    if let Some(version) = udp_over_tcp {
+        return Ok(uot::over_stream(socks, version)?);
     }
     Ok(socks)
 }

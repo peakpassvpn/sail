@@ -16,7 +16,6 @@ use crate::adapter::*;
 use crate::protocol::fallback::{Fallback, HEADER_TIMEOUT};
 use crate::session::{Session as ProxySession, SocksAddr, SocksAddrWireType, StreamId};
 use crate::transport::muxcore::Tuning;
-use crate::transport::uot;
 
 use super::super::padding::PaddingScheme;
 use super::super::session::{read_auth_padding, Session, Stream, AUTH_HASH_LEN, MAX_STREAMS};
@@ -152,13 +151,9 @@ async fn accept(
 ) {
     let sid = stream.id();
     // A stream for UDP over TCP is handed on like any other, and served
-    // where every inbound's are; version 1 is refused here, where the
-    // client can be told.
+    // where every inbound's are.
     let handshake = async {
         let destination = SocksAddr::read_from(&mut stream, SocksAddrWireType::PortLast).await?;
-        if uot::version(&destination) == Some(1) {
-            return Err(io::Error::other("udp-over-tcp version 1 is not supported"));
-        }
         Ok::<_, io::Error>(destination)
     };
     let destination = match tokio::time::timeout(handshake_timeout, handshake).await {

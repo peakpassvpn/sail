@@ -501,7 +501,7 @@ Rust: [`ShadowsocksOutboundOptions`](https://github.com/peakpassvpn/sail/blob/de
 | `plugin` | string | unset | Supported | Only `obfs-local` (simple-obfs) is supported. |
 | `plugin_opts` | string | unset | Supported | `obfs=http\|tls;obfs-host=<host>;obfs-uri=<path>`, as simple-obfs takes them. |
 | `network` | listable-string, one of `tcp`, `udp` | — | Error: Which networks an outbound carries: connections it should refuse would go through it | — |
-| `udp_over_tcp` | bool\|object → [object](/sail/reference/shared/#udp-over-tcp) | unset | Supported | UDP over its TCP, to `sp.v2.udp-over-tcp.arpa`, instead of its own UDP. |
+| `udp_over_tcp` | bool\|object → [object](/sail/reference/shared/#udp-over-tcp) | unset | Supported | UDP over its TCP, to `sp.v2.udp-over-tcp.arpa` (version 2, the default) or `sp.udp-over-tcp.arpa` (version 1), instead of its own UDP. |
 | `multiplex` | object → [object](/sail/reference/shared/#multiplex-outbounds) | unset | Supported | — |
 | `domain_strategy` | string | unset | Supported (deprecated in sing-box) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
 | `skip_default_domain_resolver` | bool | `false` | sail extension | A sail extension: without a `domain_resolver` of its own, the names dialled resolve as the DNS rules say, not as `route.default_domain_resolver` does; as Mihomo's DIRECT resolves apart from the proxies' servers. |
@@ -621,7 +621,7 @@ Rust: [`SocksOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail
 | `username` | string | `""` | Supported | — |
 | `password` | string | `""` | Supported | — |
 | `network` | listable-string, one of `tcp`, `udp` | — | Error: Which networks an outbound carries: connections it should refuse would go through it | — |
-| `udp_over_tcp` | bool\|object → [object](/sail/reference/shared/#udp-over-tcp) | unset | Supported | UDP over its TCP, to `sp.v2.udp-over-tcp.arpa`, instead of UDP ASSOCIATE. |
+| `udp_over_tcp` | bool\|object → [object](/sail/reference/shared/#udp-over-tcp) | unset | Supported | UDP over its TCP, to `sp.v2.udp-over-tcp.arpa` (version 2, the default) or `sp.udp-over-tcp.arpa` (version 1), instead of UDP ASSOCIATE. |
 | `domain_strategy` | string | unset | Supported (deprecated in sing-box) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
 | `skip_default_domain_resolver` | bool | `false` | sail extension | A sail extension: without a `domain_resolver` of its own, the names dialled resolve as the DNS rules say, not as `route.default_domain_resolver` does; as Mihomo's DIRECT resolves apart from the proxies' servers. |
 

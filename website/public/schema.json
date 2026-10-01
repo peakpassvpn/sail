@@ -17134,7 +17134,7 @@
        "$ref": "#/$defs/outbounds%5Bshadowsocks%5D.udp_over_tcp"
       }
      ],
-     "description": "UDP over its TCP, to `sp.v2.udp-over-tcp.arpa`, instead of its own UDP."
+     "description": "UDP over its TCP, to `sp.v2.udp-over-tcp.arpa` (version 2, the default) or `sp.udp-over-tcp.arpa` (version 1), instead of its own UDP."
     },
     "multiplex": {
      "$ref": "#/$defs/outbounds%5Bshadowsocks%5D.multiplex"
@@ -18133,7 +18133,7 @@
        "$ref": "#/$defs/outbounds%5Bsocks%5D.udp_over_tcp"
       }
      ],
-     "description": "UDP over its TCP, to `sp.v2.udp-over-tcp.arpa`, instead of UDP ASSOCIATE."
+     "description": "UDP over its TCP, to `sp.v2.udp-over-tcp.arpa` (version 2, the default) or `sp.udp-over-tcp.arpa` (version 1), instead of UDP ASSOCIATE."
     },
     "domain_strategy": {
      "type": "string",

@@ -1,16 +1,19 @@
-//! UDP over TCP, version 2, as sing-box speaks it: what a stream to
-//! `sp.v2.udp-over-tcp.arpa` carries. AnyTLS carries UDP this way, and so
-//! do Shadowsocks and SOCKS outbounds with `udp_over_tcp`; a stream to the
-//! magic address on any inbound is served as UDP in `app::inbound`.
+//! UDP over TCP as sing-box speaks it (sing's common/uot): what a stream
+//! to `sp.v2.udp-over-tcp.arpa`, version 2, or `sp.udp-over-tcp.arpa`,
+//! version 1, carries. AnyTLS carries UDP this way, and so do Shadowsocks
+//! and SOCKS outbounds with `udp_over_tcp`; a stream to either magic
+//! address on any inbound is served as UDP in `app::inbound`.
 //!
-//! The stream starts with a request, `is_connect u8 | destination`, the
-//! destination as a SOCKS5 address. Then come packets: `length u16 |
-//! payload` in connect mode, where every packet goes to the destination,
-//! and otherwise `address | length u16 | payload`, with the address in
-//! UoT's own form: type `0` IPv4, `1` IPv6, `2` a length-prefixed domain,
-//! then the port.
+//! A version 2 stream starts with a request, `is_connect u8 |
+//! destination`, the destination as a SOCKS5 address. Then come packets:
+//! `length u16 | payload` in connect mode, where every packet goes to the
+//! destination, and otherwise `address | length u16 | payload`, with the
+//! address in UoT's own form: type `0` IPv4, `1` IPv6, `2` a
+//! length-prefixed domain, then the port.
 //!
-//! Version 1, to `sp.udp-over-tcp.arpa`, is not supported.
+//! A version 1 stream has no request: its packets are those of version 2
+//! not in connect mode from the first byte (sing's uot/client.go:29,
+//! uot/server.go:48).
 
 use std::io;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
@@ -27,12 +30,21 @@ use crate::session::{DatagramSource, Network, Session, SocksAddr, SocksAddrWireT
 
 /// The destination a UoT stream asks for.
 pub const MAGIC_ADDRESS: &str = "sp.v2.udp-over-tcp.arpa";
-/// Version 1's, which is refused.
+/// Version 1's.
 pub const LEGACY_MAGIC_ADDRESS: &str = "sp.udp-over-tcp.arpa";
 
 /// The destination of a UoT stream, as sing-box asks for it.
 pub fn magic_destination() -> SocksAddr {
     SocksAddr::Domain(MAGIC_ADDRESS.to_string(), 0)
+}
+
+/// The destination of a stream of UoT `version`, as sing's
+/// `RequestDestination` has it (uot/protocol.go:25).
+pub fn request_destination(version: u8) -> SocksAddr {
+    match version {
+        1 => SocksAddr::Domain(LEGACY_MAGIC_ADDRESS.to_string(), 0),
+        _ => magic_destination(),
+    }
 }
 
 /// Which UoT version `destination` asks for, if any.
@@ -348,7 +360,7 @@ where
 }
 
 /// The `udp_over_tcp` option of an outbound, as sing-box has it: a bool,
-/// or `{enabled, version}`. Only version 2 is supported.
+/// or `{enabled, version}`, version 1 or 2, 2 when unset.
 #[derive(Deserialize, Debug, Clone)]
 #[serde(untagged)]
 pub enum UdpOverTcpOptions {
@@ -366,30 +378,37 @@ pub struct UdpOverTcpFields {
 }
 
 impl UdpOverTcpOptions {
-    /// Whether it is on; a version other than 2 is an error.
-    pub fn enabled(&self, tag: &str) -> anyhow::Result<bool> {
+    /// The version it speaks when on, 0 being 2 as in sing-box
+    /// (option/udp_over_tcp.go:20); one but 1 and 2 is an error.
+    pub fn version(&self, tag: &str) -> anyhow::Result<Option<u8>> {
         match self {
-            UdpOverTcpOptions::Enabled(on) => Ok(*on),
-            UdpOverTcpOptions::Options(fields) => match fields.version {
-                None | Some(2) => Ok(fields.enabled),
-                Some(v) => Err(anyhow!(
-                    "[{}] outbound: udp_over_tcp.version: {} is not supported, only 2 is",
-                    tag,
-                    v
-                )),
-            },
+            UdpOverTcpOptions::Enabled(on) => Ok(on.then_some(2)),
+            UdpOverTcpOptions::Options(fields) => {
+                let version = match fields.version {
+                    None | Some(0) | Some(2) => 2,
+                    Some(1) => 1,
+                    Some(v) => {
+                        return Err(anyhow!(
+                            "[{}] outbound: udp_over_tcp.version: {} is not one, 1 or 2",
+                            tag,
+                            v
+                        ))
+                    }
+                };
+                Ok(fields.enabled.then_some(version))
+            }
         }
     }
 }
 
-/// `handler` with its UDP carried over its own TCP: a stream to the magic
-/// address, made as the handler makes any other.
-pub fn over_stream(handler: AnyOutboundHandler) -> io::Result<AnyOutboundHandler> {
+/// `handler` with its UDP carried over its own TCP, in UoT `version`: a
+/// stream to the magic address, made as the handler makes any other.
+pub fn over_stream(handler: AnyOutboundHandler, version: u8) -> io::Result<AnyOutboundHandler> {
     let stream = handler.stream()?.clone();
     Ok(crate::adapter::outbound::HandlerBuilder::default()
         .tag(handler.tag().clone())
         .stream_handler(stream.clone())
-        .datagram_handler(Arc::new(DatagramHandler { stream }))
+        .datagram_handler(Arc::new(DatagramHandler { stream, version }))
         .build())
 }
 
@@ -397,12 +416,14 @@ pub fn over_stream(handler: AnyOutboundHandler) -> io::Result<AnyOutboundHandler
 /// UDP goes over its streams only when asked to, such as TUIC's
 /// `udp_over_stream`.
 pub fn datagram_handler(stream: AnyOutboundStreamHandler) -> AnyOutboundDatagramHandler {
-    Arc::new(DatagramHandler { stream })
+    Arc::new(DatagramHandler { stream, version: 2 })
 }
 
 /// UDP through a stream handler.
 struct DatagramHandler {
     stream: AnyOutboundStreamHandler,
+    /// 1 or 2.
+    version: u8,
 }
 
 #[async_trait]
@@ -429,11 +450,15 @@ impl OutboundDatagramHandler for DatagramHandler {
         };
         let mut magic = sess.clone();
         magic.network = Network::Tcp;
-        magic.destination = magic_destination();
+        magic.destination = request_destination(self.version);
         let mut stream = self.stream.handle(&magic, None, stream).await?;
-        let mut request = BytesMut::new();
-        put_request(&mut request, false, &sess.destination);
-        stream.write_all(&request).await?;
+        // Version 1 has no request: every packet names its address, as
+        // here in version 2.
+        if self.version == 2 {
+            let mut request = BytesMut::new();
+            put_request(&mut request, false, &sess.destination);
+            stream.write_all(&request).await?;
+        }
         Ok(Box::new(OutboundDatagram::new(stream, &sess.destination)))
     }
 }
@@ -449,18 +474,22 @@ mod tests {
     }
 
     #[test]
-    fn options_take_a_bool_or_version_2() {
+    fn options_take_a_bool_or_version_1_or_2() {
         let parse = |json: &str| serde_json::from_str::<UdpOverTcpOptions>(json).unwrap();
-        assert!(parse("true").enabled("t").unwrap());
-        assert!(!parse("false").enabled("t").unwrap());
-        assert!(parse(r#"{"enabled": true}"#).enabled("t").unwrap());
-        assert!(parse(r#"{"enabled": true, "version": 2}"#)
-            .enabled("t")
-            .unwrap());
-        let err = parse(r#"{"enabled": true, "version": 1}"#)
-            .enabled("t")
+        let version = |json: &str| parse(json).version("t").unwrap();
+        assert_eq!(version("true"), Some(2));
+        assert_eq!(version("false"), None);
+        assert_eq!(version(r#"{"enabled": true}"#), Some(2));
+        assert_eq!(version(r#"{"enabled": true, "version": 2}"#), Some(2));
+        assert_eq!(version(r#"{"enabled": true, "version": 1}"#), Some(1));
+        assert_eq!(version(r#"{"enabled": false, "version": 1}"#), None);
+        let err = parse(r#"{"enabled": true, "version": 3}"#)
+            .version("t")
             .unwrap_err();
-        assert!(err.to_string().contains("udp_over_tcp.version"), "{}", err);
+        assert_eq!(
+            err.to_string(),
+            "[t] outbound: udp_over_tcp.version: 3 is not one, 1 or 2"
+        );
         assert!(serde_json::from_str::<UdpOverTcpOptions>(r#"{"enabled": true, "x": 1}"#).is_err());
     }
 

@@ -9,8 +9,8 @@
 //!   others refuse it before it gets here (`transport::mux::inbound`).
 //!   A stream to `_BrutalBwExchange` is not routed: on it the client
 //!   negotiates TCP Brutal (`transport::mux::brutal`).
-//! - `sp.v2.udp-over-tcp.arpa`: UDP over TCP, version 2, a UDP session of
-//!   its own; on a mux stream too. Version 1 is refused.
+//! - `sp.v2.udp-over-tcp.arpa` and `sp.udp-over-tcp.arpa`: UDP over TCP,
+//!   versions 2 and 1, a UDP session of its own; on a mux stream too.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -21,7 +21,7 @@ use tracing::debug;
 use crate::adapter::AnyStream;
 use crate::app::dispatcher::Dispatcher;
 use crate::app::nat_manager::NatManager;
-use crate::session::{DatagramSource, Network, Session, StreamId};
+use crate::session::{DatagramSource, Network, Session, SocksAddr, StreamId};
 use crate::transport::uot;
 
 use super::network_listener::handle_inbound_datagram;
@@ -57,11 +57,23 @@ async fn serve_unmuxed(
             let handshake_timeout = dispatcher.env().options.inbound.handshake_timeout;
             serve_uot(sess, stream, inbound_tag, nat_manager, handshake_timeout).await
         }
-        Some(version) => debug!(
-            "udp-over-tcp from {}: version {} is not supported",
-            sess.source, version
-        ),
+        Some(_) => serve_legacy_uot(sess, stream, inbound_tag, nat_manager).await,
     }
+}
+
+/// UoT version 1: no request, and every packet names its address. The
+/// session goes to `0.0.0.0:0`, as sing-box routes it
+/// (common/uot/router.go:42).
+async fn serve_legacy_uot(
+    mut sess: Session,
+    stream: AnyStream,
+    inbound_tag: String,
+    nat_manager: Arc<NatManager>,
+) {
+    sess.destination = SocksAddr::from((std::net::Ipv4Addr::UNSPECIFIED, 0));
+    let source = udp_session(&mut sess);
+    let datagram = uot::InboundDatagram::new(stream, None, source);
+    handle_inbound_datagram(inbound_tag, Box::new(datagram), Some(sess), nat_manager).await;
 }
 
 async fn serve_uot(

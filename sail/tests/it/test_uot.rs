@@ -1,6 +1,6 @@
-//! UDP over TCP (version 2) from Shadowsocks 2022 and SOCKS outbounds with
-//! `udp_over_tcp`, served by those inbounds: between sail instances, and
-//! against sing-box both ways.
+//! UDP over TCP, versions 2 and 1, from Shadowsocks 2022 and SOCKS
+//! outbounds with `udp_over_tcp`, served by those inbounds: between sail
+//! instances, and against sing-box both ways.
 //!
 //! Each client reaches its server through a TCP-only forwarder, so that
 //! UDP gets through only over TCP. The sing-box tests need
@@ -162,7 +162,13 @@ fn sail_server(ports: &Ports) -> String {
     .to_string()
 }
 
-fn sail_client(ports: &Ports, ss_forwarder: u16, socks_forwarder: u16) -> String {
+/// The clients, speaking UoT `version`; the SOCKS outbound's version 2 is
+/// the bare `true`.
+fn sail_client(ports: &Ports, ss_forwarder: u16, socks_forwarder: u16, version: u8) -> String {
+    let socks_uot = match version {
+        2 => json!(true),
+        _ => json!({ "enabled": true, "version": version }),
+    };
     json!({
         "inbounds": [
             { "type": "socks", "tag": "in-ss", "listen": "127.0.0.1", "listen_port": ports.client_ss },
@@ -176,14 +182,14 @@ fn sail_client(ports: &Ports, ss_forwarder: u16, socks_forwarder: u16) -> String
                 "server_port": ss_forwarder,
                 "method": SS_METHOD,
                 "password": SS_KEY,
-                "udp_over_tcp": { "enabled": true, "version": 2 },
+                "udp_over_tcp": { "enabled": true, "version": version },
             },
             {
                 "type": "socks",
                 "tag": "socks",
                 "server": "127.0.0.1",
                 "server_port": socks_forwarder,
-                "udp_over_tcp": true,
+                "udp_over_tcp": socks_uot,
             },
         ],
         "route": {
@@ -207,24 +213,31 @@ impl Drop for Instances {
     }
 }
 
-// app(socks) -> sail(ss|socks, udp_over_tcp) -> forwarder -> sail -> echo
-#[test]
-fn test_uot_sail_to_sail() -> anyhow::Result<()> {
+fn sail_to_sail(version: u8) -> anyhow::Result<()> {
     common::retry_port_clash(|| {
         let ports = Ports::new();
         let rt = runtime()?;
         let _server = Instances(common::run_sail_instances(&rt, vec![sail_server(&ports)])?);
         run(&rt, &ports, |ss, socks| {
-            let ids = common::run_sail_instances(&rt, vec![sail_client(&ports, ss, socks)])?;
+            let ids =
+                common::run_sail_instances(&rt, vec![sail_client(&ports, ss, socks, version)])?;
             Ok(Box::new(Instances(ids)))
         })
     })
 }
 
-// app(socks) -> sail(ss|socks, udp_over_tcp) -> forwarder -> sing-box -> echo
+// app(socks) -> sail(ss|socks, udp_over_tcp) -> forwarder -> sail -> echo
 #[test]
-#[ignore = "needs sing-box"]
-fn test_uot_sail_to_sing_box() -> anyhow::Result<()> {
+fn test_uot_sail_to_sail() -> anyhow::Result<()> {
+    sail_to_sail(2)
+}
+
+#[test]
+fn test_uot_v1_sail_to_sail() -> anyhow::Result<()> {
+    sail_to_sail(1)
+}
+
+fn sail_to_sing_box(version: u8) -> anyhow::Result<()> {
     common::retry_port_clash(|| {
         let ports = Ports::new();
         let dir = common::TempDir::new("uot")?;
@@ -244,16 +257,40 @@ fn test_uot_sail_to_sing_box() -> anyhow::Result<()> {
         let _sing_box = common::Daemon::sing_box(dir.path(), "server", server)?;
         let rt = runtime()?;
         run(&rt, &ports, |ss, socks| {
-            let ids = common::run_sail_instances(&rt, vec![sail_client(&ports, ss, socks)])?;
+            let ids =
+                common::run_sail_instances(&rt, vec![sail_client(&ports, ss, socks, version)])?;
             Ok(Box::new(Instances(ids)))
         })
     })
+}
+
+// app(socks) -> sail(ss|socks, udp_over_tcp) -> forwarder -> sing-box -> echo
+#[test]
+#[ignore = "needs sing-box"]
+fn test_uot_sail_to_sing_box() -> anyhow::Result<()> {
+    sail_to_sing_box(2)
+}
+
+#[test]
+#[ignore = "needs sing-box"]
+fn test_uot_v1_sail_to_sing_box() -> anyhow::Result<()> {
+    sail_to_sing_box(1)
 }
 
 // app(socks) -> sing-box(ss|socks, udp_over_tcp) -> forwarder -> sail -> echo
 #[test]
 #[ignore = "needs sing-box"]
 fn test_uot_sing_box_to_sail() -> anyhow::Result<()> {
+    sing_box_to_sail(2)
+}
+
+#[test]
+#[ignore = "needs sing-box"]
+fn test_uot_v1_sing_box_to_sail() -> anyhow::Result<()> {
+    sing_box_to_sail(1)
+}
+
+fn sing_box_to_sail(version: u8) -> anyhow::Result<()> {
     common::retry_port_clash(|| {
         let ports = Ports::new();
         let dir = common::TempDir::new("uot")?;
@@ -273,14 +310,14 @@ fn test_uot_sing_box_to_sail() -> anyhow::Result<()> {
                         "server_port": ss,
                         "method": SS_METHOD,
                         "password": SS_KEY,
-                        "udp_over_tcp": { "enabled": true, "version": 2 },
+                        "udp_over_tcp": { "enabled": true, "version": version },
                     },
                     {
                         "type": "socks",
                         "tag": "socks",
                         "server": "127.0.0.1",
                         "server_port": socks,
-                        "udp_over_tcp": { "enabled": true, "version": 2 },
+                        "udp_over_tcp": { "enabled": true, "version": version },
                     },
                 ],
                 "route": {

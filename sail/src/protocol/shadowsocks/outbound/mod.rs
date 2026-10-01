@@ -53,7 +53,8 @@ struct ShadowsocksOutboundOptions {
     /// takes them.
     #[serde(default)]
     plugin_opts: Option<String>,
-    /// UDP over its TCP, to `sp.v2.udp-over-tcp.arpa`, instead of its own
+    /// UDP over its TCP, to `sp.v2.udp-over-tcp.arpa` (version 2, the
+    /// default) or `sp.udp-over-tcp.arpa` (version 1), instead of its own
     /// UDP.
     #[serde(default)]
     udp_over_tcp: Option<uot::UdpOverTcpOptions>,
@@ -63,8 +64,8 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
     let options: ShadowsocksOutboundOptions = ctx.options()?;
     let server = ctx.server(options.server.clone(), options.server_port)?;
     let udp_over_tcp = match &options.udp_over_tcp {
-        Some(uot) => uot.enabled(ctx.tag)?,
-        None => false,
+        Some(uot) => uot.version(ctx.tag)?,
+        None => None,
     };
     let ss = if sip022::is_2022(&options.method) {
         build_2022(ctx.tag, &options, server, &ctx.dialer)?
@@ -91,8 +92,8 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
             .datagram_handler(datagram)
             .build()
     };
-    let ss = if udp_over_tcp {
-        uot::over_stream(ss)?
+    let ss = if let Some(version) = udp_over_tcp {
+        uot::over_stream(ss, version)?
     } else {
         ss
     };
