@@ -1,6 +1,6 @@
 //! The corpus: configurations with the structure of public ones and every
-//! value synthetic, each read as `sail -T` reads it short of building, and
-//! what came of it compared with `tests/corpus/expected.json`.
+//! value synthetic, each read and built as `sail -T` does, and what came of
+//! it compared with `tests/corpus/expected.json`.
 //!
 //! A change to a front-end that changes an outcome shows here; when the
 //! change is meant, `SAIL_CORPUS_UPDATE=1` writes the new outcomes.
@@ -16,40 +16,52 @@ fn the_corpus_reads_as_expected() {
     use std::collections::{BTreeMap, BTreeSet};
     use std::path::Path;
 
-    use sail::config::Format;
     use serde_json::{json, Value};
 
-    // What reading a configuration came to: read, with its warnings
-    // counted, or the first line of the error; a panic is a bug.
-    fn outcome(format: Format, text: &str) -> Value {
-        match std::panic::catch_unwind(|| format.parse(text)) {
-            Ok(Ok(config)) => json!({ "ok": true, "warnings": config.warnings.len() }),
+    // What reading and building a configuration came to: read, with its
+    // warnings counted, and built (`check`), or the first line of the
+    // error; a panic is a bug.
+    fn outcome(path: &Path) -> Value {
+        let host = sail::runtime::Host::default();
+        let read = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            sail::config::from_file_for(path.to_str().unwrap(), &host)
+        }));
+        let config = match read {
+            Ok(Ok(config)) => config,
             Ok(Err(e)) => {
-                let message = format!("{:#}", e);
-                json!({ "error": message.lines().next().unwrap_or_default() })
+                let data_dir = std::env::temp_dir().join("sail-corpus-data");
+                return json!({ "error": placed(&format!("{:#}", e), &data_dir) });
             }
-            Err(panic) => {
-                let message = panic
-                    .downcast_ref::<String>()
-                    .cloned()
-                    .or_else(|| panic.downcast_ref::<&str>().map(|s| s.to_string()))
-                    .unwrap_or_default();
-                json!({ "panic": message.lines().next().unwrap_or_default() })
-            }
-        }
+            Err(panic) => return json!({ "panic": panic_message(panic) }),
+        };
+        // Relative paths are the data directory's: one of the test's, and
+        // written `<data_dir>`, for the outcome to be every machine's.
+        let data_dir = std::env::temp_dir().join("sail-corpus-data");
+        let env = sail::runtime::RuntimeEnv {
+            host: sail::runtime::Host {
+                data_dir: Some(data_dir.clone()),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let placed = |e: anyhow::Error| placed(&format!("{:#}", e), &data_dir);
+        let check = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            sail::check_config(&config, &env)
+        })) {
+            Ok(Ok(())) => json!("ok"),
+            Ok(Err(e)) => json!(placed(e)),
+            Err(panic) => json!(format!("panic: {}", panic_message(panic))),
+        };
+        json!({ "ok": true, "warnings": config.warnings.len(), "check": check })
     }
 
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/corpus");
     let mut files = Vec::new();
-    for (dir, format) in [
-        ("sing-box", Format::SingBox),
-        ("clash", Format::Clash),
-        ("surge", Format::Surge),
-    ] {
+    for dir in ["sing-box", "clash", "surge"] {
         for entry in std::fs::read_dir(root.join(dir)).unwrap() {
             let path = entry.unwrap().path();
             let name = format!("{}/{}", dir, path.file_name().unwrap().to_string_lossy());
-            files.push((name, format, path));
+            files.push((name, path));
         }
     }
     // Read on every core: the files are many.
@@ -61,10 +73,7 @@ fn the_corpus_reads_as_expected() {
                 scope.spawn(move || {
                     chunk
                         .iter()
-                        .map(|(name, format, path)| {
-                            let text = std::fs::read_to_string(path).unwrap();
-                            (name.clone(), outcome(*format, &text))
-                        })
+                        .map(|(name, path)| (name.clone(), outcome(path)))
                         .collect::<Vec<_>>()
                 })
             })
@@ -139,4 +148,72 @@ fn the_corpus_reads_as_expected() {
         changed.len(),
         changed.join("\n")
     );
+}
+
+/// An error's first line, the directories it names written as names: the
+/// corpus's (a Surge profile's paths are its own) and the data directory.
+fn placed(message: &str, data_dir: &std::path::Path) -> String {
+    let corpus = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/corpus");
+    first_line(message)
+        .replace(&corpus.display().to_string(), "<corpus>")
+        .replace(&data_dir.display().to_string(), "<data_dir>")
+}
+
+fn first_line(message: &str) -> String {
+    message.lines().next().unwrap_or_default().to_string()
+}
+
+fn panic_message(panic: Box<dyn std::any::Any + Send>) -> String {
+    let message = panic
+        .downcast_ref::<String>()
+        .cloned()
+        .or_else(|| panic.downcast_ref::<&str>().map(|s| s.to_string()))
+        .unwrap_or_default();
+    first_line(&message)
+}
+
+/// Every way a configuration reaches sail reads it alike: a file (the CLI,
+/// a reload, a check) and the same text from a host (the FFI's start,
+/// reload and check). A Surge profile that includes a file next to it is
+/// left out: text has no place to find one.
+#[cfg(all(
+    feature = "config-surge",
+    feature = "all-endpoints",
+    feature = "rule-set",
+    feature = "outbound-provider"
+))]
+#[test]
+fn a_file_and_its_text_read_alike() {
+    use std::path::Path;
+
+    let host = sail::runtime::Host::default();
+    let said = |r: anyhow::Result<sail::config::Config>| match r {
+        Ok(config) => format!("ok, warned {:?}", config.warnings),
+        Err(e) => format!("{:#}", e),
+    };
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/corpus");
+    let mut differ = Vec::new();
+    for dir in ["sing-box", "clash", "surge"] {
+        for entry in std::fs::read_dir(root.join(dir)).unwrap() {
+            let path = entry.unwrap().path();
+            let text = std::fs::read_to_string(&path).unwrap();
+            if text
+                .lines()
+                .any(|l| l.trim_start().starts_with("#!include"))
+            {
+                continue;
+            }
+            let file = said(sail::config::from_file_for(path.to_str().unwrap(), &host));
+            let given = said(sail::config::from_string_for(&text, &host));
+            if file != given {
+                differ.push(format!(
+                    "{}: as a file {}; as text {}",
+                    path.display(),
+                    file,
+                    given
+                ));
+            }
+        }
+    }
+    assert!(differ.is_empty(), "{}", differ.join("\n"));
 }

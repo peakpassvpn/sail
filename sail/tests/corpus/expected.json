@@ -1,21 +1,26 @@
 {
   "clash/0001.yaml": {
+    "check": "route.rule_set[0]: [set-1]: <data_dir>/./path-1.yaml: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 6
   },
   "clash/0002.yaml": {
+    "check": "route.rules[24].process_name: not supported, rule-process-name is not compiled in",
     "ok": true,
     "warnings": 36
   },
   "clash/0003.yaml": {
+    "check": "route.rules[15].process_name: not supported, rule-process-name is not compiled in",
     "ok": true,
     "warnings": 27
   },
   "clash/0004.yaml": {
+    "check": "route.rules[25].process_name: not supported, rule-process-name is not compiled in",
     "ok": true,
     "warnings": 18
   },
   "clash/0005.yaml": {
+    "check": "route.rules[25].process_name: not supported, rule-process-name is not compiled in",
     "ok": true,
     "warnings": 39
   },
@@ -23,10 +28,12 @@
     "error": "proxy-groups[1].proxies: a group of no proxies and no providers"
   },
   "clash/0007.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 0
   },
   "clash/0008.yaml": {
+    "check": "route.rules[25].ip_cidr: invalid CIDR \"192.0.2.137/24\": host part of address was not zero",
     "ok": true,
     "warnings": 1
   },
@@ -34,10 +41,19 @@
     "error": "proxies[0].type: sail does not implement \"rematch\" yet"
   },
   "clash/0010.yaml": {
+    "check": "ok",
     "ok": true,
-    "warnings": 9
+    "warnings": 9,
+    "on": {
+      "macos": {
+        "check": "[DEFAULT-REDIR] inbound: redirect: only supported on Linux",
+        "ok": true,
+        "warnings": 9
+      }
+    }
   },
   "clash/0011.yaml": {
+    "check": "route.rules[4].process_name: not supported, rule-process-name is not compiled in",
     "ok": true,
     "warnings": 11
   },
@@ -45,14 +61,24 @@
     "error": "proxy-groups[0].type: sail does not implement \"relay\" groups yet"
   },
   "clash/0013.yaml": {
+    "check": "ok",
     "ok": true,
-    "warnings": 12
+    "warnings": 12,
+    "on": {
+      "macos": {
+        "check": "[DEFAULT-REDIR] inbound: redirect: only supported on Linux",
+        "ok": true,
+        "warnings": 12
+      }
+    }
   },
   "clash/0014.yaml": {
+    "check": "[Proxy 9] outbound: transport: path: must start with /",
     "ok": true,
     "warnings": 24
   },
   "clash/0015.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 0
   },
@@ -60,6 +86,7 @@
     "error": "tun.dns-hijack[0]: \"192.0.2.1\" names no port"
   },
   "clash/0017.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 1
   },
@@ -70,10 +97,12 @@
     "error": "proxies[2].plugin: sail does not implement the v2ray-plugin plugin yet, only obfs and shadow-tls"
   },
   "clash/0020.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 0
   },
   "clash/0021.yaml": {
+    "check": "[Proxy 5] outbound: transport: path: must start with /",
     "ok": true,
     "warnings": 2
   },
@@ -96,10 +125,12 @@
     "error": "proxies[0].client-fingerprint: sail has no fingerprint \"qq\", only chrome, firefox, safari, ios, android, edge and random"
   },
   "clash/0028.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 0
   },
   "clash/0029.yaml": {
+    "check": "route.rules[9].process_name_regex: not supported, rule-process-name is not compiled in",
     "ok": true,
     "warnings": 39
   },
@@ -116,18 +147,22 @@
     "error": "outbound_providers[0]: url: \"\" is not an http(s) URL"
   },
   "clash/0034.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 0
   },
   "clash/0035.yaml": {
+    "check": "[Proxy 14] outbound: transport: path: must start with /",
     "ok": true,
     "warnings": 0
   },
   "clash/0036.yaml": {
+    "check": "[DEFAULT-MIXED] inbound: listen_port: tcp 127.0.0.1:7890 is taken by [DEFAULT-HTTP]",
     "ok": true,
     "warnings": 1
   },
   "clash/0037.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 11
   },
@@ -135,6 +170,7 @@
     "error": "proxy-groups[1].proxies: a group of no proxies and no providers"
   },
   "clash/0039.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 4
   },
@@ -142,26 +178,39 @@
     "error": "outbound_providers[0]: url: \"str1\" is not an http(s) URL"
   },
   "clash/0041.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 11
   },
   "clash/0042.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 2
   },
   "clash/0043.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 13
   },
   "clash/0044.yaml": {
+    "check": "dns.servers[https://192.0.2.1/dns-query#Proxy 1]: [https://192.0.2.1/dns-query#Proxy 1] dns server: bind_interface: there is no interface \"Proxy 1\"",
     "ok": true,
     "warnings": 7
   },
   "clash/0045.yaml": {
+    "check": "ok",
     "ok": true,
-    "warnings": 10
+    "warnings": 10,
+    "on": {
+      "macos": {
+        "check": "[DEFAULT-REDIR] inbound: redirect: only supported on Linux",
+        "ok": true,
+        "warnings": 10
+      }
+    }
   },
   "clash/0046.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 0
   },
@@ -169,42 +218,59 @@
     "error": "proxy-groups[0].proxies[0]: no proxy or group is named \"Proxy 1\""
   },
   "clash/0048.yaml": {
+    "check": "ok",
     "ok": true,
-    "warnings": 10
+    "warnings": 10,
+    "on": {
+      "macos": {
+        "check": "[DEFAULT-REDIR] inbound: redirect: only supported on Linux",
+        "ok": true,
+        "warnings": 10
+      }
+    }
   },
   "clash/0049.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 8
   },
   "clash/0050.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 1
   },
   "clash/0051.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 2
   },
   "clash/0052.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 9
   },
   "clash/0053.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 0
   },
   "clash/0054.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 3
   },
   "clash/0055.yaml": {
+    "check": "[Group 2] outbound: url: invalid URL \"str2\": expected http:// or https://",
     "ok": true,
     "warnings": 3
   },
   "clash/0056.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 0
   },
   "clash/0057.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 16
   },
@@ -215,14 +281,17 @@
     "error": "proxies[0].type: sail does not implement \"wireguard\" yet"
   },
   "clash/0060.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 0
   },
   "clash/0061.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 0
   },
   "clash/0062.yaml": {
+    "check": "outbound_providers[0]: [provider-1]: path: <data_dir>/./path-1.yaml: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 6
   },
@@ -233,14 +302,17 @@
     "error": "proxy-groups[0].proxies: a group of no proxies and no providers"
   },
   "clash/0065.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 0
   },
   "clash/0066.yaml": {
+    "check": "[Proxy 9] outbound: method: unsupported cipher: aes-256-cfb",
     "ok": true,
     "warnings": 12
   },
   "clash/0067.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 1
   },
@@ -248,14 +320,15 @@
     "error": "proxy-groups[0].proxies: a group of no proxies and no providers"
   },
   "clash/0069.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 6
   },
   "clash/0070.yaml": {
-    "error": "outbound_providers[0]: url: \"str1\" is not an http(s) URL",
+    "error": "tun.route-exclude-address-set[0]: no rule-provider is named \"str5\"",
     "on": {
-      "linux": {
-        "error": "tun.route-exclude-address-set[0]: no rule-provider is named \"str5\""
+      "macos": {
+        "error": "outbound_providers[0]: url: \"str1\" is not an http(s) URL"
       }
     }
   },
@@ -263,6 +336,7 @@
     "error": "dns.nameserver[0]: sail does not implement dhcp:// servers yet"
   },
   "clash/0072.yaml": {
+    "check": "[Proxy 1] outbound: method: unsupported cipher: chacha20-ietf",
     "ok": true,
     "warnings": 0
   },
@@ -270,18 +344,22 @@
     "error": "outbound_providers[2]: url: \"\" is not an http(s) URL"
   },
   "clash/0074.yaml": {
+    "check": "[Proxy 6] outbound: alter_id: only 0 is supported, legacy VMess is not",
     "ok": true,
     "warnings": 0
   },
   "clash/0075.yaml": {
+    "check": "route.rules[25].ip_cidr: invalid CIDR \"192.0.2.137/24\": host part of address was not zero",
     "ok": true,
     "warnings": 1
   },
   "clash/0076.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 0
   },
   "clash/0077.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 0
   },
@@ -289,18 +367,22 @@
     "error": "outbound_providers[0]: url: \"str1\" is not an http(s) URL"
   },
   "clash/0079.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 0
   },
   "clash/0080.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 1
   },
   "clash/0081.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 0
   },
   "clash/0082.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 0
   },
@@ -314,18 +396,20 @@
     "error": "outbound_providers[0]: url: \"str1\" is not an http(s) URL"
   },
   "clash/0086.yaml": {
+    "check": "[Proxy 5] outbound: alter_id: only 0 is supported, legacy VMess is not",
     "ok": true,
     "warnings": 0
   },
   "clash/0087.yaml": {
-    "error": "outbound_providers[0]: url: \"str1\" is not an http(s) URL",
+    "error": "tun.route-exclude-address-set[0]: no rule-provider is named \"str3\"",
     "on": {
-      "linux": {
-        "error": "tun.route-exclude-address-set[0]: no rule-provider is named \"str3\""
+      "macos": {
+        "error": "outbound_providers[0]: url: \"str1\" is not an http(s) URL"
       }
     }
   },
   "clash/0088.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 0
   },
@@ -333,6 +417,7 @@
     "error": "outbound_providers[0]: url: \"str1\" is not an http(s) URL"
   },
   "clash/0090.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 0
   },
@@ -340,22 +425,27 @@
     "error": "proxy-groups[1].name: DIRECT is Mihomo's own policy"
   },
   "clash/0092.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 1
   },
   "clash/0093.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 2
   },
   "clash/0094.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 0
   },
   "clash/0095.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 0
   },
   "clash/0096.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 0
   },
@@ -363,6 +453,7 @@
     "error": "proxy-providers.provider-1.type: missing"
   },
   "clash/0098.yaml": {
+    "check": "route.default_interface: there is no interface \"if1\"",
     "ok": true,
     "warnings": 3
   },
@@ -373,34 +464,49 @@
     "error": "proxy-groups[15].empty-fallback: no proxy, not a group, is named \"str5\""
   },
   "clash/0101.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 0
   },
   "clash/0102.yaml": {
+    "check": "route.rules[2].process_name: not supported, rule-process-name is not compiled in",
     "ok": true,
     "warnings": 5
   },
   "clash/0103.yaml": {
+    "check": "ok",
     "ok": true,
-    "warnings": 8
+    "warnings": 8,
+    "on": {
+      "macos": {
+        "check": "[DEFAULT-REDIR] inbound: redirect: only supported on Linux",
+        "ok": true,
+        "warnings": 8
+      }
+    }
   },
   "clash/0104.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 0
   },
   "clash/0105.yaml": {
+    "check": "route.rules[5].ip_cidr: invalid CIDR \"198.18.0.1/16\": host part of address was not zero",
     "ok": true,
     "warnings": 15
   },
   "clash/0106.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 0
   },
   "clash/0107.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 0
   },
   "clash/0108.yaml": {
+    "check": "route.rules[2].process_name: not supported, rule-process-name is not compiled in",
     "ok": true,
     "warnings": 5
   },
@@ -411,6 +517,7 @@
     "error": "outbound_providers[0]: url: \"str1\" is not an http(s) URL"
   },
   "clash/0111.yaml": {
+    "check": "route.default_interface: there is no interface \"if1\"",
     "ok": true,
     "warnings": 1
   },
@@ -418,18 +525,29 @@
     "error": "proxies[1].type: sail does not implement \"wireguard\" yet"
   },
   "clash/0113.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 2
   },
   "clash/0114.yaml": {
+    "check": "ok",
     "ok": true,
-    "warnings": 18
+    "warnings": 18,
+    "on": {
+      "macos": {
+        "check": "[DEFAULT-REDIR] inbound: redirect: only supported on Linux",
+        "ok": true,
+        "warnings": 18
+      }
+    }
   },
   "clash/0115.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 0
   },
   "clash/0116.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 0
   },
@@ -455,6 +573,7 @@
     "error": "dns.nameserver[2]: sail does not implement dhcp:// servers yet"
   },
   "clash/0124.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 0
   },
@@ -462,10 +581,12 @@
     "error": "proxies[0].type: \"nekotls\" is not a proxy type Mihomo takes"
   },
   "clash/0126.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 0
   },
   "clash/0127.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 5
   },
@@ -476,13 +597,22 @@
     "error": "tun.dns-hijack[0]: \"192.0.2.2\" names no port"
   },
   "clash/0130.yaml": {
+    "check": "ok",
     "ok": true,
-    "warnings": 2
+    "warnings": 2,
+    "on": {
+      "macos": {
+        "check": "[DEFAULT-REDIR] inbound: redirect: only supported on Linux",
+        "ok": true,
+        "warnings": 2
+      }
+    }
   },
   "clash/0131.yaml": {
     "error": "dns.proxy-server-nameserver[0]: dns.default-nameserver[3]: \"str1\" is not an address, as Mihomo requires"
   },
   "clash/0132.yaml": {
+    "check": "outbound_providers[0]: [provider-1]: path: <data_dir>/./path-1.yaml: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 0
   },
@@ -493,6 +623,7 @@
     "error": "[Proxy 11] outbound: tls.reality.public_key: neither hex nor base64url"
   },
   "clash/0135.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 0
   },
@@ -503,6 +634,7 @@
     "error": "rules[12]: no policy to send what it matches to"
   },
   "clash/0138.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 2
   },
@@ -516,6 +648,7 @@
     "error": "proxies[7].type: sail does not implement \"hysteria\" yet"
   },
   "clash/0142.yaml": {
+    "check": "route.rules[465].ip_cidr: invalid CIDR \"192.0.2.1/28\": host part of address was not zero",
     "ok": true,
     "warnings": 10
   },
@@ -526,10 +659,12 @@
     "error": "proxy-groups[0].proxies: a group of no proxies and no providers"
   },
   "clash/0145.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 1
   },
   "clash/0146.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 0
   },
@@ -540,6 +675,7 @@
     "error": "proxies[16].network: \"raw\" is not a network Mihomo takes"
   },
   "clash/0149.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 0
   },
@@ -559,19 +695,36 @@
     "error": "proxy-groups[0].proxies: a group of no proxies and no providers"
   },
   "clash/0155.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 9
   },
   "clash/0156.yaml": {
+    "check": "ok",
     "ok": true,
-    "warnings": 14
+    "warnings": 14,
+    "on": {
+      "macos": {
+        "check": "[DEFAULT-REDIR] inbound: redirect: only supported on Linux",
+        "ok": true,
+        "warnings": 14
+      }
+    }
   },
   "clash/0157.yaml": {
     "error": "rules[16]: no policy to send what it matches to"
   },
   "clash/0158.yaml": {
+    "check": "ok",
     "ok": true,
-    "warnings": 3
+    "warnings": 3,
+    "on": {
+      "macos": {
+        "check": "[DEFAULT-REDIR] inbound: redirect: only supported on Linux",
+        "ok": true,
+        "warnings": 3
+      }
+    }
   },
   "clash/0159.yaml": {
     "error": "outbound_providers[0]: url: \"str1\" is not an http(s) URL"
@@ -580,30 +733,44 @@
     "error": "[Proxy 130] outbound: tls.reality.public_key: neither hex nor base64url"
   },
   "clash/0161.yaml": {
+    "check": "ok",
     "ok": true,
-    "warnings": 6
+    "warnings": 6,
+    "on": {
+      "macos": {
+        "check": "[DEFAULT-REDIR] inbound: redirect: only supported on Linux",
+        "ok": true,
+        "warnings": 6
+      }
+    }
   },
   "clash/0162.yaml": {
+    "check": "[Proxy 14] outbound: transport: path: must start with /",
     "ok": true,
     "warnings": 59
   },
   "clash/0163.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 0
   },
   "clash/0164.yaml": {
+    "check": "route.rule_set[0]: [set-1]: <data_dir>/./path-3.yaml: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 9
   },
   "clash/0165.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 0
   },
   "clash/0166.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 0
   },
   "clash/0167.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 0
   },
@@ -611,10 +778,19 @@
     "error": "[Proxy 1] outbound: tls.reality.public_key: neither hex nor base64url"
   },
   "clash/0169.yaml": {
+    "check": "ok",
     "ok": true,
-    "warnings": 9
+    "warnings": 9,
+    "on": {
+      "macos": {
+        "check": "[DEFAULT-REDIR] inbound: redirect: only supported on Linux",
+        "ok": true,
+        "warnings": 9
+      }
+    }
   },
   "clash/0170.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 1
   },
@@ -628,6 +804,7 @@
     "error": "tun.dns-hijack[0]: \"192.0.2.2\" names no port"
   },
   "clash/0174.yaml": {
+    "check": "[Proxy 1] outbound: missing field `password`",
     "ok": true,
     "warnings": 2
   },
@@ -638,6 +815,7 @@
     "error": "rules[14]: GEOIP: no payload"
   },
   "clash/0177.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 1
   },
@@ -645,6 +823,7 @@
     "error": "outbound_providers[0]: url: \"str1\" is not an http(s) URL"
   },
   "clash/0179.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 0
   },
@@ -655,22 +834,27 @@
     "error": "proxies[2].fingerprint: `fingerprint` is used for TLS certificate pinning. If you need to specify the browser fingerprint, use `client-fingerprint`"
   },
   "clash/0182.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 0
   },
   "clash/0183.yaml": {
+    "check": "outbound_providers[1]: [provider-2]: path: <data_dir>/./path-2.yml: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 3
   },
   "clash/0184.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 10
   },
   "clash/0185.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 4
   },
   "clash/0186.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 0
   },
@@ -678,17 +862,27 @@
     "error": "tun.dns-hijack[0]: \"192.0.2.2\" names no port"
   },
   "clash/0188.yaml": {
+    "check": "ok",
     "ok": true,
-    "warnings": 8
+    "warnings": 8,
+    "on": {
+      "macos": {
+        "check": "[DEFAULT-REDIR] inbound: redirect: only supported on Linux",
+        "ok": true,
+        "warnings": 8
+      }
+    }
   },
   "clash/0189.yaml": {
     "error": "rules[0]: no proxy or group is named \"Proxy 1\""
   },
   "clash/0190.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 1
   },
   "clash/0191.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 1
   },
@@ -696,14 +890,17 @@
     "error": "proxy-providers.provider-1.url: missing"
   },
   "clash/0193.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 5
   },
   "clash/0194.yaml": {
+    "check": "ok",
     "ok": true,
     "warnings": 0
   },
   "clash/0195.yaml": {
+    "check": "route.rules[51].ip_cidr: invalid CIDR \"192.0.2.137/24\": host part of address was not zero",
     "ok": true,
     "warnings": 1
   },
@@ -711,6 +908,7 @@
     "error": "dns.proxy-server-nameserver: missing, which Mihomo requires with respect-rules"
   },
   "clash/0197.yaml": {
+    "check": "route.rules[118].ip_cidr: invalid CIDR \"198.19.174.0/16\": host part of address was not zero",
     "ok": true,
     "warnings": 20
   },
@@ -721,6 +919,7 @@
     "error": "proxies[1].network: sail does not implement the xhttp transport yet"
   },
   "clash/0200.yaml": {
+    "check": "route.rule_set[0]: [set-1]: <data_dir>/./path-1.yaml: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 0
   },
@@ -743,6 +942,7 @@
     "error": "route.rule_set[0]: url: several tags need {tag} in it"
   },
   "sing-box/0007.json": {
+    "check": "ok",
     "ok": true,
     "warnings": 2
   },
@@ -750,6 +950,7 @@
     "error": "dns.servers[dns-2]: detour: [Proxy 1] is a direct outbound of no fields of its own, through which it would dial as it does without a detour"
   },
   "sing-box/0009.json": {
+    "check": "[Proxy 2] endpoint: peers[0].reserved: not base64: Invalid input length: 9",
     "ok": true,
     "warnings": 0
   },
@@ -769,6 +970,7 @@
     "error": "dns.servers[0]: missing field `type`"
   },
   "sing-box/0015.json": {
+    "check": "[Proxy 2] endpoint: unknown protocol \"tailscale\" (not supported, or not compiled into this build)",
     "ok": true,
     "warnings": 1
   },
@@ -791,10 +993,12 @@
     "error": "[in-1] inbound: tls.reality.private_key: neither hex nor base64url"
   },
   "sing-box/0022.json": {
+    "check": "[Proxy 1] outbound: udp_relay_mode: unknown variant `quic-rfc`, expected `native` or `quic`",
     "ok": true,
     "warnings": 0
   },
   "sing-box/0023.json": {
+    "check": "route.rules[2].process_name: not supported, rule-process-name is not compiled in",
     "ok": true,
     "warnings": 3
   },
@@ -823,6 +1027,7 @@
     "error": "[Proxy 2] outbound: tls.reality.public_key: neither hex nor base64url"
   },
   "sing-box/0032.json": {
+    "check": "[Group 6] outbound: depends on [Proxy 2], which does not exist",
     "ok": true,
     "warnings": 2
   },
@@ -866,6 +1071,7 @@
     "error": "dns.servers[0]: missing field `type`"
   },
   "sing-box/0046.json": {
+    "check": "ok",
     "ok": true,
     "warnings": 0
   },
@@ -915,10 +1121,12 @@
     "error": "dns.rules[0].rule_set_ip_cidr_accept_empty: sail does not implement this field yet"
   },
   "sing-box/0062.json": {
+    "check": "ok",
     "ok": true,
     "warnings": 2
   },
   "sing-box/0063.json": {
+    "check": "dns.servers[dns-1]: domain_resolver: the server is an address, with nothing to resolve",
     "ok": true,
     "warnings": 1
   },
@@ -953,10 +1161,12 @@
     "error": "dns.servers[0]: missing field `type`"
   },
   "sing-box/0074.json": {
+    "check": "dns.servers[dns-3]: domain_resolver: the server is an address, with nothing to resolve",
     "ok": true,
     "warnings": 3
   },
   "sing-box/0075.json": {
+    "check": "route.rule_set[0]: [set-1]: <data_dir>/./path-1.srs: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 1
   },
@@ -982,6 +1192,7 @@
     "error": "dns.servers[0]: missing field `type`"
   },
   "sing-box/0083.json": {
+    "check": "ok",
     "ok": true,
     "warnings": 2
   },
@@ -989,6 +1200,7 @@
     "error": "dns.servers[0]: missing field `type`"
   },
   "sing-box/0085.json": {
+    "check": "ok",
     "ok": true,
     "warnings": 1
   },
@@ -999,6 +1211,7 @@
     "error": "route.default_domain_match_strategy: unknown field `default_domain_match_strategy`, expected one of `rules`, `rule_set`, `final`, `default_interface`, `default_mark`, `auto_detect_interface`, `default_domain_resolver`, `default_network_strategy`, `default_network_type`, `default_fallback_network_type`, `default_fallback_delay`, `find_neighbor`, `dhcp_lease_files`, `default_http_client`"
   },
   "sing-box/0088.json": {
+    "check": "[in-1] inbound: tls: load certificates from <data_dir>/./path-1.pem failed: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 0
   },
@@ -1006,6 +1219,7 @@
     "error": "route.rules[5]: outbound [Proxy 9] does not exist"
   },
   "sing-box/0090.json": {
+    "check": "dns.rules[1].source_ip_cidr: invalid CIDR \"192.0.2.1/30\": host part of address was not zero",
     "ok": true,
     "warnings": 4
   },
@@ -1013,10 +1227,12 @@
     "error": "dns.fakeip: unknown field `fakeip`, expected one of `servers`, `rules`, `final`, `strategy`, `client_strategy`, `disable_cache`, `disable_expire`, `cache_capacity`, `optimistic`, `timeout`, `reverse_mapping`, `client_subnet`"
   },
   "sing-box/0092.json": {
+    "check": "[Group 18] outbound: needs at least one actor",
     "ok": true,
     "warnings": 1
   },
   "sing-box/0093.json": {
+    "check": "ok",
     "ok": true,
     "warnings": 0
   },
@@ -1033,6 +1249,7 @@
     "error": "route.final: outbound [Proxy 2] does not exist"
   },
   "sing-box/0098.json": {
+    "check": "ok",
     "ok": true,
     "warnings": 2
   },
@@ -1052,6 +1269,7 @@
     "error": "route.default_http_client: http client [default] does not exist"
   },
   "sing-box/0104.json": {
+    "check": "dns.servers[dns-1]: domain_resolver: the server is an address, with nothing to resolve",
     "ok": true,
     "warnings": 0
   },
@@ -1059,6 +1277,7 @@
     "error": "dns.rules[1].disable_cache: invalid type: string \"str4\", expected a boolean"
   },
   "sing-box/0106.json": {
+    "check": "ok",
     "ok": true,
     "warnings": 2
   },
@@ -1066,10 +1285,12 @@
     "error": "outbounds[6].authenticated_length: sail does not implement this field yet"
   },
   "sing-box/0108.json": {
+    "check": "ok",
     "ok": true,
     "warnings": 0
   },
   "sing-box/0109.json": {
+    "check": "ok",
     "ok": true,
     "warnings": 0
   },
@@ -1092,14 +1313,17 @@
     "error": "inbounds[0].dns_mode: sail does not implement this field yet"
   },
   "sing-box/0116.json": {
+    "check": "ok",
     "ok": true,
     "warnings": 0
   },
   "sing-box/0117.json": {
+    "check": "[Proxy 1] outbound: unknown protocol \"naive\" (not supported, or not compiled into this build)",
     "ok": true,
     "warnings": 2
   },
   "sing-box/0118.json": {
+    "check": "dns.servers[dns-4]: inet4_range: invalid range \"28.0.0.1/8\": host part of address was not zero",
     "ok": true,
     "warnings": 1
   },
@@ -1110,6 +1334,7 @@
     "error": "[Group 25] outbound: filter[0]: invalid type: map, expected a string"
   },
   "sing-box/0121.json": {
+    "check": "[Proxy 1] outbound: tls: certificate_public_key_sha256[0]: 3 bytes, where a SHA-256 hash has 32",
     "ok": true,
     "warnings": 0
   },
@@ -1138,6 +1363,7 @@
     "error": "dns.fakeip: unknown field `fakeip`, expected one of `servers`, `rules`, `final`, `strategy`, `client_strategy`, `disable_cache`, `disable_expire`, `cache_capacity`, `optimistic`, `timeout`, `reverse_mapping`, `client_subnet`"
   },
   "sing-box/0130.json": {
+    "check": "ok",
     "ok": true,
     "warnings": 1
   },
@@ -1145,6 +1371,7 @@
     "error": "route.rules[5]: outbound [Proxy 3] does not exist"
   },
   "sing-box/0132.json": {
+    "check": "ok",
     "ok": true,
     "warnings": 0
   },
@@ -1161,10 +1388,12 @@
     "error": "dns.fakeip: unknown field `fakeip`, expected one of `servers`, `rules`, `final`, `strategy`, `client_strategy`, `disable_cache`, `disable_expire`, `cache_capacity`, `optimistic`, `timeout`, `reverse_mapping`, `client_subnet`"
   },
   "sing-box/0137.json": {
+    "check": "[Group 15] outbound: needs at least one actor",
     "ok": true,
     "warnings": 1
   },
   "sing-box/0138.json": {
+    "check": "[Group 1] outbound: needs at least one actor",
     "ok": true,
     "warnings": 4
   },
@@ -1175,6 +1404,7 @@
     "error": "dns.servers[0]: missing field `type`"
   },
   "sing-box/0141.json": {
+    "check": "[Group 5] outbound: depends on [Proxy 2], which does not exist",
     "ok": true,
     "warnings": 1
   },
@@ -1200,6 +1430,7 @@
     "error": "inbounds[0].network: sail does not implement this field yet"
   },
   "sing-box/0149.json": {
+    "check": "[Group 1] outbound: needs at least one actor",
     "ok": true,
     "warnings": 1
   },
@@ -1210,10 +1441,12 @@
     "error": "[Rule] line 44: no policy or group is named \"Proxy 1\""
   },
   "surge/0002.conf": {
+    "check": "ok",
     "ok": true,
     "warnings": 7
   },
   "surge/0003.conf": {
+    "check": "ok",
     "ok": true,
     "warnings": 4
   },
@@ -1221,18 +1454,22 @@
     "error": "[Proxy Group] line 37: Group 10: no policy or group is named \"Proxy 1\""
   },
   "surge/0005.conf": {
+    "check": "[Proxy 1] outbound: method: unsupported cipher: rc4-md5",
     "ok": true,
     "warnings": 11
   },
   "surge/0006.conf": {
+    "check": "outbound_providers[0]: [Group 4]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 7
   },
   "surge/0007.conf": {
+    "check": "outbound_providers[0]: [Group 1]: url: sub.store: sub.store is Sub-Store's address inside Surge, Loon and Quantumult X, which only they answer; set sub_store (sail --sub-store, or the host's start settings) to the address of a Sub-Store backend of your own, or use the subscription's own URL",
     "ok": true,
     "warnings": 2
   },
   "surge/0008.conf": {
+    "check": "outbound_providers[0]: [Group 3]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 1
   },
@@ -1240,7 +1477,7 @@
     "error": "[Rule] line 111: sail does not implement DEVICE-NAME rules: they match the devices of Surge Mac's gateway mode, which sail has none of"
   },
   "surge/0010.conf": {
-    "error": "line 57: #!include ./path-1.ini: a profile read from text, or a file included from a URL, includes no files by path; read it from its file"
+    "error": "line 57: #!include ./path-1.ini: No such file or directory (os error 2)"
   },
   "surge/0011.conf": {
     "error": "[Proxy] line 20: Proxy 6: sail does not implement SSH policies yet"
@@ -1252,29 +1489,35 @@
     "error": "[Proxy] line 30: \"str2\" is not Name = type, ..."
   },
   "surge/0014.conf": {
+    "check": "ok",
     "ok": true,
     "warnings": 5
   },
   "surge/0015.conf": {
+    "check": "route.rules[2].process_name: not supported, rule-process-name is not compiled in",
     "ok": true,
     "warnings": 4
   },
   "surge/0016.conf": {
-    "error": "line 24: #!include ./path-1.conf: a profile read from text, or a file included from a URL, includes no files by path; read it from its file"
+    "error": "line 24: #!include ./path-1.conf: No such file or directory (os error 2)"
   },
   "surge/0017.conf": {
+    "check": "ok",
     "ok": true,
     "warnings": 9
   },
   "surge/0018.conf": {
+    "check": "ok",
     "ok": true,
     "warnings": 1
   },
   "surge/0019.conf": {
+    "check": "ok",
     "ok": true,
     "warnings": 0
   },
   "surge/0020.conf": {
+    "check": "outbound_providers[0]: [Group 2]: url: sub.store: sub.store is Sub-Store's address inside Surge, Loon and Quantumult X, which only they answer; set sub_store (sail --sub-store, or the host's start settings) to the address of a Sub-Store backend of your own, or use the subscription's own URL",
     "ok": true,
     "warnings": 1
   },
@@ -1282,20 +1525,23 @@
     "error": "[Proxy Group] line 5: Group 2: interval: \"600s\" is not a number in range"
   },
   "surge/0022.conf": {
-    "error": "line 2: #!include ./path-1.conf: a profile read from text, or a file included from a URL, includes no files by path; read it from its file"
+    "error": "line 2: #!include ./path-1.conf: No such file or directory (os error 2)"
   },
   "surge/0023.conf": {
     "error": "[Proxy Group] line 33: Group 4: no policy or group is named \"Proxy 1\""
   },
   "surge/0024.conf": {
+    "check": "ok",
     "ok": true,
     "warnings": 2
   },
   "surge/0025.conf": {
+    "check": "outbound_providers[0]: [Group 9]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 1
   },
   "surge/0026.conf": {
+    "check": "ok",
     "ok": true,
     "warnings": 1
   },
@@ -1303,10 +1549,12 @@
     "error": "[Proxy Group] line 63: Group 29: interval: \"600s\" is not a number in range"
   },
   "surge/0028.conf": {
+    "check": "outbound_providers[0]: [Group 3]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 7
   },
   "surge/0029.conf": {
+    "check": "outbound_providers[0]: [Group 2]: url: sub.store: sub.store is Sub-Store's address inside Surge, Loon and Quantumult X, which only they answer; set sub_store (sail --sub-store, or the host's start settings) to the address of a Sub-Store backend of your own, or use the subscription's own URL",
     "ok": true,
     "warnings": 4
   },
@@ -1314,18 +1562,22 @@
     "error": "[Proxy] line 33: \"str1\" is not Name = type, ..."
   },
   "surge/0031.conf": {
+    "check": "outbound_providers[0]: [Group 14]: url: sub.store: sub.store is Sub-Store's address inside Surge, Loon and Quantumult X, which only they answer; set sub_store (sail --sub-store, or the host's start settings) to the address of a Sub-Store backend of your own, or use the subscription's own URL",
     "ok": true,
     "warnings": 4
   },
   "surge/0032.conf": {
+    "check": "outbound_providers[0]: [Group 1]: path: <corpus>/surge/./path-1.conf: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 4
   },
   "surge/0033.conf": {
+    "check": "outbound_providers[0]: [Group 1]: path: <corpus>/surge/./path-1.conf: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 4
   },
   "surge/0034.conf": {
+    "check": "route.rules[1].process_name: not supported, rule-process-name is not compiled in",
     "ok": true,
     "warnings": 4
   },
@@ -1333,14 +1585,17 @@
     "error": "[Rule] line 80: no policy or group is named \"Proxy 1\""
   },
   "surge/0036.conf": {
+    "check": "ok",
     "ok": true,
     "warnings": 0
   },
   "surge/0037.conf": {
+    "check": "ok",
     "ok": true,
     "warnings": 1
   },
   "surge/0038.conf": {
+    "check": "outbound_providers[0]: [Group 1]: url: sub.store: sub.store is Sub-Store's address inside Surge, Loon and Quantumult X, which only they answer; set sub_store (sail --sub-store, or the host's start settings) to the address of a Sub-Store backend of your own, or use the subscription's own URL",
     "ok": true,
     "warnings": 5
   },
@@ -1351,27 +1606,32 @@
     "error": "[Proxy] line 29: Proxy 1: section-name: there is no [WireGuard wg-1]"
   },
   "surge/0041.conf": {
+    "check": "outbound_providers[0]: [Group 2]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 5
   },
   "surge/0042.conf": {
+    "check": "outbound_providers[0]: [Group 1]: url: sub.store: sub.store is Sub-Store's address inside Surge, Loon and Quantumult X, which only they answer; set sub_store (sail --sub-store, or the host's start settings) to the address of a Sub-Store backend of your own, or use the subscription's own URL",
     "ok": true,
     "warnings": 2
   },
   "surge/0043.conf": {
+    "check": "ok",
     "ok": true,
     "warnings": 1
   },
   "surge/0044.conf": {
+    "check": "ok",
     "ok": true,
     "warnings": 1
   },
   "surge/0045.conf": {
+    "check": "outbound_providers[0]: [Group 7]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 2
   },
   "surge/0046.conf": {
-    "error": "line 2: #!include ./path-1.dconf: a profile read from text, or a file included from a URL, includes no files by path; read it from its file"
+    "error": "line 2: #!include ./path-1.dconf: No such file or directory (os error 2)"
   },
   "surge/0047.conf": {
     "error": "[Rule] line 52: no policy or group is named \"Proxy 2\""
@@ -1386,13 +1646,15 @@
     "error": "[Proxy Group] line 56: Group 14: no policy or group is named \"Proxy 1\""
   },
   "surge/0051.conf": {
-    "error": "line 2: #!include ./path-1.conf: a profile read from text, or a file included from a URL, includes no files by path; read it from its file"
+    "error": "line 2: #!include ./path-1.conf: No such file or directory (os error 2)"
   },
   "surge/0052.conf": {
+    "check": "outbound_providers[0]: [Group 3]: url: sub.store: sub.store is Sub-Store's address inside Surge, Loon and Quantumult X, which only they answer; set sub_store (sail --sub-store, or the host's start settings) to the address of a Sub-Store backend of your own, or use the subscription's own URL",
     "ok": true,
     "warnings": 3
   },
   "surge/0053.conf": {
+    "check": "ok",
     "ok": true,
     "warnings": 3
   },
@@ -1403,6 +1665,7 @@
     "error": "[Proxy] line 22: \"str1\" is not Name = type, ..."
   },
   "surge/0056.conf": {
+    "check": "outbound_providers[0]: [Group 6]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 1
   },
@@ -1410,36 +1673,43 @@
     "error": "[Proxy] line 8: \"str1\" is not Name = type, ..."
   },
   "surge/0058.conf": {
+    "check": "outbound_providers[0]: [Group 1]: url: sub.store: sub.store is Sub-Store's address inside Surge, Loon and Quantumult X, which only they answer; set sub_store (sail --sub-store, or the host's start settings) to the address of a Sub-Store backend of your own, or use the subscription's own URL",
     "ok": true,
     "warnings": 0
   },
   "surge/0059.conf": {
+    "check": "outbound_providers[2]: [Group 9]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 4
   },
   "surge/0060.conf": {
+    "check": "outbound_providers[0]: [PROXY]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 60
   },
   "surge/0061.conf": {
+    "check": "ok",
     "ok": true,
     "warnings": 0
   },
   "surge/0062.conf": {
+    "check": "ok",
     "ok": true,
     "warnings": 6
   },
   "surge/0063.conf": {
+    "check": "outbound_providers[0]: [Group 3]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 1
   },
   "surge/0064.conf": {
-    "error": "line 2: #!include ./path-1.conf: a profile read from text, or a file included from a URL, includes no files by path; read it from its file"
+    "error": "line 2: #!include ./path-1.conf: No such file or directory (os error 2)"
   },
   "surge/0065.conf": {
-    "error": "line 2: #!include ./path-1.conf: a profile read from text, or a file included from a URL, includes no files by path; read it from its file"
+    "error": "line 2: #!include ./path-1.conf: No such file or directory (os error 2)"
   },
   "surge/0066.conf": {
+    "check": "route.rules[1].process_name: not supported, rule-process-name is not compiled in",
     "ok": true,
     "warnings": 4
   },
@@ -1450,18 +1720,22 @@
     "error": "[Proxy] line 31: \"str3\" is not Name = type, ..."
   },
   "surge/0069.conf": {
+    "check": "ok",
     "ok": true,
     "warnings": 2
   },
   "surge/0070.conf": {
+    "check": "ok",
     "ok": true,
     "warnings": 4
   },
   "surge/0071.conf": {
+    "check": "route.rules[1].process_name: not supported, rule-process-name is not compiled in",
     "ok": true,
     "warnings": 5
   },
   "surge/0072.conf": {
+    "check": "ok",
     "ok": true,
     "warnings": 2
   },
@@ -1478,10 +1752,12 @@
     "error": "[General] line 16: ipv6: \"ture\" is neither true nor false"
   },
   "surge/0077.conf": {
+    "check": "outbound_providers[0]: [Group 13]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 0
   },
   "surge/0078.conf": {
+    "check": "route.rule_set[0]: [<corpus>/surge/./path-1.txt]: <corpus>/surge/./path-1.txt: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 4
   },
@@ -1489,14 +1765,17 @@
     "error": "[Proxy] line 38: Proxy 1: sail does not implement Snell: versions 4 and 5, which most servers run, have no public specification"
   },
   "surge/0080.conf": {
+    "check": "outbound_providers[0]: [Group 9]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 0
   },
   "surge/0081.conf": {
+    "check": "ok",
     "ok": true,
     "warnings": 3
   },
   "surge/0082.conf": {
+    "check": "[Proxy 2] outbound: method: unsupported cipher: chacha20",
     "ok": true,
     "warnings": 2
   },
@@ -1504,10 +1783,12 @@
     "error": "[Proxy] line 40: Proxy 1: sail does not implement Snell: versions 4 and 5, which most servers run, have no public specification"
   },
   "surge/0084.conf": {
+    "check": "route.rules[25].process_name: not supported, rule-process-name is not compiled in",
     "ok": true,
     "warnings": 8
   },
   "surge/0085.conf": {
+    "check": "ok",
     "ok": true,
     "warnings": 0
   },
@@ -1518,10 +1799,12 @@
     "error": "[Proxy] line 33: Proxy 1: sail does not implement Snell: versions 4 and 5, which most servers run, have no public specification"
   },
   "surge/0088.conf": {
+    "check": "outbound_providers[0]: [Group 1]: url: sub.store: sub.store is Sub-Store's address inside Surge, Loon and Quantumult X, which only they answer; set sub_store (sail --sub-store, or the host's start settings) to the address of a Sub-Store backend of your own, or use the subscription's own URL",
     "ok": true,
     "warnings": 45
   },
   "surge/0089.conf": {
+    "check": "ok",
     "ok": true,
     "warnings": 0
   },
@@ -1529,18 +1812,22 @@
     "error": "[Proxy] line 30: Proxy 1: section-name: there is no [WireGuard wg-1]"
   },
   "surge/0091.conf": {
+    "check": "route.rule_set[5]: [<corpus>/surge/./path-1.list]: <corpus>/surge/./path-1.list: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 3
   },
   "surge/0092.conf": {
+    "check": "outbound_providers[2]: [Group 4]: url: sub.store: sub.store is Sub-Store's address inside Surge, Loon and Quantumult X, which only they answer; set sub_store (sail --sub-store, or the host's start settings) to the address of a Sub-Store backend of your own, or use the subscription's own URL",
     "ok": true,
     "warnings": 6
   },
   "surge/0093.conf": {
+    "check": "outbound_providers[0]: [Group 9]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 0
   },
   "surge/0094.conf": {
+    "check": "outbound_providers[0]: [Group 2]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 0
   },
@@ -1557,14 +1844,17 @@
     "error": "[Proxy] line 26: Proxy 6: \"password8\" is not key=value, and the values in places of their own are all given"
   },
   "surge/0099.conf": {
+    "check": "outbound_providers[0]: [Group 14]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 1
   },
   "surge/0100.conf": {
+    "check": "ok",
     "ok": true,
     "warnings": 1
   },
   "surge/0101.conf": {
+    "check": "outbound_providers[0]: [Group 3]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 7
   },
@@ -1572,6 +1862,7 @@
     "error": "[Proxy Group] line 5: Group 2: interval: \"600s\" is not a number in range"
   },
   "surge/0103.conf": {
+    "check": "outbound_providers[0]: [Group 2]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 6
   },
@@ -1579,6 +1870,7 @@
     "error": "[Proxy] line 29: \"str2\" is not Name = type, ..."
   },
   "surge/0105.conf": {
+    "check": "outbound_providers[0]: [Group 2]: url: sub.store: sub.store is Sub-Store's address inside Surge, Loon and Quantumult X, which only they answer; set sub_store (sail --sub-store, or the host's start settings) to the address of a Sub-Store backend of your own, or use the subscription's own URL",
     "ok": true,
     "warnings": 2
   },
@@ -1589,10 +1881,12 @@
     "error": "[Proxy] line 23: \"str1\" is not Name = type, ..."
   },
   "surge/0108.conf": {
+    "check": "outbound_providers[0]: [Group 2]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 19
   },
   "surge/0109.conf": {
+    "check": "[Proxy 2] outbound: method: unsupported cipher: rc4-md5",
     "ok": true,
     "warnings": 4
   },
@@ -1600,10 +1894,12 @@
     "error": "[Proxy Group] line 36: Group 5: no policy or group is named \"Proxy 1\""
   },
   "surge/0111.conf": {
+    "check": "ok",
     "ok": true,
     "warnings": 0
   },
   "surge/0112.conf": {
+    "check": "route.rule_set[6]: [<corpus>/surge/./path-3.list]: <corpus>/surge/./path-3.list: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 9
   },
@@ -1611,14 +1907,17 @@
     "error": "[Proxy Group] line 44: Group 15: \"Proxy 1\": a subnet group takes `default = policy` and `expression = policy`, no members"
   },
   "surge/0114.conf": {
+    "check": "outbound_providers[0]: [Group 1]: url: sub.store: sub.store is Sub-Store's address inside Surge, Loon and Quantumult X, which only they answer; set sub_store (sail --sub-store, or the host's start settings) to the address of a Sub-Store backend of your own, or use the subscription's own URL",
     "ok": true,
     "warnings": 11
   },
   "surge/0115.conf": {
+    "check": "ok",
     "ok": true,
     "warnings": 0
   },
   "surge/0116.conf": {
+    "check": "outbound_providers[0]: [Group 9]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 2
   },
@@ -1632,10 +1931,12 @@
     "error": "[Proxy] line 29: Proxy 1: sail does not implement Snell: versions 4 and 5, which most servers run, have no public specification"
   },
   "surge/0120.conf": {
+    "check": "ok",
     "ok": true,
     "warnings": 6
   },
   "surge/0121.conf": {
+    "check": "outbound_providers[0]: [Group 2]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 44
   },
@@ -1646,6 +1947,7 @@
     "error": "[Proxy Group] line 55: Group 17: policy-priority: \"Proxy [0-9]+|Group 7:0\": a factor is above 0"
   },
   "surge/0124.conf": {
+    "check": "outbound_providers[0]: [Group 1]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 1
   },
@@ -1653,10 +1955,12 @@
     "error": "[WireGuard wg-1] line 102: peer: endpoint: \"192.0.2.4\" is not host:port"
   },
   "surge/0126.conf": {
+    "check": "outbound_providers[0]: [Group 1]: path: <corpus>/surge/./path-2: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 35
   },
   "surge/0127.conf": {
+    "check": "outbound_providers[0]: [Group 1]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 3
   },
@@ -1664,6 +1968,7 @@
     "error": "[Proxy Group] line 35: Group 11: include-other-group: no group is named \"\\\"Group 18\\\"\""
   },
   "surge/0129.conf": {
+    "check": "outbound_providers[0]: [Group 13]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 0
   },
@@ -1671,14 +1976,17 @@
     "error": "[General] line 3: ipv6: \"auto\" is neither true nor false"
   },
   "surge/0131.conf": {
+    "check": "outbound_providers[0]: [Group 16]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 0
   },
   "surge/0132.conf": {
+    "check": "ok",
     "ok": true,
     "warnings": 1
   },
   "surge/0133.conf": {
+    "check": "ok",
     "ok": true,
     "warnings": 0
   },
@@ -1686,8 +1994,16 @@
     "error": "[Proxy Group] line 23: Group 1: no policy or group is named \"Proxy 4\""
   },
   "surge/0135.conf": {
+    "check": "route.rules[9].rules[0].rules[0].process_name: not supported, rule-process-name is not compiled in",
     "ok": true,
-    "warnings": 1
+    "warnings": 1,
+    "on": {
+      "macos": {
+        "check": "route.rules[11].rules[0].rules[0].process_name: not supported, rule-process-name is not compiled in",
+        "ok": true,
+        "warnings": 1
+      }
+    }
   },
   "surge/0136.conf": {
     "error": "[Proxy] line 28: Proxy 3: \"password1\" is not a port"
@@ -1696,14 +2012,17 @@
     "error": "[Proxy] line 40: Proxy 3: \"password2\" is not a port"
   },
   "surge/0138.conf": {
+    "check": "ok",
     "ok": true,
     "warnings": 20
   },
   "surge/0139.conf": {
+    "check": "outbound_providers[0]: [Group 2]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 1
   },
   "surge/0140.conf": {
+    "check": "ok",
     "ok": true,
     "warnings": 40
   },
@@ -1717,14 +2036,17 @@
     "error": "[Proxy Group] line 21: Group 1: \"Proxy 1\": a subnet group takes `default = policy` and `expression = policy`, no members"
   },
   "surge/0144.conf": {
+    "check": "outbound_providers[0]: [Group 15]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 0
   },
   "surge/0145.conf": {
+    "check": "outbound_providers[1]: [Group 12]: url: sub.store: sub.store is Sub-Store's address inside Surge, Loon and Quantumult X, which only they answer; set sub_store (sail --sub-store, or the host's start settings) to the address of a Sub-Store backend of your own, or use the subscription's own URL",
     "ok": true,
     "warnings": 5
   },
   "surge/0146.conf": {
+    "check": "outbound_providers[0]: [Group 2]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 0
   },
@@ -1732,18 +2054,22 @@
     "error": "[Proxy] line 35: Proxy 1: sail does not implement Snell: versions 4 and 5, which most servers run, have no public specification"
   },
   "surge/0148.conf": {
+    "check": "ok",
     "ok": true,
     "warnings": 0
   },
   "surge/0149.conf": {
+    "check": "outbound_providers[0]: [Group 21]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 0
   },
   "surge/0150.conf": {
+    "check": "outbound_providers[0]: [Group 7]: path: <corpus>/surge/./path-1.conf: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 1
   },
   "surge/0151.conf": {
+    "check": "outbound_providers[0]: [Group 1]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 3
   },
@@ -1751,54 +2077,67 @@
     "error": "[Proxy] line 49: \"str2\" is not Name = type, ..."
   },
   "surge/0153.conf": {
+    "check": "outbound_providers[0]: [Group 14]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 0
   },
   "surge/0154.conf": {
+    "check": "outbound_providers[0]: [Group 21]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 0
   },
   "surge/0155.conf": {
+    "check": "route.rules[7].process_path: not supported, rule-process-name is not compiled in",
     "ok": true,
     "warnings": 1
   },
   "surge/0156.conf": {
+    "check": "outbound_providers[0]: [Group 4]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 6
   },
   "surge/0157.conf": {
+    "check": "outbound_providers[0]: [Group 4]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 6
   },
   "surge/0158.conf": {
+    "check": "route.rules[1].process_name: not supported, rule-process-name is not compiled in",
     "ok": true,
     "warnings": 5
   },
   "surge/0159.conf": {
+    "check": "outbound_providers[0]: [Group 19]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 1
   },
   "surge/0160.conf": {
+    "check": "outbound_providers[0]: [Group 6]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 1
   },
   "surge/0161.conf": {
+    "check": "outbound_providers[0]: [Group 4]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 9
   },
   "surge/0162.conf": {
+    "check": "ok",
     "ok": true,
     "warnings": 2
   },
   "surge/0163.conf": {
+    "check": "outbound_providers[0]: [Group 1]: url: sub.store: sub.store is Sub-Store's address inside Surge, Loon and Quantumult X, which only they answer; set sub_store (sail --sub-store, or the host's start settings) to the address of a Sub-Store backend of your own, or use the subscription's own URL",
     "ok": true,
     "warnings": 33
   },
   "surge/0164.conf": {
+    "check": "outbound_providers[0]: [Group 1]: url: sub.store: sub.store is Sub-Store's address inside Surge, Loon and Quantumult X, which only they answer; set sub_store (sail --sub-store, or the host's start settings) to the address of a Sub-Store backend of your own, or use the subscription's own URL",
     "ok": true,
     "warnings": 12
   },
   "surge/0165.conf": {
+    "check": "route.rules[3].process_name: not supported, rule-process-name is not compiled in",
     "ok": true,
     "warnings": 1
   },
@@ -1806,18 +2145,22 @@
     "error": "[Proxy Group] line 5: Group 2: interval: \"600s\" is not a number in range"
   },
   "surge/0167.conf": {
+    "check": "ok",
     "ok": true,
     "warnings": 3
   },
   "surge/0168.conf": {
+    "check": "outbound_providers[0]: [Group 12]: url: sub.store: sub.store is Sub-Store's address inside Surge, Loon and Quantumult X, which only they answer; set sub_store (sail --sub-store, or the host's start settings) to the address of a Sub-Store backend of your own, or use the subscription's own URL",
     "ok": true,
     "warnings": 1
   },
   "surge/0169.conf": {
+    "check": "ok",
     "ok": true,
     "warnings": 4
   },
   "surge/0170.conf": {
+    "check": "outbound_providers[0]: [Group 12]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 6
   },
@@ -1828,10 +2171,12 @@
     "error": "[Proxy Group] line 38: Group 2: no policy or group is named \"Proxy 4\""
   },
   "surge/0173.conf": {
+    "check": "outbound_providers[0]: [Group 1]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 6
   },
   "surge/0174.conf": {
+    "check": "outbound_providers[0]: [Group 15]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 0
   },
@@ -1845,6 +2190,7 @@
     "error": "[Rule] line 75: CELLULAR-ONLY: sail does not implement Surge iOS's cellular policies"
   },
   "surge/0178.conf": {
+    "check": "outbound_providers[0]: [Group 1]: url: sub.store: sub.store is Sub-Store's address inside Surge, Loon and Quantumult X, which only they answer; set sub_store (sail --sub-store, or the host's start settings) to the address of a Sub-Store backend of your own, or use the subscription's own URL",
     "ok": true,
     "warnings": 1
   },
@@ -1852,10 +2198,12 @@
     "error": "[General] line 21: udp-policy-not-supported-behaviour: \"fallback\" is neither REJECT nor DIRECT"
   },
   "surge/0180.conf": {
+    "check": "outbound_providers[0]: [Group 3]: url: sub.store: sub.store is Sub-Store's address inside Surge, Loon and Quantumult X, which only they answer; set sub_store (sail --sub-store, or the host's start settings) to the address of a Sub-Store backend of your own, or use the subscription's own URL",
     "ok": true,
     "warnings": 2
   },
   "surge/0181.conf": {
+    "check": "ok",
     "ok": true,
     "warnings": 2
   },
@@ -1863,14 +2211,17 @@
     "error": "[Rule]: no FINAL rule, which Surge requires at the end"
   },
   "surge/0183.conf": {
+    "check": "ok",
     "ok": true,
     "warnings": 13
   },
   "surge/0184.conf": {
+    "check": "outbound_providers[0]: [Group 14]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 0
   },
   "surge/0185.conf": {
+    "check": "ok",
     "ok": true,
     "warnings": 3
   },
@@ -1878,16 +2229,18 @@
     "error": "[Proxy] line 28: \"str2\" is not Name = type, ..."
   },
   "surge/0187.conf": {
+    "check": "ok",
     "ok": true,
     "warnings": 0
   },
   "surge/0188.conf": {
-    "error": "line 21: #!include ./path-1.dconf: a profile read from text, or a file included from a URL, includes no files by path; read it from its file"
+    "error": "line 21: #!include ./path-1.dconf: No such file or directory (os error 2)"
   },
   "surge/0189.conf": {
     "error": "[General] line 25: udp-policy-not-supported-behaviour: \"false\" is neither REJECT nor DIRECT"
   },
   "surge/0190.conf": {
+    "check": "route.rules[1].process_name: not supported, rule-process-name is not compiled in",
     "ok": true,
     "warnings": 4
   },
@@ -1898,14 +2251,17 @@
     "error": "[Rule]: no FINAL rule, which Surge requires at the end"
   },
   "surge/0193.conf": {
+    "check": "outbound_providers[0]: [Group 2]: url: sub.store: sub.store is Sub-Store's address inside Surge, Loon and Quantumult X, which only they answer; set sub_store (sail --sub-store, or the host's start settings) to the address of a Sub-Store backend of your own, or use the subscription's own URL",
     "ok": true,
     "warnings": 2
   },
   "surge/0194.conf": {
+    "check": "outbound_providers[0]: [Group 2]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 5
   },
   "surge/0195.conf": {
+    "check": "ok",
     "ok": true,
     "warnings": 7
   },
@@ -1913,21 +2269,25 @@
     "error": "[Rule] line 51: no policy or group is named \"Proxy 1\""
   },
   "surge/0197.conf": {
+    "check": "ok",
     "ok": true,
     "warnings": 0
   },
   "surge/0198.conf": {
-    "error": "line 34: #!include ./path-1.dconf: a profile read from text, or a file included from a URL, includes no files by path; read it from its file"
+    "error": "line 34: #!include ./path-1.dconf: No such file or directory (os error 2)"
   },
   "surge/0199.conf": {
+    "check": "outbound_providers[0]: [Group 1]: url: sub.store: sub.store is Sub-Store's address inside Surge, Loon and Quantumult X, which only they answer; set sub_store (sail --sub-store, or the host's start settings) to the address of a Sub-Store backend of your own, or use the subscription's own URL",
     "ok": true,
     "warnings": 5
   },
   "surge/0200.conf": {
+    "check": "ok",
     "ok": true,
     "warnings": 1
   },
   "surge/0201.conf": {
+    "check": "[Proxy 1] outbound: bind_interface: there is no interface \"if1\"",
     "ok": true,
     "warnings": 28
   },
@@ -1938,6 +2298,7 @@
     "error": "[Proxy Group] line 36: Group 9: no policy or group is named \"Proxy 1\""
   },
   "surge/0204.conf": {
+    "check": "route.rules[2].process_name: not supported, rule-process-name is not compiled in",
     "ok": true,
     "warnings": 5
   },
@@ -1945,6 +2306,7 @@
     "error": "[Proxy] line 22: Proxy 1: section-name: there is no [WireGuard wg-2]"
   },
   "surge/0206.conf": {
+    "check": "outbound_providers[0]: [Group 2]: url: sub.store: sub.store is Sub-Store's address inside Surge, Loon and Quantumult X, which only they answer; set sub_store (sail --sub-store, or the host's start settings) to the address of a Sub-Store backend of your own, or use the subscription's own URL",
     "ok": true,
     "warnings": 3
   },
@@ -1952,6 +2314,7 @@
     "error": "[Proxy Group] line 17: Group 2: \"Proxy 7\": a subnet group takes `default = policy` and `expression = policy`, no members"
   },
   "surge/0208.conf": {
+    "check": "route.rules[1].process_name: not supported, rule-process-name is not compiled in",
     "ok": true,
     "warnings": 3
   },
@@ -1965,18 +2328,22 @@
     "error": "[Proxy] line 4: REJECT is Surge's own policy"
   },
   "surge/0212.conf": {
+    "check": "outbound_providers[0]: [Group 2]: url: sub.store: sub.store is Sub-Store's address inside Surge, Loon and Quantumult X, which only they answer; set sub_store (sail --sub-store, or the host's start settings) to the address of a Sub-Store backend of your own, or use the subscription's own URL",
     "ok": true,
     "warnings": 7
   },
   "surge/0213.conf": {
+    "check": "outbound_providers[0]: [Group 9]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 0
   },
   "surge/0214.conf": {
+    "check": "outbound_providers[0]: [Group 13]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 0
   },
   "surge/0215.conf": {
+    "check": "outbound_providers[0]: [Group 3]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 3
   },
@@ -1984,6 +2351,7 @@
     "error": "[Proxy] line 22: REJECT-TINYGIF is Surge's own policy"
   },
   "surge/0217.conf": {
+    "check": "outbound_providers[0]: [Group 14]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 2
   },
@@ -1991,18 +2359,22 @@
     "error": "[Proxy Group] line 28: Group 3: no policy or group is named \"Proxy 1\""
   },
   "surge/0219.conf": {
+    "check": "route.rule_set[0]: [<corpus>/surge/./path-3.list]: <corpus>/surge/./path-3.list: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 5
   },
   "surge/0220.conf": {
+    "check": "outbound_providers[0]: [Group 1]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 3
   },
   "surge/0221.conf": {
+    "check": "outbound_providers[0]: [Group 14]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 0
   },
   "surge/0222.conf": {
+    "check": "outbound_providers[0]: [Group 1]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 9
   },
@@ -2010,6 +2382,7 @@
     "error": "[Rule]: no FINAL rule, which Surge requires at the end"
   },
   "surge/0224.conf": {
+    "check": "outbound_providers[0]: [Group 6]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 5
   },
@@ -2017,6 +2390,7 @@
     "error": "[Proxy] line 7: Proxy 1: \"password1\" is not a port"
   },
   "surge/0226.conf": {
+    "check": "outbound_providers[0]: [Group 9]: url: sub.store: sub.store is Sub-Store's address inside Surge, Loon and Quantumult X, which only they answer; set sub_store (sail --sub-store, or the host's start settings) to the address of a Sub-Store backend of your own, or use the subscription's own URL",
     "ok": true,
     "warnings": 5
   },
@@ -2024,11 +2398,12 @@
     "error": "[Proxy Group] line 20: Group 3: \"Proxy 7\": a subnet group takes `default = policy` and `expression = policy`, no members"
   },
   "surge/0228.conf": {
+    "check": "outbound_providers[0]: [Group 6]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 2
   },
   "surge/0229.conf": {
-    "error": "line 18: #!include ./path-1.dconf: a profile read from text, or a file included from a URL, includes no files by path; read it from its file"
+    "error": "line 18: #!include ./path-1.dconf: No such file or directory (os error 2)"
   },
   "surge/0230.conf": {
     "error": "[Proxy] line 8: Proxy 2: section-name: there is no [WireGuard wg-1]"
@@ -2043,28 +2418,40 @@
     "error": "[Proxy Group] line 27: Group 1: no policy or group is named \"Proxy 3\""
   },
   "surge/0234.conf": {
+    "check": "route.rules[30].process_name: not supported, rule-process-name is not compiled in",
     "ok": true,
     "warnings": 11
   },
   "surge/0235.conf": {
+    "check": "outbound_providers[0]: [Group 12]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 1
   },
   "surge/0236.conf": {
+    "check": "ok",
     "ok": true,
     "warnings": 1
   },
   "surge/0237.conf": {
-    "error": "line 11: #!include ./path-1.conf: a profile read from text, or a file included from a URL, includes no files by path; read it from its file"
+    "error": "line 11: #!include ./path-1.conf: No such file or directory (os error 2)"
   },
   "surge/0238.conf": {
     "error": "[Rule] line 78: no policy or group is named \"Proxy 1\""
   },
   "surge/0239.conf": {
+    "check": "route.rules[9].rules[0].rules[0].process_name: not supported, rule-process-name is not compiled in",
     "ok": true,
-    "warnings": 1
+    "warnings": 1,
+    "on": {
+      "macos": {
+        "check": "route.rules[11].rules[0].rules[0].process_name: not supported, rule-process-name is not compiled in",
+        "ok": true,
+        "warnings": 1
+      }
+    }
   },
   "surge/0240.conf": {
+    "check": "outbound_providers[0]: [Group 3]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 8
   },
@@ -2078,10 +2465,12 @@
     "error": "[Proxy] line 40: Proxy 17: section-name: there is no [WireGuard wg-1]"
   },
   "surge/0244.conf": {
+    "check": "outbound_providers[0]: [Group 3]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 2
   },
   "surge/0245.conf": {
+    "check": "[Proxy 1] outbound: method: unsupported cipher: rc4-md5",
     "ok": true,
     "warnings": 12
   },
@@ -2089,14 +2478,17 @@
     "error": "[Proxy Group] line 55: Group 10: interval: \"-1\" is not a number in range"
   },
   "surge/0247.conf": {
+    "check": "route.rules[30].process_name: not supported, rule-process-name is not compiled in",
     "ok": true,
     "warnings": 0
   },
   "surge/0248.conf": {
+    "check": "outbound_providers[0]: [Group 11]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 1
   },
   "surge/0249.conf": {
+    "check": "outbound_providers[0]: [Group 1]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 3
   },
@@ -2104,30 +2496,44 @@
     "error": "[Proxy Group] line 56: Group 14: no policy or group is named \"Proxy 1\""
   },
   "surge/0251.conf": {
+    "check": "route.rules[12].rules[0].rules[0].process_name: not supported, rule-process-name is not compiled in",
     "ok": true,
-    "warnings": 1
+    "warnings": 1,
+    "on": {
+      "macos": {
+        "check": "route.rules[13].rules[0].rules[0].process_name: not supported, rule-process-name is not compiled in",
+        "ok": true,
+        "warnings": 1
+      }
+    }
   },
   "surge/0252.conf": {
+    "check": "outbound_providers[0]: [Group 9]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 1
   },
   "surge/0253.conf": {
+    "check": "outbound_providers[1]: [Group 8]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 7
   },
   "surge/0254.conf": {
+    "check": "route.rules[6].process_path: not supported, rule-process-name is not compiled in",
     "ok": true,
     "warnings": 2
   },
   "surge/0255.conf": {
+    "check": "outbound_providers[0]: [Group 1]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 1
   },
   "surge/0256.conf": {
+    "check": "outbound_providers[0]: [Group 11]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 0
   },
   "surge/0257.conf": {
+    "check": "ok",
     "ok": true,
     "warnings": 42
   },
@@ -2135,34 +2541,42 @@
     "error": "[Proxy Group] line 17: Group 14: no policy or group is named \"Proxy 1\""
   },
   "surge/0259.conf": {
+    "check": "outbound_providers[0]: [Group 1]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 1
   },
   "surge/0260.conf": {
+    "check": "outbound_providers[0]: [Group 3]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 7
   },
   "surge/0261.conf": {
+    "check": "outbound_providers[0]: [Group 14]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 3
   },
   "surge/0262.conf": {
+    "check": "ok",
     "ok": true,
     "warnings": 7
   },
   "surge/0263.conf": {
+    "check": "outbound_providers[0]: [Group 13]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 0
   },
   "surge/0264.conf": {
+    "check": "route.rule_set[37]: [<corpus>/surge/set-1]: <corpus>/surge/set-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 12
   },
   "surge/0265.conf": {
+    "check": "outbound_providers[0]: [Group 12]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 0
   },
   "surge/0266.conf": {
+    "check": "ok",
     "ok": true,
     "warnings": 0
   },
@@ -2170,6 +2584,7 @@
     "error": "[Proxy] line 6: Proxy 2: \"vless\" is not a policy type Surge takes"
   },
   "surge/0268.conf": {
+    "check": "outbound_providers[0]: [Group 13]: url: sub.store: sub.store is Sub-Store's address inside Surge, Loon and Quantumult X, which only they answer; set sub_store (sail --sub-store, or the host's start settings) to the address of a Sub-Store backend of your own, or use the subscription's own URL",
     "ok": true,
     "warnings": 5
   },
@@ -2177,14 +2592,17 @@
     "error": "[Rule] line 86: no policy"
   },
   "surge/0270.conf": {
+    "check": "outbound_providers[0]: [Group 22]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 1
   },
   "surge/0271.conf": {
+    "check": "ok",
     "ok": true,
     "warnings": 0
   },
   "surge/0272.conf": {
+    "check": "outbound_providers[0]: [Group 7]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 3
   },
@@ -2195,14 +2613,17 @@
     "error": "[Proxy] line 11: \"str2\" is not Name = type, ..."
   },
   "surge/0275.conf": {
+    "check": "route.rules[9].process_name: not supported, rule-process-name is not compiled in",
     "ok": true,
     "warnings": 6
   },
   "surge/0276.conf": {
+    "check": "outbound_providers[0]: [Group 1]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 2
   },
   "surge/0277.conf": {
+    "check": "outbound_providers[0]: [Group 1]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 28
   },
@@ -2210,6 +2631,7 @@
     "error": "[Proxy Group] line 48: Group 18: no policy or group is named \"Proxy 2\""
   },
   "surge/0279.conf": {
+    "check": "ok",
     "ok": true,
     "warnings": 0
   },
@@ -2217,6 +2639,7 @@
     "error": "[Proxy] line 29: \"str2\" is not Name = type, ..."
   },
   "surge/0281.conf": {
+    "check": "outbound_providers[0]: [Group 2]: url: sub.store: sub.store is Sub-Store's address inside Surge, Loon and Quantumult X, which only they answer; set sub_store (sail --sub-store, or the host's start settings) to the address of a Sub-Store backend of your own, or use the subscription's own URL",
     "ok": true,
     "warnings": 3
   },
@@ -2230,22 +2653,27 @@
     "error": "[Rule] line 51: no policy or group is named \"Proxy 1\""
   },
   "surge/0285.conf": {
+    "check": "outbound_providers[0]: [Group 2]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 2
   },
   "surge/0286.conf": {
+    "check": "outbound_providers[0]: [Group 1]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 1
   },
   "surge/0287.conf": {
+    "check": "outbound_providers[0]: [Group 4]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 3
   },
   "surge/0288.conf": {
+    "check": "outbound_providers[0]: [Group 9]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 5
   },
   "surge/0289.conf": {
+    "check": "outbound_providers[0]: [Group 2]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 5
   },
@@ -2253,18 +2681,22 @@
     "error": "line 32: #!include https://h3.example.com/p2: sail does not download a profile's includes itself; the host does: `sail --fetch-includes` keeps them in the cache directory"
   },
   "surge/0291.conf": {
+    "check": "outbound_providers[0]: [Group 17]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 0
   },
   "surge/0292.conf": {
+    "check": "outbound_providers[0]: [Group 2]: url: sub.store: sub.store is Sub-Store's address inside Surge, Loon and Quantumult X, which only they answer; set sub_store (sail --sub-store, or the host's start settings) to the address of a Sub-Store backend of your own, or use the subscription's own URL",
     "ok": true,
     "warnings": 6
   },
   "surge/0293.conf": {
+    "check": "route.rules[1].process_name: not supported, rule-process-name is not compiled in",
     "ok": true,
     "warnings": 5
   },
   "surge/0294.conf": {
+    "check": "route.rules[1].process_name: not supported, rule-process-name is not compiled in",
     "ok": true,
     "warnings": 5
   },
@@ -2278,10 +2710,12 @@
     "error": "[Rule]: no FINAL rule, which Surge requires at the end"
   },
   "surge/0298.conf": {
+    "check": "outbound_providers[0]: [Group 2]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 0
   },
   "surge/0299.conf": {
+    "check": "outbound_providers[0]: [Group 1]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
     "ok": true,
     "warnings": 3
   },
