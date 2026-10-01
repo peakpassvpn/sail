@@ -6,8 +6,9 @@ name: release
 # scripts ci.yml's cross job checks, symbols are kept apart, two Linux
 # targets are built twice and must match, and the release stays a draft
 # until every file is in it. The tag is the workflow's: its commit is the
-# branch's with bindings/swift/Package.swift pointing at the release's
-# XCFramework, which only then has a checksum.
+# branch's with the root's Package.swift pointing at the release's
+# XCFramework, which only then has a checksum. Its notes begin with
+# docs/releases/<version>.md.
 on:
   workflow_dispatch:
     inputs:
@@ -18,6 +19,14 @@ on:
         description: tag and publish the release (otherwise a dry run)
         type: boolean
         default: false
+      prerelease:
+        description: a pre-release, not marked the latest
+        type: boolean
+        default: false
+      apple:
+        description: build Apple's on a macOS runner (off for a dry run only)
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -44,6 +53,7 @@ jobs:
       actions: read
     outputs:
       epoch: ${{ steps.epoch.outputs.epoch }}
+      release: ${{ steps.release.outputs.flags }}
     steps:
       - uses: actions/checkout@v4
 
@@ -68,6 +78,31 @@ jobs:
           gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml --commit "$GITHUB_SHA" \
             --json conclusion --jq '.[].conclusion' | grep -qx success ||
             { echo "::error::no successful ci run on $GITHUB_SHA"; exit 1; }
+
+      # What the publish job does with the release, said here so that a dry
+      # run shows it.
+      - name: release settings
+        id: release
+        env:
+          VERSION: ${{ inputs.version }}
+          PUBLISH: ${{ inputs.publish }}
+          PRERELEASE: ${{ inputs.prerelease }}
+          APPLE: ${{ inputs.apple }}
+        run: |
+          if [ "$PUBLISH" = true ] && [ "$APPLE" != true ]; then
+            echo "::error::a release is published with Apple's"; exit 1
+          fi
+          notes=docs/releases/$VERSION.md
+          if [ "$PUBLISH" = true ] && [ ! -s "$notes" ]; then
+            echo "::error::no release notes in $notes"; exit 1
+          fi
+          if [ "$PRERELEASE" = true ]; then
+            flags="--prerelease --latest=false"
+          else
+            flags="--latest"
+          fi
+          echo "flags=$flags" >>"$GITHUB_OUTPUT"
+          echo "release v$VERSION: publish=$PUBLISH, gh release edit $flags, notes $notes ($( [ -s "$notes" ] && echo present || echo missing ))"
 
       - name: source date
         id: epoch
@@ -183,6 +218,7 @@ jobs:
   # Apple's: sail for macOS (both architectures in one file) and the
   # XCFramework, one job, as they build the same crates. Standard runner.
   apple:
+    if: ${{ inputs.apple }}
     needs: check
     runs-on: macos-latest
     env:
@@ -248,6 +284,8 @@ jobs:
 
   assemble:
     needs: [check, cli, reproducible, aar, apple]
+    # Apple's may be skipped, in a dry run; nothing may fail.
+    if: ${{ !cancelled() && !contains(needs.*.result, 'failure') }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -274,6 +312,7 @@ jobs:
           path: built/aar
 
       - uses: actions/download-artifact@v4
+        if: ${{ inputs.apple }}
         with:
           name: apple
           path: built/apple
@@ -319,7 +358,7 @@ jobs:
   # The only job that may write: it tags the commit and publishes.
   publish:
     if: ${{ inputs.publish }}
-    needs: assemble
+    needs: [check, assemble]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -352,18 +391,22 @@ jobs:
       - name: release
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_FLAGS: ${{ needs.check.outputs.release }}
         run: |
           tag=v$VERSION
           {
-            echo "sail $VERSION."
+            cat "docs/releases/$VERSION.md"
+            echo
+            echo "---"
             echo
             echo "Every file's hash is in SHA256SUMS, its size and build ID in manifest.json,"
             echo "and its build provenance can be checked with \`gh attestation verify\`."
             echo
-            echo "Swift: the package at this tag (bindings/swift) fetches SailC.xcframework.zip from here."
+            echo "Swift: the package at this tag (the repository's root) fetches SailC.xcframework.zip from here."
             if [ -s grown.txt ]; then echo; echo "Grown since the last release:"; sed 's/^/- /' grown.txt; fi
           } >notes.md
           # A draft until every file is in it.
           gh release create "$tag" --repo "$GITHUB_REPOSITORY" --verify-tag \
             --title "sail $VERSION" --notes-file notes.md --draft dist/*
-          gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --draft=false
+          read -ra flags <<<"$RELEASE_FLAGS"
+          gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --draft=false "${flags[@]}"
