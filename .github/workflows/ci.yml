@@ -57,6 +57,38 @@ jobs:
       - name: test sail-netstack
         run: cargo test -p sail-netstack
 
+      # The C ABI as a host calls it, the command service included.
+      - name: test sail-ffi
+        run: cargo test -p sail-ffi
+
+      # include/sail.h is committed: it must be what cbindgen makes of the
+      # source. The CLI is run, not linked (it is MPL-2.0); its binary is
+      # cached by version, saved from master only.
+      - name: restore cbindgen
+        id: cbindgen
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cargo/bin/cbindgen
+          key: cbindgen-0.29.4-${{ runner.os }}
+
+      - name: install cbindgen
+        if: steps.cbindgen.outputs.cache-hit != 'true'
+        run: cargo install cbindgen --version 0.29.4 --locked
+
+      - name: save cbindgen
+        if: steps.cbindgen.outputs.cache-hit != 'true' && github.ref == 'refs/heads/master'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cargo/bin/cbindgen
+          key: cbindgen-0.29.4-${{ runner.os }}
+
+      - name: header is cbindgen's
+        run: |
+          if ! (cd sail-ffi && cbindgen --config cbindgen.toml src/lib.rs) | diff -u sail-ffi/include/sail.h -; then
+            echo "::error file=sail-ffi/include/sail.h::not what cbindgen makes of the source; generate it again: (cd sail-ffi && cbindgen --config cbindgen.toml src/lib.rs -o include/sail.h)"
+            exit 1
+          fi
+
   # Small builds, one feature set at a time, tests included, so that cfg
   # gates and feature dependencies stay right.
   features:
