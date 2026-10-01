@@ -19,6 +19,7 @@ const RELOADING: sail::RuntimeId = 64_003;
 const BYSTANDER: sail::RuntimeId = 64_004;
 const LOGGED_A: sail::RuntimeId = 64_005;
 const LOGGED_B: sail::RuntimeId = 64_006;
+const NO_MODES: sail::RuntimeId = 64_007;
 
 /// A server that takes connections and never answers: a download from it
 /// hangs. Tells `accepted` of each connection.
@@ -260,4 +261,40 @@ fn each_instance_logs_to_its_own_log() {
     stop(LOGGED_B, b);
     // What a stopped instance logged stays the host's to read.
     assert!(lines(&log_a).contains(&format!("worker {}", LOGGED_A)));
+}
+
+/// As sing-box: without a Clash API in its configuration, an instance a
+/// host does not give modes to (as sail-cli does not) has none, and a
+/// `clash_mode` rule never matches.
+#[test]
+fn without_a_clash_api_an_instance_has_no_mode_unless_its_host_gives_it() {
+    let [port] = common::free_ports();
+    let config = serde_json::json!({
+        "inbounds": [{ "type": "socks", "listen": "127.0.0.1", "listen_port": port }],
+        "outbounds": [{ "type": "direct" }],
+        "route": { "rules": [{ "clash_mode": "Rule", "action": "reject" }] },
+    })
+    .to_string();
+    let started = start(NO_MODES, sail::Config::Str(config));
+    wait_running(NO_MODES);
+    let rm = sail::runtime_manager(NO_MODES).unwrap();
+    assert_eq!(rm.mode(), None);
+    assert!(matches!(
+        rm.set_mode("Rule"),
+        Err(sail::control::ControlError::NoModes)
+    ));
+    // The rule names the mode a host with modes would start in: here it
+    // never matches, so the connection goes through.
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+        let (echo, serve) = common::run_tcp_echo_server("127.0.0.1:0").await.unwrap();
+        tokio::spawn(serve);
+        let sess = sail::session::Session {
+            destination: sail::session::SocksAddr::from(echo),
+            ..Default::default()
+        };
+        let stream = common::new_socks_stream("127.0.0.1", port, &sess, None, None).await;
+        assert!(stream.is_ok(), "the clash_mode rule matched");
+    });
+    stop(NO_MODES, started);
 }

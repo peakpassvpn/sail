@@ -51,6 +51,15 @@ pub struct Host {
     /// Where the instance's log lines go, the host's to read; one keeping
     /// none when unset.
     pub log: Option<crate::app::logger::InstanceLogRef>,
+    /// Gives the instance Clash modes (`Rule`, `Global`, `Direct` and those
+    /// its rules name) though its configuration has no Clash API, as
+    /// sing-box's libbox does for its apps: its daemon always has a
+    /// PlatformLogWriter (daemon/instance.go:124-128), and box.New makes
+    /// the clash-mode manager whenever there is one (box.go:247-259, both
+    /// sing-box v1.14.2). The FFI sets it; sail-cli does not, so a
+    /// configuration it runs has modes only with a Clash API, as in
+    /// sing-box.
+    pub clash_modes: bool,
 }
 
 /// The base URL of a Sub-Store backend. It may carry a secret path, so it
@@ -263,6 +272,7 @@ impl StartSettings {
                 ui_download_url: self.ui_download_url,
                 asset_sources: self.asset_sources,
                 log: None,
+                clash_modes: false,
             },
         ))
     }

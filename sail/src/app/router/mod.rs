@@ -897,6 +897,7 @@ mod tests {
                 default_mode: Some("Direct".into()),
                 ..Default::default()
             }),
+            false,
             None,
         );
         assert_eq!(

@@ -642,6 +642,7 @@ impl RuntimeManager {
         )?;
         self.env.clash_mode.configure(
             config.clash_api.as_ref(),
+            self.env.host.clash_modes,
             self.env.cache_file.get().as_deref(),
         );
         self.set_views(&config);

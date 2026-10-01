@@ -278,6 +278,8 @@ impl Instance {
             instance: self.me.clone(),
         })));
         host.log = Some(sail::app::logger::InstanceLogRef(self.log.clone()));
+        // As libbox's apps have them, a Clash API or not.
+        host.clash_modes = true;
         let options = sail::StartOptions {
             config: match source {
                 Source::Text(text) => sail::Config::Str(text),

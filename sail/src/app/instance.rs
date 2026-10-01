@@ -70,8 +70,11 @@ impl Instance {
         let cache_file = env
             .cache_file
             .replace(config.experimental.cache_file.as_ref(), &env)?;
-        env.clash_mode
-            .configure(config.clash_api.as_ref(), env.cache_file.get().as_deref());
+        env.clash_mode.configure(
+            config.clash_api.as_ref(),
+            env.host.clash_modes,
+            env.cache_file.get().as_deref(),
+        );
         #[cfg(feature = "tls")]
         env.tls_roots.set(crate::transport::tls::roots::configured(
             config.certificate.as_ref(),

@@ -263,10 +263,8 @@ pub extern "C" fn sail_cancel(operation: SailOperation, err: *mut *mut c_char) -
 }
 
 /// The mode rules match and the modes they name, as JSON: `{"mode",
-/// "modes"}`.
-///
-/// @return SAIL_ERR_UNSUPPORTED when the configuration has no Clash API,
-///     so no mode, as in sing-box.
+/// "modes"}`. An instance has modes though its configuration has no Clash
+/// API, as libbox's apps do: `Rule`, unless the cache file kept another.
 #[no_mangle]
 pub unsafe extern "C" fn sail_mode(
     instance: SailInstance,

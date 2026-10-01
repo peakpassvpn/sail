@@ -398,14 +398,15 @@ fn an_instance_is_driven_through_the_c_abi() {
             code(|err| sail_cancel(op, err)) == SAIL_ERR_NOT_FOUND
         });
 
-        // No Clash API: no mode.
+        // No Clash API, yet modes, as libbox gives its apps.
+        let mode = json_of(|out, err| unsafe { sail_mode(instance, out, err) });
         assert_eq!(
-            code(|err| unsafe { sail_mode(instance, &mut std::ptr::null_mut(), err) }),
-            SAIL_ERR_UNSUPPORTED
+            mode,
+            serde_json::json!({ "mode": "Rule", "modes": ["Rule"] })
         );
         let caps = json_of(|out, err| unsafe { sail_instance_capabilities(instance, out, err) });
         assert_eq!(caps["has_tun"], false);
-        assert_eq!(caps["has_modes"], false);
+        assert_eq!(caps["has_modes"], true);
 
         // A reload with another configuration, then a bad one that leaves
         // it as it was.
@@ -666,6 +667,59 @@ fn instances_run_at_once_each_with_its_own_events() {
         for log in &logs {
             eventually("released", || log.released.load(Ordering::SeqCst) == 1);
         }
+    });
+}
+
+/// Whether a connection through the SOCKS inbound at `port` is let through.
+fn socks_connects(port: u16) -> bool {
+    let target = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let std::net::SocketAddr::V4(v4) = target.local_addr().unwrap() else {
+        unreachable!()
+    };
+    let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+    s.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    s.write_all(&[5, 1, 0]).unwrap();
+    let mut reply = [0u8; 2];
+    s.read_exact(&mut reply).unwrap();
+    let mut request = vec![5, 1, 0, 1];
+    request.extend_from_slice(&v4.ip().octets());
+    request.extend_from_slice(&v4.port().to_be_bytes());
+    s.write_all(&request).unwrap();
+    let mut reply = [0u8; 10];
+    s.read_exact(&mut reply).is_ok() && reply[1] == 0
+}
+
+#[test]
+fn an_instance_without_a_clash_api_has_modes_as_libbox_gives_them() {
+    let _serial = serial();
+    within(Duration::from_secs(60), || {
+        let port = free_port();
+        let config = serde_json::json!({
+            "inbounds": [{ "type": "socks", "listen": "127.0.0.1", "listen_port": port }],
+            "outbounds": [{ "type": "direct" }],
+            "route": { "rules": [{ "clash_mode": "Global", "action": "reject" }] },
+        })
+        .to_string();
+        let instance = new_instance(None, None);
+        start(instance, &config);
+        let mode = json_of(|out, err| unsafe { sail_mode(instance, out, err) });
+        assert_eq!(
+            mode,
+            serde_json::json!({ "mode": "Rule", "modes": ["Rule", "Global"] })
+        );
+        assert!(socks_connects(port), "the Global rule matched in Rule");
+        ok("set mode", |err| unsafe {
+            sail_set_mode(instance, c"global".as_ptr(), err)
+        });
+        let mode = json_of(|out, err| unsafe { sail_mode(instance, out, err) });
+        assert_eq!(mode["mode"], "Global");
+        assert!(!socks_connects(port), "the Global rule did not match");
+        assert_eq!(
+            code(|err| unsafe { sail_set_mode(instance, c"Nothing".as_ptr(), err) }),
+            SAIL_ERR_NOT_FOUND
+        );
+        stop(instance);
+        sail_instance_free(instance);
     });
 }
 

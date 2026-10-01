@@ -36,13 +36,17 @@ impl ClashMode {
 
     /// The mode a configuration starts in: the one the cache file kept,
     /// else its Clash API's `default_mode`, `Rule` when unset, as in
-    /// sing-box; none without the API. A reload keeps the mode it finds,
-    /// while there is still an API.
+    /// sing-box; none without the API, unless the host has modes always
+    /// (`Host::clash_modes`). A reload keeps the mode it finds, while there
+    /// is still an API.
     pub fn configure(
         &self,
         clash_api: Option<&crate::config::model::ClashApi>,
+        always: bool,
         cache: Option<&crate::runtime::cache_file::CacheFile>,
     ) {
+        let default = crate::config::model::ClashApi::default();
+        let clash_api = clash_api.or(always.then_some(&default));
         match clash_api {
             None => self.set(None),
             Some(_) if self.get().is_some() => {}
@@ -83,7 +87,7 @@ mod tests {
     fn a_mode_is_set_by_the_api_and_matched_whatever_the_case() {
         let mode = ClashMode::default();
         assert!(!mode.is("Rule"));
-        mode.configure(Some(&Default::default()), None);
+        mode.configure(Some(&Default::default()), false, None);
         assert!(mode.is("rule"));
         mode.set(Some("Global".into()));
         // A reload keeps it.
@@ -92,10 +96,14 @@ mod tests {
                 default_mode: Some("Direct".into()),
                 ..Default::default()
             }),
+            false,
             None,
         );
         assert!(mode.is("GLOBAL"));
-        mode.configure(None, None);
+        mode.configure(None, false, None);
         assert_eq!(mode.get(), None);
+        // A host that has modes always: the default, without an API.
+        mode.configure(None, true, None);
+        assert!(mode.is("Rule"));
     }
 }

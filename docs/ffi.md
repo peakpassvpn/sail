@@ -122,7 +122,7 @@ and the next start with the same directories runs.
 | Connections | `sail_connections`, `sail_close_connection`, `sail_close_all_connections` | `SAIL_EVENT_CONNECTIONS` |
 | Outbounds and groups | `sail_outbounds`, `sail_groups`, `sail_select` | `SAIL_EVENT_OUTBOUNDS` (on change) |
 | Delays | `sail_delay` (waits), `sail_url_test` (does not; a group's members), `sail_cancel` | through `SAIL_EVENT_OUTBOUNDS` |
-| Mode | `sail_mode`, `sail_set_mode` | |
+| Mode | `sail_mode`, `sail_set_mode` (an instance has modes though its configuration has no Clash API, as libbox's apps do) | |
 | Log | `sail_clear_logs` | `SAIL_EVENT_LOG` |
 | Network | `sail_set_network_state`, `sail_network_changed` | `SAIL_EVENT_NETWORK` (not yet) |
 | Capabilities | `sail_capabilities`, `sail_instance_capabilities` | |
@@ -146,5 +146,3 @@ command server and client. sail differs where noted:
   outbound and waits.
 - The status event gives rates in bytes a second, where libbox gives the
   bytes of each interval.
-- An instance without a Clash API in its configuration has no mode, as in
-  sing-box's own configuration; libbox always has one.

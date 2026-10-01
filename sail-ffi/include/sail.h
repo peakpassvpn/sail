@@ -285,10 +285,8 @@ int32_t sail_cancel(SailOperation operation, char **err);
 
 /*
  The mode rules match and the modes they name, as JSON: `{"mode",
- "modes"}`.
-
- @return SAIL_ERR_UNSUPPORTED when the configuration has no Clash API,
-     so no mode, as in sing-box.
+ "modes"}`. An instance has modes though its configuration has no Clash
+ API, as libbox's apps do: `Rule`, unless the cache file kept another.
  */
 int32_t sail_mode(SailInstance instance, char **out, char **err);
 
