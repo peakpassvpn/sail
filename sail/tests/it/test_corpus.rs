@@ -22,21 +22,22 @@ fn the_corpus_reads_as_expected() {
     // warnings counted, and built (`check`), or the first line of the
     // error; a panic is a bug.
     fn outcome(path: &Path) -> Value {
+        // Relative paths are the data directory's: one of the entry's own,
+        // as those with a cache file hold it locked while they build, and
+        // written `<data_dir>`, for the outcome to be every machine's.
+        let data_dir = std::env::temp_dir()
+            .join("sail-corpus-data")
+            .join(std::process::id().to_string())
+            .join(path.file_name().unwrap());
         let host = sail::runtime::Host::default();
         let read = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             sail::config::from_file_for(path.to_str().unwrap(), &host)
         }));
         let config = match read {
             Ok(Ok(config)) => config,
-            Ok(Err(e)) => {
-                let data_dir = std::env::temp_dir().join("sail-corpus-data");
-                return json!({ "error": placed(&format!("{:#}", e), &data_dir) });
-            }
+            Ok(Err(e)) => return json!({ "error": placed(&format!("{:#}", e), &data_dir) }),
             Err(panic) => return json!({ "panic": panic_message(panic) }),
         };
-        // Relative paths are the data directory's: one of the test's, and
-        // written `<data_dir>`, for the outcome to be every machine's.
-        let data_dir = std::env::temp_dir().join("sail-corpus-data");
         let env = sail::runtime::RuntimeEnv {
             host: sail::runtime::Host {
                 data_dir: Some(data_dir.clone()),
@@ -83,6 +84,11 @@ fn the_corpus_reads_as_expected() {
             .flat_map(|w| w.join().unwrap())
             .collect()
     });
+    let _ = std::fs::remove_dir_all(
+        std::env::temp_dir()
+            .join("sail-corpus-data")
+            .join(std::process::id().to_string()),
+    );
     // An outcome that differs by system (a check only one system makes
     // comes first there) is kept for that system under `on`, beside the
     // one of the others.
