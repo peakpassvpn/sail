@@ -23,8 +23,6 @@
     feature = "outbound-httpupgrade",
     feature = "inbound-grpc",
     feature = "outbound-grpc",
-    feature = "inbound-chain",
-    feature = "outbound-chain",
 ))]
 
 #[allow(unused_imports)] // Unused where features leave out every test.

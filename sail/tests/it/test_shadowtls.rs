@@ -23,7 +23,6 @@
     feature = "inbound-socks",
     feature = "outbound-socks",
     feature = "outbound-direct",
-    feature = "outbound-chain",
 ))]
 
 #[allow(unused_imports)] // Unused where features leave out every test.

@@ -31,7 +31,6 @@ config-surge = ["config-clash", "base64"]
 # Grouping all features
 all-endpoints = [
     # inbounds
-    "inbound-chain",
     "inbound-amux",
     "inbound-quic",
     "inbound-ws",
@@ -77,7 +76,6 @@ all-endpoints = [
     "outbound-quic",
     "outbound-fallback",
     "outbound-tryall",
-    "outbound-chain",
     "outbound-vless",
     "outbound-reality",
     "outbound-mptp",
@@ -138,7 +136,6 @@ outbound-ws = ["tungstenite", "tokio-tungstenite", "http", "httparse", "base64"]
 outbound-httpupgrade = ["http", "httparse"]
 outbound-grpc = ["h2", "http"]
 outbound-tryall = []
-outbound-chain = []
 outbound-vless = []
 outbound-reality = ["tls", "hkdf", "sha2", "hmac", "aes-gcm", "hex", "base64"]
 outbound-amux= ["tokio-util"]
@@ -187,10 +184,9 @@ inbound-ws = ["tungstenite", "tokio-tungstenite", "http", "httparse", "base64"]
 inbound-httpupgrade = ["http", "httparse"]
 inbound-grpc = ["h2", "http"]
 inbound-amux = ["tokio-util"]
-inbound-quic = ["quic", "inbound-chain"]
+inbound-quic = ["quic"]
 inbound-tls = ["tls"]
 inbound-reality = ["tls", "hkdf", "sha2", "hmac", "aes-gcm", "hex", "base64"]
-inbound-chain = []
 inbound-cat = ["tokio/io-std"]
 inbound-nf = ["libloading"]
 inbound-direct = []

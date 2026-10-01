@@ -1,6 +1,5 @@
 //! Outbounds that are built out of other outbounds.
 
-#[cfg(any(feature = "inbound-chain", feature = "outbound-chain"))]
 pub mod chain;
 #[cfg(any(feature = "outbound-load-balance", feature = "outbound-smart"))]
 mod domain;

@@ -23,8 +23,6 @@
     feature = "outbound-direct",
     feature = "outbound-tls",
     feature = "inbound-tls",
-    feature = "inbound-chain",
-    feature = "outbound-chain",
 ))]
 
 #[allow(unused_imports)] // Unused where features leave out every test.

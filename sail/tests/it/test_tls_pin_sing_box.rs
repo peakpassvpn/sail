@@ -14,8 +14,6 @@
     feature = "inbound-tls",
     feature = "outbound-trojan",
     feature = "inbound-trojan",
-    feature = "inbound-chain",
-    feature = "outbound-chain",
 ))]
 
 #[allow(unused_imports)] // Unused where features leave out every test.

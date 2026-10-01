@@ -10,8 +10,6 @@ use crate::common;
     feature = "inbound-ws",
     feature = "inbound-trojan",
     feature = "outbound-direct",
-    feature = "inbound-chain",
-    feature = "outbound-chain",
 ))]
 #[test]
 fn test_in_chain_1() -> anyhow::Result<()> {

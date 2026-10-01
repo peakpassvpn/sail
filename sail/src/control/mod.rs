@@ -342,8 +342,6 @@ pub fn features() -> Vec<&'static str> {
         "outbound-grpc",
         #[cfg(feature = "outbound-tryall")]
         "outbound-tryall",
-        #[cfg(feature = "outbound-chain")]
-        "outbound-chain",
         #[cfg(feature = "outbound-vless")]
         "outbound-vless",
         #[cfg(feature = "outbound-reality")]
@@ -408,8 +406,6 @@ pub fn features() -> Vec<&'static str> {
         "inbound-tls",
         #[cfg(feature = "inbound-reality")]
         "inbound-reality",
-        #[cfg(feature = "inbound-chain")]
-        "inbound-chain",
         #[cfg(feature = "inbound-direct")]
         "inbound-direct",
         #[cfg(feature = "inbound-redirect")]

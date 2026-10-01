@@ -1101,23 +1101,15 @@ impl crate::adapter::OutboundStreamHandler for Handover {
 
 /// An outbound running `actors` in order, each over the one before.
 pub fn chain_outbound(tag: &str, actors: Vec<AnyOutboundHandler>) -> Result<AnyOutboundHandler> {
-    #[cfg(feature = "outbound-chain")]
-    {
-        use crate::adapter::outbound::HandlerBuilder;
-        use crate::protocol::group::chain::outbound::{DatagramHandler, StreamHandler};
-        Ok(HandlerBuilder::default()
-            .tag(tag.to_owned())
-            .stream_handler(Arc::new(StreamHandler {
-                actors: actors.clone(),
-            }))
-            .datagram_handler(Arc::new(DatagramHandler { actors }))
-            .build())
-    }
-    #[cfg(not(feature = "outbound-chain"))]
-    {
-        let _ = actors;
-        Err(not_compiled(tag, "outbound", "layers", "outbound-chain"))
-    }
+    use crate::adapter::outbound::HandlerBuilder;
+    use crate::protocol::group::chain::outbound::{DatagramHandler, StreamHandler};
+    Ok(HandlerBuilder::default()
+        .tag(tag.to_owned())
+        .stream_handler(Arc::new(StreamHandler {
+            actors: actors.clone(),
+        }))
+        .datagram_handler(Arc::new(DatagramHandler { actors }))
+        .build())
 }
 
 #[allow(dead_code)]
@@ -1926,31 +1918,26 @@ fn chain_inbound(
     actors: Vec<AnyInboundHandler>,
     env: &RuntimeEnv,
 ) -> Result<AnyInboundHandler> {
-    #[cfg(feature = "inbound-chain")]
-    {
-        use crate::adapter::{AnyInboundDatagramHandler, AnyInboundStreamHandler};
-        use crate::protocol::group::chain::inbound::{Accept, DatagramHandler, StreamHandler};
-        let accept = Accept::from(&env.options.inbound);
-        let stream = actors[0].stream().is_ok().then(|| {
-            Arc::new(StreamHandler {
-                actors: actors.clone(),
-                accept,
-            }) as AnyInboundStreamHandler
-        });
-        let datagram = actors[0].datagram().is_ok().then(|| {
-            Arc::new(DatagramHandler {
-                actors: actors.clone(),
-                accept,
-            }) as AnyInboundDatagramHandler
-        });
-        Ok(Arc::new(crate::adapter::inbound::Handler::new(
-            tag.to_owned(),
-            stream,
-            datagram,
-        )))
-    }
-    #[cfg(not(feature = "inbound-chain"))]
-    Err(not_compiled(tag, "inbound", "layers", "inbound-chain"))
+    use crate::adapter::{AnyInboundDatagramHandler, AnyInboundStreamHandler};
+    use crate::protocol::group::chain::inbound::{Accept, DatagramHandler, StreamHandler};
+    let accept = Accept::from(&env.options.inbound);
+    let stream = actors[0].stream().is_ok().then(|| {
+        Arc::new(StreamHandler {
+            actors: actors.clone(),
+            accept,
+        }) as AnyInboundStreamHandler
+    });
+    let datagram = actors[0].datagram().is_ok().then(|| {
+        Arc::new(DatagramHandler {
+            actors: actors.clone(),
+            accept,
+        }) as AnyInboundDatagramHandler
+    });
+    Ok(Arc::new(crate::adapter::inbound::Handler::new(
+        tag.to_owned(),
+        stream,
+        datagram,
+    )))
 }
 
 /// The ALPN an inbound's TLS offers when `tls.alpn` is unset: what the

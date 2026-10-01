@@ -12,8 +12,6 @@ use crate::common;
     feature = "inbound-ws",
     feature = "inbound-trojan",
     feature = "outbound-direct",
-    feature = "inbound-chain",
-    feature = "outbound-chain",
     feature = "inbound-shadowsocks",
     feature = "outbound-shadowsocks",
 ))]

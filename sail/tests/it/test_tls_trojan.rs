@@ -10,8 +10,6 @@ use crate::common;
     feature = "inbound-tls",
     feature = "inbound-trojan",
     feature = "outbound-direct",
-    feature = "inbound-chain",
-    feature = "outbound-chain",
 ))]
 #[test]
 fn test_tls_trojan() -> anyhow::Result<()> {
