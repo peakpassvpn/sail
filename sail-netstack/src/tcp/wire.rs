@@ -255,7 +255,11 @@ pub fn emit_tcp_segment_with_options(
         u16::try_from(tcp_len).map_err(|_| WireError::Malformed("TCP segment too large"))?;
     let ip_len_u16 =
         u16::try_from(ip_len).map_err(|_| WireError::Malformed("TCP segment too large"))?;
-    let mut packet = vec![0_u8; ip_len];
+    // The headers start zeroed and the payload is appended: zeroing the
+    // payload's room first wrote every payload byte twice.
+    let mut packet = Vec::with_capacity(ip_len);
+    packet.resize(ip_header_len + tcp_header_len, 0);
+    packet.extend_from_slice(payload);
     match (source.ip(), destination.ip()) {
         (IpAddr::V4(source_ip), IpAddr::V4(destination_ip)) => {
             packet[0] = 0x45;
@@ -288,7 +292,6 @@ pub fn emit_tcp_segment_with_options(
     tcp[13] = control.flags.bits();
     tcp[14..16].copy_from_slice(&control.window.to_be_bytes());
     tcp[20..tcp_header_len].copy_from_slice(options);
-    tcp[tcp_header_len..].copy_from_slice(payload);
     let checksum = finalize_checksum(transport_checksum_sum(
         source.ip(),
         destination.ip(),
@@ -308,4 +311,118 @@ fn ipv4_header_checksum(header: &[u8]) -> u16 {
         sum = (sum & 0xffff) + (sum >> 16);
     }
     finalize_checksum(u16::try_from(sum).unwrap_or(u16::MAX))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{parse_ip_packet, SeqNumber, TcpFlags};
+    use std::net::{Ipv4Addr, Ipv6Addr};
+
+    /// The segment as built when the whole buffer started zeroed: every
+    /// byte the emitter writes, it writes over zeros.
+    fn zeroed_reference(
+        source: SocketAddr,
+        destination: SocketAddr,
+        control: SendControl,
+        options: &[u8],
+        payload: &[u8],
+    ) -> Vec<u8> {
+        let ip_header_len = if source.is_ipv4() { 20 } else { 40 };
+        let tcp_header_len = 20 + options.len();
+        let tcp_len = tcp_header_len + payload.len();
+        let ip_len = ip_header_len + tcp_len;
+        let mut packet = vec![0_u8; ip_len];
+        match (source.ip(), destination.ip()) {
+            (IpAddr::V4(s), IpAddr::V4(d)) => {
+                packet[0] = 0x45;
+                packet[2..4].copy_from_slice(&u16::try_from(ip_len).unwrap().to_be_bytes());
+                packet[4..6].copy_from_slice(&7_u16.to_be_bytes());
+                packet[6] = 0x40;
+                packet[8] = 64;
+                packet[9] = TCP_PROTOCOL;
+                packet[12..16].copy_from_slice(&s.octets());
+                packet[16..20].copy_from_slice(&d.octets());
+                let checksum = ipv4_header_checksum(&packet[..20]);
+                packet[10..12].copy_from_slice(&checksum.to_be_bytes());
+            }
+            (IpAddr::V6(s), IpAddr::V6(d)) => {
+                packet[0] = 0x60;
+                packet[4..6].copy_from_slice(&u16::try_from(tcp_len).unwrap().to_be_bytes());
+                packet[6] = TCP_PROTOCOL;
+                packet[7] = 64;
+                packet[8..24].copy_from_slice(&s.octets());
+                packet[24..40].copy_from_slice(&d.octets());
+            }
+            _ => unreachable!(),
+        }
+        let tcp = &mut packet[ip_header_len..];
+        tcp[0..2].copy_from_slice(&source.port().to_be_bytes());
+        tcp[2..4].copy_from_slice(&destination.port().to_be_bytes());
+        tcp[4..8].copy_from_slice(&control.sequence.get().to_be_bytes());
+        tcp[8..12].copy_from_slice(&control.acknowledgment.get().to_be_bytes());
+        tcp[12] = u8::try_from(tcp_header_len / 4).unwrap() << 4;
+        tcp[13] = control.flags.bits();
+        tcp[14..16].copy_from_slice(&control.window.to_be_bytes());
+        tcp[20..tcp_header_len].copy_from_slice(options);
+        tcp[tcp_header_len..].copy_from_slice(payload);
+        let checksum = finalize_checksum(transport_checksum_sum(
+            source.ip(),
+            destination.ip(),
+            TCP_PROTOCOL,
+            tcp,
+        ));
+        tcp[16..18].copy_from_slice(&checksum.to_be_bytes());
+        packet
+    }
+
+    /// Only the headers start zeroed now: what goes out must still match,
+    /// byte for byte, a segment built in a zeroed buffer, so nothing left
+    /// from an earlier buffer can reach the wire.
+    #[test]
+    fn a_segment_is_written_in_full() {
+        let control = SendControl {
+            sequence: SeqNumber::new(0x0102_0304),
+            acknowledgment: SeqNumber::new(0x0506_0708),
+            flags: TcpFlags::ACK.union(TcpFlags::FIN),
+            window: 0x1234,
+        };
+        let v4 = (
+            SocketAddr::from((Ipv4Addr::new(10, 0, 0, 2), 40_000)),
+            SocketAddr::from((Ipv4Addr::new(10, 0, 0, 1), 443)),
+        );
+        let v6 = (
+            SocketAddr::from((Ipv6Addr::new(0xfd00, 0, 0, 0, 0, 0, 0, 2), 40_000)),
+            SocketAddr::from((Ipv6Addr::new(0xfd00, 0, 0, 0, 0, 0, 0, 1), 443)),
+        );
+        let timestamps = [1, 1, 8, 10, 0, 0, 0, 1, 0, 0, 0, 2];
+        let payload: Vec<u8> = (0..8_920_u32)
+            .map(|i| u8::try_from(i % 251).unwrap())
+            .collect();
+        for (source, destination) in [v4, v6] {
+            for options in [&[][..], &timestamps[..]] {
+                for payload in [&[][..], &payload[..1], &payload[..]] {
+                    let emitted = emit_tcp_segment_with_options(
+                        source,
+                        destination,
+                        control,
+                        options,
+                        payload,
+                        64,
+                        7,
+                    )
+                    .unwrap();
+                    assert_eq!(
+                        emitted,
+                        zeroed_reference(source, destination, control, options, payload)
+                    );
+                    let parsed =
+                        parse_tcp_segment(parse_ip_packet(&emitted, true).unwrap(), true).unwrap();
+                    assert_eq!(parsed.payload, payload);
+                    assert_eq!(parsed.meta.sequence, control.sequence);
+                    assert_eq!(parsed.meta.window, u32::from(control.window));
+                }
+            }
+        }
+    }
 }
