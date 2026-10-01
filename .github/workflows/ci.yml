@@ -108,7 +108,11 @@ jobs:
   # the result: `test` runs the sail tests (natively, or under qemu-user),
   # `smoke` runs `sail --version` (qemu-user, wine), which catches a binary
   # that does not load. Android libraries are only built.
+  #
+  # The matrix is most of a run's minutes, so a ci/* branch (the pre-merge
+  # check) skips it: it runs on dev and master, and by hand.
   cross:
+    if: github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/master' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
