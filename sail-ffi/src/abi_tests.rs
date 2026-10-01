@@ -566,9 +566,9 @@ fn files() -> usize {
 }
 
 /// The process's threads and files once they have held for 6 s, within
-/// 90 s: longer than what an instance leaves to end on its own lingers
-/// unchanged (the neighbor table's watcher, up to a 5 s dump), so that it
-/// is not counted as the baseline and a leak of one thread still shows.
+/// 90 s: what an instance before left to end on its own (a blocking
+/// thread finishing its task, on a loaded machine) has ended, so that it is
+/// not counted as the baseline and a leak of one thread still shows.
 fn settled() -> (usize, usize) {
     let deadline = Instant::now() + Duration::from_secs(90);
     let mut seen = (threads(), files());
@@ -632,9 +632,8 @@ fn starts_and_stops_leave_nothing_behind() {
         });
         assert_eq!(host.released.load(Ordering::SeqCst), 1, "released once");
         assert_eq!(events.released.load(Ordering::SeqCst), 1);
-        // What an instance leaves to end on its own: the neighbor table's
-        // watcher sees its receiver gone at its next read, up to 3 s
-        // (WATCH_POLL) or a dump's 5 s; a loaded machine takes longer.
+        // What an instance leaves to end on its own ends soon after it
+        // stops; a loaded machine takes longer.
         eventually_within(
             Duration::from_secs(60),
             &format!("threads back to {} and files to {}", threads0, files0),
