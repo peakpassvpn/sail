@@ -11,7 +11,7 @@ description: "多处取用的配置对象，统一列出。"
 - **说明**：sail 源码注释，保留原文；没有注释的扩展字段取注册表测试的说明。
 - **构建条件**：Rust 源码中的 `cfg` 条件（Cargo feature 与平台）。
 
-用 `sail -c config.json -T` 校验配置。Clash 与 Surge 的支持表见[兼容性](/sail/zh/reference/compatibility/)。
+用 `sail -c config.json -T` 校验配置。编辑器可按 JSON schema 校验与补全：在配置顶层写 `"$schema": "https://peakpassvpn.github.io/sail/schema.json"`（由同一生成器产出；sail 报错的字段标为不允许，警告的标为弃用）。Clash 与 Surge 的支持表见[兼容性](/sail/zh/reference/compatibility/)。
 
 多处字段取用、字段、类型与分级均相同的对象，在此统一列出，并注明所在位置。
 

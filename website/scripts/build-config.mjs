@@ -1,5 +1,6 @@
 // Writes the configuration reference (website/src/content/docs/reference and
-// its Chinese twin) from sail's source and the sing-box field registry.
+// its Chinese twin) and the configuration's JSON schema (public/schema.json)
+// from sail's source and the sing-box field registry.
 //
 //   node scripts/build-config.mjs           write the pages
 //   node scripts/build-config.mjs --check   fail if a page is not current
@@ -10,7 +11,8 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { COMPAT, render, stale } from './reference.mjs';
+import { COMPAT, buildModel, render, stale } from './reference.mjs';
+import { buildSchema } from './schema.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const docs = path.join(root, 'website/src/content/docs');
@@ -31,6 +33,14 @@ for (const c of COMPAT) {
 }
 
 const { files, undocumented, unlisted } = render({ fields, tiers, extract, compat });
+const schema = buildSchema(buildModel({ fields, tiers, extract, compat }), {
+  version: fields.sing_box,
+  id: 'https://peakpassvpn.github.io/sail/schema.json',
+  title: 'sail configuration',
+  description: "sail's native configuration format",
+});
+const schemaAt = path.join(root, 'website/public/schema.json');
+const schemaText = JSON.stringify(schema, null, 1) + '\n';
 
 const read = name => {
   const at = path.join(docs, name);
@@ -40,6 +50,7 @@ const list = () => ['reference', 'zh/reference'].flatMap(dir => (existsSync(path
 
 if (args.has('--check')) {
   const bad = stale(files, read, list);
+  if (!existsSync(schemaAt) || readFileSync(schemaAt, 'utf8') !== schemaText) bad.push('public/schema.json');
   if (bad.length) {
     console.error(`The configuration reference is not current: ${bad.join(', ')}.\nRun \`npm run docs:config\` in website/ and commit the result.`);
     process.exit(1);
@@ -51,6 +62,7 @@ if (args.has('--check')) {
     mkdirSync(path.dirname(path.join(docs, name)), { recursive: true });
     writeFileSync(path.join(docs, name), text);
   }
+  writeFileSync(schemaAt, schemaText);
   console.log(`Generated ${Object.keys(files).length} reference pages from ${extract.definitions.length} definitions and ${fields.fields.length} sing-box fields.`);
 }
 if (args.has('--report')) {

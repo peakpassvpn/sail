@@ -6,6 +6,8 @@ import {
   applyCase, collapse, compatibilityPage, labelValue, lackingTypes, literalOf, parentOf, parseType,
   brokenLinks, render, simplifyGates, slug, splitPath, stale, variantOf,
 } from './reference.mjs';
+import { buildModel } from './reference.mjs';
+import { buildSchema, kindSchema, validate } from './schema.mjs';
 
 // ------------------------------------------------------------ fixture
 
@@ -496,4 +498,50 @@ test('stale pages are those that differ, are missing or are left over', () => {
   const files = { 'reference/a.md': 'same', 'reference/b.md': 'new', 'reference/d.md': 'new' };
   assert.deepEqual(stale(files, n => disk[n] ?? null, () => Object.keys(disk)).sort(), ['reference/b.md', 'reference/c.md', 'reference/d.md']);
   assert.deepEqual(stale({ 'reference/a.md': 'same' }, n => disk[n] ?? null, () => ['reference/a.md']), []);
+});
+
+// ------------------------------------------------------------ schema
+
+const schemaOf = () => buildSchema(buildModel(fixture()), { version: 'v9.9', id: 'https://example.com/schema.json', title: 't', description: 'd' });
+const errorsOf = value => validate(schemaOf(), value);
+
+test('the schema takes a configuration sail takes, and no field it does not list', () => {
+  assert.deepEqual(errorsOf({ log: { level: 'a' }, outbounds: [{ type: 'x', tag: 'p', server: 's', tls: { enabled: true } }] }), []);
+  assert.deepEqual(errorsOf({ log: { colour: true } }), ['log.colour: not a field here']);
+  assert.deepEqual(errorsOf({ outbounds: [{ type: 'x', tag: 'p' }] }), ['outbounds[0]: server is required']);
+  // sail's own enum is what it takes.
+  assert.deepEqual(errorsOf({ log: { level: 'c' } }), ['log.level: "c" is none of a, b']);
+});
+
+test('a field sail refuses is not allowed, with why; one it warns of is deprecated', () => {
+  const schema = schemaOf();
+  const y = schema.$defs['outbounds[y]'].properties.tls.$ref;
+  const tls = schema.$defs[decodeURIComponent(y.replace('#/$defs/', ''))];
+  assert.deepEqual(tls.properties.enabled, { not: {}, description: 'sail refuses this field: Not yet' });
+  assert.deepEqual(errorsOf({ outbounds: [{ type: 'y', tls: { enabled: true } }] }), ['outbounds[0].tls.enabled: sail refuses this field: Not yet']);
+  const old = schema.properties.log;
+  const log = schema.$defs[decodeURIComponent(old.$ref.replace('#/$defs/', ''))];
+  assert.equal(log.properties.old.deprecated, true);
+  assert.match(log.properties.old.description, /^sail ignores this field, with a warning: Dropped \| it changes nothing/);
+});
+
+test('entries are told apart by their type, and a type sail refuses is none of them', () => {
+  const schema = schemaOf();
+  assert.deepEqual(schema.properties.outbounds.items.properties.type.enum, ['g', 'x', 'y']);
+  assert.deepEqual(errorsOf({ outbounds: [{ type: 'z', tag: 'p' }] }), ['outbounds[0].type: "z" is none of g, x, y']);
+  // A field of another type is not one of this type's.
+  assert.deepEqual(errorsOf({ outbounds: [{ type: 'y', server: 's' }] }), ['outbounds[0].server: not a field here']);
+  assert.deepEqual(errorsOf({ outbounds: [{ tag: 'p' }] }), ['outbounds[0]: type is required']);
+});
+
+test('a rule takes its action\'s fields, and its conditions one value or a list', () => {
+  assert.deepEqual(errorsOf({ route: { rules: [{ domain: 'a', action: 'route', outbound: 'x' }, { domain: ['a', 'b'] }] } }), []);
+  assert.deepEqual(errorsOf({ route: { rules: [{ domain: 1 }] } }), ['route.rules[0].domain: number, not string']);
+});
+
+test('a listable union takes one of its kinds or a list of them', () => {
+  const s = { $defs: {}, ...kindSchema('listable-number|string') };
+  for (const v of [1, 'a', [1, 'a']]) assert.deepEqual(validate(s, v), [], JSON.stringify(v));
+  assert.equal(validate(s, true).length, 1);
+  assert.deepEqual(kindSchema('number|duration'), { anyOf: [{ type: 'number' }, { type: 'string' }] });
 });
