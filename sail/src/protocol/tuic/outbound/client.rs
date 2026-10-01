@@ -59,10 +59,24 @@ pub struct Client {
     dns_client: SyncDnsClient,
     dialer: Dialer,
     client_config: quinn::ClientConfig,
-    /// The connection in use. Held while dialling, so that requests
-    /// arriving meanwhile wait for the one connection being made.
-    conn: tokio::sync::Mutex<Option<Arc<ClientConn>>>,
+    /// The connection in use, and the network it was dialled on.
+    conn: Mutex<Current>,
+    /// Held while dialling, so that requests arriving meanwhile wait for
+    /// the one connection being made.
+    dialing: tokio::sync::Mutex<()>,
 }
+
+#[derive(Default)]
+struct Current {
+    conn: Option<Arc<ClientConn>>,
+    /// Counts the network changes; a connection dialled across one is
+    /// not kept.
+    network: u64,
+}
+
+/// What a connection closed for a network change is closed with.
+const NETWORK_CHANGED_CODE: quinn::VarInt = quinn::VarInt::from_u32(0);
+const NETWORK_CHANGED: &[u8] = b"network changed";
 
 impl Client {
     pub fn new(options: ClientOptions<'_>) -> Self {
@@ -84,27 +98,60 @@ impl Client {
             dns_client: options.dns_client,
             dialer: options.dialer,
             client_config,
-            conn: tokio::sync::Mutex::new(None),
+            conn: Mutex::default(),
+            dialing: tokio::sync::Mutex::new(()),
         }
+    }
+
+    fn slot(&self) -> std::sync::MutexGuard<'_, Current> {
+        self.conn.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// The connection in use, if it is open.
+    fn live(&self) -> Option<Arc<ClientConn>> {
+        self.slot()
+            .conn
+            .as_ref()
+            .filter(|conn| conn.conn.close_reason().is_none())
+            .cloned()
     }
 
     /// The connection in use, or a new one if it has closed.
     async fn connection(&self) -> io::Result<Arc<ClientConn>> {
-        let mut current = self.conn.lock().await;
-        if let Some(conn) = current.as_ref() {
-            if conn.conn.close_reason().is_none() {
-                return Ok(conn.clone());
-            }
+        if let Some(conn) = self.live() {
+            return Ok(conn);
         }
+        let _dialing = self.dialing.lock().await;
+        if let Some(conn) = self.live() {
+            return Ok(conn);
+        }
+        let network = self.slot().network;
         let conn = self.connect().await?;
-        *current = Some(conn.clone());
+        let mut current = self.slot();
+        if current.network != network {
+            conn.conn.close(NETWORK_CHANGED_CODE, NETWORK_CHANGED);
+            return Err(io::Error::other("tuic: network changed"));
+        }
+        current.conn = Some(conn.clone());
         Ok(conn)
+    }
+
+    /// Closes the connection in use, whose streams and associations fail
+    /// with it, and drops one being dialled, as sing-box's
+    /// CloseWithError: the next request dials on the new network.
+    pub fn network_changed(&self) {
+        let mut current = self.slot();
+        current.network += 1;
+        if let Some(conn) = current.conn.take() {
+            debug!("tuic: network changed, closing the connection");
+            conn.conn.close(NETWORK_CHANGED_CODE, NETWORK_CHANGED);
+        }
     }
 
     /// The connection in use, if any.
     #[cfg(all(test, feature = "inbound-tuic"))]
     pub(crate) async fn current(&self) -> Option<quinn::Connection> {
-        self.conn.lock().await.as_ref().map(|c| c.conn.clone())
+        self.slot().conn.as_ref().map(|c| c.conn.clone())
     }
 
     /// Whether the connection in use was resumed with 0-RTT that the
@@ -112,7 +159,7 @@ impl Client {
     /// handshake is not done.
     #[cfg(all(test, feature = "inbound-tuic"))]
     pub(crate) async fn zero_rtt_accepted(&self) -> Option<bool> {
-        self.conn.lock().await.as_ref()?.zero_rtt.get().copied()
+        self.slot().conn.as_ref()?.zero_rtt.get().copied()
     }
 
     async fn connect(&self) -> io::Result<Arc<ClientConn>> {
@@ -360,6 +407,9 @@ impl OutboundStreamHandler for StreamHandler {
         let active = conn.activity.start();
         Ok(Box::new(QuicStream::guarded(send, recv, (active, conn))))
     }
+    fn network_changed(&self, _change: &crate::net::network::NetworkChange) {
+        self.0.network_changed();
+    }
 }
 
 pub struct DatagramHandler(pub Arc<Client>);
@@ -399,6 +449,9 @@ impl OutboundDatagramHandler for DatagramHandler {
                 .is_domain()
                 .then(|| sess.destination.clone()),
         }))
+    }
+    fn network_changed(&self, _change: &crate::net::network::NetworkChange) {
+        self.0.network_changed();
     }
 }
 

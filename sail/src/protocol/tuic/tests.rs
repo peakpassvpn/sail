@@ -15,7 +15,7 @@ use crate::transport::quic::{alpn_protocols, client_crypto, server_crypto, Clien
 
 use super::common::{CongestionControl, UdpRelayMode, DEFAULT_ALPN};
 use super::inbound::{Server, User};
-use super::outbound::{Client, ClientOptions, StreamHandler};
+use super::outbound::{Client, ClientOptions, DatagramHandler, StreamHandler};
 
 const UUID: [u8; 16] = [7; 16];
 const PASSWORD: &[u8] = b"pw";
@@ -257,4 +257,69 @@ async fn udp_over_stream_is_a_uot_stream() {
     served.write_all(&reply).await.unwrap();
     let (n, from) = recv.recv_from(&mut buf).await.unwrap();
     assert_eq!((&buf[..n], from), (&b"answer"[..], target));
+}
+
+/// A network change closes the connection, with the streams and UDP
+/// associations on it, and the next stream dials anew.
+#[tokio::test]
+async fn a_network_change_closes_the_connection() {
+    let mut f = fixture(false, false).await;
+    let destination = SocksAddr::Domain("example.com".into(), 80);
+    let sess = Session {
+        destination: destination.clone(),
+        ..Default::default()
+    };
+    let mut open = StreamHandler(f.client.clone())
+        .handle(&sess, None, None)
+        .await
+        .unwrap();
+    open.write_all(b"ping").await.unwrap();
+    let accepted = timeout(Duration::from_secs(5), f.incoming.next())
+        .await
+        .expect("no stream within 5s")
+        .expect("server gone");
+    let BaseInboundTransport::Stream(mut served, _) = accepted else {
+        panic!("not a stream");
+    };
+    let mut got = [0; 4];
+    served.read_exact(&mut got).await.unwrap();
+    let old = f.client.current().await.expect("connected");
+    let udp_sess = Session {
+        network: crate::session::Network::Udp,
+        destination: SocksAddr::from((std::net::Ipv4Addr::new(1, 2, 3, 4), 53)),
+        ..Default::default()
+    };
+    let (mut recv, _send) = DatagramHandler(f.client.clone())
+        .handle(&udp_sess, None)
+        .await
+        .unwrap()
+        .split();
+
+    // Both handlers hear of it, as an outbound's do.
+    let change = crate::net::network::NetworkChange {
+        generation: 1,
+        reason: crate::net::network::ChangeReason::DefaultInterface,
+        old: Arc::default(),
+        new: Arc::default(),
+    };
+    StreamHandler(f.client.clone()).network_changed(&change);
+    DatagramHandler(f.client.clone()).network_changed(&change);
+
+    assert!(matches!(
+        old.close_reason(),
+        Some(quinn::ConnectionError::LocallyClosed)
+    ));
+    assert!(f.client.current().await.is_none());
+    assert!(open.read(&mut got).await.is_err());
+    let mut buf = [0; 64];
+    let ended = timeout(Duration::from_secs(5), recv.recv_from(&mut buf))
+        .await
+        .unwrap();
+    assert!(ended.is_err());
+
+    f.round_trip(1).await;
+    assert_ne!(
+        f.client.current().await.unwrap().stable_id(),
+        old.stable_id()
+    );
 }
