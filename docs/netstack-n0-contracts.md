@@ -1216,6 +1216,23 @@ macOS kernel path has passed yet.
   1.47 and 1.32; echo p99 0.47 and 0.40 times. Before, the download was
   about 100 Mbit/s. On the mobile profile, 2000 of 2000 connections now
   open at once, against 653 with the 16 KiB windows before.
+  Later the same day, on the stack thread's CPU:
+  - A profile of the stack's thread during a TUN Trojan upload had memcpy at
+    15%, the TCP checksum at 13% (each segment was checked three times) and
+    memset at 4%. Checking once, handing a read straight to the caller's
+    buffer, and writing a segment's payload once removed that work, but
+    sail's CPU per GiB did not measurably change (A/B against a build of
+    the same base, medians of 5, within a 10% spread): without the earlier
+    pass over a packet's bytes, the next copy takes the cache misses.
+    Skipping the checksum for TUN packets, as sing-box does, measured the
+    same and is not done.
+  - The shards of a multi-queue TUN run as one joined future, so on one
+    thread. One thread per shard raised a 4-stream Trojan upload by about
+    16% and cut a 1-stream direct one by about 20%, so they stay joined.
+  - Against sing-box 1.13 on the same host, by stack (TUN upload, medians of
+    3, host load 1.1 to 5.5): sail's stack carried 0.83 to 0.96 times what
+    sing-box's gVisor stack did with Trojan. The rest of the gap is to its
+    default "system" stack, which leaves TCP to the kernel.
 
 ## RFC coverage matrix
 
