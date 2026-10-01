@@ -108,6 +108,12 @@ impl FakeDnsImpl {
             raw_name.to_ascii()
         };
 
+        // A fake address stands for a domain: not for the root, nor for a
+        // name that is an address already.
+        if domain.is_empty() || domain.parse::<IpAddr>().is_ok() {
+            return Err(anyhow!("{:?} is no domain to give a fake address", domain));
+        }
+
         if !self.accept(&domain) {
             return Err(anyhow!("domain {} not accepted", domain));
         }
@@ -221,6 +227,25 @@ impl FakeDnsImpl {
 mod tests {
     use super::*;
     use std::net::Ipv4Addr;
+
+    /// A query for the root, or for a name that is an address, gets no
+    /// fake address; a domain does.
+    #[test]
+    fn only_a_domain_gets_a_fake_address() {
+        use hickory_proto::op::Query;
+        use hickory_proto::rr::Name;
+        let mut fake = FakeDnsImpl::new(FakeDnsMode::Exclude, Vec::new());
+        let query = |name: &str| {
+            let mut message = Message::new(1, MessageType::Query, OpCode::Query);
+            message.add_query(Query::query(Name::from_ascii(name).unwrap(), RecordType::A));
+            message.to_vec().unwrap()
+        };
+        assert!(fake.generate_fake_response(&query("a.example.")).is_ok());
+        for name in [".", "10.0.0.1."] {
+            let err = fake.generate_fake_response(&query(name)).unwrap_err();
+            assert!(err.to_string().contains("no domain"), "{}: {}", name, err);
+        }
+    }
 
     #[test]
     fn test_u32_to_ip() {
