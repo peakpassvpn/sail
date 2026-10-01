@@ -9,7 +9,7 @@
 //	netgen echo       -proxy P -target T -conns 16 -rounds 200 -size 4096
 //	netgen setup      -proxy P -target T -n 500
 //	netgen concurrent -proxy P -target T -conns 2000 -hold 20s
-//	netgen hold       -proxies P1,P2 -target T -conns 100000 -rate 2000 -hold 60s
+//	netgen hold       -proxies P1,P2 -targets T1,T2 -conns 100000 -rate 2000 -hold 60s
 //	netgen churn      -proxy P -target T -rate 200 -duration 30s
 //	netgen halfclose  -proxy P -target T -n 50 -bytes 1048576
 //	netgen probe      -proxy P -target T -duration 60s -interval 100ms
@@ -62,6 +62,7 @@ func main() {
 	listen := fs.String("listen", "127.0.0.1:9000", "serve: listen address")
 	proxy := fs.String("proxy", "", "SOCKS5 proxy; empty dials the target directly")
 	proxies := fs.String("proxies", "", "hold: SOCKS5 proxies, comma-separated, taken in turn; overrides -proxy")
+	targets := fs.String("targets", "", "hold: servers, comma-separated, taken in turn; overrides -target")
 	target := fs.String("target", "127.0.0.1:9000", "server address, as the proxy sees it")
 	streams := fs.Int("streams", 8, "bulk: parallel streams")
 	size := fs.Int64("bytes", 64<<20, "bulk/halfclose: bytes per stream")
@@ -105,14 +106,18 @@ func main() {
 	case "concurrent":
 		res = runConcurrent(d, *conns, *hold)
 	case "hold":
-		ds := []dialer{d}
+		// Connection i goes through proxy i mod P to target i mod T: one
+		// source cannot reach one address and port more than its
+		// ephemeral ports allow.
+		ps, ts := []string{*proxy}, []string{*target}
 		if *proxies != "" {
-			ds = nil
-			for _, p := range strings.Split(*proxies, ",") {
-				ds = append(ds, dialer{proxy: p, target: *target})
-			}
+			ps = list("-proxies", *proxies)
 		}
-		res = runHold(ds, *conns, *rate, *hold)
+		if *targets != "" {
+			ts = list("-targets", *targets)
+		}
+		dial := func(i int) dialer { return dialer{proxy: ps[i%len(ps)], target: ts[i%len(ts)]} }
+		res = runHold(dial, *conns, *rate, *hold)
 	case "churn":
 		res = runChurn(d, *rate, *duration)
 	case "halfclose":
@@ -127,6 +132,17 @@ func main() {
 		os.Exit(1)
 	}
 	json.NewEncoder(os.Stdout).Encode(res)
+}
+
+// list splits a comma-separated flag, refusing an empty entry.
+func list(flag, value string) []string {
+	items := strings.Split(value, ",")
+	for _, item := range items {
+		if item == "" {
+			usage(flag + " has an empty entry")
+		}
+	}
+	return items
 }
 
 func usage(why string) {
@@ -650,11 +666,11 @@ type holdResult struct {
 	Survived int `json:"survived"`
 }
 
-// runHold opens `conns` echo connections at `rate` a second, through the
-// dialers in turn, each checked by a seeded echo; keeps those established
+// runHold opens `conns` echo connections at `rate` a second, connection i
+// through dial(i), each checked by a seeded echo; keeps those established
 // open for `hold` (the harness samples meanwhile; "HOLDING n" on stderr
 // marks the start), then checks each again with seeded bytes.
-func runHold(ds []dialer, conns, rate int, hold time.Duration) any {
+func runHold(dial func(int) dialer, conns, rate int, hold time.Duration) any {
 	r := &holdResult{Conns: conns, Rate: rate}
 	var mu sync.Mutex
 	open := make([]net.Conn, 0, conns)
@@ -668,7 +684,7 @@ func runHold(ds []dialer, conns, rate int, hold time.Duration) any {
 		go func(i int) {
 			defer wg.Done()
 			t0 := time.Now()
-			c, err := ds[i%len(ds)].dial()
+			c, err := dial(i).dial()
 			if err == nil {
 				msg := make([]byte, 64)
 				newPattern(uint64(i)).fill(msg)
