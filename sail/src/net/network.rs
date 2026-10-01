@@ -65,6 +65,31 @@ pub struct NetworkState {
     /// to log in. sail does not look for one itself.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub captive: bool,
+    /// Every interface sail may dial out of, the default's among them
+    /// (named by `interface`), for a connection's choice of network. The
+    /// fields above describe the default network and are what rules and a
+    /// change of network go by; these are for that choice alone.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub interfaces: Vec<NetworkInterface>,
+}
+
+/// One of the host's interfaces, as sing-box's network manager lists them.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NetworkInterface {
+    pub name: String,
+    /// Its index, which sail finds itself: a host does not push it.
+    #[serde(skip)]
+    pub index: Option<u32>,
+    #[serde(rename = "type")]
+    pub kind: NetworkType,
+    /// Its addresses, with their prefixes.
+    #[serde(default, with = "inets", skip_serializing_if = "Vec::is_empty")]
+    pub addresses: Vec<cidr::IpInet>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub expensive: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub constrained: bool,
 }
 
 impl NetworkState {
@@ -90,7 +115,8 @@ impl NetworkState {
     }
 
     /// The same state, its BSSID written `aa:bb:cc:dd:ee:ff`, empty
-    /// strings taken as unknown, and a carrier code of digits only.
+    /// strings taken as unknown, and a carrier code of digits only; its
+    /// interfaces each named once, the default among them.
     pub fn normalized(mut self) -> Result<NetworkState> {
         let empty = |s: &mut Option<String>| {
             if s.as_deref().is_some_and(|s| s.trim().is_empty()) {
@@ -112,6 +138,27 @@ impl NetworkState {
                 return Err(anyhow!(
                     "network state: mcc_mnc: {:?} is not an MCC and MNC, 5 or 6 digits",
                     code
+                ));
+            }
+        }
+        let mut names = std::collections::HashSet::new();
+        for (i, interface) in self.interfaces.iter().enumerate() {
+            if interface.name.trim().is_empty() {
+                return Err(anyhow!("network state: interfaces[{}].name: empty", i));
+            }
+            if !names.insert(interface.name.as_str()) {
+                return Err(anyhow!(
+                    "network state: interfaces[{}].name: {:?} is listed twice",
+                    i,
+                    interface.name
+                ));
+            }
+        }
+        if let Some(default) = &self.interface {
+            if !self.interfaces.is_empty() && !names.contains(default.as_str()) {
+                return Err(anyhow!(
+                    "network state: interface: {:?} is not in interfaces",
+                    default
                 ));
             }
         }
@@ -400,6 +447,64 @@ mod tests {
             (r#"{ "ssi": "x" }"#, "ssi"),
             (r#"{ "addresses": ["x"] }"#, "addresses"),
             (r#"{ "mtu": 1500 }"#, "mtu"),
+        ] {
+            let err = NetworkState::from_json(json).unwrap_err().to_string();
+            assert!(err.contains(message), "{}", err);
+        }
+    }
+
+    /// The host lists its interfaces, each named once and the default
+    /// among them; a change to them alone is no move.
+    #[test]
+    fn a_host_lists_its_interfaces() {
+        let state = NetworkState::from_json(
+            r#"{ "interface": "wlan0", "type": "wifi",
+                 "interfaces": [
+                   { "name": "wlan0", "type": "wifi", "addresses": ["192.168.1.5/24"] },
+                   { "name": "rmnet0", "type": "cellular", "expensive": true,
+                     "addresses": ["10.1.2.3"] } ] }"#,
+        )
+        .unwrap();
+        assert_eq!(state.interfaces.len(), 2);
+        assert_eq!(state.interfaces[1].kind, NetworkType::Cellular);
+        assert!(state.interfaces[1].expensive && !state.interfaces[1].constrained);
+        assert_eq!(state.interfaces[1].addresses[0].to_string(), "10.1.2.3");
+        let back = serde_json::to_value(&state).unwrap();
+        assert_eq!(
+            back["interfaces"][0],
+            serde_json::json!({ "name": "wlan0", "type": "wifi", "addresses": ["192.168.1.5/24"] })
+        );
+
+        let mut fewer = state.clone();
+        fewer.interfaces.pop();
+        assert_ne!(state, fewer);
+        assert!(!state.moved_to(&fewer));
+
+        // Without a default named, any list goes.
+        NetworkState::from_json(r#"{ "interfaces": [{ "name": "en0", "type": "ethernet" }] }"#)
+            .unwrap();
+        for (json, message) in [
+            (
+                r#"{ "interfaces": [{ "name": "en0" }] }"#,
+                "interfaces[0]: missing field `type`",
+            ),
+            (
+                r#"{ "interfaces": [{ "name": " ", "type": "wifi" }] }"#,
+                "interfaces[0].name: empty",
+            ),
+            (
+                r#"{ "interfaces": [{ "name": "en0", "type": "wifi" },
+                                     { "name": "en0", "type": "ethernet" }] }"#,
+                "interfaces[1].name: \"en0\" is listed twice",
+            ),
+            (
+                r#"{ "interface": "en1", "interfaces": [{ "name": "en0", "type": "wifi" }] }"#,
+                "interface: \"en1\" is not in interfaces",
+            ),
+            (
+                r#"{ "interfaces": [{ "name": "en0", "type": "wifi", "index": 3 }] }"#,
+                "index",
+            ),
         ] {
             let err = NetworkState::from_json(json).unwrap_err().to_string();
             assert!(err.contains(message), "{}", err);

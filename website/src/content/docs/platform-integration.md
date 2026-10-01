@@ -66,9 +66,15 @@ Rules and groups that match the network the host is on (`wifi_ssid`, `wifi_bssid
   "gateway": "192.168.1.1",
   "mcc_mnc": "310260",
   "expensive": false,
-  "constrained": false
+  "constrained": false,
+  "interfaces": [
+    { "name": "en0", "type": "wifi", "addresses": ["192.168.1.2/24", "fd00::2/64"] },
+    { "name": "pdp_ip0", "type": "cellular", "addresses": ["10.1.2.3/32"], "expensive": true }
+  ]
 }
 ```
+
+`interfaces` lists every interface Sail may dial out of, the default among them, for choosing a network per connection: each entry has a `name` (once each), a `type` (required), and may have `addresses`, `expensive` and `constrained`. The fields outside it describe the default network, which `interface` names; when both are given, the list must hold it. Rules and changes of network go by the default network; a change to the list alone is no change of network. Sail's own detection does not list interfaces yet.
 
 `type` is `wifi`, `cellular`, `ethernet` or `other`; every field may be left out, and a condition on a field that is not known does not match. Once a host pushes a state, Sail's own detection stops for the rest of the instance's life.
 

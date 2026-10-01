@@ -53,9 +53,15 @@ Sail 将代理行为保留在 Rust 核心，把宿主特有能力注入边界。
   "gateway": "192.168.1.1",
   "mcc_mnc": "310260",
   "expensive": false,
-  "constrained": false
+  "constrained": false,
+  "interfaces": [
+    { "name": "en0", "type": "wifi", "addresses": ["192.168.1.2/24", "fd00::2/64"] },
+    { "name": "pdp_ip0", "type": "cellular", "addresses": ["10.1.2.3/32"], "expensive": true }
+  ]
 }
 ```
+
+`interfaces` 列出 Sail 可以从中拨出的所有接口（包括默认接口），用于按连接选择网络：每项有 `name`（不可重复）和必填的 `type`，可带 `addresses`、`expensive` 与 `constrained`。列表外的字段描述默认网络，由 `interface` 指明；两者都给出时，列表中必须包含它。规则和网络变化以默认网络为准；只有列表变化不算网络变化。Sail 自己的检测目前还不列出接口。
 
 `type` 为 `wifi`、`cellular`、`ethernet` 或 `other`；每个字段都可省略，针对未知字段的条件不匹配。宿主推送过一次后，该实例余下的生命周期内不再使用 Sail 自己的检测。
 
