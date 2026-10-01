@@ -23,8 +23,8 @@ const SERVER: &str = "10.94.255.1:7101";
 const OLD_SOURCE: &str = "10.94.0.2";
 const NEW_SOURCE: &str = "10.93.0.2";
 /// The longest a new connection may take to work after the switch: sail
-/// looks 100 ms after the notices stop, 1 s at the latest, and the 5.5
-/// harness measured 1.05 s with the 1 s it waited before (2026-10-01).
+/// looks 100 ms after the notices stop, 1 s at the latest; the 5.5 harness
+/// measured 0.13-0.14 s (2026-10-01), so 2 s leaves room for a loaded host.
 const RECOVERY: Duration = Duration::from_secs(2);
 
 fn ip(args: &str) -> Result<()> {
