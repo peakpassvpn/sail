@@ -14,18 +14,41 @@ crate-type = ["staticlib", "dylib"]
 default = [
     "sail/default",
     "auto-reload",
+    "command-server",
 ]
 
 auto-reload = ["sail/auto-reload"]
+# The command service an app's UI controls the tunnel process's instance
+# through, as sing-box's libbox serves one: gRPC over a unix socket.
+command-server = [
+    "dep:tonic",
+    "dep:tonic-prost",
+    "dep:prost",
+    "dep:tokio-stream",
+    "dep:hyper",
+    "dep:hyper-util",
+    "dep:tower",
+    "dep:http",
+]
 
 [dependencies]
 sail = { path = "../sail", default-features = false, optional = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tracing = "0.1"
-tokio = { version = "1", features = ["rt", "sync", "time"] }
+tokio = { version = "1", features = ["rt", "sync", "time", "net", "macros"] }
 anyhow = "1.0"
 futures = "0.3"
+# The command service. tonic without its router: that brings in a second
+# axum (0.8) beside the Clash API's.
+tonic = { version = "0.14.6", default-features = false, features = ["server", "channel", "codegen"], optional = true }
+tonic-prost = { version = "0.14.6", optional = true }
+prost = { version = "0.14", optional = true }
+tokio-stream = { version = "0.1", features = ["net"], optional = true }
+hyper = { version = "1", features = ["server", "http2"], optional = true }
+hyper-util = { version = "0.1", features = ["tokio", "service"], optional = true }
+tower = { version = "0.5", features = ["util"], optional = true }
+http = { version = "1", optional = true }
 
 [build-dependencies]
 bindgen = "0.72"

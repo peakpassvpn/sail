@@ -12,7 +12,7 @@ use std::time::Duration;
 use serde::Serialize;
 
 use crate::handles::Table;
-use crate::instance::{instance, Instance, SailInstance};
+use crate::instance::{Instance, SailInstance};
 use crate::{call, json, opt_str_arg, out_value, Failure, SAIL_ERR_UNSUPPORTED};
 
 /// A subscription, as the host holds it; 0 is none.
@@ -49,6 +49,10 @@ pub const SAIL_EVENT_OUTBOUNDS: u32 = 5;
 /// The network the instance is on as it changes. Not yet: its
 /// subscription fails with SAIL_ERR_UNSUPPORTED.
 pub const SAIL_EVENT_NETWORK: u32 = 6;
+/// A command service client's connection was lost, or the service closed:
+/// `{"error": why, or null}`, once, the subscription's last event. Its
+/// release follows.
+pub const SAIL_EVENT_DISCONNECTED: u32 = 7;
 
 /// Intervals shorter are taken as this: a host cannot ask for a busy loop.
 const INTERVAL_MIN: Duration = Duration::from_millis(100);
@@ -110,6 +114,12 @@ impl Events {
         })
     }
 
+    /// The runtime of the events thread.
+    #[cfg(feature = "command-server")]
+    pub fn handle(&self) -> &tokio::runtime::Handle {
+        &self.handle
+    }
+
     pub fn is_current(&self) -> bool {
         std::thread::current().id() == self.thread_id
     }
@@ -150,7 +160,7 @@ struct Subscription {
 
 /// Where a subscription's events go: the host's callback. Released, once,
 /// when the task holding it goes.
-struct Sink {
+pub(crate) struct Sink {
     kind: u32,
     callback: SailEventCallback,
     context: *mut c_void,
@@ -163,7 +173,7 @@ struct Sink {
 unsafe impl Send for Sink {}
 
 impl Sink {
-    fn emit(&self, event: &impl Serialize) {
+    fn call(&self, event: &impl Serialize) {
         if !self.subscription.active.load(Ordering::SeqCst) {
             return;
         }
@@ -193,21 +203,23 @@ impl Drop for Sink {
 
 #[derive(serde::Deserialize, Default)]
 #[serde(default, deny_unknown_fields)]
-struct Options {
-    interval_ms: Option<u64>,
-    level: Option<String>,
-    backlog: Option<bool>,
+pub(crate) struct Options {
+    pub interval_ms: Option<u64>,
+    pub level: Option<String>,
+    pub backlog: Option<bool>,
 }
 
-fn interval(options: &Options, default: Duration) -> Duration {
-    options
-        .interval_ms
+/// The interval asked for, else `default`; never shorter than the least.
+pub(crate) fn interval(asked_ms: Option<u64>, default: Duration) -> Duration {
+    asked_ms
+        .filter(|ms| *ms > 0)
         .map_or(default, Duration::from_millis)
         .max(INTERVAL_MIN)
 }
 
-fn level(options: &Options) -> Result<tracing::Level, Failure> {
-    Ok(match options.level.as_deref() {
+/// The least severe level asked for: every one when none.
+pub(crate) fn level(asked: Option<&str>) -> Result<tracing::Level, Failure> {
+    Ok(match asked.filter(|l| !l.is_empty()) {
         None | Some("trace") => tracing::Level::TRACE,
         Some("debug") => tracing::Level::DEBUG,
         Some("info") => tracing::Level::INFO,
@@ -252,8 +264,12 @@ pub unsafe extern "C" fn sail_subscribe(
                 .map_err(|e| Failure::invalid(format!("options: {}", e)))?,
             None => Options::default(),
         };
-        let instance = self::instance(instance)?;
-        let events = &instance.events;
+        let target = crate::instance::target(instance)?;
+        let events = match &target {
+            crate::instance::Target::Local(instance) => &instance.events,
+            #[cfg(feature = "command-server")]
+            crate::instance::Target::Remote(client) => &client.events,
+        };
         let subscription = Arc::new(Subscription {
             active: AtomicBool::new(true),
             task: OnceLock::new(),
@@ -262,7 +278,13 @@ pub unsafe extern "C" fn sail_subscribe(
             events_thread: events.thread_id,
         });
         // Checked before the sink exists: a failure releases nothing.
-        let make = produce(kind, &options, &instance)?;
+        let make = match &target {
+            crate::instance::Target::Local(instance) => produce(kind, &options, instance)?,
+            #[cfg(feature = "command-server")]
+            crate::instance::Target::Remote(client) => {
+                crate::command::client::produce(kind, &options, client)?
+            }
+        };
         let sink = Sink {
             kind,
             callback,
@@ -307,43 +329,71 @@ pub extern "C" fn sail_unsubscribe(subscription: SailSubscription, err: *mut *mu
     })
 }
 
-type Producer = Box<dyn FnOnce(Sink) -> futures::future::BoxFuture<'static, ()> + Send>;
+/// Where what is followed goes: a host's callback, or a command service
+/// client's stream. False once it takes no more, which ends the following.
+pub(crate) trait Emit<T>: Send {
+    fn emit(&mut self, value: T) -> impl std::future::Future<Output = bool> + Send;
+
+    /// Whether it still takes them.
+    fn open(&self) -> bool;
+}
+
+impl<T: Serialize + Send + 'static> Emit<T> for Sink {
+    async fn emit(&mut self, value: T) -> bool {
+        self.call(&value);
+        self.active()
+    }
+
+    fn open(&self) -> bool {
+        self.active()
+    }
+}
+
+pub(crate) type Producer = Box<dyn FnOnce(Sink) -> futures::future::BoxFuture<'static, ()> + Send>;
+
+#[cfg(feature = "command-server")]
+impl Emit<crate::command::client::Disconnected> for Sink {
+    async fn emit(&mut self, value: crate::command::client::Disconnected) -> bool {
+        #[derive(Serialize)]
+        struct Event {
+            error: Option<String>,
+        }
+        let kind = std::mem::replace(&mut self.kind, SAIL_EVENT_DISCONNECTED);
+        self.call(&Event { error: value.error });
+        self.kind = kind;
+        self.active()
+    }
+
+    fn open(&self) -> bool {
+        self.active()
+    }
+}
 
 /// What follows `kind` of `instance`, given the sink its events go to.
 fn produce(kind: u32, options: &Options, instance: &Arc<Instance>) -> Result<Producer, Failure> {
     let weak = Arc::downgrade(instance);
     Ok(match kind {
         SAIL_EVENT_STATE => {
-            let mut state = instance.state.subscribe();
-            Box::new(move |sink| {
-                Box::pin(async move {
-                    loop {
-                        let now = state.borrow_and_update().clone();
-                        sink.emit(&now);
-                        if state.changed().await.is_err() {
-                            return;
-                        }
-                    }
-                })
-            })
+            let state = instance.state.subscribe();
+            Box::new(move |sink| Box::pin(follow_state(sink, state)))
         }
         SAIL_EVENT_LOG => {
-            let least = level(options)?;
+            let least = level(options.level.as_deref())?;
             let backlog = options.backlog.unwrap_or(true);
             let log = instance.log.clone();
             Box::new(move |sink| Box::pin(follow_log(sink, log, least, backlog)))
         }
         SAIL_EVENT_STATUS => {
-            let every = interval(options, Duration::from_secs(1));
+            let every = interval(options.interval_ms, Duration::from_secs(1));
             Box::new(move |sink| Box::pin(follow_status(sink, weak, every)))
         }
         SAIL_EVENT_CONNECTIONS => {
-            let every = interval(options, Duration::from_secs(1));
+            let every = interval(options.interval_ms, Duration::from_secs(1));
             Box::new(move |sink| Box::pin(follow_connections(sink, weak, every)))
         }
         SAIL_EVENT_OUTBOUNDS => {
-            let every = interval(options, Duration::from_millis(250));
-            Box::new(move |sink| Box::pin(follow_outbounds(sink, weak, every)))
+            let every = interval(options.interval_ms, Duration::from_millis(250));
+            Box::new(move |sink| Box::pin(follow_outbounds(sink, weak, every, false)))
         }
         SAIL_EVENT_NETWORK => {
             return Err(Failure::new(
@@ -357,7 +407,7 @@ fn produce(kind: u32, options: &Options, instance: &Arc<Instance>) -> Result<Pro
 
 /// Each `every`, what controls the instance, while it runs; none once it
 /// is freed.
-async fn tick(
+pub(crate) async fn tick(
     ticker: &mut tokio::time::Interval,
     instance: &Weak<Instance>,
 ) -> Option<Option<Arc<sail::RuntimeManager>>> {
@@ -366,15 +416,32 @@ async fn tick(
     Some(instance.manager().ok())
 }
 
-fn ticker(every: Duration) -> tokio::time::Interval {
+pub(crate) fn ticker(every: Duration) -> tokio::time::Interval {
     let mut ticker = tokio::time::interval(every);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     ticker
 }
 
-async fn follow_connections(sink: Sink, instance: Weak<Instance>, every: Duration) {
+/// The state, then each change.
+pub(crate) async fn follow_state(
+    mut out: impl Emit<json::State>,
+    mut state: tokio::sync::watch::Receiver<json::State>,
+) {
+    loop {
+        let now = state.borrow_and_update().clone();
+        if !out.emit(now).await || state.changed().await.is_err() {
+            return;
+        }
+    }
+}
+
+async fn follow_connections(
+    mut out: impl Emit<json::Connections>,
+    instance: Weak<Instance>,
+    every: Duration,
+) {
     let mut ticker = ticker(every);
-    while sink.active() {
+    while out.open() {
         let Some(manager) = tick(&mut ticker, &instance).await else {
             return;
         };
@@ -382,16 +449,25 @@ async fn follow_connections(sink: Sink, instance: Weak<Instance>, every: Duratio
             continue;
         };
         let connections = manager.connections().await;
-        sink.emit(&json::Connections {
+        let connections = json::Connections {
             connections: connections.iter().map(json::Connection::of).collect(),
-        });
+        };
+        if !out.emit(connections).await {
+            return;
+        }
     }
 }
 
-async fn follow_status(sink: Sink, instance: Weak<Instance>, every: Duration) {
+/// The traffic each `every`, with its rate since the last, while the
+/// instance runs.
+pub(crate) async fn follow_status(
+    mut out: impl Emit<json::Status>,
+    instance: Weak<Instance>,
+    every: Duration,
+) {
     let mut ticker = ticker(every);
     let mut last: Option<(tokio::time::Instant, u64, u64)> = None;
-    while sink.active() {
+    while out.open() {
         let Some(manager) = tick(&mut ticker, &instance).await else {
             return;
         };
@@ -412,21 +488,31 @@ async fn follow_status(sink: Sink, instance: Weak<Instance>, every: Duration) {
             None => (0, 0),
         };
         last = Some((now, traffic.up_total, traffic.down_total));
-        sink.emit(&json::Status {
+        let status = json::Status {
             up,
             down,
             up_total: traffic.up_total,
             down_total: traffic.down_total,
             connections: traffic.connections,
             memory: sail::control::resident_memory(),
-        });
+        };
+        if !out.emit(status).await {
+            return;
+        }
     }
 }
 
-async fn follow_outbounds(sink: Sink, instance: Weak<Instance>, every: Duration) {
+/// The outbounds (or the groups only), when they change, looked at each
+/// `every`, while the instance runs.
+pub(crate) async fn follow_outbounds(
+    mut out: impl Emit<json::Outbounds>,
+    instance: Weak<Instance>,
+    every: Duration,
+    groups: bool,
+) {
     let mut ticker = ticker(every);
     let mut last: Option<String> = None;
-    while sink.active() {
+    while out.open() {
         let Some(manager) = tick(&mut ticker, &instance).await else {
             return;
         };
@@ -434,26 +520,29 @@ async fn follow_outbounds(sink: Sink, instance: Weak<Instance>, every: Duration)
             last = None;
             continue;
         };
+        let list = if groups {
+            manager.groups().await
+        } else {
+            manager.outbounds().await
+        };
         let outbounds = json::Outbounds {
-            outbounds: manager
-                .outbounds()
-                .await
-                .iter()
-                .map(json::Outbound::of)
-                .collect(),
+            outbounds: list.iter().map(json::Outbound::of).collect(),
         };
         let Ok(now) = serde_json::to_string(&outbounds) else {
             continue;
         };
         if last.as_ref() != Some(&now) {
-            sink.emit(&outbounds);
             last = Some(now);
+            if !out.emit(outbounds).await {
+                return;
+            }
         }
     }
 }
 
-async fn follow_log(
-    sink: Sink,
+/// The lines kept (when `backlog`), then the lines logged, in batches.
+pub(crate) async fn follow_log(
+    mut out: impl Emit<json::Log>,
     log: Arc<sail::app::logger::InstanceLog>,
     least: tracing::Level,
     backlog: bool,
@@ -462,7 +551,7 @@ async fn follow_log(
     use tokio::sync::broadcast::error::{RecvError, TryRecvError};
     let wanted = |line: &sail::app::logger::LogLine| line.level <= least;
     let (kept, mut events) = log.follow();
-    sink.emit(&json::Log {
+    let first = json::Log {
         reset: true,
         lines: if backlog {
             kept.iter()
@@ -473,9 +562,12 @@ async fn follow_log(
             Vec::new()
         },
         dropped: 0,
-    });
+    };
+    if !out.emit(first).await {
+        return;
+    }
     let mut dropped = 0u64;
-    while sink.active() {
+    while out.open() {
         let first = events.recv().await;
         let mut lines = Vec::new();
         let mut reset = false;
@@ -503,11 +595,14 @@ async fn follow_log(
         if lines.is_empty() && !reset && dropped == 0 {
             continue;
         }
-        sink.emit(&json::Log {
+        let batch = json::Log {
             reset,
             lines,
             dropped: std::mem::take(&mut dropped),
-        });
+        };
+        if !out.emit(batch).await {
+            return;
+        }
     }
 }
 

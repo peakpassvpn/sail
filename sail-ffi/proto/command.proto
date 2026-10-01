@@ -1,0 +1,233 @@
+// sail's command service: what an app's UI asks of, and follows in, the
+// instance its tunnel process runs, over a unix socket (or loopback TCP
+// with a secret). Its calls and their meaning follow sing-box's libbox
+// command server (daemon/started_service.proto and managed_service.proto,
+// v1.14.2); the messages are sail's own, the JSON of the C ABI as
+// protobuf. The Rust in sail-ffi/src/command/proto.rs is generated from
+// this file by tools/command-proto.
+
+syntax = "proto3";
+
+package sail.command.v1;
+
+message Empty {}
+
+// The instance, as the C ABI's control functions see it.
+service Started {
+  // The API version, sail's, and what the instance can do.
+  rpc GetVersion(Empty) returns (Version);
+  // The state: now, then on each change.
+  rpc SubscribeServiceStatus(Empty) returns (stream ServiceStatus);
+  rpc GetServiceStatus(Empty) returns (ServiceStatus);
+
+  // The log: the lines kept (reset), then lines as they are logged.
+  rpc SubscribeLog(SubscribeLogRequest) returns (stream Log);
+  rpc ClearLogs(Empty) returns (Empty);
+
+  // The traffic, each interval while the instance runs.
+  rpc SubscribeStatus(IntervalRequest) returns (stream Status);
+  rpc GetTraffic(Empty) returns (Traffic);
+
+  // The connections: those open (reset), then what changed, each interval.
+  rpc SubscribeConnections(IntervalRequest) returns (stream ConnectionEvents);
+  rpc GetConnections(Empty) returns (Connections);
+  rpc CloseConnection(CloseConnectionRequest) returns (CloseConnectionReply);
+  rpc CloseAllConnections(Empty) returns (CloseAllConnectionsReply);
+
+  // The outbounds and groups: now, then when they change.
+  rpc SubscribeOutbounds(IntervalRequest) returns (stream Outbounds);
+  rpc GetOutbounds(OutboundsRequest) returns (Outbounds);
+  rpc SelectOutbound(SelectOutboundRequest) returns (Empty);
+  // Measures without waiting; the delays come in the outbounds.
+  rpc URLTest(URLTestRequest) returns (Empty);
+  // Measures one outbound, and waits.
+  rpc Delay(URLTestRequest) returns (DelayReply);
+
+  rpc GetClashModeStatus(Empty) returns (ClashModeStatus);
+  rpc SubscribeClashMode(Empty) returns (stream ClashMode);
+  rpc SetClashMode(ClashMode) returns (Empty);
+
+  // What the configuration sets that sail ignores or that is deprecated;
+  // read once, then gone.
+  rpc GetDeprecatedWarnings(Empty) returns (Warnings);
+}
+
+// What the tunnel process's host does: stopping and reloading go through
+// it, as the system must know (the Network Extension's stop).
+service Managed {
+  rpc StopService(Empty) returns (Empty);
+  rpc ReloadService(Empty) returns (Empty);
+}
+
+message Version {
+  uint32 api_version = 1;
+  string version = 2;
+  repeated string features = 3;
+  // Of the instance, while it runs.
+  bool has_tun = 4;
+  bool opens_tun = 5;
+  bool protects_sockets = 6;
+  bool needs_network = 7;
+  bool has_modes = 8;
+}
+
+message ServiceStatus {
+  // idle, starting, running, stopping, stopped, failed
+  string state = 1;
+  optional string error = 2;
+  optional uint64 started_at_ms = 3;
+}
+
+message SubscribeLogRequest {
+  // trace, debug, info, warn, error; every level when empty.
+  string level = 1;
+  // Leave out the lines kept before.
+  bool no_backlog = 2;
+}
+
+message LogLine {
+  string level = 1;
+  string message = 2;
+  uint64 time_ms = 3;
+}
+
+message Log {
+  bool reset = 1;
+  repeated LogLine lines = 2;
+  uint64 dropped = 3;
+}
+
+message IntervalRequest {
+  // 0 for the default.
+  uint64 interval_ms = 1;
+}
+
+message Traffic {
+  uint64 up_total = 1;
+  uint64 down_total = 2;
+  uint64 connections = 3;
+  uint64 memory = 4;
+}
+
+message Status {
+  uint64 up = 1;
+  uint64 down = 2;
+  uint64 up_total = 3;
+  uint64 down_total = 4;
+  uint64 connections = 5;
+  uint64 memory = 6;
+}
+
+message Connection {
+  uint64 id = 1;
+  string network = 2;
+  string inbound_type = 3;
+  string inbound_tag = 4;
+  string source = 5;
+  string destination = 6;
+  optional string host = 7;
+  optional string process = 8;
+  optional string user = 9;
+  uint64 upload = 10;
+  uint64 download = 11;
+  uint32 start = 12;
+  repeated string chains = 13;
+  optional string rule = 14;
+}
+
+message Connections {
+  repeated Connection connections = 1;
+}
+
+message ConnectionEvent {
+  enum Type {
+    NEW = 0;
+    UPDATE = 1;
+    CLOSED = 2;
+  }
+  Type type = 1;
+  uint64 id = 2;
+  // For NEW.
+  Connection connection = 3;
+  // For UPDATE: what it sent and received since the last.
+  uint64 upload_delta = 4;
+  uint64 download_delta = 5;
+}
+
+message ConnectionEvents {
+  // Drop the connections had so far: those that follow are all.
+  bool reset = 1;
+  repeated ConnectionEvent events = 2;
+}
+
+message CloseConnectionRequest {
+  uint64 id = 1;
+}
+
+message CloseConnectionReply {
+  bool closed = 1;
+}
+
+message CloseAllConnectionsReply {
+  uint64 count = 1;
+}
+
+message Delay {
+  uint64 time_ms = 1;
+  // Absent for a test that failed.
+  optional uint64 delay_ms = 2;
+}
+
+message Group {
+  string selected = 1;
+  repeated string members = 2;
+  bool selectable = 3;
+}
+
+message Outbound {
+  string tag = 1;
+  string kind = 2;
+  optional string protocol = 3;
+  optional string provider = 4;
+  bool udp = 5;
+  repeated Delay history = 6;
+  optional Group group = 7;
+}
+
+message OutboundsRequest {
+  // The groups only.
+  bool groups = 1;
+}
+
+message Outbounds {
+  repeated Outbound outbounds = 1;
+}
+
+message SelectOutboundRequest {
+  string group = 1;
+  string member = 2;
+}
+
+message URLTestRequest {
+  string tag = 1;
+  // sing-box's default when empty.
+  string url = 2;
+  uint32 timeout_ms = 3;
+}
+
+message DelayReply {
+  uint64 delay_ms = 1;
+}
+
+message ClashModeStatus {
+  repeated string modes = 1;
+  string mode = 2;
+}
+
+message ClashMode {
+  string mode = 1;
+}
+
+message Warnings {
+  repeated string warnings = 1;
+}

@@ -25,13 +25,17 @@ use std::ffi::{c_char, CStr, CString};
 
 #[cfg(test)]
 mod abi_tests;
+#[cfg(feature = "command-server")]
+mod command;
 mod control;
 mod events;
 mod handles;
 #[cfg(test)]
 mod header_tests;
 mod instance;
-mod json;
+/// The JSON hosts are answered with: core's, which the management API
+/// answers with too.
+pub(crate) use sail::control::json;
 mod platform;
 mod tools;
 
@@ -225,8 +229,9 @@ pub unsafe extern "C" fn sail_free_string(s: *mut c_char) {
 /// The version of this C ABI: raised when a function changes.
 pub const SAIL_API_VERSION: u32 = 1;
 
-/// What this build of sail has, as JSON: `{"api_version", "version",
-/// "features": ["inbound-tun", "outbound-vless", …]}`.
+/// What this build of sail has, as JSON: `{"api_version", "json_version"
+/// (the shape of the JSON sail answers with), "version", "features":
+/// ["inbound-tun", "outbound-vless", …]}`.
 ///
 /// @param out Takes the JSON, the host's to free.
 /// @param err Takes the message of a failure, or null.
@@ -237,6 +242,7 @@ pub unsafe extern "C" fn sail_capabilities(out: *mut *mut c_char, err: *mut *mut
             out,
             &json::Capabilities {
                 api_version: SAIL_API_VERSION,
+                json_version: json::VERSION,
                 version: env!("CARGO_PKG_VERSION"),
                 features: sail::control::features(),
             },

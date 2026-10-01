@@ -40,6 +40,37 @@ pub(crate) fn instance(handle: SailInstance) -> Result<Arc<Instance>, Failure> {
         .ok_or_else(Failure::no_instance)
 }
 
+/// What a handle names: an instance here, or one a command service client
+/// reaches in another process.
+pub(crate) enum Target {
+    Local(Arc<Instance>),
+    #[cfg(feature = "command-server")]
+    Remote(Arc<crate::command::client::Client>),
+}
+
+pub(crate) fn target(handle: SailInstance) -> Result<Target, Failure> {
+    #[cfg(feature = "command-server")]
+    if handle & crate::handles::CLIENT_TAG != 0 {
+        return crate::command::client::client(handle)
+            .map(Target::Remote)
+            .ok_or_else(Failure::no_instance);
+    }
+    instance(handle).map(Target::Local)
+}
+
+/// The instance here `handle` names: a client's runs in another process,
+/// where what only it does is done.
+pub(crate) fn local(handle: SailInstance) -> Result<Arc<Instance>, Failure> {
+    match target(handle)? {
+        Target::Local(instance) => Ok(instance),
+        #[cfg(feature = "command-server")]
+        Target::Remote(_) => Err(Failure::new(
+            crate::SAIL_ERR_UNSUPPORTED,
+            "the instance runs in another process: this is its host's to call there",
+        )),
+    }
+}
+
 fn take_id() -> Result<sail::RuntimeId, Failure> {
     let mut ids = lock(&IDS);
     // Not 0: a host of its own may start an instance 0, as sail-cli does.
@@ -108,6 +139,9 @@ pub(crate) struct Instance {
     /// The state, as the `state` subscription follows it.
     pub state: tokio::sync::watch::Sender<json::State>,
     pub events: Events,
+    /// The command service it serves, if it does.
+    #[cfg(feature = "command-server")]
+    server: Mutex<Option<crate::command::server::Server>>,
     me: Weak<Instance>,
 }
 
@@ -145,7 +179,7 @@ impl Instance {
         };
         let log = sail::app::logger::InstanceLog::new(ffi.log_lines.unwrap_or(LOG_LINES));
         let (state, _) = tokio::sync::watch::channel(json::State {
-            state: Phase::Idle.name(),
+            state: Phase::Idle.name().to_string(),
             error: None,
             started_at_ms: None,
         });
@@ -168,13 +202,15 @@ impl Instance {
             changed: Condvar::new(),
             state,
             events,
+            #[cfg(feature = "command-server")]
+            server: Mutex::new(None),
             me: me.clone(),
         }))
     }
 
     fn publish(&self, life: &Life) {
         self.state.send_replace(json::State {
-            state: life.phase.name(),
+            state: life.phase.name().to_string(),
             error: life.failure.as_ref().map(|f| f.message.clone()),
             started_at_ms: life.started_at.map(|t| {
                 t.duration_since(std::time::UNIX_EPOCH)
@@ -376,7 +412,27 @@ impl Instance {
         Ok(())
     }
 
-    fn reload(&self, config: Option<String>) -> Result<(), Failure> {
+    /// Stops it as the host does, for a command service client.
+    #[cfg(feature = "command-server")]
+    pub fn service_stop(&self) -> Result<(), Failure> {
+        match self.callbacks.service_stop() {
+            Some(crate::SAIL_OK) => Ok(()),
+            Some(code) => Err(Failure::new(code, "the host did not stop the instance")),
+            None => self.stop(Duration::ZERO),
+        }
+    }
+
+    /// Reloads it as the host does, for a command service client.
+    #[cfg(feature = "command-server")]
+    pub fn service_reload(&self) -> Result<(), Failure> {
+        match self.callbacks.service_reload() {
+            Some(crate::SAIL_OK) => Ok(()),
+            Some(code) => Err(Failure::new(code, "the host did not reload the instance")),
+            None => self.reload(None),
+        }
+    }
+
+    pub(crate) fn reload(&self, config: Option<String>) -> Result<(), Failure> {
         self.run(move |manager| {
             Box::pin(async move {
                 match config {
@@ -463,7 +519,7 @@ pub unsafe extern "C" fn sail_instance_start(
 ) -> i32 {
     call(err, || {
         let config = unsafe { str_arg(config, "config") }?.to_string();
-        self::instance(instance)?.start(Source::Text(config))
+        local(instance)?.start(Source::Text(config))
     })
 }
 
@@ -478,7 +534,7 @@ pub unsafe extern "C" fn sail_instance_start_file(
 ) -> i32 {
     call(err, || {
         let path = unsafe { str_arg(path, "path") }?.to_string();
-        self::instance(instance)?.start(Source::File(path))
+        local(instance)?.start(Source::File(path))
     })
 }
 
@@ -494,7 +550,19 @@ pub unsafe extern "C" fn sail_instance_reload(
 ) -> i32 {
     call(err, || {
         let config = unsafe { opt_str_arg(config, "config") }?.map(str::to_owned);
-        self::instance(instance)?.reload(config)
+        match target(instance)? {
+            Target::Local(instance) => instance.reload(config),
+            #[cfg(feature = "command-server")]
+            Target::Remote(client) => match config {
+                None => client.managed(|mut m| async move {
+                    m.reload_service(crate::command::proto::Empty {}).await
+                }),
+                Some(_) => Err(Failure::new(
+                    crate::SAIL_ERR_UNSUPPORTED,
+                    "a client reloads its instance from its file only",
+                )),
+            },
+        }
     })
 }
 
@@ -512,8 +580,12 @@ pub extern "C" fn sail_instance_stop(
     timeout_ms: u32,
     err: *mut *mut c_char,
 ) -> i32 {
-    call(err, || {
-        self::instance(instance)?.stop(Duration::from_millis(u64::from(timeout_ms)))
+    call(err, || match target(instance)? {
+        Target::Local(instance) => instance.stop(Duration::from_millis(u64::from(timeout_ms))),
+        // The host stops it there, as libbox's ServiceStop asks.
+        #[cfg(feature = "command-server")]
+        Target::Remote(client) => client
+            .managed(|mut m| async move { m.stop_service(crate::command::proto::Empty {}).await }),
     })
 }
 
@@ -525,13 +597,107 @@ pub extern "C" fn sail_instance_stop(
 #[no_mangle]
 pub extern "C" fn sail_instance_free(instance: SailInstance) {
     call(std::ptr::null_mut(), || {
+        #[cfg(feature = "command-server")]
+        if let Some(client) = crate::command::client::remove(instance) {
+            client.events.close();
+            return Ok(());
+        }
         let Some(instance) = lock(&INSTANCES).remove(instance) else {
             return Ok(());
         };
         let _ = instance.stop(Duration::ZERO);
+        #[cfg(feature = "command-server")]
+        drop(lock(&instance.server).take());
         instance.events.close();
         Ok(())
     });
+}
+
+/// Serves the instance to the app's other processes, as libbox's command
+/// server does: a client (`sail_client_connect`) there then answers the
+/// same calls as the instance. It serves while the instance is idle or
+/// failed too, until freed, or this is called again; null `options`
+/// stops serving.
+///
+/// @param options JSON: `{"path"}`, a unix socket (an iOS app's group
+///     container's, an Android app's files directory's), made readable
+///     and writable by the app's user only, a stale file there replaced,
+///     the path at most 103 bytes on Darwin and 107 on Linux; or
+///     `{"port", "secret"}`, loopback TCP, every call carrying the
+///     secret (32 characters at least, as `sail generate secret` makes).
+/// @return SAIL_ERR_STATE when a service answers at the path already;
+///     SAIL_ERR_CONFIG for options that do not read; SAIL_ERR_UNSUPPORTED
+///     in a build without the command service.
+#[no_mangle]
+pub unsafe extern "C" fn sail_instance_serve(
+    instance: SailInstance,
+    options: *const c_char,
+    err: *mut *mut c_char,
+) -> i32 {
+    call(err, || {
+        let options = unsafe { opt_str_arg(options, "options") }?;
+        let instance = local(instance)?;
+        #[cfg(feature = "command-server")]
+        {
+            // The one served before goes first: a path is freed for its
+            // successor.
+            drop(lock(&instance.server).take());
+            if let Some(options) = options {
+                let address = crate::command::Address::read(options, false)
+                    .map_err(crate::command::listen_failure)?;
+                let server = crate::command::server::serve(&instance, address)?;
+                *lock(&instance.server) = Some(server);
+            }
+            Ok(())
+        }
+        #[cfg(not(feature = "command-server"))]
+        {
+            let _ = (options, instance);
+            Err(Failure::new(
+                crate::SAIL_ERR_UNSUPPORTED,
+                "this build has no command service",
+            ))
+        }
+    })
+}
+
+/// Connects to the command service an instance serves in another process
+/// (`sail_instance_serve`), as libbox's command client does: the handle
+/// answers the same calls an instance's does, and is freed with
+/// `sail_instance_free`. A client does not reconnect: when the connection
+/// is lost, its calls fail, and each subscription gets one
+/// SAIL_EVENT_DISCONNECTED; the host connects again.
+///
+/// @param options JSON: `{"path"}`, `{"port", "secret"}`, or `{"fd"}`, a
+///     connected socket the host has (a macOS system extension's, passed
+///     over XPC), which the client owns from then on.
+/// @param out Takes the client's handle.
+/// @return SAIL_ERR_IO when no service answers; SAIL_ERR_UNSUPPORTED in a
+///     build without the command service.
+#[no_mangle]
+pub unsafe extern "C" fn sail_client_connect(
+    options: *const c_char,
+    out: *mut SailInstance,
+    err: *mut *mut c_char,
+) -> i32 {
+    call(err, || {
+        if out.is_null() {
+            return Err(Failure::invalid("the out pointer is null"));
+        }
+        let options = unsafe { str_arg(options, "options") }?;
+        #[cfg(feature = "command-server")]
+        {
+            out_value(out, crate::command::client::connect(options)?)
+        }
+        #[cfg(not(feature = "command-server"))]
+        {
+            let _ = options;
+            Err(Failure::new(
+                crate::SAIL_ERR_UNSUPPORTED,
+                "this build has no command service",
+            ))
+        }
+    })
 }
 
 /// The instance's state, as JSON: `{"state": "idle" | "starting" |
@@ -544,7 +710,13 @@ pub unsafe extern "C" fn sail_instance_state(
     err: *mut *mut c_char,
 ) -> i32 {
     call(err, || {
-        let state = self::instance(instance)?.state.borrow().clone();
+        let state = match target(instance)? {
+            Target::Local(instance) => instance.state.borrow().clone(),
+            #[cfg(feature = "command-server")]
+            Target::Remote(client) => json::State::from(client.unary(|mut s| async move {
+                s.get_service_status(crate::command::proto::Empty {}).await
+            })?),
+        };
         out_json(out, &state)
     })
 }

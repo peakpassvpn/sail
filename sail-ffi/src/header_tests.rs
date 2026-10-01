@@ -34,12 +34,26 @@ fn names(text: &str, prefix: &str, is_item: impl Fn(&str, &str) -> bool) -> BTre
     out
 }
 
+/// The Rust files under `dir`, its directories' too.
+fn sources(dir: &Path) -> Vec<std::path::PathBuf> {
+    let mut out = Vec::new();
+    for entry in std::fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_dir() {
+            out.extend(sources(&path));
+        } else if path.extension().is_some_and(|e| e == "rs") {
+            out.push(path);
+        }
+    }
+    out
+}
+
 #[test]
 fn the_header_declares_every_function_and_constant_exported() {
     let mut exported_fns = BTreeSet::new();
     let mut exported_consts = BTreeSet::new();
-    for entry in std::fs::read_dir(crate_dir().join("src")).unwrap() {
-        let source = std::fs::read_to_string(entry.unwrap().path()).unwrap();
+    for path in sources(&crate_dir().join("src")) {
+        let source = std::fs::read_to_string(path).unwrap();
         exported_fns.extend(names(&source, "sail_", |line, after| {
             line.contains("extern \"C\" fn") && after.starts_with('(')
         }));

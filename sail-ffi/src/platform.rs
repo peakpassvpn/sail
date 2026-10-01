@@ -50,6 +50,16 @@ pub struct SailPlatform {
     /// changes no routes. Called while the instance starts, on the thread
     /// that starts it.
     pub open_tun: Option<extern "C" fn(request: *const c_char, context: *mut c_void) -> i32>,
+    /// Stops the instance as the host does, when a command service client
+    /// asks (libbox's `ServiceStop`): the host tells its system (iOS stops
+    /// the Network Extension) and stops the instance. Returns a SAIL_*
+    /// code. Called on a thread of the command service's own; it may call
+    /// any sail function. Null: sail stops the instance itself.
+    pub service_stop: Option<extern "C" fn(context: *mut c_void) -> i32>,
+    /// Reloads the instance as the host does, when a client asks (libbox's
+    /// `ServiceReload`), as `service_stop` is called. Null: sail reloads
+    /// it from its file.
+    pub service_reload: Option<extern "C" fn(context: *mut c_void) -> i32>,
 }
 
 impl SailPlatform {
@@ -60,6 +70,8 @@ impl SailPlatform {
             release: None,
             protect_socket: None,
             open_tun: None,
+            service_stop: None,
+            service_reload: None,
         }
     }
 
@@ -112,6 +124,18 @@ impl Callbacks {
     /// Whether the host opens the TUN device, and protects sockets.
     pub fn given(&self) -> (bool, bool) {
         (self.0.open_tun.is_some(), self.0.protect_socket.is_some())
+    }
+
+    /// The host's stop, or none.
+    #[cfg(feature = "command-server")]
+    pub fn service_stop(&self) -> Option<i32> {
+        self.0.service_stop.map(|stop| stop(self.0.context))
+    }
+
+    /// The host's reload, or none.
+    #[cfg(feature = "command-server")]
+    pub fn service_reload(&self) -> Option<i32> {
+        self.0.service_reload.map(|reload| reload(self.0.context))
     }
 }
 

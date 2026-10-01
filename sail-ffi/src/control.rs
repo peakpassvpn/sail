@@ -1,7 +1,8 @@
 //! What the host asks of a running instance, once: its traffic and
 //! connections, its outbounds and groups, delays, the mode, the network.
-//! Each is sail's `control` layer, as the Clash API and the command
-//! service read it. Calls that wait on the instance fail with
+//! Each is sail's `control` layer, as the Clash API reads it; through a
+//! command service client, the same, from the instance its service
+//! serves. Calls that wait on the instance fail with
 //! SAIL_ERR_WRONG_THREAD on its own threads.
 
 use std::ffi::c_char;
@@ -9,8 +10,11 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crate::handles::Table;
-use crate::instance::{instance, SailInstance};
+use crate::instance::{local, target, SailInstance, Target};
 use crate::{call, json, opt_str_arg, out_json, out_value, str_arg, Failure};
+
+#[cfg(feature = "command-server")]
+use crate::command::proto;
 
 /// A delay test running, as the host holds it; 0 is none.
 pub type SailOperation = u64;
@@ -30,9 +34,16 @@ pub unsafe extern "C" fn sail_traffic(
     err: *mut *mut c_char,
 ) -> i32 {
     call(err, || {
-        let traffic =
-            self::instance(instance)?.run(|m| Box::pin(async move { m.traffic().await }))?;
-        out_json(out, &json::Traffic::of(&traffic))
+        let traffic = match target(instance)? {
+            Target::Local(i) => {
+                json::Traffic::of(&i.run(|m| Box::pin(async move { m.traffic().await }))?)
+            }
+            #[cfg(feature = "command-server")]
+            Target::Remote(c) => c
+                .unary(|mut s| async move { s.get_traffic(proto::Empty {}).await })?
+                .into(),
+        };
+        out_json(out, &traffic)
     })
 }
 
@@ -47,14 +58,21 @@ pub unsafe extern "C" fn sail_connections(
     err: *mut *mut c_char,
 ) -> i32 {
     call(err, || {
-        let connections =
-            self::instance(instance)?.run(|m| Box::pin(async move { m.connections().await }))?;
-        out_json(
-            out,
-            &json::Connections {
-                connections: connections.iter().map(json::Connection::of).collect(),
-            },
-        )
+        let connections: Vec<json::Connection> = match target(instance)? {
+            Target::Local(i) => i
+                .run(|m| Box::pin(async move { m.connections().await }))?
+                .iter()
+                .map(json::Connection::of)
+                .collect(),
+            #[cfg(feature = "command-server")]
+            Target::Remote(c) => c
+                .unary(|mut s| async move { s.get_connections(proto::Empty {}).await })?
+                .connections
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+        };
+        out_json(out, &json::Connections { connections })
     })
 }
 
@@ -69,8 +87,19 @@ pub unsafe extern "C" fn sail_close_connection(
     err: *mut *mut c_char,
 ) -> i32 {
     call(err, || {
-        let found = self::instance(instance)?
-            .run(move |m| Box::pin(async move { m.close_connection(id).await }))?;
+        let found = match target(instance)? {
+            Target::Local(i) => {
+                i.run(move |m| Box::pin(async move { m.close_connection(id).await }))?
+            }
+            #[cfg(feature = "command-server")]
+            Target::Remote(c) => {
+                c.unary(move |mut s| async move {
+                    s.close_connection(proto::CloseConnectionRequest { id })
+                        .await
+                })?
+                .closed
+            }
+        };
         if !closed.is_null() {
             out_value(closed, found)?;
         }
@@ -88,12 +117,49 @@ pub unsafe extern "C" fn sail_close_all_connections(
     err: *mut *mut c_char,
 ) -> i32 {
     call(err, || {
-        let n = self::instance(instance)?
-            .run(|m| Box::pin(async move { m.close_all_connections().await }))?;
+        let n = match target(instance)? {
+            Target::Local(i) => {
+                i.run(|m| Box::pin(async move { m.close_all_connections().await }))? as u64
+            }
+            #[cfg(feature = "command-server")]
+            Target::Remote(c) => {
+                c.unary(|mut s| async move { s.close_all_connections(proto::Empty {}).await })?
+                    .count
+            }
+        };
         if !count.is_null() {
-            out_value(count, n as u64)?;
+            out_value(count, n)?;
         }
         Ok(())
+    })
+}
+
+fn outbounds(instance: SailInstance, groups: bool) -> Result<json::Outbounds, Failure> {
+    Ok(json::Outbounds {
+        outbounds: match target(instance)? {
+            Target::Local(i) => i
+                .run(move |m| {
+                    Box::pin(async move {
+                        if groups {
+                            m.groups().await
+                        } else {
+                            m.outbounds().await
+                        }
+                    })
+                })?
+                .iter()
+                .map(json::Outbound::of)
+                .collect(),
+            #[cfg(feature = "command-server")]
+            Target::Remote(c) => c
+                .unary(move |mut s| async move {
+                    s.get_outbounds(proto::OutboundsRequest { groups }).await
+                })?
+                .outbounds
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+        },
     })
 }
 
@@ -101,23 +167,15 @@ pub unsafe extern "C" fn sail_close_all_connections(
 /// `{"outbounds": [{"tag", "kind" (Mihomo's type name), "protocol"
 /// (sing-box's, null for a provider's member), "provider", "udp",
 /// "history": [{"time_ms", "delay_ms" (null for a failure)}], "group":
-/// {"selected", "members", "selectable"} or null}]}`.
+/// {"selected", "members", "selectable"} or null}]}`, in the
+/// configuration's order.
 #[no_mangle]
 pub unsafe extern "C" fn sail_outbounds(
     instance: SailInstance,
     out: *mut *mut c_char,
     err: *mut *mut c_char,
 ) -> i32 {
-    call(err, || {
-        let outbounds =
-            self::instance(instance)?.run(|m| Box::pin(async move { m.outbounds().await }))?;
-        out_json(
-            out,
-            &json::Outbounds {
-                outbounds: outbounds.iter().map(json::Outbound::of).collect(),
-            },
-        )
-    })
+    call(err, || out_json(out, &outbounds(instance, false)?))
 }
 
 /// The groups: the outbounds that select among members, as
@@ -128,16 +186,7 @@ pub unsafe extern "C" fn sail_groups(
     out: *mut *mut c_char,
     err: *mut *mut c_char,
 ) -> i32 {
-    call(err, || {
-        let groups =
-            self::instance(instance)?.run(|m| Box::pin(async move { m.groups().await }))?;
-        out_json(
-            out,
-            &json::Outbounds {
-                outbounds: groups.iter().map(json::Outbound::of).collect(),
-            },
-        )
-    })
+    call(err, || out_json(out, &outbounds(instance, true)?))
 }
 
 /// Selects `member` of the selector `group`; the choice is kept in the
@@ -155,9 +204,18 @@ pub unsafe extern "C" fn sail_select(
     call(err, || {
         let group = unsafe { str_arg(group, "group") }?.to_string();
         let member = unsafe { str_arg(member, "member") }?.to_string();
-        self::instance(instance)?
-            .run(move |m| Box::pin(async move { m.select(&group, &member).await }))?
-            .map_err(Failure::from)
+        match target(instance)? {
+            Target::Local(i) => i
+                .run(move |m| Box::pin(async move { m.select(&group, &member).await }))?
+                .map_err(Failure::from),
+            #[cfg(feature = "command-server")]
+            Target::Remote(c) => c
+                .unary(move |mut s| async move {
+                    s.select_outbound(proto::SelectOutboundRequest { group, member })
+                        .await
+                })
+                .map(|_| ()),
+        }
     })
 }
 
@@ -190,10 +248,27 @@ pub unsafe extern "C" fn sail_delay(
         let tag = unsafe { str_arg(tag, "tag") }?.to_string();
         let url = unsafe { opt_str_arg(url, "url") }?.map(str::to_owned);
         let timeout = timeout(timeout_ms)?;
-        let delay = self::instance(instance)?.run(move |m| {
-            Box::pin(async move { m.url_test(&tag, url.as_deref(), timeout).await })
-        })??;
-        out_value(delay_ms, delay.as_millis().max(1) as u64)
+        let delay = match target(instance)? {
+            Target::Local(i) => i
+                .run(move |m| {
+                    Box::pin(async move { m.url_test(&tag, url.as_deref(), timeout).await })
+                })??
+                .as_millis()
+                .max(1) as u64,
+            #[cfg(feature = "command-server")]
+            Target::Remote(c) => {
+                c.unary(move |mut s| async move {
+                    s.delay(proto::UrlTestRequest {
+                        tag,
+                        url: url.unwrap_or_default(),
+                        timeout_ms,
+                    })
+                    .await
+                })?
+                .delay_ms
+            }
+        };
+        out_value(delay_ms, delay)
     })
 }
 
@@ -201,7 +276,9 @@ pub unsafe extern "C" fn sail_delay(
 /// `tag`, or of each member of the group `tag`. Each is kept among the
 /// outbound's delays, which `sail_outbounds` and the outbounds events tell.
 ///
-/// @param operation Takes the test's handle, for `sail_cancel`; may be null.
+/// @param operation Takes the test's handle, for `sail_cancel`; may be
+///     null. Through a command service client, it takes 0: a test there is
+///     not cancelled.
 #[no_mangle]
 pub unsafe extern "C" fn sail_url_test(
     instance: SailInstance,
@@ -215,7 +292,24 @@ pub unsafe extern "C" fn sail_url_test(
         let tag = unsafe { str_arg(tag, "tag") }?.to_string();
         let url = unsafe { opt_str_arg(url, "url") }?.map(str::to_owned);
         let timeout = timeout(timeout_ms)?;
-        let instance = self::instance(instance)?;
+        let instance = match target(instance)? {
+            Target::Local(i) => i,
+            #[cfg(feature = "command-server")]
+            Target::Remote(c) => {
+                c.unary(move |mut s| async move {
+                    s.url_test(proto::UrlTestRequest {
+                        tag,
+                        url: url.unwrap_or_default(),
+                        timeout_ms,
+                    })
+                    .await
+                })?;
+                if !operation.is_null() {
+                    out_value(operation, 0)?;
+                }
+                return Ok(());
+            }
+        };
         let manager = instance.manager()?;
         let group = instance
             .run({
@@ -272,17 +366,28 @@ pub unsafe extern "C" fn sail_mode(
     err: *mut *mut c_char,
 ) -> i32 {
     call(err, || {
-        let mode = self::instance(instance)?
-            .manager()?
-            .mode()
-            .ok_or_else(|| Failure::from(sail::control::ControlError::NoModes))?;
-        out_json(
-            out,
-            &json::Mode {
-                mode: mode.current,
-                modes: mode.modes,
-            },
-        )
+        let mode = match target(instance)? {
+            Target::Local(i) => {
+                let mode = i
+                    .manager()?
+                    .mode()
+                    .ok_or_else(|| Failure::from(sail::control::ControlError::NoModes))?;
+                json::Mode {
+                    mode: mode.current,
+                    modes: mode.modes,
+                }
+            }
+            #[cfg(feature = "command-server")]
+            Target::Remote(c) => {
+                let status =
+                    c.unary(|mut s| async move { s.get_clash_mode_status(proto::Empty {}).await })?;
+                json::Mode {
+                    mode: status.mode,
+                    modes: status.modes,
+                }
+            }
+        };
+        out_json(out, &mode)
     })
 }
 
@@ -297,17 +402,23 @@ pub unsafe extern "C" fn sail_set_mode(
     err: *mut *mut c_char,
 ) -> i32 {
     call(err, || {
-        let mode = unsafe { str_arg(mode, "mode") }?;
-        self::instance(instance)?
-            .manager()?
-            .set_mode(mode)
-            .map_err(Failure::from)
+        let mode = unsafe { str_arg(mode, "mode") }?.to_string();
+        match target(instance)? {
+            Target::Local(i) => i.manager()?.set_mode(&mode).map_err(Failure::from),
+            #[cfg(feature = "command-server")]
+            Target::Remote(c) => c
+                .unary(
+                    move |mut s| async move { s.set_clash_mode(proto::ClashMode { mode }).await },
+                )
+                .map(|_| ()),
+        }
     })
 }
 
 /// Tells the running instance what network the host is on, whenever it
 /// changes: the rules on the network (`wifi_ssid`, `network_type`, …) and
 /// the `network` groups match it. Once told, sail's own detection is left.
+/// The tunnel process's host tells it, as libbox's does: not a client.
 ///
 /// @param state JSON: `{"type": "wifi" | "cellular" | "ethernet" |
 ///     "other", "interface", "ssid", "bssid", "gateway", "addresses":
@@ -322,14 +433,15 @@ pub unsafe extern "C" fn sail_set_network_state(
 ) -> i32 {
     call(err, || {
         let state = unsafe { str_arg(state, "state") }?;
-        let id = self::instance(instance)?.id;
+        let id = local(instance)?.id;
         sail::set_network_state(id, state).map_err(Failure::from)
     })
 }
 
 /// Tells the TUN inbound that the host's network changed, as after a
 /// switch between Wi-Fi and cellular: flows of the previous network are
-/// reset, and new ones start on the current one.
+/// reset, and new ones start on the current one. The tunnel process's
+/// host tells it: not a client.
 ///
 /// @param mtu The interface's new MTU, or 0 to keep it.
 /// @return SAIL_ERR_CONFIG when there is no TUN inbound.
@@ -340,7 +452,7 @@ pub extern "C" fn sail_network_changed(
     err: *mut *mut c_char,
 ) -> i32 {
     call(err, || {
-        let instance = self::instance(instance)?;
+        let instance = local(instance)?;
         if instance.on_own_thread() {
             return Err(Failure::new(
                 crate::SAIL_ERR_WRONG_THREAD,
@@ -357,9 +469,15 @@ pub extern "C" fn sail_network_changed(
 /// sent `reset`.
 #[no_mangle]
 pub extern "C" fn sail_clear_logs(instance: SailInstance, err: *mut *mut c_char) -> i32 {
-    call(err, || {
-        self::instance(instance)?.log.clear();
-        Ok(())
+    call(err, || match target(instance)? {
+        Target::Local(i) => {
+            i.log.clear();
+            Ok(())
+        }
+        #[cfg(feature = "command-server")]
+        Target::Remote(c) => c
+            .unary(|mut s| async move { s.clear_logs(proto::Empty {}).await })
+            .map(|_| ()),
     })
 }
 
@@ -373,18 +491,35 @@ pub unsafe extern "C" fn sail_instance_capabilities(
     err: *mut *mut c_char,
 ) -> i32 {
     call(err, || {
-        let instance = self::instance(instance)?;
-        let manager = instance.manager()?;
-        let (opens_tun, protects_sockets) = instance.host_callbacks();
-        out_json(
-            out,
-            &json::InstanceCapabilities {
-                has_tun: manager.has_tun(),
-                opens_tun: opens_tun && manager.has_tun(),
-                protects_sockets,
-                needs_network: manager.needs_network(),
-                has_modes: manager.mode().is_some(),
-            },
-        )
+        let capabilities = match target(instance)? {
+            Target::Local(i) => {
+                let manager = i.manager()?;
+                let (opens_tun, protects_sockets) = i.host_callbacks();
+                json::InstanceCapabilities {
+                    has_tun: manager.has_tun(),
+                    opens_tun: opens_tun && manager.has_tun(),
+                    protects_sockets,
+                    needs_network: manager.needs_network(),
+                    has_modes: manager.mode().is_some(),
+                }
+            }
+            #[cfg(feature = "command-server")]
+            Target::Remote(c) => {
+                let state =
+                    c.unary(|mut s| async move { s.get_service_status(proto::Empty {}).await })?;
+                if state.state != "running" {
+                    return Err(Failure::state("the instance is not running"));
+                }
+                let v = c.unary(|mut s| async move { s.get_version(proto::Empty {}).await })?;
+                json::InstanceCapabilities {
+                    has_tun: v.has_tun,
+                    opens_tun: v.opens_tun,
+                    protects_sockets: v.protects_sockets,
+                    needs_network: v.needs_network,
+                    has_modes: v.has_modes,
+                }
+            }
+        };
+        out_json(out, &capabilities)
     })
 }

@@ -289,6 +289,8 @@ fn platform_of(recorder: &Arc<Recorder>) -> SailPlatform {
         release: Some(release_recorder),
         protect_socket: None,
         open_tun: None,
+        service_stop: None,
+        service_reload: None,
     }
 }
 
@@ -972,6 +974,8 @@ fn a_call_that_would_wait_on_its_own_thread_fails() {
             release: None,
             protect_socket: Some(protect_and_call_back),
             open_tun: None,
+            service_stop: None,
+            service_reload: None,
         };
         let instance = new_instance(None, Some(&platform));
         *protector.instance.lock().unwrap() = instance;
@@ -1052,4 +1056,333 @@ fn an_instance_killed_with_its_process_starts_again() {
         sail_instance_free(instance);
         let _ = std::fs::remove_dir_all(&dir);
     });
+}
+
+/// The command service, as an app's UI process reaches its tunnel
+/// process's instance: through a client handle, the same calls.
+#[cfg(feature = "command-server")]
+mod command {
+    use super::*;
+
+    /// A socket path short enough for any system's `sun_path`.
+    fn socket(name: &str) -> std::path::PathBuf {
+        let path =
+            std::path::PathBuf::from(format!("/tmp/sail-{}-{}.sock", name, std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        path
+    }
+
+    fn serve(instance: SailInstance, options: &str) -> i32 {
+        let options = CString::new(options).unwrap();
+        code(|err| unsafe { sail_instance_serve(instance, options.as_ptr(), err) })
+    }
+
+    fn connect(options: &str) -> Result<SailInstance, i32> {
+        let options = CString::new(options).unwrap();
+        let mut client = 0;
+        match code(|err| unsafe { sail_client_connect(options.as_ptr(), &mut client, err) }) {
+            SAIL_OK => Ok(client),
+            code => Err(code),
+        }
+    }
+
+    /// The JSON of `call` for the instance and for the client, which must
+    /// be the same.
+    fn same(
+        instance: SailInstance,
+        client: SailInstance,
+        call: impl Fn(SailInstance, *mut *mut c_char, *mut *mut c_char) -> i32,
+    ) -> serde_json::Value {
+        let local = json_of(|out, err| call(instance, out, err));
+        let remote = json_of(|out, err| call(client, out, err));
+        assert_eq!(local, remote);
+        local
+    }
+
+    #[test]
+    fn a_client_answers_as_the_instance_it_reaches() {
+        let _serial = serial();
+        within(Duration::from_secs(60), || {
+            let path = socket("parity");
+            let instance = new_instance(None, None);
+            let options = serde_json::json!({ "path": path }).to_string();
+            assert_eq!(serve(instance, &options), SAIL_OK);
+            // Served while idle, as libbox's is.
+            let client = connect(&options).unwrap();
+            assert_ne!(client, instance);
+            assert_eq!(state(client), "idle");
+            assert_eq!(
+                code(|err| unsafe { sail_traffic(client, &mut std::ptr::null_mut(), err) }),
+                SAIL_ERR_STATE,
+                "the instance's own code, through the service"
+            );
+            let states = Recorder::new();
+            subscribe(client, SAIL_EVENT_STATE, None, &states, record);
+
+            let port = free_port();
+            start(instance, &config(port));
+            states.wait(SAIL_EVENT_STATE, |e| e["state"] == "running");
+            assert_eq!(state(client), "running");
+            echo_through(port);
+
+            same(instance, client, |i, o, e| unsafe {
+                sail_outbounds(i, o, e)
+            });
+            same(instance, client, |i, o, e| unsafe { sail_groups(i, o, e) });
+            same(instance, client, |i, o, e| unsafe { sail_mode(i, o, e) });
+            same(instance, client, |i, o, e| unsafe {
+                sail_instance_capabilities(i, o, e)
+            });
+            let traffic = json_of(|out, err| unsafe { sail_traffic(client, out, err) });
+            assert!(traffic["up_total"].as_u64().unwrap() >= 4);
+
+            // Selecting and the mode, through the client, seen here.
+            ok("select", |err| unsafe {
+                sail_select(client, c"sel".as_ptr(), c"b".as_ptr(), err)
+            });
+            let groups = json_of(|out, err| unsafe { sail_groups(instance, out, err) });
+            assert_eq!(groups["outbounds"][0]["group"]["selected"], "b");
+            assert_eq!(
+                code(|err| unsafe { sail_select(client, c"sel".as_ptr(), c"x".as_ptr(), err) }),
+                SAIL_ERR_INVALID_ARGUMENT
+            );
+            assert_eq!(
+                code(|err| unsafe { sail_select(client, c"x".as_ptr(), c"b".as_ptr(), err) }),
+                SAIL_ERR_NOT_FOUND
+            );
+            ok("set mode", |err| unsafe {
+                sail_set_mode(client, c"Rule".as_ptr(), err)
+            });
+
+            // Delays: one waited for, and a group's told by the outbounds.
+            let url = CString::new(no_content_server()).unwrap();
+            let mut delay = 0;
+            ok("delay", |err| unsafe {
+                sail_delay(client, c"a".as_ptr(), url.as_ptr(), 5_000, &mut delay, err)
+            });
+            assert!(delay >= 1);
+            let outbounds = Recorder::new();
+            subscribe(
+                client,
+                SAIL_EVENT_OUTBOUNDS,
+                Some(r#"{"interval_ms": 100}"#),
+                &outbounds,
+                record,
+            );
+            let mut op = u64::MAX;
+            ok("url test", |err| unsafe {
+                sail_url_test(client, c"sel".as_ptr(), url.as_ptr(), 5_000, &mut op, err)
+            });
+            assert_eq!(op, 0, "a client's test is not cancelled");
+            outbounds.wait(SAIL_EVENT_OUTBOUNDS, |e| {
+                e["outbounds"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|o| o["tag"] == "b" && !o["history"].as_array().unwrap().is_empty())
+            });
+
+            // Logs and connections, followed through the client.
+            let logs = Recorder::new();
+            subscribe(
+                client,
+                SAIL_EVENT_LOG,
+                Some(r#"{"level": "info"}"#),
+                &logs,
+                record,
+            );
+            logs.wait(SAIL_EVENT_LOG, |e| e["reset"] == true);
+            let connections = Recorder::new();
+            subscribe(
+                client,
+                SAIL_EVENT_CONNECTIONS,
+                Some(r#"{"interval_ms": 100}"#),
+                &connections,
+                record,
+            );
+            connections.wait(SAIL_EVENT_CONNECTIONS, |e| e["connections"].is_array());
+            ok("clear logs", |err| sail_clear_logs(client, err));
+            logs.wait(SAIL_EVENT_LOG, |e| {
+                e["reset"] == true && e["lines"].as_array().unwrap().is_empty()
+            });
+            let mut closed = 0;
+            ok("close all", |err| unsafe {
+                sail_close_all_connections(client, &mut closed, err)
+            });
+
+            // What only the tunnel process's host does.
+            assert_eq!(
+                code(|err| unsafe { sail_instance_start(client, c"{}".as_ptr(), err) }),
+                SAIL_ERR_UNSUPPORTED
+            );
+            assert_eq!(
+                code(|err| unsafe { sail_set_network_state(client, c"{}".as_ptr(), err) }),
+                SAIL_ERR_UNSUPPORTED
+            );
+            assert_eq!(serve(client, &options), SAIL_ERR_UNSUPPORTED);
+
+            // A stop through the client: sail stops it, the host giving no
+            // stop of its own.
+            ok("stop", |err| sail_instance_stop(client, 0, err));
+            states.wait(SAIL_EVENT_STATE, |e| e["state"] == "stopped");
+
+            // The service closes: each subscription is told, once, and
+            // released.
+            assert_eq!(
+                code(|err| unsafe { sail_instance_serve(instance, std::ptr::null(), err) }),
+                SAIL_OK
+            );
+            for recorder in [&states, &outbounds, &logs, &connections] {
+                recorder.wait(SAIL_EVENT_DISCONNECTED, |_| true);
+                eventually("released", || recorder.released.load(Ordering::SeqCst) == 1);
+                assert_eq!(recorder.count(SAIL_EVENT_DISCONNECTED), 1);
+            }
+            assert!(!path.exists(), "the socket file is removed");
+            assert_eq!(
+                code(|err| unsafe { sail_instance_state(client, &mut std::ptr::null_mut(), err) }),
+                SAIL_ERR_IO
+            );
+            sail_instance_free(client);
+            sail_instance_free(instance);
+        });
+    }
+
+    struct Host {
+        instance: Mutex<SailInstance>,
+        reloads: AtomicUsize,
+        stops: AtomicUsize,
+    }
+
+    /// The host's reload: it reloads the instance, as an app reloads its
+    /// profile, calling back into sail from the service's thread.
+    extern "C" fn host_reload(context: *mut c_void) -> i32 {
+        let host = unsafe { &*(context as *const Host) };
+        host.reloads.fetch_add(1, Ordering::SeqCst);
+        let instance = *host.instance.lock().unwrap();
+        code(|err| unsafe { sail_instance_reload(instance, std::ptr::null(), err) })
+    }
+
+    extern "C" fn host_stop(context: *mut c_void) -> i32 {
+        let host = unsafe { &*(context as *const Host) };
+        host.stops.fetch_add(1, Ordering::SeqCst);
+        let instance = *host.instance.lock().unwrap();
+        code(|err| sail_instance_stop(instance, 10_000, err))
+    }
+
+    #[test]
+    fn a_clients_stop_and_reload_go_through_the_host() {
+        let _serial = serial();
+        within(Duration::from_secs(60), || {
+            let host = Arc::new(Host {
+                instance: Mutex::new(0),
+                reloads: AtomicUsize::new(0),
+                stops: AtomicUsize::new(0),
+            });
+            let platform = SailPlatform {
+                struct_size: std::mem::size_of::<SailPlatform>() as u32,
+                context: Arc::as_ptr(&host) as *mut c_void,
+                release: None,
+                protect_socket: None,
+                open_tun: None,
+                service_stop: Some(host_stop),
+                service_reload: Some(host_reload),
+            };
+            let instance = new_instance(None, Some(&platform));
+            *host.instance.lock().unwrap() = instance;
+            let dir = std::env::temp_dir().join(format!("sail-ffi-reload-{}", std::process::id()));
+            std::fs::create_dir_all(&dir).unwrap();
+            let file = dir.join("config.json");
+            let port = free_port();
+            std::fs::write(&file, config(port)).unwrap();
+            let path = CString::new(file.to_str().unwrap()).unwrap();
+            ok("start", |err| unsafe {
+                sail_instance_start_file(instance, path.as_ptr(), err)
+            });
+            let socket = socket("host");
+            assert_eq!(
+                serve(instance, &serde_json::json!({ "path": socket }).to_string()),
+                SAIL_OK
+            );
+            let client = connect(&serde_json::json!({ "path": socket }).to_string()).unwrap();
+            ok("reload", |err| unsafe {
+                sail_instance_reload(client, std::ptr::null(), err)
+            });
+            assert_eq!(host.reloads.load(Ordering::SeqCst), 1);
+            assert_eq!(
+                code(|err| unsafe { sail_instance_reload(client, c"{}".as_ptr(), err) }),
+                SAIL_ERR_UNSUPPORTED
+            );
+            ok("stop", |err| sail_instance_stop(client, 0, err));
+            assert_eq!(host.stops.load(Ordering::SeqCst), 1);
+            assert_eq!(state(instance), "stopped");
+            sail_instance_free(client);
+            sail_instance_free(instance);
+            let _ = std::fs::remove_dir_all(&dir);
+        });
+    }
+
+    #[test]
+    fn a_socket_in_use_is_kept_and_a_stale_one_replaced() {
+        let _serial = serial();
+        within(Duration::from_secs(60), || {
+            let path = socket("stale");
+            let options = serde_json::json!({ "path": path }).to_string();
+            // A file left by a process that died.
+            drop(std::os::unix::net::UnixListener::bind(&path).unwrap());
+            assert!(path.exists());
+            let first = new_instance(None, None);
+            assert_eq!(serve(first, &options), SAIL_OK);
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+            // Another instance does not take a path served.
+            let second = new_instance(None, None);
+            assert_eq!(serve(second, &options), SAIL_ERR_STATE);
+            assert!(connect(&options).is_ok());
+            // Too long a path is an error, said so.
+            let long =
+                serde_json::json!({ "path": format!("/tmp/{}", "x".repeat(200)) }).to_string();
+            assert_eq!(serve(second, &long), SAIL_ERR_CONFIG);
+            sail_instance_free(second);
+            sail_instance_free(first);
+            eventually("removed when freed", || !path.exists());
+            // Nothing there to connect to.
+            assert_eq!(connect(&options), Err(SAIL_ERR_IO));
+        });
+    }
+
+    #[test]
+    fn loopback_tcp_takes_the_secret_only() {
+        let _serial = serial();
+        within(Duration::from_secs(60), || {
+            let port = free_port();
+            let secret = sail::generate::secret();
+            let instance = new_instance(None, None);
+            assert_eq!(
+                serve(
+                    instance,
+                    &serde_json::json!({ "port": port, "secret": "short" }).to_string()
+                ),
+                SAIL_ERR_CONFIG
+            );
+            assert_eq!(
+                serve(
+                    instance,
+                    &serde_json::json!({ "port": port, "secret": secret }).to_string()
+                ),
+                SAIL_OK
+            );
+            let wrong =
+                serde_json::json!({ "port": port, "secret": sail::generate::secret() }).to_string();
+            assert_eq!(connect(&wrong), Err(SAIL_ERR_INVALID_ARGUMENT));
+            let client =
+                connect(&serde_json::json!({ "port": port, "secret": secret }).to_string())
+                    .unwrap();
+            assert_eq!(state(client), "idle");
+            sail_instance_free(client);
+            sail_instance_free(instance);
+        });
+    }
 }

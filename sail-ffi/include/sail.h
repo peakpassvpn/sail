@@ -120,6 +120,13 @@
 #define SAIL_EVENT_NETWORK 6
 
 /*
+ A command service client's connection was lost, or the service closed:
+ `{"error": why, or null}`, once, the subscription's last event. Its
+ release follows.
+ */
+#define SAIL_EVENT_DISCONNECTED 7
+
+/*
  An instance, as the host holds it; 0 is none.
  */
 typedef uint64_t SailInstance;
@@ -173,6 +180,20 @@ typedef struct SailPlatform {
    that starts it.
    */
   int32_t (*open_tun)(const char *request, void *context);
+  /*
+   Stops the instance as the host does, when a command service client
+   asks (libbox's `ServiceStop`): the host tells its system (iOS stops
+   the Network Extension) and stops the instance. Returns a SAIL_*
+   code. Called on a thread of the command service's own; it may call
+   any sail function. Null: sail stops the instance itself.
+   */
+  int32_t (*service_stop)(void *context);
+  /*
+   Reloads the instance as the host does, when a client asks (libbox's
+   `ServiceReload`), as `service_stop` is called. Null: sail reloads
+   it from its file.
+   */
+  int32_t (*service_reload)(void *context);
 } SailPlatform;
 
 #ifdef __cplusplus
@@ -187,8 +208,9 @@ extern "C" {
 void sail_free_string(char *s);
 
 /*
- What this build of sail has, as JSON: `{"api_version", "version",
- "features": ["inbound-tun", "outbound-vless", …]}`.
+ What this build of sail has, as JSON: `{"api_version", "json_version"
+ (the shape of the JSON sail answers with), "version", "features":
+ ["inbound-tun", "outbound-vless", …]}`.
 
  @param out Takes the JSON, the host's to free.
  @param err Takes the message of a failure, or null.
@@ -228,7 +250,8 @@ int32_t sail_close_all_connections(SailInstance instance, uint64_t *count, char 
  `{"outbounds": [{"tag", "kind" (Mihomo's type name), "protocol"
  (sing-box's, null for a provider's member), "provider", "udp",
  "history": [{"time_ms", "delay_ms" (null for a failure)}], "group":
- {"selected", "members", "selectable"} or null}]}`.
+ {"selected", "members", "selectable"} or null}]}`, in the
+ configuration's order.
  */
 int32_t sail_outbounds(SailInstance instance, char **out, char **err);
 
@@ -267,7 +290,9 @@ int32_t sail_delay(SailInstance instance,
  `tag`, or of each member of the group `tag`. Each is kept among the
  outbound's delays, which `sail_outbounds` and the outbounds events tell.
 
- @param operation Takes the test's handle, for `sail_cancel`; may be null.
+ @param operation Takes the test's handle, for `sail_cancel`; may be
+     null. Through a command service client, it takes 0: a test there is
+     not cancelled.
  */
 int32_t sail_url_test(SailInstance instance,
                       const char *tag,
@@ -302,6 +327,7 @@ int32_t sail_set_mode(SailInstance instance, const char *mode, char **err);
  Tells the running instance what network the host is on, whenever it
  changes: the rules on the network (`wifi_ssid`, `network_type`, …) and
  the `network` groups match it. Once told, sail's own detection is left.
+ The tunnel process's host tells it, as libbox's does: not a client.
 
  @param state JSON: `{"type": "wifi" | "cellular" | "ethernet" |
      "other", "interface", "ssid", "bssid", "gateway", "addresses":
@@ -314,7 +340,8 @@ int32_t sail_set_network_state(SailInstance instance, const char *state, char **
 /*
  Tells the TUN inbound that the host's network changed, as after a
  switch between Wi-Fi and cellular: flows of the previous network are
- reset, and new ones start on the current one.
+ reset, and new ones start on the current one. The tunnel process's
+ host tells it: not a client.
 
  @param mtu The interface's new MTU, or 0 to keep it.
  @return SAIL_ERR_CONFIG when there is no TUN inbound.
@@ -437,6 +464,42 @@ int32_t sail_instance_stop(SailInstance instance, uint32_t timeout_ms, char **er
  0, does nothing.
  */
 void sail_instance_free(SailInstance instance);
+
+/*
+ Serves the instance to the app's other processes, as libbox's command
+ server does: a client (`sail_client_connect`) there then answers the
+ same calls as the instance. It serves while the instance is idle or
+ failed too, until freed, or this is called again; null `options`
+ stops serving.
+
+ @param options JSON: `{"path"}`, a unix socket (an iOS app's group
+     container's, an Android app's files directory's), made readable
+     and writable by the app's user only, a stale file there replaced,
+     the path at most 103 bytes on Darwin and 107 on Linux; or
+     `{"port", "secret"}`, loopback TCP, every call carrying the
+     secret (32 characters at least, as `sail generate secret` makes).
+ @return SAIL_ERR_STATE when a service answers at the path already;
+     SAIL_ERR_CONFIG for options that do not read; SAIL_ERR_UNSUPPORTED
+     in a build without the command service.
+ */
+int32_t sail_instance_serve(SailInstance instance, const char *options, char **err);
+
+/*
+ Connects to the command service an instance serves in another process
+ (`sail_instance_serve`), as libbox's command client does: the handle
+ answers the same calls an instance's does, and is freed with
+ `sail_instance_free`. A client does not reconnect: when the connection
+ is lost, its calls fail, and each subscription gets one
+ SAIL_EVENT_DISCONNECTED; the host connects again.
+
+ @param options JSON: `{"path"}`, `{"port", "secret"}`, or `{"fd"}`, a
+     connected socket the host has (a macOS system extension's, passed
+     over XPC), which the client owns from then on.
+ @param out Takes the client's handle.
+ @return SAIL_ERR_IO when no service answers; SAIL_ERR_UNSUPPORTED in a
+     build without the command service.
+ */
+int32_t sail_client_connect(const char *options, SailInstance *out, char **err);
 
 /*
  The instance's state, as JSON: `{"state": "idle" | "starting" |
