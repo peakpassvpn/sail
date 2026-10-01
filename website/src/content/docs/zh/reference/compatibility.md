@@ -80,7 +80,7 @@ sail 直接读取 sing-box、Clash / Mihomo 与 Surge 的配置。每种格式�
 | `proxies[rematch]` | 9 | 0 | 0 | 9 |
 | `proxies[shadowquic]` | 27 | 0 | 0 | 27 |
 | `proxies[snell]` | 17 | 0 | 0 | 17 |
-| `proxies[socks5]` | 18 | 15 | 2 | 1 |
+| `proxies[socks5]` | 18 | 14 | 2 | 2 |
 | `proxies[ss]` | 93 | 24 | 3 | 66 |
 | `proxies[ssh]` | 15 | 0 | 0 | 15 |
 | `proxies[ssr]` | 16 | 0 | 0 | 16 |
@@ -100,7 +100,7 @@ sail 直接读取 sing-box、Clash / Mihomo 与 Surge 的配置。每种格式�
 | `tls` | 7 | 0 | 7 | 0 |
 | `tuic-server` | 13 | 0 | 0 | 13 |
 | `tun` | 50 | 33 | 10 | 7 |
-| **All** | **2077** | **459** | **139** | **1479** |
+| **All** | **2077** | **458** | **139** | **1480** |
 
 ## Surge
 
@@ -132,7 +132,7 @@ sail 直接读取 sing-box、Clash / Mihomo 与 Surge 的配置。每种格式�
 | `Proxy[reject-tinygif]` | 12 | 1 | 4 | 7 | 0 |
 | `Proxy[reject]` | 12 | 1 | 4 | 7 | 0 |
 | `Proxy[snell]` | 28 | 0 | 0 | 0 | 28 |
-| `Proxy[socks5-tls]` | 29 | 18 | 3 | 7 | 1 |
+| `Proxy[socks5-tls]` | 29 | 0 | 0 | 0 | 29 |
 | `Proxy[socks5]` | 23 | 13 | 3 | 7 | 0 |
 | `Proxy[ss]` | 27 | 16 | 3 | 7 | 1 |
 | `Proxy[ssh]` | 25 | 0 | 0 | 0 | 25 |
@@ -147,5 +147,5 @@ sail 直接读取 sing-box、Clash / Mihomo 与 Surge 的配置。每种格式�
 | `SSID Setting` | 6 | 0 | 0 | 6 | 0 |
 | `Sections` | 17 | 3 | 3 | 11 | 0 |
 | `WireGuard` | 13 | 11 | 0 | 2 | 0 |
-| **All** | **874** | **336** | **181** | **135** | **222** |
+| **All** | **874** | **318** | **178** | **128** | **250** |
 

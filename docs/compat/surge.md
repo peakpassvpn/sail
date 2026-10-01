@@ -28,7 +28,7 @@ Every field Surge's manual (manual.nssurge.com of 2026-09-22) lists, and how sai
 | `Proxy[reject-tinygif]` | 12 | 1 | 4 | 7 | 0 |
 | `Proxy[reject]` | 12 | 1 | 4 | 7 | 0 |
 | `Proxy[snell]` | 28 | 0 | 0 | 0 | 28 |
-| `Proxy[socks5-tls]` | 29 | 18 | 3 | 7 | 1 |
+| `Proxy[socks5-tls]` | 29 | 0 | 0 | 0 | 29 |
 | `Proxy[socks5]` | 23 | 13 | 3 | 7 | 0 |
 | `Proxy[ss]` | 27 | 16 | 3 | 7 | 1 |
 | `Proxy[ssh]` | 25 | 0 | 0 | 0 | 25 |
@@ -43,7 +43,7 @@ Every field Surge's manual (manual.nssurge.com of 2026-09-22) lists, and how sai
 | `SSID Setting` | 6 | 0 | 0 | 6 | 0 |
 | `Sections` | 17 | 3 | 3 | 11 | 0 |
 | `WireGuard` | 13 | 11 | 0 | 2 | 0 |
-| **All** | **874** | **336** | **181** | **135** | **222** |
+| **All** | **874** | **318** | **178** | **128** | **250** |
 
 
 ## `Sections`
@@ -507,35 +507,7 @@ Every field Surge's manual (manual.nssurge.com of 2026-09-22) lists, and how sai
 
 | Field | sail | What sail says |
 |---|---|---|
-| `Proxy[socks5-tls]` | Supported |  |
-| `Proxy[socks5-tls].allow-other-interface` | Warned | allow-other-interface: sail does not implement this parameter: without its interface, a connection fails; ignored |
-| `Proxy[socks5-tls].alpn` | Supported |  |
-| `Proxy[socks5-tls].block-quic` | Warned | block-quic: sail does not block QUIC; ignored, and QUIC goes through the policy |
-| `Proxy[socks5-tls].client-cert` | Supported | client-cert: no [Keystore] item is named "c" |
-| `Proxy[socks5-tls].dns-follow-interface` | Ignored silently |  |
-| `Proxy[socks5-tls].ecn` | Ignored silently |  |
-| `Proxy[socks5-tls].hybrid` | Supported |  |
-| `Proxy[socks5-tls].interface` | Supported |  |
-| `Proxy[socks5-tls].ip-version` | Supported |  |
-| `Proxy[socks5-tls].no-error-alert` | Ignored silently |  |
-| `Proxy[socks5-tls].password` | Supported |  |
-| `Proxy[socks5-tls].port` | Supported |  |
-| `Proxy[socks5-tls].server` | Supported |  |
-| `Proxy[socks5-tls].server-cert-fingerprint-sha256` | Supported | Surge's manual says nothing of a hash that is not the server's own certificate's; sail takes that certificate as the only CA, with the server name checked. The manual's words are checked; what Surge does is not. |
-| `Proxy[socks5-tls].server-cert-verify-name` | Error | server-cert-verify-name: sail does not implement this parameter yet |
-| `Proxy[socks5-tls].shadow-tls-password` | Supported |  |
-| `Proxy[socks5-tls].shadow-tls-sni` | Supported |  |
-| `Proxy[socks5-tls].shadow-tls-version` | Supported |  |
-| `Proxy[socks5-tls].skip-cert-verify` | Supported |  |
-| `Proxy[socks5-tls].sni` | Supported |  |
-| `Proxy[socks5-tls].test-timeout` | Warned | test-url, test-timeout, test-udp of P: sail tests a group's members with [General] proxy-test-url; ignored |
-| `Proxy[socks5-tls].test-udp` | Warned | test-url, test-timeout, test-udp of P: sail tests a group's members with [General] proxy-test-url; ignored |
-| `Proxy[socks5-tls].test-url` | Warned | test-url, test-timeout, test-udp of P: sail tests a group's members with [General] proxy-test-url; ignored |
-| `Proxy[socks5-tls].tfo` | Warned | tfo: sail does not implement TCP Fast Open; ignored |
-| `Proxy[socks5-tls].tos` | Warned | tos: sail does not implement this parameter; ignored |
-| `Proxy[socks5-tls].udp-relay` | Supported |  |
-| `Proxy[socks5-tls].underlying-proxy` | Supported |  |
-| `Proxy[socks5-tls].username` | Supported |  |
+| `Proxy[socks5-tls]` | Error | socks5-tls: sail does not implement SOCKS5 over TLS yet |
 
 ## `Proxy[socks5]`
 

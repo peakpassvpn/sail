@@ -49,7 +49,7 @@ Every field Mihomo v1.19.31 takes, and how sail reads it: measured by reading a 
 | `proxies[rematch]` | 9 | 0 | 0 | 9 |
 | `proxies[shadowquic]` | 27 | 0 | 0 | 27 |
 | `proxies[snell]` | 17 | 0 | 0 | 17 |
-| `proxies[socks5]` | 18 | 15 | 2 | 1 |
+| `proxies[socks5]` | 18 | 14 | 2 | 2 |
 | `proxies[ss]` | 93 | 24 | 3 | 66 |
 | `proxies[ssh]` | 15 | 0 | 0 | 15 |
 | `proxies[ssr]` | 16 | 0 | 0 | 16 |
@@ -69,7 +69,7 @@ Every field Mihomo v1.19.31 takes, and how sail reads it: measured by reading a 
 | `tls` | 7 | 0 | 7 | 0 |
 | `tuic-server` | 13 | 0 | 0 | 13 |
 | `tun` | 50 | 33 | 10 | 7 |
-| **All** | **2077** | **459** | **139** | **1479** |
+| **All** | **2077** | **458** | **139** | **1480** |
 
 
 ## `general`
@@ -773,7 +773,7 @@ Every field Mihomo v1.19.31 takes, and how sail reads it: measured by reading a 
 | `proxies[socks5].server` | Supported |  |
 | `proxies[socks5].skip-cert-verify` | Supported |  |
 | `proxies[socks5].tfo` | Warned | proxies[0].tfo: sail does not implement this field; ignored |
-| `proxies[socks5].tls` | Supported |  |
+| `proxies[socks5].tls` | Error | proxies[0].tls: sail does not implement SOCKS5 over TLS yet |
 | `proxies[socks5].udp` | Supported |  |
 | `proxies[socks5].username` | Supported |  |
 

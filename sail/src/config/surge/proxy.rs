@@ -988,9 +988,13 @@ fn socks5(proxy: &Proxy, kind: &str, p: &mut Params, proxies: &mut Proxies) -> R
     let mut o = obj("socks", proxy.name);
     remote(proxy, p, &mut o, proxies)?;
     credentials(proxy, p, &mut o);
-    let on = kind == "socks5-tls" || p.bool("tls")?.unwrap_or(false);
-    if let Some(tls) = tls(proxy, p, on, Over::Tcp)? {
-        o.insert("tls".into(), tls);
+    // Without it, what was to go over TLS would go in the clear.
+    if kind == "socks5-tls" || p.bool("tls")?.unwrap_or(false) {
+        return Err(anyhow!(
+            "{}: {}: sail does not implement SOCKS5 over TLS yet",
+            proxy.at,
+            kind
+        ));
     }
     let udp = p.bool("udp-relay")?.unwrap_or(false);
     Ok((Value::Object(o), Kind::Proxy { udp }, TLS))

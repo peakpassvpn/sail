@@ -1310,3 +1310,16 @@ fn hybrid_is_a_network_strategy() {
             .contains("hybrid: \"maybe\" is none of auto, on and off"),
     );
 }
+
+/// SOCKS5 over TLS is refused where it is read: the socks outbound has no
+/// TLS, and dropping it would send in the clear what was to be encrypted.
+#[test]
+fn socks5_tls_is_refused() {
+    let err = error("[Proxy]\nS = socks5-tls, a.example, 1443\n[Rule]\nFINAL,S\n");
+    assert!(
+        err.contains("socks5-tls: sail does not implement SOCKS5 over TLS yet"),
+        "{}",
+        err
+    );
+    load("[Proxy]\nS = socks5, a.example, 1080\n[Rule]\nFINAL,S\n");
+}

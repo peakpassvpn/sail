@@ -2194,3 +2194,17 @@ fn a_proxy_s_fingerprint_is_certificate_sha256() {
         err
     );
 }
+
+/// SOCKS5 over TLS is refused where it is read: the socks outbound has no
+/// TLS, and dropping it would send in the clear what was to be encrypted.
+#[test]
+fn socks5_over_tls_is_refused() {
+    let err =
+        error("proxies: [{ name: S, type: socks5, server: a.example, port: 1080, tls: true }]\n");
+    assert!(
+        err.contains("proxies[0].tls: sail does not implement SOCKS5 over TLS yet"),
+        "{}",
+        err
+    );
+    load("proxies: [{ name: S, type: socks5, server: a.example, port: 1080, tls: false }]\n");
+}

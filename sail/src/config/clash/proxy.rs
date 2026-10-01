@@ -983,7 +983,15 @@ fn socks5(f: &mut Fields, o: &mut Map<String, Value>, w: &mut Vec<String>) -> Re
     o.insert("type".into(), json!("socks"));
     server(f, o, w)?;
     credentials(f, o)?;
-    tls(f, o, w, "sni", false)
+    tls(f, o, w, "sni", false)?;
+    // Without it, what was to go over TLS would go in the clear.
+    if o.contains_key("tls") {
+        return Err(anyhow!(
+            "{}.tls: sail does not implement SOCKS5 over TLS yet",
+            f.path()
+        ));
+    }
+    Ok(())
 }
 
 fn http(f: &mut Fields, o: &mut Map<String, Value>, w: &mut Vec<String>) -> Result<()> {

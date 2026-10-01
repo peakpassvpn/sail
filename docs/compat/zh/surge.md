@@ -28,7 +28,7 @@ Surge 手册（manual.nssurge.com of 2026-09-22）列出的全部字段，以及
 | `Proxy[reject-tinygif]` | 12 | 1 | 4 | 7 | 0 |
 | `Proxy[reject]` | 12 | 1 | 4 | 7 | 0 |
 | `Proxy[snell]` | 28 | 0 | 0 | 0 | 28 |
-| `Proxy[socks5-tls]` | 29 | 18 | 3 | 7 | 1 |
+| `Proxy[socks5-tls]` | 29 | 0 | 0 | 0 | 29 |
 | `Proxy[socks5]` | 23 | 13 | 3 | 7 | 0 |
 | `Proxy[ss]` | 27 | 16 | 3 | 7 | 1 |
 | `Proxy[ssh]` | 25 | 0 | 0 | 0 | 25 |
@@ -43,7 +43,7 @@ Surge 手册（manual.nssurge.com of 2026-09-22）列出的全部字段，以及
 | `SSID Setting` | 6 | 0 | 0 | 6 | 0 |
 | `Sections` | 17 | 3 | 3 | 11 | 0 |
 | `WireGuard` | 13 | 11 | 0 | 2 | 0 |
-| **All** | **874** | **336** | **181** | **135** | **222** |
+| **All** | **874** | **318** | **178** | **128** | **250** |
 
 
 ## `Sections`
@@ -507,35 +507,7 @@ Surge 手册（manual.nssurge.com of 2026-09-22）列出的全部字段，以及
 
 | 字段 | sail | sail 的说明 |
 |---|---|---|
-| `Proxy[socks5-tls]` | 支持 |  |
-| `Proxy[socks5-tls].allow-other-interface` | 警告 | allow-other-interface: sail does not implement this parameter: without its interface, a connection fails; ignored |
-| `Proxy[socks5-tls].alpn` | 支持 |  |
-| `Proxy[socks5-tls].block-quic` | 警告 | block-quic: sail does not block QUIC; ignored, and QUIC goes through the policy |
-| `Proxy[socks5-tls].client-cert` | 支持 | client-cert: no [Keystore] item is named "c" |
-| `Proxy[socks5-tls].dns-follow-interface` | 静默忽略 |  |
-| `Proxy[socks5-tls].ecn` | 静默忽略 |  |
-| `Proxy[socks5-tls].hybrid` | 支持 |  |
-| `Proxy[socks5-tls].interface` | 支持 |  |
-| `Proxy[socks5-tls].ip-version` | 支持 |  |
-| `Proxy[socks5-tls].no-error-alert` | 静默忽略 |  |
-| `Proxy[socks5-tls].password` | 支持 |  |
-| `Proxy[socks5-tls].port` | 支持 |  |
-| `Proxy[socks5-tls].server` | 支持 |  |
-| `Proxy[socks5-tls].server-cert-fingerprint-sha256` | 支持 | Surge 手册没说明指纹不是服务器自身证书时怎么处理；sail 把该证书当作唯一的 CA，并校验服务器名。手册的说法已核实，Surge 的实际行为未核实。 |
-| `Proxy[socks5-tls].server-cert-verify-name` | 报错 | server-cert-verify-name: sail does not implement this parameter yet |
-| `Proxy[socks5-tls].shadow-tls-password` | 支持 |  |
-| `Proxy[socks5-tls].shadow-tls-sni` | 支持 |  |
-| `Proxy[socks5-tls].shadow-tls-version` | 支持 |  |
-| `Proxy[socks5-tls].skip-cert-verify` | 支持 |  |
-| `Proxy[socks5-tls].sni` | 支持 |  |
-| `Proxy[socks5-tls].test-timeout` | 警告 | test-url, test-timeout, test-udp of P: sail tests a group's members with [General] proxy-test-url; ignored |
-| `Proxy[socks5-tls].test-udp` | 警告 | test-url, test-timeout, test-udp of P: sail tests a group's members with [General] proxy-test-url; ignored |
-| `Proxy[socks5-tls].test-url` | 警告 | test-url, test-timeout, test-udp of P: sail tests a group's members with [General] proxy-test-url; ignored |
-| `Proxy[socks5-tls].tfo` | 警告 | tfo: sail does not implement TCP Fast Open; ignored |
-| `Proxy[socks5-tls].tos` | 警告 | tos: sail does not implement this parameter; ignored |
-| `Proxy[socks5-tls].udp-relay` | 支持 |  |
-| `Proxy[socks5-tls].underlying-proxy` | 支持 |  |
-| `Proxy[socks5-tls].username` | 支持 |  |
+| `Proxy[socks5-tls]` | 报错 | socks5-tls: sail does not implement SOCKS5 over TLS yet |
 
 ## `Proxy[socks5]`
 
