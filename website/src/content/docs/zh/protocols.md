@@ -71,6 +71,12 @@ ClientHello 使用浏览器指纹（`tls.utls`，默认 Chrome），客户端认
 
 sing-box 的 Hysteria2 和 TUIC 服务端允许客户端在一条 QUIC 连接上同时开任意多的流（1<<60）。sail 使用的 QUIC 库 quinn 会为允许的每一条流预留空间，因此 sail 服务端在客户端认证前每种流最多同时 100 条，认证后每当用到四分之三就翻倍，最多 65536 条。在一条 QUIC 连接上复用大量连接的客户端，开多少就得到多少；超出上限的会等待其他流关闭，而不是失败。用户的流数由 `user_limits.max_connections` 限制。如果让 quinn 像 quic-go 一样在流打开时才分配空间，就不再需要这个上限；sail 目前还没有这样做。
 
+### Hysteria2 伪装站
+
+Hysteria2 入站对没有密码的访问者（例如主动探测）提供 `masquerade` 指定的内容：后面的 `http://` 或 `https://` 站点，或固定响应。与 sing-box 一致，请求以站点自己的名字作为 SNI 和 Host 发往站点（对象写法中 `rewrite_host: false` 时保留客户端的 Host），站点支持时用 HTTP/2，否则用 HTTP/1.1，并去掉逐跳头和转发头。与 sing-box 不同，`https://` 站点按实例的证书库校验（未设置 `certificate` 时即系统证书库），并按实例的拨号默认值连接。
+
+已知缺口：请求体和响应体会先缓冲（上限分别为 1 MB 和 8 MB），不做流式转发；不支持 `file://` 和 `type: file`；chunked 响应不会按 chunked 原样转发。
+
 ## 传输层与安全
 
 | 层 | 入站 | 出站 | 用途 |

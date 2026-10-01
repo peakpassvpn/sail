@@ -123,6 +123,8 @@ Use `alpn` when the server requires a specific application protocol:
 
 When ECH is enabled and `config` is omitted, Sail can discover the ECHConfigList through DNS. Set `disable_dns_lookup` to require an explicit base64 or PEM configuration instead.
 
+ECH is TLS 1.3 only, so ECH with `min_version` below `1.3` is a configuration error. sing-box takes such a configuration, but every connection then fails, as Go's TLS requires a minimum of 1.3 with ECH; Sail refuses it when the configuration is read.
+
 ## Client certificates
 
 A server that authenticates clients by certificate (mutual TLS) asks for one during the handshake. Give the certificate and its key, inline PEM or by path, as sing-box names them:

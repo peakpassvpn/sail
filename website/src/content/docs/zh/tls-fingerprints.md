@@ -56,6 +56,8 @@ Sail 使用 BoringSSL 处理 TCP 和 QUIC 上的 TLS。出站 TLS 默认发送�
 
 ECH 开启且未提供 `config` 时，可通过 DNS 发现 ECHConfigList；设置 `disable_dns_lookup` 可强制使用显式配置。
 
+ECH 只用于 TLS 1.3，因此开启 ECH 且 `min_version` 低于 `1.3` 属于配置错误。sing-box 会接受这样的配置，但之后每条连接都会失败（Go 的 TLS 要求开启 ECH 时最低版本为 1.3）；Sail 在读取配置时就报错。
+
 ### 证书固定
 
 `certificate_sha256` 是 sail 的扩展字段，语义同 Mihomo 的 `fingerprint`：按整张证书（DER）的 SHA-256 接受服务器，十六进制，大小写均可，冒号可有可无，即 `openssl x509 -noout -fingerprint -sha256` 的输出。它取代 `certificate`、`certificate_path` 与 `insecure`，且不能与固定公钥的 sing-box 字段 `certificate_public_key_sha256` 同时使用。

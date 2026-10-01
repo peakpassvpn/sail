@@ -73,6 +73,12 @@ The ClientHello carries a browser fingerprint (`tls.utls`, Chrome's by default) 
 
 sing-box's Hysteria2 and TUIC servers let a client open as many streams at once on its QUIC connection as it likes (1<<60). sail's QUIC library, quinn, sets aside room for every stream it allows, so a sail server lets a client hold 100 streams of each kind at once until it authenticates, then twice as many each time three quarters are open, up to 65536. A client multiplexing many connections onto one QUIC connection gets them as it opens them; one past the limit waits for a stream to close rather than failing. `user_limits.max_connections` bounds a user's streams. Making quinn allocate a stream's room only when the stream opens, as quic-go does, would remove the limit; sail does not do that yet.
 
+### Hysteria2 masquerade
+
+A Hysteria2 inbound serves anyone without a password, such as an active prober, what `masquerade` names: an `http://` or `https://` site behind it, or a fixed response. As in sing-box, the request goes to the site with the site's own name as SNI and Host (the client's Host with `rewrite_host: false` in the object form), over HTTP/2 where the site offers it and HTTP/1.1 otherwise, without the hop-by-hop and forwarding headers. Unlike sing-box, an `https://` site is trusted by the instance's certificate store (the system's unless `certificate` is set) and dialled with the instance's dial defaults.
+
+Known gaps: request and response bodies are buffered (up to 1 MB and 8 MB) rather than streamed, `file://` and `type: file` sites are not supported, and chunked responses are not passed through as chunked.
+
 ## Transports and security
 
 | Layer | Inbound | Outbound | Purpose |
