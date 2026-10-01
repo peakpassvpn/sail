@@ -50,6 +50,12 @@
 //! closed for another's sake; with `interrupt_exist_connections`, only
 //! for its member leaving the group.
 //!
+//! Probes pause while the network is down. When it changes, the sites
+//! forget their members, and the members their failures and connect
+//! times, which were of the network before; their latencies are kept, as
+//! they rank the members much as before, until new samples replace them;
+//! and every member is probed at once, as urltest tests them.
+//!
 //! Where it differs from Surge: only the handshakes of TLS and QUIC count
 //! against a member, since the first response of a plain connection
 //! includes the server's think time; TCP retransmissions are not
@@ -66,6 +72,7 @@ use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::io;
 use std::net::IpAddr;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
@@ -94,6 +101,7 @@ use crate::app::outbound::selector::{OutboundSelector, SelectedBy, Selection};
 use crate::app::SyncDnsClient;
 use crate::common::name_filter::NameFilter;
 use crate::config::model::GroupProviders;
+use crate::net::network::Network;
 use crate::session::{Session, SniffedProtocol};
 
 pub(crate) fn register(registry: &mut OutboundRegistry) {
@@ -282,6 +290,7 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         tag: tag.to_owned(),
         members: members.clone(),
         dns_client: ctx.dns_client.clone(),
+        network: ctx.env.network.clone(),
         stats: Mutex::new(HashMap::new()),
         sites: Mutex::new(LruCache::with_expiry_duration_and_capacity(
             site_ttl,
@@ -303,6 +312,7 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
             idle: idle_timeout,
             last_used: Mutex::new(Instant::now()),
             wake: Notify::new(),
+            forced: AtomicBool::new(false),
             suspects: Mutex::new(HashSet::new()),
             evaluated: watch::Sender::new(false),
             evaluate_before_use: options.evaluate_before_use,
@@ -350,6 +360,9 @@ struct Probes {
     idle: Duration,
     last_used: Mutex<Instant>,
     wake: Notify,
+    /// Whether the next round runs even though the group is idle: the
+    /// network changed.
+    forced: AtomicBool,
     /// Members to probe in the next round whatever else is known of them:
     /// those tried for a connection that failed through every member.
     suspects: Mutex<HashSet<MemberKey>>,
@@ -364,6 +377,8 @@ pub(super) struct Group {
     tag: String,
     members: Arc<Members>,
     dns_client: SyncDnsClient,
+    /// Probes pause while it is down: the members are not failed for it.
+    network: Network,
     stats: Mutex<HashMap<MemberKey, MemberStats>>,
     sites: Mutex<LruCache<String, Site>>,
     priorities: Vec<(NameFilter, f64)>,
@@ -491,6 +506,26 @@ impl Group {
 
     fn is_idle(&self) -> bool {
         lock(&self.probes.last_used).elapsed() > self.probes.idle
+    }
+
+    /// The network changed: what was learnt of it is forgotten, see the
+    /// module's doc, and every member probed at once, idle as the group
+    /// may be; unless it is down, when the change that ends that does.
+    /// Twice is as once.
+    fn network_changed(&self) {
+        if self.network.is_down() {
+            return;
+        }
+        let now = Instant::now();
+        lock(&self.sites).clear();
+        for s in lock(&self.stats).values_mut() {
+            s.network_changed(now);
+        }
+        let snapshot = self.members.load();
+        lock(&self.probes.suspects).extend(snapshot.members.iter().map(|m| m.key.clone()));
+        self.start();
+        self.probes.forced.store(true, Ordering::Relaxed);
+        self.probes.wake.notify_one();
     }
 
     /// With `evaluate_before_use`, waits for the first probes, `timeout`
@@ -759,7 +794,9 @@ async fn probe_loop(group: Weak<Group>, probe: HttpProbe) {
         let Some(g) = group.upgrade() else {
             return;
         };
-        if !g.is_idle() {
+        if g.network.is_down() {
+            debug!("[{}] the network is down, probes paused", g.tag);
+        } else if g.probes.forced.swap(false, Ordering::Relaxed) || !g.is_idle() {
             let snapshot = g.members.load();
             let probed = g.to_probe(&snapshot);
             if !probed.is_empty() {
@@ -784,12 +821,15 @@ async fn probe_loop(group: Weak<Group>, probe: HttpProbe) {
         }
         let probed_at = Instant::now();
         let interval = g.probes.interval;
-        // Woken early by a failure, new members, or use after a pause.
+        // Woken early by a failure, new members, use after a pause, or a
+        // change of network.
         let woken = tokio::time::timeout(interval, g.probes.wake.notified())
             .await
             .is_ok();
+        // A change of network is not a failure: no wait for it.
+        let forced = g.probes.forced.load(Ordering::Relaxed);
         drop(g);
-        if woken {
+        if woken && !forced {
             tokio::time::sleep_until(probed_at + MIN_REPROBE.min(interval)).await;
         }
     }
@@ -819,6 +859,12 @@ impl OutboundStreamHandler for Handler {
         _stream: Option<AnyStream>,
     ) -> io::Result<AnyStream> {
         stream::connect(self.0.clone(), sess).await
+    }
+
+    /// Heard here only: the datagram side is the same group. Its members
+    /// hear of it themselves.
+    fn network_changed(&self, _change: &crate::net::network::NetworkChange) {
+        self.0.network_changed();
     }
 }
 

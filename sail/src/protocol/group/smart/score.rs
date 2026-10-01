@@ -232,6 +232,16 @@ impl MemberStats {
         FIRST_BYTE_TIMEOUT.max(connects)
     }
 
+    /// The network changed: its failures and connect times were of the
+    /// one before, and go; its latency is kept until new samples replace
+    /// it, as it ranks the members much as it did.
+    pub fn network_changed(&mut self, now: Instant) {
+        self.connect = None;
+        self.failures = 0;
+        self.penalty = 0.0;
+        self.penalty_at = now;
+    }
+
     pub fn used(&mut self, now: Instant) {
         self.uses = self.uses(now) + 1.0;
         self.uses_at = now;

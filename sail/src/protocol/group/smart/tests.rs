@@ -97,6 +97,12 @@ impl Fakes {
             .unwrap()
     }
 
+    fn stats_or_none(&self, name: &str) -> Option<MemberStats> {
+        lock(&self.group.stats)
+            .get(&MemberKey::outbound(name))
+            .cloned()
+    }
+
     fn suspects(&self) -> Vec<String> {
         let mut s: Vec<String> = lock(&self.group.probes.suspects)
             .iter()
@@ -145,6 +151,7 @@ fn group_of(members: Vec<Member>) -> Arc<Group> {
         tag: "smart".to_string(),
         members: Members::of(members),
         dns_client,
+        network: Default::default(),
         stats: Mutex::new(HashMap::new()),
         sites: Mutex::new(LruCache::with_expiry_duration_and_capacity(
             DEFAULT_SITE_TTL,
@@ -169,6 +176,7 @@ fn group_of(members: Vec<Member>) -> Arc<Group> {
             idle: DEFAULT_IDLE_TIMEOUT,
             last_used: Mutex::new(Instant::now()),
             wake: Notify::new(),
+            forced: AtomicBool::new(false),
             suspects: Mutex::new(HashSet::new()),
             evaluated: watch::Sender::new(false),
             evaluate_before_use: false,
@@ -474,4 +482,72 @@ fn policy_priority_takes_mihomo_filters_lookarounds_included() {
     assert!(filter.matches("HK 01", &mut warnings));
     assert!(!filter.matches("HK Ukraine", &mut warnings));
     assert!(warnings.is_empty());
+}
+
+fn on(interface: &str) -> crate::net::network::NetworkState {
+    crate::net::network::NetworkState {
+        interface: Some(interface.into()),
+        ..Default::default()
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_change_of_network_forgets_what_was_of_the_one_before() {
+    use crate::net::network::{ChangeReason, NetworkState};
+    let f = fakes(&[("a", ANSWER), ("b", ANSWER)]);
+    let a = MemberKey::outbound("a");
+    let b = MemberKey::outbound("b");
+    let learn = || {
+        f.known("a", 10);
+        f.known("b", 100);
+        f.group.blame(std::slice::from_ref(&a));
+        f.group
+            .with_site("example.com", |s| s.connected(&b, Instant::now()));
+    };
+    learn();
+    f.group.network.detected(on("en0"), ChangeReason::State);
+    f.group
+        .network
+        .detected(NetworkState::default(), ChangeReason::State);
+    // Down: nothing is learnt of no network, and nothing forgotten.
+    f.group.network_changed();
+    assert!(f.stats("a").is_failed(Instant::now()));
+    assert!(!lock(&f.group.sites).is_empty());
+    assert!(f.suspects().is_empty());
+
+    f.group.network.detected(on("en1"), ChangeReason::State);
+    f.group.network_changed();
+    f.group.network_changed();
+    assert!(lock(&f.group.sites).is_empty());
+    assert!(!f.stats("a").is_failed(Instant::now()));
+    // The latencies stay, until new samples replace them.
+    assert_eq!(f.stats("a").latency(), Some(10.0));
+    assert_eq!(f.stats("b").latency(), Some(100.0));
+    assert_eq!(f.suspects(), ["a", "b"]);
+    assert_eq!(f.group.to_probe(&f.group.members.load()), [0, 1]);
+}
+
+#[tokio::test(start_paused = true)]
+async fn probes_pause_while_the_network_is_down() {
+    use crate::net::network::{ChangeReason, NetworkState};
+    let f = fakes(&[("a", ANSWER)]);
+    let network = &f.group.network;
+    network.detected(on("en0"), ChangeReason::State);
+    network.detected(NetworkState::default(), ChangeReason::State);
+    let probe = HttpProbe::new(
+        "http://example.com/",
+        f.group.dns_client.clone(),
+        &Default::default(),
+    )
+    .unwrap();
+    tokio::spawn(probe_loop(Arc::downgrade(&f.group), probe));
+    // Between two ticks: only the change can probe before the next.
+    tokio::time::sleep(DEFAULT_INTERVAL * 3 + Duration::from_secs(30)).await;
+    assert_eq!(f.stats_or_none("a").and_then(|s| s.last_probed), None);
+
+    // Back: every member is probed at once.
+    network.detected(on("en0"), ChangeReason::State);
+    f.group.network_changed();
+    tokio::time::sleep(DEFAULT_TIMEOUT + Duration::from_secs(1)).await;
+    assert!(f.stats("a").last_probed.is_some());
 }
