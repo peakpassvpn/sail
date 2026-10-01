@@ -15,9 +15,10 @@ use crate::config::rule_set::MAX_VERSION;
 use crate::runtime::RuntimeEnv;
 
 const MAGIC: &[u8; 3] = b"SRS";
-/// The most a rule-set may inflate to: well past the largest published
-/// ones, short of what a malicious file could make a device run out of.
-const MAX_INFLATED: usize = 256 << 20;
+/// The most a rule-set may inflate to: what a download of one may be, far
+/// past the largest published ones (a judged value, as the download's).
+/// The download's cap counts compressed bytes; this one the inflated.
+const MAX_INFLATED: usize = crate::app::http::MAX_BODY;
 const MAX_DEPTH: usize = 100;
 
 // Item types, in the order sing-box numbers them.
@@ -55,6 +56,11 @@ fn unsupported(item: u8) -> Option<&'static str> {
 }
 
 pub(crate) fn read(data: &[u8], env: &RuntimeEnv) -> Result<Vec<Condition>> {
+    read_within(data, env, MAX_INFLATED)
+}
+
+/// `read`, inflating to `max` bytes at most.
+fn read_within(data: &[u8], env: &RuntimeEnv, max: usize) -> Result<Vec<Condition>> {
     let rest = data
         .strip_prefix(MAGIC.as_slice())
         .ok_or_else(|| anyhow!("not a sing-box binary rule-set"))?;
@@ -66,15 +72,13 @@ pub(crate) fn read(data: &[u8], env: &RuntimeEnv) -> Result<Vec<Condition>> {
             MAX_VERSION
         ));
     }
-    let inflated =
-        miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(compressed, MAX_INFLATED).map_err(
-            |e| match e.status {
-                miniz_oxide::inflate::TINFLStatus::HasMoreOutput => {
-                    anyhow!("inflates to more than {} bytes", MAX_INFLATED)
-                }
-                status => anyhow!("inflate: {:?}", status),
-            },
-        )?;
+    let inflated = miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(compressed, max)
+        .map_err(|e| match e.status {
+            miniz_oxide::inflate::TINFLStatus::HasMoreOutput => {
+                anyhow!("inflates to more than {} bytes", max)
+            }
+            status => anyhow!("inflate: {:?}", status),
+        })?;
     let mut reader = Reader::new(&inflated);
     let count = reader.count(1)?;
     (0..count)
@@ -188,4 +192,24 @@ fn read_ip_set(reader: &mut Reader) -> Result<Vec<(IpAddr, IpAddr)>> {
         ranges.push((reader.addr()?, reader.addr()?));
     }
     Ok(ranges)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A rule-set that inflates past the cap is refused, however small it
+    /// is compressed.
+    #[test]
+    fn a_rule_set_inflating_past_the_cap_is_refused() {
+        let mut data = b"SRS\x03".to_vec();
+        data.extend(miniz_oxide::deflate::compress_to_vec_zlib(
+            &[0u8; 100_000],
+            6,
+        ));
+        let err = read_within(&data, &RuntimeEnv::default(), 10_000)
+            .err()
+            .unwrap();
+        assert_eq!(err.to_string(), "inflates to more than 10000 bytes");
+    }
 }

@@ -28,18 +28,20 @@ pub(crate) enum Set {
 
 /// Reads an MRS file of `behavior`.
 pub(crate) fn read(data: &[u8], behavior: ClashBehavior) -> Result<Set> {
+    read_within(data, behavior, MAX_DECOMPRESSED)
+}
+
+/// `read`, decompressing to `max` bytes at most.
+fn read_within(data: &[u8], behavior: ClashBehavior, max: usize) -> Result<Set> {
     let decoder = ruzstd::decoding::StreamingDecoder::new(data)
         .map_err(|e| anyhow!("mrs: not zstd: {}", e))?;
     let mut raw = Vec::new();
     decoder
-        .take(MAX_DECOMPRESSED as u64 + 1)
+        .take(max as u64 + 1)
         .read_to_end(&mut raw)
         .map_err(|e| anyhow!("mrs: zstd: {}", e))?;
-    if raw.len() > MAX_DECOMPRESSED {
-        return Err(anyhow!(
-            "mrs: more than {} bytes decompressed",
-            MAX_DECOMPRESSED
-        ));
+    if raw.len() > max {
+        return Err(anyhow!("mrs: more than {} bytes decompressed", max));
     }
     let mut r = Reader { data: &raw, at: 0 };
     if r.bytes(4)? != MAGIC {
@@ -221,6 +223,22 @@ mod tests {
             IpAddr::V4(v4) => u128::from(v4.to_ipv6_mapped()),
             IpAddr::V6(v6) => u128::from(v6),
         }
+    }
+
+    /// A file that decompresses past the cap is refused, however small it
+    /// is compressed.
+    #[test]
+    fn a_file_decompressing_past_the_cap_is_refused() {
+        let mut data = Vec::new();
+        ruzstd::encoding::compress(
+            &[0u8; 100_000][..],
+            &mut data,
+            ruzstd::encoding::CompressionLevel::Fastest,
+        );
+        let err = read_within(&data, ClashBehavior::Domain, 10_000)
+            .err()
+            .unwrap();
+        assert_eq!(err.to_string(), "mrs: more than 10000 bytes decompressed");
     }
 
     #[test]
