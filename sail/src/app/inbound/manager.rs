@@ -509,11 +509,29 @@ pub(crate) fn plan_listeners<'a>(
     for inbound in inbounds {
         let tag = &inbound.tag;
         if include::LISTENER_INBOUNDS.contains(&inbound.protocol.as_str()) {
-            if inbound.listen.is_some() || inbound.listen_port.is_some() {
+            // The shared fields of a listening inbound mean nothing to one
+            // that does not listen, as sing-box's tun has none of them: a
+            // TUN keeps only udp_timeout, which its UDP flows use.
+            let given = [
+                ("listen", inbound.listen.is_some()),
+                ("listen_port", inbound.listen_port.is_some()),
+                ("tcp_keep_alive", inbound.tcp_keep_alive.is_some()),
+                (
+                    "tcp_keep_alive_interval",
+                    inbound.tcp_keep_alive_interval.is_some(),
+                ),
+                ("disable_tcp_keep_alive", inbound.disable_tcp_keep_alive),
+                (
+                    "udp_timeout",
+                    inbound.udp_timeout.is_some() && inbound.protocol != "tun",
+                ),
+            ];
+            if let Some((field, _)) = given.iter().find(|(_, set)| *set) {
                 return Err(anyhow!(
-                    "[{}] inbound: a {} inbound does not listen on a port",
+                    "[{}] inbound: a {} inbound does not listen on a port, so it takes no {}",
                     tag,
-                    inbound.protocol
+                    inbound.protocol,
+                    field
                 ));
             }
             if let Some(other) = own_listeners
@@ -775,6 +793,124 @@ mod tests {
             .into_iter()
             .map(|(inbound, address)| (inbound.tag.clone(), address))
             .collect())
+    }
+
+    /// One inbound of `protocol` with one more `field`, planned on its own.
+    #[cfg(any(feature = "inbound-tun", feature = "inbound-cat"))]
+    fn plan_one(protocol: &str, field: &str) -> Result<Vec<(String, SocketAddr)>> {
+        plan(&format!(
+            r#"{{ "inbounds": [ {{ "type": "{protocol}", "tag": "x", {field} }} ] }}"#
+        ))
+    }
+
+    /// A test that `$protocol` refuses `$field`: each used to pass in
+    /// silence, as sing-box's tun takes none of the listening inbounds'
+    /// fields.
+    macro_rules! refuses_field {
+        ($feature:literal, $test:ident, $protocol:literal, $name:literal, $field:literal) => {
+            #[cfg(feature = $feature)]
+            #[test]
+            fn $test() {
+                let err = plan_one($protocol, $field).unwrap_err();
+                assert_eq!(
+                    err.to_string(),
+                    concat!(
+                        "[x] inbound: a ",
+                        $protocol,
+                        " inbound does not listen on a port, so it takes no ",
+                        $name
+                    ),
+                );
+            }
+        };
+    }
+
+    refuses_field!(
+        "inbound-tun",
+        a_tun_takes_no_listen,
+        "tun",
+        "listen",
+        r#""listen": "127.0.0.1""#
+    );
+    refuses_field!(
+        "inbound-tun",
+        a_tun_takes_no_listen_port,
+        "tun",
+        "listen_port",
+        r#""listen_port": 1080"#
+    );
+    refuses_field!(
+        "inbound-tun",
+        a_tun_takes_no_tcp_keep_alive,
+        "tun",
+        "tcp_keep_alive",
+        r#""tcp_keep_alive": "5m""#
+    );
+    refuses_field!(
+        "inbound-tun",
+        a_tun_takes_no_tcp_keep_alive_interval,
+        "tun",
+        "tcp_keep_alive_interval",
+        r#""tcp_keep_alive_interval": "75s""#
+    );
+    refuses_field!(
+        "inbound-tun",
+        a_tun_takes_no_disable_tcp_keep_alive,
+        "tun",
+        "disable_tcp_keep_alive",
+        r#""disable_tcp_keep_alive": true"#
+    );
+    refuses_field!(
+        "inbound-cat",
+        a_cat_takes_no_listen,
+        "cat",
+        "listen",
+        r#""listen": "127.0.0.1""#
+    );
+    refuses_field!(
+        "inbound-cat",
+        a_cat_takes_no_listen_port,
+        "cat",
+        "listen_port",
+        r#""listen_port": 1080"#
+    );
+    refuses_field!(
+        "inbound-cat",
+        a_cat_takes_no_tcp_keep_alive,
+        "cat",
+        "tcp_keep_alive",
+        r#""tcp_keep_alive": "5m""#
+    );
+    refuses_field!(
+        "inbound-cat",
+        a_cat_takes_no_tcp_keep_alive_interval,
+        "cat",
+        "tcp_keep_alive_interval",
+        r#""tcp_keep_alive_interval": "75s""#
+    );
+    refuses_field!(
+        "inbound-cat",
+        a_cat_takes_no_disable_tcp_keep_alive,
+        "cat",
+        "disable_tcp_keep_alive",
+        r#""disable_tcp_keep_alive": true"#
+    );
+    // cat reads stdin, so even udp_timeout means nothing to it.
+    refuses_field!(
+        "inbound-cat",
+        a_cat_takes_no_udp_timeout,
+        "cat",
+        "udp_timeout",
+        r#""udp_timeout": "5m""#
+    );
+
+    /// A TUN's UDP flows use udp_timeout, which it keeps.
+    #[cfg(feature = "inbound-tun")]
+    #[test]
+    fn a_tun_takes_udp_timeout() {
+        assert!(plan_one("tun", r#""udp_timeout": "5m""#)
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
