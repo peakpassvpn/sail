@@ -241,15 +241,19 @@ impl RuntimeManager {
     }
 
     /// The dispatcher, while the instance runs.
-    #[cfg(all(
-        feature = "clash-api",
-        any(feature = "outbound-provider", feature = "http-client")
+    #[cfg(any(
+        all(
+            feature = "clash-api",
+            any(feature = "outbound-provider", feature = "http-client")
+        ),
+        feature = "outbound-provider",
+        feature = "rule-set"
     ))]
     pub(crate) fn dispatcher(&self) -> Option<Arc<app::dispatcher::Dispatcher>> {
         self.dispatcher.upgrade()
     }
 
-    #[cfg(feature = "clash-api")]
+    #[cfg(any(feature = "clash-api", feature = "rule-set"))]
     pub(crate) fn router(&self) -> Arc<app::router::Router> {
         self.router.load_full()
     }

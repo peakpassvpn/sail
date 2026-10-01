@@ -52,6 +52,10 @@ pub(crate) enum Response {
     Body {
         data: Vec<u8>,
         etag: Option<String>,
+        /// `subscription-userinfo`, what a subscription says of its
+        /// traffic and expiry.
+        #[cfg_attr(not(feature = "outbound-provider"), allow(dead_code))]
+        userinfo: Option<String>,
     },
 }
 
@@ -245,6 +249,9 @@ async fn get_once(
         _ => return Err(anyhow!("http status {}", code)),
     }
     let etag = header("etag").map(str::to_string);
+    let userinfo = header("subscription-userinfo")
+        .filter(|v| !v.trim().is_empty())
+        .map(str::to_string);
     let chunked = header("transfer-encoding").is_some_and(|v| v.eq_ignore_ascii_case("chunked"));
     let length = header("content-length")
         .map(|v| {
@@ -271,7 +278,11 @@ async fn get_once(
         }
         rest
     };
-    Ok(Step::Done(Response::Body { data, etag }))
+    Ok(Step::Done(Response::Body {
+        data,
+        etag,
+        userinfo,
+    }))
 }
 
 #[cfg(feature = "tls")]

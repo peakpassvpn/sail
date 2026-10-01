@@ -74,8 +74,8 @@ struct State {
     /// A hash of the file last read, to tell whether it changed.
     read: Option<u64>,
     meta: Meta,
-    /// When an update last failed.
-    failed: Option<SystemTime>,
+    /// The last update's failure, until one succeeds.
+    failed: Option<crate::control::Failure>,
     /// Its members, as built from `proxies`.
     built: Vec<Built>,
 }
@@ -88,6 +88,10 @@ struct Meta {
     /// when the file was last read.
     #[serde(default)]
     updated: Option<SystemTime>,
+    /// The last `subscription-userinfo` the server gave, which Mihomo
+    /// keeps across restarts too.
+    #[serde(default)]
+    userinfo: Option<String>,
 }
 
 /// A member, as built.
@@ -232,20 +236,27 @@ impl Provider {
         self.members.clone()
     }
 
-    /// Where it comes from, as Mihomo names it: `HTTP`, `File`, `Inline`.
-    #[cfg(feature = "clash-api")]
-    pub(crate) fn vehicle(&self) -> &'static str {
-        match self.source {
-            Source::Remote { .. } => "HTTP",
-            Source::Local { .. } => "File",
-            Source::Inline => "Inline",
+    /// What it is now, for the host and the APIs.
+    pub(crate) fn info(&self, now: SystemTime) -> crate::control::ProviderInfo {
+        let due = self.due_in(now);
+        let state = self.state();
+        crate::control::ProviderInfo {
+            tag: self.tag.to_string(),
+            source: match self.source {
+                Source::Remote { .. } => crate::control::SourceKind::Remote,
+                Source::Local { .. } => crate::control::SourceKind::Local,
+                Source::Inline => crate::control::SourceKind::Inline,
+            },
+            members: self.members.load().members.len(),
+            updated: state.meta.updated,
+            next_update: due.map(|due| now + due),
+            failure: state.failed.clone(),
+            subscription: state
+                .meta
+                .userinfo
+                .as_deref()
+                .map(crate::control::SubscriptionInfo::parse),
         }
-    }
-
-    /// When it was last downloaded, or found unchanged, or its file read.
-    #[cfg(feature = "clash-api")]
-    pub(crate) fn updated(&self) -> Option<SystemTime> {
-        self.state().meta.updated
     }
 
     pub(super) fn is_loaded(&self) -> bool {
@@ -275,8 +286,8 @@ impl Provider {
             Source::Local { interval: None, .. } | Source::Inline => return None,
         };
         let state = self.state();
-        if let Some(failed) = state.failed {
-            return Some(RETRY.saturating_sub(now.duration_since(failed).unwrap_or_default()));
+        if let Some(failed) = &state.failed {
+            return Some(RETRY.saturating_sub(now.duration_since(failed.at).unwrap_or_default()));
         }
         Some(match state.meta.updated {
             None => Duration::ZERO,
@@ -295,7 +306,7 @@ impl Provider {
             Source::Local { path, .. } => self.read_again(path),
             Source::Inline => Ok(false),
         };
-        self.state().failed = result.is_err().then(SystemTime::now);
+        self.state().failed = result.as_ref().err().map(crate::control::Failure::now);
         if result? {
             let manager = dispatcher.outbound_manager.load();
             self.build(
@@ -338,15 +349,23 @@ impl Provider {
                     self.state().meta.updated = Some(SystemTime::now());
                     false
                 }
-                http::Response::Body { data, etag } => {
+                http::Response::Body {
+                    data,
+                    etag,
+                    userinfo,
+                } => {
                     let proxies = self.read(&data)?;
                     {
                         let mut state = self.state();
                         state.proxies = Arc::new(proxies);
                         state.loaded = true;
+                        // A server that says nothing of it this time keeps
+                        // what it said before, as in Mihomo.
+                        let userinfo = userinfo.or(state.meta.userinfo.take());
                         state.meta = Meta {
                             etag,
                             updated: Some(SystemTime::now()),
+                            userinfo,
                         };
                     }
                     info!(
@@ -657,6 +676,7 @@ mod tests {
         let meta = Meta {
             etag: Some("\"x\"".into()),
             updated: Some(SystemTime::now()),
+            userinfo: Some("upload=1; download=2; total=3".into()),
         };
         write_atomically(&meta_path(&cache), &serde_json::to_vec(&meta).unwrap()).unwrap();
         let provider = load(&config, &env, None);
@@ -664,6 +684,15 @@ mod tests {
         let due = provider.due_in(SystemTime::now()).unwrap();
         assert!(due > Duration::from_secs(3500), "{:?}", due);
         assert_eq!(provider.state().meta.etag.as_deref(), Some("\"x\""));
+        // What the subscription said of itself, kept across restarts.
+        let info = provider.info(SystemTime::now());
+        assert_eq!(
+            info.subscription,
+            Some(crate::control::SubscriptionInfo::parse(
+                "upload=1; download=2; total=3"
+            ))
+        );
+        assert!(info.next_update.is_some() && info.failure.is_none());
         let proxies = provider.state().proxies.clone();
         assert_eq!(proxies.len(), 1);
         assert_eq!(proxies[0].0, "HK");

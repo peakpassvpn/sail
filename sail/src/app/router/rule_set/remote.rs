@@ -46,9 +46,9 @@ struct State {
     /// When it was downloaded, or last found unchanged.
     #[serde(default)]
     updated: Option<SystemTime>,
-    /// When a download last failed.
+    /// The last download's failure, until one succeeds.
     #[serde(skip)]
-    failed: Option<SystemTime>,
+    failed: Option<crate::control::Failure>,
 }
 
 impl Remote {
@@ -131,9 +131,13 @@ impl Remote {
     }
 
     /// When it was downloaded, or last found unchanged.
-    #[cfg(feature = "clash-api")]
     pub(crate) fn updated(&self) -> Option<SystemTime> {
         self.state().updated
+    }
+
+    /// The last download's failure, until one succeeds.
+    pub(crate) fn failure(&self) -> Option<crate::control::Failure> {
+        self.state().failed.clone()
     }
 
     pub(crate) fn is_loaded(&self) -> bool {
@@ -143,8 +147,8 @@ impl Remote {
     /// How long until it is due for a download; zero when due now.
     pub(crate) fn due_in(&self, now: SystemTime) -> Duration {
         let state = self.state();
-        if let Some(failed) = state.failed {
-            return RETRY.saturating_sub(now.duration_since(failed).unwrap_or_default());
+        if let Some(failed) = &state.failed {
+            return RETRY.saturating_sub(now.duration_since(failed.at).unwrap_or_default());
         }
         match state.updated {
             None => Duration::ZERO,
@@ -158,10 +162,7 @@ impl Remote {
     pub(crate) async fn update(&self, dispatcher: &Dispatcher) -> Result<()> {
         let result = self.download(dispatcher).await;
         let mut state = self.state();
-        match &result {
-            Ok(()) => state.failed = None,
-            Err(_) => state.failed = Some(SystemTime::now()),
-        }
+        state.failed = result.as_ref().err().map(crate::control::Failure::now);
         result
     }
 
@@ -191,7 +192,7 @@ impl Remote {
                 debug!("rule-set [{}]: unchanged", self.tag);
                 self.state().updated = Some(SystemTime::now());
             }
-            http::Response::Body { data, etag } => {
+            http::Response::Body { data, etag, .. } => {
                 let set = RuleSet::read(&data, self.format, self.behavior, &self.env)?;
                 self.set.publish(Arc::new(set));
                 {

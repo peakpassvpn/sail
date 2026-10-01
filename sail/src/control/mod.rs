@@ -16,6 +16,9 @@ use crate::RuntimeManager;
 
 pub mod json;
 pub mod listen;
+mod providers;
+
+pub use providers::{Failure, ProviderInfo, RuleSetInfo, SourceKind, SubscriptionInfo};
 
 /// What the instance sent and received since it started, those
 /// connections closed included.
@@ -124,6 +127,15 @@ pub enum ControlError {
     NoMode(String),
     #[error("the instance has no mode: its configuration has no Clash API")]
     NoModes,
+    #[error("no outbound provider [{0}]")]
+    NoProvider(String),
+    #[error("no rule-set [{0}]")]
+    NoRuleSet(String),
+    /// The update was made, and failed; what was held before is kept.
+    #[error("the update failed: {0}")]
+    UpdateFailed(String),
+    #[error("the instance is stopping")]
+    Stopping,
 }
 
 /// The delays kept of an outbound, the latest last; Mihomo's.
@@ -637,7 +649,7 @@ impl RuntimeManager {
     /// if there is no such provider.
     #[cfg(feature = "outbound-provider")]
     pub async fn provider_members(&self, provider: &str) -> Option<Vec<OutboundInfo>> {
-        let provider = self.provider(provider)?;
+        let provider = self.find_provider(provider)?;
         let latencies = HashMap::new();
         let mut out = Vec::new();
         for member in provider.members().load().members.iter() {
@@ -668,8 +680,8 @@ impl RuntimeManager {
         timeout: Duration,
     ) -> Result<Duration, ControlError> {
         let handler = self
-            .provider(provider)
-            .ok_or_else(|| ControlError::NotFound(provider.to_string()))?
+            .find_provider(provider)
+            .ok_or_else(|| ControlError::NoProvider(provider.to_string()))?
             .members()
             .load()
             .find(member)
@@ -680,7 +692,7 @@ impl RuntimeManager {
     }
 
     #[cfg(feature = "outbound-provider")]
-    fn provider(&self, tag: &str) -> Option<std::sync::Arc<crate::app::provider::Provider>> {
+    fn find_provider(&self, tag: &str) -> Option<std::sync::Arc<crate::app::provider::Provider>> {
         self.outbound_manager
             .load()
             .providers()

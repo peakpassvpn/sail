@@ -469,10 +469,26 @@ fn a_dashboard_sees_the_providers_through_the_clash_api() -> anyhow::Result<()> 
             while let Ok((mut s, _)) = listener.accept().await {
                 tokio::spawn(async move {
                     let mut buf = [0u8; 1024];
-                    let _ = s.read(&mut buf).await;
-                    let _ = s
-                        .write_all(b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n")
-                        .await;
+                    let n = s.read(&mut buf).await.unwrap_or(0);
+                    let request = String::from_utf8_lossy(&buf[..n]);
+                    // A subscription, which says what it used; one that
+                    // fails; and anything else, for the delay tests.
+                    let response = if request.starts_with("GET /sub ") {
+                        let body = "proxies:\n  - { name: s1, type: socks5, server: 127.0.0.1, port: 1 }\n";
+                        format!(
+                            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\
+                             subscription-userinfo: upload=1; download=2; total=3; expire=1767225600\r\n\
+                             Connection: close\r\n\r\n{}",
+                            body.len(),
+                            body
+                        )
+                    } else if request.starts_with("GET /broken ") {
+                        "HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                            .to_string()
+                    } else {
+                        "HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n".to_string()
+                    };
+                    let _ = s.write_all(response.as_bytes()).await;
                 });
             }
         });
@@ -492,6 +508,12 @@ fn a_dashboard_sees_the_providers_through_the_clash_api() -> anyhow::Result<()> 
             "outbound_providers": [{
                 "type": "inline", "tag": "p",
                 "outbounds": [{ "type": "direct", "tag": "m1" }, { "type": "direct", "tag": "m2" }]
+            }, {
+                "type": "remote", "tag": "sub",
+                "url": format!("http://127.0.0.1:{}/sub", web), "download_detour": "direct"
+            }, {
+                "type": "remote", "tag": "broken",
+                "url": format!("http://127.0.0.1:{}/broken", web), "download_detour": "direct"
             }],
             "route": {
                 "rule_set": [{
@@ -544,6 +566,25 @@ fn a_dashboard_sees_the_providers_through_the_clash_api() -> anyhow::Result<()> 
             assert_eq!(json(&body)["history"].as_array().unwrap().len(), 1);
             let (status, ..) = call(port, "PUT", "/providers/proxies/p", s, &[], "").await?;
             assert_eq!(status, 204);
+
+            // A subscription says what it used, as Mihomo shows it; an
+            // update that fails says so, and an unknown provider is none.
+            let (status, ..) = call(port, "PUT", "/providers/proxies/sub", s, &[], "").await?;
+            assert_eq!(status, 204);
+            let (_, _, body) = call(port, "GET", "/providers/proxies/sub", s, &[], "").await?;
+            let sub = json(&body);
+            assert_eq!(sub["vehicleType"], "HTTP");
+            assert_eq!(
+                sub["subscriptionInfo"],
+                serde_json::json!({ "Upload": 1, "Download": 2, "Total": 3, "Expire": 1767225600 })
+            );
+            assert_eq!(sub["proxies"][0]["name"], "s1", "{}", sub);
+            let (status, _, body) =
+                call(port, "PUT", "/providers/proxies/broken", s, &[], "").await?;
+            assert_eq!(status, 503, "{}", body);
+            assert!(body.contains("503"), "{}", body);
+            let (status, ..) = call(port, "PUT", "/providers/proxies/nope", s, &[], "").await?;
+            assert_eq!(status, 404);
 
             // The rule-sets.
             let (_, _, body) = call(port, "GET", "/providers/rules", s, &[], "").await?;

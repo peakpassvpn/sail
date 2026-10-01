@@ -61,24 +61,41 @@ impl Clash {
             .map_err(delay_error)
     }
 
-    async fn show_provider(&self, provider: &crate::app::provider::Provider) -> Value {
+    async fn show_provider(&self, info: &crate::control::ProviderInfo) -> Value {
+        use crate::control::SourceKind;
         let proxies: Vec<Value> = self
             .rm
-            .provider_members(&provider.tag)
+            .provider_members(&info.tag)
             .await
             .unwrap_or_default()
             .iter()
             .map(proxy)
             .collect();
-        json!({
-            "name": &*provider.tag,
+        let mut shown = json!({
+            "name": info.tag,
             "type": "Proxy",
-            "vehicleType": provider.vehicle(),
+            "vehicleType": match info.source {
+                SourceKind::Remote => "HTTP",
+                SourceKind::Local => "File",
+                _ => "Inline",
+            },
             "proxies": proxies,
             "testUrl": "",
             "expectedStatus": "*",
-            "updatedAt": time(provider.updated()),
-        })
+            "updatedAt": time(info.updated),
+        });
+        // As Mihomo gives it: seconds since the epoch, 0 for none.
+        if let Some(s) = &info.subscription {
+            shown["subscriptionInfo"] = json!({
+                "Upload": s.upload,
+                "Download": s.download,
+                "Total": s.total,
+                "Expire": s.expire.map_or(0, |e| e
+                    .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                    .map_or(0, |d| d.as_secs())),
+            });
+        }
+        shown
     }
 }
 
@@ -87,11 +104,8 @@ pub(super) async fn proxy_providers(State(clash): State<Arc<Clash>>) -> Json<Val
     #[cfg_attr(not(feature = "outbound-provider"), allow(unused_mut))]
     let mut providers = Map::new();
     #[cfg(feature = "outbound-provider")]
-    for provider in clash.rm.outbound_manager().providers().all() {
-        providers.insert(
-            provider.tag.to_string(),
-            clash.show_provider(provider).await,
-        );
+    for info in clash.rm.providers().await {
+        providers.insert(info.tag.clone(), clash.show_provider(&info).await);
     }
     #[cfg(not(feature = "outbound-provider"))]
     let _ = clash;
@@ -104,8 +118,12 @@ pub(super) async fn proxy_provider(
 ) -> Result<Json<Value>, ApiError> {
     #[cfg(feature = "outbound-provider")]
     {
-        let provider = clash.provider(&name)?;
-        Ok(Json(clash.show_provider(&provider).await))
+        let info = clash
+            .rm
+            .provider(&name)
+            .await
+            .ok_or_else(ApiError::not_found)?;
+        Ok(Json(clash.show_provider(&info).await))
     }
     #[cfg(not(feature = "outbound-provider"))]
     {
@@ -121,13 +139,11 @@ pub(super) async fn update_proxy_provider(
 ) -> Result<StatusCode, ApiError> {
     #[cfg(feature = "outbound-provider")]
     {
-        let provider = clash.provider(&name)?;
-        let dispatcher = clash
-            .rm
-            .dispatcher()
-            .ok_or_else(|| update_failed("the instance is stopping"))?;
-        provider.update(&dispatcher).await.map_err(update_failed)?;
-        Ok(StatusCode::NO_CONTENT)
+        match clash.rm.update_provider(&name).await {
+            Ok(()) => Ok(StatusCode::NO_CONTENT),
+            Err(crate::control::ControlError::NoProvider(_)) => Err(ApiError::not_found()),
+            Err(e) => Err(update_failed(e)),
+        }
     }
     #[cfg(not(feature = "outbound-provider"))]
     {
@@ -275,14 +291,9 @@ pub(super) async fn update_rule_provider(
 ) -> Result<StatusCode, ApiError> {
     #[cfg(feature = "rule-set")]
     {
-        let dispatcher = clash
-            .rm
-            .dispatcher()
-            .ok_or_else(|| update_failed("the instance is stopping"))?;
-        let router = clash.rm.router();
-        match router.rule_sets().update(&name, &dispatcher).await {
-            Ok(true) => Ok(StatusCode::NO_CONTENT),
-            Ok(false) => Err(ApiError::not_found()),
+        match clash.rm.update_rule_set(&name).await {
+            Ok(()) => Ok(StatusCode::NO_CONTENT),
+            Err(crate::control::ControlError::NoRuleSet(_)) => Err(ApiError::not_found()),
             Err(e) => Err(update_failed(e)),
         }
     }

@@ -517,7 +517,7 @@ fn check_direct(rule: &model::Rule, path: &str, dial: &DialDefaults) -> Result<(
 pub struct Router {
     rules: Vec<Rule>,
     /// The rule-sets its rules name, for the Clash API to list.
-    #[cfg(all(feature = "clash-api", feature = "rule-set"))]
+    #[cfg(feature = "rule-set")]
     rule_sets: rule_set::RuleSets,
     final_outbound: Option<String>,
     dns_client: SyncDnsClient,
@@ -568,7 +568,7 @@ impl Router {
             .then(|| env.network.clone());
         Ok(Router {
             rules,
-            #[cfg(all(feature = "clash-api", feature = "rule-set"))]
+            #[cfg(feature = "rule-set")]
             rule_sets: rule_sets.clone(),
             final_outbound: route.final_outbound.clone(),
             dns_client,
@@ -592,7 +592,7 @@ impl Router {
     }
 
     /// The rule-sets its rules may name.
-    #[cfg(all(feature = "clash-api", feature = "rule-set"))]
+    #[cfg(feature = "rule-set")]
     pub(crate) fn rule_sets(&self) -> &rule_set::RuleSets {
         &self.rule_sets
     }

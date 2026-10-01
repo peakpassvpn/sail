@@ -6,7 +6,7 @@
 //! version of each API that answers with it.
 
 /// The version of the shape, raised with any change to it.
-pub const VERSION: u32 = 2;
+pub const VERSION: u32 = 3;
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -191,6 +191,110 @@ pub struct Outbounds {
     pub outbounds: Vec<Outbound>,
 }
 
+#[derive(Serialize, PartialEq)]
+pub struct Failure {
+    pub at_ms: u64,
+    pub error: String,
+}
+
+impl Failure {
+    fn of(f: &crate::control::Failure) -> Self {
+        Self {
+            at_ms: millis_since_epoch(f.at),
+            error: f.error.clone(),
+        }
+    }
+}
+
+#[derive(Serialize, PartialEq)]
+pub struct Subscription {
+    pub upload: u64,
+    pub download: u64,
+    pub total: u64,
+    pub expire_ms: Option<u64>,
+}
+
+fn source(kind: crate::control::SourceKind) -> String {
+    use crate::control::SourceKind;
+    match kind {
+        SourceKind::Remote => "remote",
+        SourceKind::Local => "local",
+        SourceKind::Inline => "inline",
+    }
+    .to_string()
+}
+
+/// An outbound provider.
+#[derive(Serialize, PartialEq)]
+pub struct Provider {
+    pub tag: String,
+    /// `remote`, `local` or `inline`.
+    pub source: String,
+    pub members: u64,
+    pub updated_ms: Option<u64>,
+    pub next_update_ms: Option<u64>,
+    pub failure: Option<Failure>,
+    pub subscription: Option<Subscription>,
+}
+
+impl Provider {
+    pub fn of(p: &crate::control::ProviderInfo) -> Self {
+        Self {
+            tag: p.tag.clone(),
+            source: source(p.source),
+            members: p.members as u64,
+            updated_ms: p.updated.map(millis_since_epoch),
+            next_update_ms: p.next_update.map(millis_since_epoch),
+            failure: p.failure.as_ref().map(Failure::of),
+            subscription: p.subscription.map(|s| Subscription {
+                upload: s.upload,
+                download: s.download,
+                total: s.total,
+                expire_ms: s.expire.map(millis_since_epoch),
+            }),
+        }
+    }
+}
+
+#[derive(Serialize, PartialEq)]
+pub struct Providers {
+    pub providers: Vec<Provider>,
+}
+
+/// A rule-set.
+#[derive(Serialize, PartialEq)]
+pub struct RuleSet {
+    pub tag: String,
+    /// `remote`, `local` or `inline`.
+    pub source: String,
+    pub format: Option<String>,
+    pub behavior: Option<String>,
+    pub rules: u64,
+    pub updated_ms: Option<u64>,
+    pub next_update_ms: Option<u64>,
+    pub failure: Option<Failure>,
+}
+
+impl RuleSet {
+    pub fn of(r: &crate::control::RuleSetInfo) -> Self {
+        Self {
+            tag: r.tag.clone(),
+            source: source(r.source),
+            format: r.format.clone(),
+            behavior: r.behavior.clone(),
+            rules: r.rules as u64,
+            updated_ms: r.updated.map(millis_since_epoch),
+            next_update_ms: r.next_update.map(millis_since_epoch),
+            failure: r.failure.as_ref().map(Failure::of),
+        }
+    }
+}
+
+#[derive(Serialize, PartialEq)]
+pub struct RuleSets {
+    pub rule_sets: Vec<RuleSet>,
+}
+
 #[derive(Serialize)]
 pub struct Mode {
     pub mode: String,
@@ -300,6 +404,16 @@ mod tests {
             "capabilities": InstanceCapabilities {
                 has_tun: true, opens_tun: false, protects_sockets: true, needs_network: false, has_modes: true,
             },
+            "providers": Providers { providers: vec![Provider {
+                tag: "sub".into(), source: "remote".into(), members: 3,
+                updated_ms: Some(millis_since_epoch(at)), next_update_ms: None,
+                failure: Some(Failure { at_ms: 1, error: "http status 503".into() }),
+                subscription: Some(Subscription { upload: 1, download: 2, total: 3, expire_ms: None }),
+            }] },
+            "rule_sets": RuleSets { rule_sets: vec![RuleSet {
+                tag: "ads".into(), source: "local".into(), format: Some("clash-yaml".into()),
+                behavior: Some("domain".into()), rules: 9, updated_ms: None, next_update_ms: None, failure: None,
+            }] },
         });
         let published = r#"{
   "capabilities": {"has_modes": true, "has_tun": true, "needs_network": false, "opens_tun": false, "protects_sockets": true},
@@ -309,6 +423,12 @@ mod tests {
                  "uid": 10123, "upload": 4, "user": "alice"},
   "log": {"dropped": 2, "lines": [{"level": "info", "message": "m", "time_ms": 1}], "reset": true},
   "mode": {"mode": "Rule", "modes": ["Rule", "Global"]},
+  "providers": {"providers": [{"failure": {"at_ms": 1, "error": "http status 503"}, "members": 3,
+                 "next_update_ms": null, "source": "remote",
+                 "subscription": {"download": 2, "expire_ms": null, "total": 3, "upload": 1},
+                 "tag": "sub", "updated_ms": 1759300000123}]},
+  "rule_sets": {"rule_sets": [{"behavior": "domain", "failure": null, "format": "clash-yaml", "next_update_ms": null,
+                 "rules": 9, "source": "local", "tag": "ads", "updated_ms": null}]},
   "network": {"generation": 2, "new": {"interface": "wlan0", "ssid": "home", "type": "wifi"}, "old": {},
               "reason": "host"},
   "outbound": {"group": {"members": ["a", "b"], "selectable": true, "selected": "b"},

@@ -102,7 +102,6 @@ impl RuleSet {
 
     /// How many entries it has, as Mihomo counts a rule-set's: its
     /// domains and address ranges, or else its rules.
-    #[cfg(feature = "clash-api")]
     pub(crate) fn size(&self) -> usize {
         let domains: usize = self.rules.iter().filter_map(|r| r.domain_count()).sum();
         match domains + self.ip_ranges().len() {
@@ -186,7 +185,6 @@ impl RuleSet {
 }
 
 /// A rule-set, as the Clash API lists it.
-#[cfg(feature = "clash-api")]
 pub(crate) struct Listed {
     pub tag: String,
     pub kind: RuleSetKind,
@@ -196,6 +194,10 @@ pub(crate) struct Listed {
     pub size: usize,
     /// When a remote one was downloaded, or last found unchanged.
     pub updated: Option<std::time::SystemTime>,
+    /// When a remote one is next downloaded.
+    pub next_update: Option<std::time::SystemTime>,
+    /// A remote one's last failure, until a download succeeds.
+    pub failure: Option<crate::control::Failure>,
 }
 
 /// A rule-set by tag, replaced whole when a download brings a new one.
@@ -209,7 +211,6 @@ pub(crate) struct RuleSets {
     /// Updates wait while it is down.
     network: Network,
     /// Each rule-set's tag and configuration, in order, for the Clash API.
-    #[cfg(feature = "clash-api")]
     configs: Vec<(String, Arc<config::RuleSet>)>,
     #[cfg(feature = "auto-reload")]
     files: Vec<std::path::PathBuf>,
@@ -227,13 +228,10 @@ impl RuleSets {
         let mut remotes = Vec::new();
         #[cfg(feature = "auto-reload")]
         let mut files = Vec::new();
-        #[cfg(feature = "clash-api")]
         let mut listed = Vec::new();
         for (i, config) in configs.iter().enumerate() {
-            #[cfg(feature = "clash-api")]
             let shared = Arc::new(config.clone());
             for tag in &config.tag {
-                #[cfg(feature = "clash-api")]
                 listed.push((tag.clone(), shared.clone()));
                 #[cfg(feature = "auto-reload")]
                 if config.kind == RuleSetKind::Local {
@@ -269,7 +267,6 @@ impl RuleSets {
             sets,
             remotes,
             network: env.network.clone(),
-            #[cfg(feature = "clash-api")]
             configs: listed,
             #[cfg(feature = "auto-reload")]
             files,
@@ -355,28 +352,28 @@ impl RuleSets {
     }
 
     /// Each rule-set, in order, as the Clash API lists it.
-    #[cfg(feature = "clash-api")]
     pub(crate) fn list(&self) -> Vec<Listed> {
+        let now = std::time::SystemTime::now();
         self.configs
             .iter()
-            .map(|(tag, config)| Listed {
-                tag: tag.clone(),
-                kind: config.kind,
-                format: config.format(),
-                behavior: config.behavior,
-                size: self.sets.get(tag).map_or(0, |set| set.load().size()),
-                updated: self
-                    .remotes
-                    .iter()
-                    .find(|r| r.tag == *tag)
-                    .and_then(|r| r.updated()),
+            .map(|(tag, config)| {
+                let remote = self.remotes.iter().find(|r| r.tag == *tag);
+                Listed {
+                    tag: tag.clone(),
+                    kind: config.kind,
+                    format: config.format(),
+                    behavior: config.behavior,
+                    size: self.sets.get(tag).map_or(0, |set| set.load().size()),
+                    updated: remote.and_then(|r| r.updated()),
+                    next_update: remote.map(|r| now + r.due_in(now)),
+                    failure: remote.and_then(|r| r.failure()),
+                }
             })
             .collect()
     }
 
     /// Downloads the remote rule-set `tag` again; one of another kind is
     /// as it is. False when there is none so tagged.
-    #[cfg(feature = "clash-api")]
     pub(crate) async fn update(&self, tag: &str, dispatcher: &Dispatcher) -> Result<bool> {
         if let Some(remote) = self.remotes.iter().find(|r| r.tag == tag) {
             remote.update(dispatcher).await?;
