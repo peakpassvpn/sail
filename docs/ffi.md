@@ -138,6 +138,12 @@ measured of each outbound (the last ten), with or without a Clash API.
 
 ## Android: per-app proxying
 
+**For hosts**: this is API and JSON version 2, with no compatibility with
+version 1. The TUN request no longer carries `include_android_user`;
+`SailPlatform` gains `find_connection_owner`; a connection's JSON gains
+`uid` and `packages`. Matching rules by app needs Android API 29 or later
+(`getConnectionOwnerUid`).
+
 What goes through the VPN by app is the host's VpnService's to apply, as in
 sing-box's apps; sail hands it the lists and routes by app:
 
