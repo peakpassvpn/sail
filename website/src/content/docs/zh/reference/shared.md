@@ -523,7 +523,7 @@ Rust 定义：[`InboundTls`](https://github.com/peakpassvpn/sail/blob/dev/sail/s
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
 | `enabled` | bool | `false` | 支持 | — |
-| `server_name` | string | 未设置 | 支持 | The name REALITY clients must ask for; only REALITY uses it. |
+| `server_name` | string | 未设置 | 支持 | The name REALITY clients must ask for; only REALITY uses it, and without REALITY it is ignored with a warning, as sing-box ignores it. |
 | `insecure` | bool | — | 警告：Only relaxes checks a server's TLS does not make | — |
 | `alpn` | listable-string | 未设置 | 支持 | — |
 | `min_version` | string, 取值 `1.0`, `1.1`, `1.2`, `1.3` | 未设置 | 支持 | The lowest TLS version to accept, `1.0` to `1.3`; unset, 1.2. |
@@ -557,7 +557,7 @@ Rust 定义：[`InboundTls`](https://github.com/peakpassvpn/sail/blob/dev/sail/s
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
 | `enabled` | bool | `false` | 支持 | — |
-| `server_name` | string | 未设置 | 支持 | The name REALITY clients must ask for; only REALITY uses it. |
+| `server_name` | string | 未设置 | 支持 | The name REALITY clients must ask for; only REALITY uses it, and without REALITY it is ignored with a warning, as sing-box ignores it. |
 | `insecure` | bool | — | 警告：Only relaxes checks a server's TLS does not make | — |
 | `alpn` | listable-string | 未设置 | 支持 | — |
 | `min_version` | string, 取值 `1.0`, `1.1`, `1.2`, `1.3` | 未设置 | 支持 | The lowest TLS version to accept, `1.0` to `1.3`; unset, 1.2. |

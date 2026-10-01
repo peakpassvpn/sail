@@ -1468,7 +1468,8 @@ pub struct InboundTls {
     /// The highest; unset, 1.3.
     #[serde(default)]
     pub max_version: Option<String>,
-    /// The name REALITY clients must ask for; only REALITY uses it.
+    /// The name REALITY clients must ask for; only REALITY uses it, and
+    /// without REALITY it is ignored with a warning, as sing-box ignores it.
     #[serde(default)]
     pub server_name: Option<String>,
     #[serde(default)]
@@ -1954,11 +1955,14 @@ fn tls_inbound(
         }
         return reality_inbound(tag, tls, reality, dial);
     }
+    // `server_name` is for REALITY; without it, it is ignored, as sing-box
+    // sets it where Go's TLS server never reads it, and server configs
+    // copied from clients carry it.
     if tls.server_name.is_some() {
-        return Err(anyhow!(
-            "[{}] inbound: tls.server_name: only used by tls.reality",
+        tracing::warn!(
+            "[{}] inbound: tls.server_name: a server does not use it; ignored, as sing-box",
             tag
-        ));
+        );
     }
     #[cfg(feature = "inbound-tls")]
     {
@@ -2599,5 +2603,27 @@ mod tests {
             Err("max_version: ECH is TLS 1.3 only: 1.3, or unset, with tls.ech".into())
         );
         assert!(options(json!({"enabled": true, "ech": ech, "min_version": "1.3"})).is_ok());
+    }
+}
+
+#[cfg(all(test, feature = "inbound-tls"))]
+mod inbound_tls_tests {
+    use super::{tls_inbound, InboundTls};
+
+    /// An inbound's `tls.server_name` without REALITY is ignored, as
+    /// sing-box ignores it, rather than refused.
+    #[test]
+    fn an_inbound_s_server_name_is_ignored_without_reality() {
+        let rcgen::CertifiedKey { cert, key_pair } =
+            rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
+        let tls: InboundTls = serde_json::from_value(serde_json::json!({
+            "enabled": true,
+            "server_name": "example.com",
+            "certificate": cert.pem(),
+            "key": key_pair.serialize_pem(),
+        }))
+        .unwrap();
+        let env = crate::runtime::RuntimeEnv::default();
+        tls_inbound("in", &tls, Vec::new(), &env, &Default::default()).unwrap();
     }
 }

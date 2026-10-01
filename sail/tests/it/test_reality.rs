@@ -1042,10 +1042,12 @@ fn test_reality_config_mistakes_are_errors() -> anyhow::Result<()> {
     let mut detour = vless_inbound(&keys, &site, port);
     detour["tls"]["reality"]["handshake"]["detour"] = json!("direct");
     assert!(check(detour).is_err());
+    // Without REALITY, server_name is ignored with a warning, as sing-box
+    // ignores it.
     let mut plain_with_name = vless_inbound(&keys, &site, port);
     plain_with_name["tls"]["reality"]["enabled"] = json!(false);
     plain_with_name["tls"]["certificate_path"] = json!(cert.cert_path());
     plain_with_name["tls"]["key_path"] = json!(cert.key_path());
-    assert!(check(plain_with_name).is_err());
+    assert!(check(plain_with_name).is_ok());
     Ok(())
 }

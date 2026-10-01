@@ -523,7 +523,7 @@ Rust: [`InboundTls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/trans
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
 | `enabled` | bool | `false` | Supported | — |
-| `server_name` | string | unset | Supported | The name REALITY clients must ask for; only REALITY uses it. |
+| `server_name` | string | unset | Supported | The name REALITY clients must ask for; only REALITY uses it, and without REALITY it is ignored with a warning, as sing-box ignores it. |
 | `insecure` | bool | — | Warned: Only relaxes checks a server's TLS does not make | — |
 | `alpn` | listable-string | unset | Supported | — |
 | `min_version` | string, one of `1.0`, `1.1`, `1.2`, `1.3` | unset | Supported | The lowest TLS version to accept, `1.0` to `1.3`; unset, 1.2. |
@@ -557,7 +557,7 @@ Rust: [`InboundTls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/trans
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
 | `enabled` | bool | `false` | Supported | — |
-| `server_name` | string | unset | Supported | The name REALITY clients must ask for; only REALITY uses it. |
+| `server_name` | string | unset | Supported | The name REALITY clients must ask for; only REALITY uses it, and without REALITY it is ignored with a warning, as sing-box ignores it. |
 | `insecure` | bool | — | Warned: Only relaxes checks a server's TLS does not make | — |
 | `alpn` | listable-string | unset | Supported | — |
 | `min_version` | string, one of `1.0`, `1.1`, `1.2`, `1.3` | unset | Supported | The lowest TLS version to accept, `1.0` to `1.3`; unset, 1.2. |
