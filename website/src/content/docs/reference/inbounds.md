@@ -795,8 +795,8 @@ Rust: [`TunInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/sr
 | `dns_mode` | string, one of `disabled`, `native`, `hijack` | — | Error: The TUN's own DNS handling: queries would be answered otherwise | — |
 | `dns_address` | listable-string | — | Error: The TUN's own DNS handling: queries would be answered otherwise | — |
 | `auto_route` | bool | `false` | Supported | Routes the system's traffic into the device. |
-| `iproute2_table_index` | number | unset | Supported | The routing table of the device's routes (2022). |
-| `iproute2_rule_index` | number | unset | Supported | The first of auto_redirect's ip rules (9000); the rules from it to 10 after it are sail's, and removed at start and stop. |
+| `iproute2_table_index` | number | unset | Supported | Linux: the routing table of the device's routes (2022). |
+| `iproute2_rule_index` | number | unset | Supported | Linux: the first of auto_route's and auto_redirect's ip rules (9000); the rules from it to 10 after it are sail's, and removed at start and stop. |
 | `auto_redirect` | bool | `false` | Supported | Linux: redirects TCP to sail with nftables and marks the rest into the device, and lets rules bypass sail before a connection is set up (sing-box 1.13). |
 | `auto_redirect_input_mark` | number\|string | unset | Supported | The mark that routes a packet into the device (0x2023). Marks are numbers, or strings of hexadecimal ("0x2023"); 0 is the default. |
 | `auto_redirect_output_mark` | number\|string | unset | Supported | The mark sail's own sockets carry, and flows that bypass it (0x2024). `route.default_mark` and `routing_mark` conflict with it. |
@@ -805,14 +805,14 @@ Rust: [`TunInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/sr
 | `auto_redirect_iproute2_fallback_rule_index` | number | unset | Supported | The ip rule that sends what the main table has no route for into the device (32768). |
 | `exclude_mptcp` | bool | `false` | Supported | Lets MPTCP go past sail rather than dropping it, which makes clients fall back to TCP. |
 | `loopback_address` | listable-string | `[]` | Supported | Addresses whose TCP goes into the device rather than to the redirect listener: a destination sail's own listeners use, say. |
-| `strict_route` | bool | `false` | Supported | With one family on the device, rejects the other rather than let it go past sail. Linux: with auto_redirect only, for now. Windows: not yet. Elsewhere it changes nothing, as in sing-box. |
+| `strict_route` | bool | `false` | Supported | With `auto_route`, keeps traffic from going past sail. Linux: with one family on the device, the other is unreachable. Windows: firewall rules, as sing-tun's: DNS leaves only through the device, but for sail's own, and with no IPv6 on the device, none leaves. Elsewhere it changes nothing, as in sing-box. |
 | `route_address` | listable-string | `[]` | Supported | Only these destinations are taken... |
 | `route_address_set` | listable-string | `[]` | Supported | Rule-sets whose destination `ip_cidr` alone are taken, kept up to date as they are downloaded again. |
 | `route_exclude_address` | listable-string | `[]` | Supported | ...and not these. |
 | `route_exclude_address_set` | listable-string | `[]` | Supported | Rule-sets whose destination `ip_cidr` are not taken. |
-| `include_interface` | listable-string | `[]` | Supported | Forwarded traffic is taken only from these interfaces... |
+| `include_interface` | listable-string | `[]` | Supported | Linux, with `auto_route`: forwarded traffic is taken only from these interfaces... |
 | `exclude_interface` | listable-string | `[]` | Supported | ...or not from these. Naming `lo` in either leaves the host's own traffic out. |
-| `include_uid` | listable-number | `[]` | Supported | The host's traffic is taken only from these users... |
+| `include_uid` | listable-number | `[]` | Supported | Linux, with `auto_route`: the host's traffic is taken only from these users... |
 | `include_uid_range` | listable-string | `[]` | Supported | ...and from these ranges, as "1000:2000". |
 | `exclude_uid` | listable-number | `[]` | Supported | The host's traffic of these users is not taken... |
 | `exclude_uid_range` | listable-string | `[]` | Supported | ...nor of these ranges. |

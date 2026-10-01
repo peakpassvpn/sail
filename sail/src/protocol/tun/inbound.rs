@@ -341,11 +341,12 @@ struct TunInboundOptions {
     /// be bound, sail runs without pre-match: `bypass` rules are skipped.
     #[serde(default)]
     auto_redirect_nfqueue: Option<u16>,
-    /// The routing table of the device's routes (2022).
+    /// Linux: the routing table of the device's routes (2022).
     #[serde(default)]
     iproute2_table_index: Option<u32>,
-    /// The first of auto_redirect's ip rules (9000); the rules from it to
-    /// 10 after it are sail's, and removed at start and stop.
+    /// Linux: the first of auto_route's and auto_redirect's ip rules
+    /// (9000); the rules from it to 10 after it are sail's, and removed at
+    /// start and stop.
     #[serde(default)]
     iproute2_rule_index: Option<u32>,
     /// The ip rule that sends what the main table has no route for into
@@ -356,9 +357,11 @@ struct TunInboundOptions {
     /// clients fall back to TCP.
     #[serde(default)]
     exclude_mptcp: bool,
-    /// With one family on the device, rejects the other rather than let
-    /// it go past sail. Linux: with auto_redirect only, for now. Windows:
-    /// not yet. Elsewhere it changes nothing, as in sing-box.
+    /// With `auto_route`, keeps traffic from going past sail. Linux: with
+    /// one family on the device, the other is unreachable. Windows:
+    /// firewall rules, as sing-tun's: DNS leaves only through the device,
+    /// but for sail's own, and with no IPv6 on the device, none leaves.
+    /// Elsewhere it changes nothing, as in sing-box.
     #[serde(default)]
     strict_route: bool,
     /// Addresses whose TCP goes into the device rather than to the
@@ -378,14 +381,16 @@ struct TunInboundOptions {
     /// Rule-sets whose destination `ip_cidr` are not taken.
     #[serde(default, with = "crate::config::model::listable")]
     route_exclude_address_set: Vec<String>,
-    /// Forwarded traffic is taken only from these interfaces...
+    /// Linux, with `auto_route`: forwarded traffic is taken only from these
+    /// interfaces...
     #[serde(default, with = "crate::config::model::listable")]
     include_interface: Vec<String>,
     /// ...or not from these. Naming `lo` in either leaves the host's own
     /// traffic out.
     #[serde(default, with = "crate::config::model::listable")]
     exclude_interface: Vec<String>,
-    /// The host's traffic is taken only from these users...
+    /// Linux, with `auto_route`: the host's traffic is taken only from
+    /// these users...
     #[serde(default, with = "crate::config::model::listable")]
     include_uid: Vec<u32>,
     /// ...and from these ranges, as "1000:2000".

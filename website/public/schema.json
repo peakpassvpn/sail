@@ -11625,11 +11625,11 @@
     },
     "iproute2_table_index": {
      "type": "number",
-     "description": "The routing table of the device's routes (2022)."
+     "description": "Linux: the routing table of the device's routes (2022)."
     },
     "iproute2_rule_index": {
      "type": "number",
-     "description": "The first of auto_redirect's ip rules (9000); the rules from it to 10 after it are sail's, and removed at start and stop."
+     "description": "Linux: the first of auto_route's and auto_redirect's ip rules (9000); the rules from it to 10 after it are sail's, and removed at start and stop."
     },
     "auto_redirect": {
      "type": "boolean",
@@ -11696,7 +11696,7 @@
     },
     "strict_route": {
      "type": "boolean",
-     "description": "With one family on the device, rejects the other rather than let it go past sail. Linux: with auto_redirect only, for now. Windows: not yet. Elsewhere it changes nothing, as in sing-box."
+     "description": "With `auto_route`, keeps traffic from going past sail. Linux: with one family on the device, the other is unreachable. Windows: firewall rules, as sing-tun's: DNS leaves only through the device, but for sail's own, and with no IPv6 on the device, none leaves. Elsewhere it changes nothing, as in sing-box."
     },
     "route_address": {
      "anyOf": [
@@ -11766,7 +11766,7 @@
        }
       }
      ],
-     "description": "Forwarded traffic is taken only from these interfaces..."
+     "description": "Linux, with `auto_route`: forwarded traffic is taken only from these interfaces..."
     },
     "exclude_interface": {
      "anyOf": [
@@ -11794,7 +11794,7 @@
        }
       }
      ],
-     "description": "The host's traffic is taken only from these users..."
+     "description": "Linux, with `auto_route`: the host's traffic is taken only from these users..."
     },
     "include_uid_range": {
      "anyOf": [
