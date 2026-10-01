@@ -97,8 +97,8 @@ jobs:
           - { target: aarch64-unknown-linux-musl, package: sail-cli, file: sail }
           - { target: armv7-unknown-linux-musleabihf, package: sail-cli, file: sail }
           - { target: x86_64-pc-windows-gnu, package: sail-cli, file: sail.exe }
-          # The C library, until the AAR's libsail_jni.so is built here.
-          - { target: aarch64-linux-android, package: sail-ffi, file: libsail.so }
+          # What the AAR ships for arm64-v8a, built as the release builds it.
+          - { target: aarch64-linux-android, package: sail-ffi, file: libsail_jni.so, abi: arm64-v8a }
     name: size (${{ matrix.target }})
     steps:
       - name: checkout
@@ -110,6 +110,7 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.98.1
+          components: llvm-tools
 
       - name: cache cross toolchain
         uses: actions/cache@v4
@@ -121,12 +122,34 @@ jobs:
         run: scripts/install_cross_toolchain.sh ${{ matrix.target }}
 
       - name: build
-        run: scripts/cross.sh ${{ matrix.target }} build -p ${{ matrix.package }} --release
+        if: ${{ !matrix.abi }}
+        run: |
+          scripts/cross.sh ${{ matrix.target }} build -p ${{ matrix.package }} --release
+          echo "SIZE_FILE=target/${{ matrix.target }}/release/${{ matrix.file }}" >> "$GITHUB_ENV"
+          echo "SIZE_NAME=${{ matrix.target }}" >> "$GITHUB_ENV"
+
+      # The static library as release builds it, linked with the JNI glue by
+      # the module's CMake, then stripped as release strips it.
+      - name: build the AAR's library
+        if: ${{ matrix.abi }}
+        env:
+          SOURCE_DATE_EPOCH: "0"
+        run: |
+          scripts/release/build-lib-android.sh ${{ matrix.target }} ${{ matrix.abi }} "$RUNNER_TEMP/libs"
+          ndk=$(echo "$HOME"/.sail-cross/android-ndk-*)
+          cmake -S bindings/kotlin/jni -B "$RUNNER_TEMP/jni" \
+            -DCMAKE_TOOLCHAIN_FILE="$ndk/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=${{ matrix.abi }} -DANDROID_PLATFORM=android-24 -DANDROID_STL=c++_static \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DSAIL_LIB_DIR="$RUNNER_TEMP/libs" -DSAIL_INCLUDE_DIR="$PWD/sail-ffi/include"
+          cmake --build "$RUNNER_TEMP/jni"
+          scripts/release/split-symbols.sh "$RUNNER_TEMP/jni/${{ matrix.file }}" "$RUNNER_TEMP/symbols"
+          echo "SIZE_FILE=$RUNNER_TEMP/jni/${{ matrix.file }}" >> "$GITHUB_ENV"
+          echo "SIZE_NAME=android-${{ matrix.abi }}.libsail_jni" >> "$GITHUB_ENV"
 
       - name: collect
         run: |
-          tools/perf/report.py collect --sha "$GITHUB_SHA" \
-            --size "${{ matrix.target }}=target/${{ matrix.target }}/release/${{ matrix.file }}" /dev/null \
+          tools/perf/report.py collect --sha "$GITHUB_SHA" --size "$SIZE_NAME=$SIZE_FILE" /dev/null \
             > "perf-size-${{ matrix.target }}.json"
 
       - name: upload
