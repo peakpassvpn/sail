@@ -1,6 +1,6 @@
 [
   {"fork": "peakpassvpn/btls", "branch": "sail", "upstream": "0x676e67/btls", "upstream_ref": "main", "owner": "TLS/QUIC owner"},
-  {"fork": "peakpassvpn/quinn", "branch": "sail", "upstream": "quinn-rs/quinn", "upstream_ref": "main", "owner": "TLS/QUIC owner"},
+  {"fork": "peakpassvpn/quinn", "branch": "sail", "upstream": "quinn-rs/quinn", "upstream_ref": "0.11.x", "owner": "TLS/QUIC owner"},
   {"fork": "peakpassvpn/quinn-btls", "branch": "sail", "upstream": "0x676e67/quinn-btls", "upstream_ref": "main", "owner": "TLS/QUIC owner"},
   {"fork": "peakpassvpn/netconfig-rs", "branch": "sail", "upstream": "tun-rs/netconfig-rs", "upstream_ref": "main", "owner": "TUN owner"},
   {"fork": "peakpassvpn/route_manager", "branch": "sail", "upstream": "tun-rs/route_manager", "upstream_ref": "main", "owner": "TUN owner"}
