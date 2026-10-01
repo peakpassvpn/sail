@@ -990,6 +990,12 @@ impl Connector {
         self.tls
     }
 
+    /// The layers hear of a change of network, for the connections they
+    /// keep.
+    pub fn network_changed(&self, change: &crate::net::network::NetworkChange) {
+        self.layers.network_changed(change);
+    }
+
     /// A new connection to the server, for `sess`.
     pub async fn connect(
         &self,

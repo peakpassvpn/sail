@@ -238,6 +238,27 @@ impl Client {
         });
     }
 
+    /// Closes every connection, and the streams on them, as sing-mux's
+    /// `Reset` does when the network changes: they were made on a network
+    /// that may be gone. The next stream makes a new one.
+    fn reset(self: &Arc<Self>) {
+        fn close(conns: &mut Vec<Entry>) {
+            for entry in conns.drain(..) {
+                entry.conn.close();
+            }
+        }
+        match self.conns.try_lock() {
+            Ok(mut conns) => close(&mut conns),
+            // A connection is being made: once it is, it goes too.
+            Err(_) => {
+                if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+                    let client = self.clone();
+                    runtime.spawn(async move { close(&mut *client.conns.lock().await) });
+                }
+            }
+        }
+    }
+
     /// A new stream, before its request.
     async fn open_stream(&self, sess: &Session) -> io::Result<AnyStream> {
         if let Some(check) = self.cleanup.lock().ok().and_then(|mut c| c.take()) {
@@ -441,6 +462,13 @@ impl OutboundStreamHandler for StreamHandler {
         OutboundConnect::Unknown
     }
 
+    /// Its connections close, and the outbound beneath hears of it. The
+    /// datagram handler shares the client, and leaves it to this one.
+    fn network_changed(&self, change: &crate::net::network::NetworkChange) {
+        self.client.reset();
+        self.client.connector.network_changed(change);
+    }
+
     async fn handle<'a>(
         &'a self,
         sess: &'a Session,
@@ -593,6 +621,100 @@ mod tests {
         assert!(options(None, Some(2), Some(8)).is_err());
         assert!(options(Some(MAX_CONNECTIONS + 1), None, None).is_err());
         assert!(options(None, None, Some(100_000)).is_err());
+    }
+
+    /// Hands over a TCP connection to `port`.
+    struct Direct(u16);
+
+    #[async_trait]
+    impl OutboundStreamHandler for Direct {
+        fn connect_addr(&self) -> OutboundConnect {
+            OutboundConnect::Proxy(
+                Network::Tcp,
+                "127.0.0.1".to_string(),
+                self.0,
+                crate::net::Dialer::system(),
+            )
+        }
+
+        async fn handle<'a>(
+            &'a self,
+            _sess: &'a Session,
+            _lhs: Option<&mut AnyStream>,
+            stream: Option<AnyStream>,
+        ) -> io::Result<AnyStream> {
+            stream.ok_or_else(|| io::Error::other("nothing dialled"))
+        }
+    }
+
+    /// A change of network closes the connections, as sing-mux's `Reset`:
+    /// the next stream makes a new one, where it would share the first.
+    #[tokio::test]
+    async fn a_change_of_network_closes_the_connections() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let accepted = Arc::new(AtomicUsize::new(0));
+        let counted = accepted.clone();
+        // Takes the connections and what they send; answers nothing.
+        tokio::spawn(async move {
+            while let Ok((mut tcp, _)) = listener.accept().await {
+                counted.fetch_add(1, Ordering::SeqCst);
+                tokio::spawn(async move {
+                    let _ = tokio::io::copy(&mut tcp, &mut tokio::io::sink()).await;
+                });
+            }
+        });
+        let dns = crate::app::dns::DnsClient::new(
+            &Default::default(),
+            Default::default(),
+            &Default::default(),
+        )
+        .unwrap()
+        .into_shared();
+        let whole = crate::adapter::outbound::HandlerBuilder::default()
+            .tag("test".to_owned())
+            .stream_handler(Arc::new(Direct(port)))
+            .build();
+        let mux = outbound(
+            "test",
+            whole,
+            dns,
+            options(None, None, None).unwrap(),
+            Tuning::default(),
+            &mut Vec::new(),
+        );
+        let sess = Session {
+            destination: SocksAddr::try_from(("example.com", 443)).unwrap(),
+            ..Default::default()
+        };
+        let stream = mux.stream().unwrap();
+        // The server counts a connection once it gets round to it.
+        let counted = |n: usize| {
+            let accepted = accepted.clone();
+            async move {
+                tokio::time::timeout(Duration::from_secs(5), async {
+                    while accepted.load(Ordering::SeqCst) < n {
+                        tokio::time::sleep(Duration::from_millis(10)).await;
+                    }
+                })
+                .await
+                .is_ok()
+            }
+        };
+        let _first = stream.handle(&sess, None, None).await.unwrap();
+        let _second = stream.handle(&sess, None, None).await.unwrap();
+        assert!(counted(1).await);
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert_eq!(accepted.load(Ordering::SeqCst), 1);
+        mux.network_changed(&crate::net::network::NetworkChange {
+            generation: 1,
+            reason: crate::net::network::ChangeReason::HostPush,
+            old: Default::default(),
+            new: Default::default(),
+        });
+        let _third = stream.handle(&sess, None, None).await.unwrap();
+        assert!(counted(2).await, "no new connection after the change");
     }
 
     #[test]

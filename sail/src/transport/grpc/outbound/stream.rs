@@ -63,6 +63,10 @@ impl OutboundStreamHandler for Handler {
         OutboundConnect::Unknown
     }
 
+    fn network_changed(&self, change: &crate::net::network::NetworkChange) {
+        self.pool.network_changed(change);
+    }
+
     async fn handle<'a>(
         &'a self,
         sess: &'a Session,

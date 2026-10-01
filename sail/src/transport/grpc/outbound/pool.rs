@@ -23,7 +23,7 @@ use std::task::{Context, Poll};
 use std::time::Duration;
 
 use bytes::Bytes;
-use futures::future::abortable;
+use futures::future::{abortable, AbortHandle};
 use h2::client::{ResponseFuture, SendRequest};
 use h2::SendStream;
 use http::Request;
@@ -62,6 +62,8 @@ struct State {
 struct Connection {
     send: SendRequest<Bytes>,
     state: Arc<State>,
+    /// Ends the connection, and the calls on it.
+    abort: AbortHandle,
 }
 
 impl Connection {
@@ -96,6 +98,17 @@ impl Pool {
     /// Whether the connections are made over TLS.
     pub fn tls(&self) -> bool {
         self.connector.tls()
+    }
+
+    /// Ends every connection, and the calls on them, as sing-box closes its
+    /// transport when the network changes; the layers beneath hear of it.
+    pub fn network_changed(&self, change: &crate::net::network::NetworkChange) {
+        let connections = std::mem::take(&mut *self.connections.lock().unwrap());
+        for connection in connections {
+            connection.state.closed.store(true, Ordering::Release);
+            connection.abort.abort();
+        }
+        self.connector.network_changed(change);
     }
 
     /// Makes the call `request` builds, on a connection with room for it.
@@ -188,6 +201,7 @@ impl Pool {
         let state = Arc::new(State::default());
         let ping_pong = connection.ping_pong();
         let (connection, abort) = abortable(connection);
+        let ends = abort.clone();
         let ended = state.clone();
         tokio::spawn(async move {
             if let Ok(Err(e)) = connection.await {
@@ -206,7 +220,11 @@ impl Pool {
                 abort,
             );
         }
-        Ok(Connection { send, state })
+        Ok(Connection {
+            send,
+            state,
+            abort: ends,
+        })
     }
 }
 
@@ -395,5 +413,33 @@ mod tests {
         let open: Vec<_> = futures::future::join_all((0..6).map(|_| answered(&pool, &sess))).await;
         assert_eq!(connections.load(Ordering::SeqCst), 3);
         drop(open);
+    }
+
+    /// A change of network ends the connections and the calls on them; the
+    /// next call dials anew.
+    #[tokio::test]
+    async fn a_change_of_network_ends_the_connections() {
+        let (port, connections) = server(10).await;
+        let pool = pool(port);
+        let sess = Session {
+            destination: SocksAddr::try_from(("127.0.0.1", port)).unwrap(),
+            ..Default::default()
+        };
+        let mut open = answered(&pool, &sess).await;
+        pool.network_changed(&crate::net::network::NetworkChange {
+            generation: 1,
+            reason: crate::net::network::ChangeReason::HostPush,
+            old: Default::default(),
+            new: Default::default(),
+        });
+        assert_eq!(pool.live(), 0);
+        let ended = tokio::time::timeout(
+            Duration::from_secs(5),
+            futures::future::poll_fn(|cx| open.send.poll_reset(cx)),
+        )
+        .await;
+        assert!(ended.is_ok(), "the open call did not end");
+        drop(answered(&pool, &sess).await);
+        assert_eq!(connections.load(Ordering::SeqCst), 2);
     }
 }

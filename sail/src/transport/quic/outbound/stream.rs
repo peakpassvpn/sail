@@ -20,7 +20,7 @@ struct Manager {
     dns_client: SyncDnsClient,
     dialer: Dialer,
     client_config: quinn::ClientConfig,
-    connections: RwLock<Vec<quinn::Connection>>,
+    connections: Arc<RwLock<Vec<quinn::Connection>>>,
 }
 
 impl Manager {
@@ -160,7 +160,7 @@ impl Handler {
                 dns_client,
                 dialer,
                 client_config,
-                connections: RwLock::new(Vec::new()),
+                connections: Arc::new(RwLock::new(Vec::new())),
             },
         })
     }
@@ -177,6 +177,26 @@ impl Handler {
 impl OutboundStreamHandler for Handler {
     fn connect_addr(&self) -> OutboundConnect {
         OutboundConnect::Unknown
+    }
+
+    /// Its connections close, as sing-box closes its transport when the
+    /// network changes; the next stream dials anew.
+    fn network_changed(&self, _change: &crate::net::network::NetworkChange) {
+        fn close(connections: &mut Vec<quinn::Connection>) {
+            for conn in connections.drain(..) {
+                conn.close(0u32.into(), b"network changed");
+            }
+        }
+        match self.manager.connections.try_write() {
+            Ok(mut connections) => close(&mut connections),
+            Err(_) => {
+                // A stream is being opened: close them once it is.
+                let connections = self.manager.connections.clone();
+                if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+                    runtime.spawn(async move { close(&mut *connections.write().await) });
+                }
+            }
+        }
     }
 
     async fn handle<'a>(
