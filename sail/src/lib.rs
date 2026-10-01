@@ -120,6 +120,9 @@ pub struct RuntimeManager {
     clash_view: arc_swap::ArcSwap<app::clash_api::ConfigView>,
     /// The modes the rules name, as sing-box lists them.
     modes: arc_swap::ArcSwap<Vec<String>>,
+    /// The tags of the outbounds and endpoints, in the configuration's
+    /// order, which they are listed in.
+    order: arc_swap::ArcSwap<Vec<String>>,
     /// The delays measured of each outbound.
     delays: control::Delays,
     /// The assets the configuration reads.
@@ -186,6 +189,7 @@ impl RuntimeManager {
             #[cfg(feature = "clash-api")]
             clash_view: Default::default(),
             modes: Default::default(),
+            order: Default::default(),
             delays: Default::default(),
             assets: Default::default(),
         })
@@ -334,6 +338,14 @@ impl RuntimeManager {
     /// What the Clash API and the modes tell of `config`, as it is now.
     fn set_views(&self, config: &config::Config) {
         self.modes.store(Arc::new(control::modes(config)));
+        self.order.store(Arc::new(
+            config
+                .outbounds
+                .iter()
+                .map(|o| o.tag.clone())
+                .chain(config.endpoints.iter().map(|e| e.tag.clone()))
+                .collect(),
+        ));
         #[cfg(feature = "clash-api")]
         self.clash_view
             .store(Arc::new(app::clash_api::ConfigView::of(config)));

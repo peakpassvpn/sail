@@ -25,7 +25,7 @@ silently changing the design baseline.
 - FakeDNS rewriting and DNS interception live in the TUN adapter, outside
   `sail-netstack`.
 - The instance keeps the stack's control handle. `sail::network_changed` and
-  the FFI `sail_network_changed(rt_id, mtu)` start a new network generation
+  the FFI `sail_network_changed(instance, mtu)` start a new network generation
   (and apply a new MTU), and shutdown, Ctrl-C, and SIGTERM stop the stack
   while its runners still run.
 - `bench/` is local-only on `dev`: `bench/netstack/run.py` and `compare.py`

@@ -20,8 +20,10 @@ auto-reload = ["sail/auto-reload"]
 
 [dependencies]
 sail = { path = "../sail", default-features = false, optional = true }
+serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-tokio = { version = "1", features = ["rt"] }
+tracing = "0.1"
+tokio = { version = "1", features = ["rt", "sync", "time"] }
 anyhow = "1.0"
 futures = "0.3"
 

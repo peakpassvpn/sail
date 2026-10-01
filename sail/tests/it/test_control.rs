@@ -55,6 +55,9 @@ fn an_instance_is_controlled_without_a_clash_api() {
     let rm = sail::runtime_managers().get(&ids[0]).cloned().unwrap();
 
     rt.block_on(async {
+        // The outbounds, in the configuration's order.
+        let tags: Vec<String> = rm.outbounds().await.into_iter().map(|o| o.tag).collect();
+        assert_eq!(tags, ["sel", "a", "b"]);
         // The group and its members.
         let groups = rm.groups().await;
         assert_eq!(groups.len(), 1);

@@ -2728,8 +2728,10 @@ dependencies = [
  "bindgen",
  "futures",
  "sail",
+ "serde",
  "serde_json",
  "tokio",
+ "tracing",
 ]
 
 [[package]]
