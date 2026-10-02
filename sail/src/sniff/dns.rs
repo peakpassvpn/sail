@@ -69,9 +69,25 @@ pub fn stream_query(buf: &[u8]) -> Sniff {
     }
 }
 
+/// `dns.reverse_mapping`: the domain each address was last given for, from
+/// the answers sail gives (as sing-box's DNS router keeps them) and those it
+/// sees go by to an outbound DNS server, for routing to match by.
 #[derive(Clone)]
 pub struct DnsSniffer {
-    cache: Arc<RwLock<LruCache<IpAddr, String>>>,
+    cache: Arc<RwLock<LruCache<IpAddr, Mapped>>>,
+}
+
+/// A domain, and when an answer's TTL lets it go.
+#[derive(Clone)]
+struct Mapped {
+    domain: String,
+    until: Option<tokio::time::Instant>,
+}
+
+impl std::fmt::Debug for DnsSniffer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("DnsSniffer")
+    }
 }
 
 impl Default for DnsSniffer {
@@ -88,12 +104,34 @@ impl DnsSniffer {
         }
     }
 
+    /// Maps `ip` to `domain` until something else takes its place.
     pub async fn add(&self, ip: IpAddr, domain: String) {
-        self.cache.write().await.put(ip, domain);
+        self.cache.write().await.put(
+            ip,
+            Mapped {
+                domain,
+                until: None,
+            },
+        );
     }
 
+    /// Maps `ip` to `domain` for `ttl`, an answer's, as sing-box keeps it.
+    pub async fn add_for(&self, ip: IpAddr, domain: String, ttl: std::time::Duration) {
+        let until = Some(tokio::time::Instant::now() + ttl);
+        self.cache.write().await.put(ip, Mapped { domain, until });
+    }
+
+    /// The domain `ip` was given for, if its TTL has not run out.
     pub async fn get(&self, ip: &IpAddr) -> Option<String> {
-        self.cache.read().await.peek(ip).cloned()
+        let cache = self.cache.read().await;
+        let mapped = cache.peek(ip)?;
+        if mapped
+            .until
+            .is_some_and(|until| until <= tokio::time::Instant::now())
+        {
+            return None;
+        }
+        Some(mapped.domain.clone())
     }
 }
 

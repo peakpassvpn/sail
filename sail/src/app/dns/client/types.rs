@@ -194,8 +194,9 @@ pub struct DnsClient {
     client_strategy: Option<crate::config::model::DnsStrategy>,
     /// `dns.timeout`: how long one query to one server may take.
     timeout: Duration,
-    /// `dns.reverse_mapping`.
-    reverse_mapping: bool,
+    /// `dns.reverse_mapping`: where the domains of the answers given go,
+    /// when it is on.
+    reverse_map: Option<crate::sniff::dns::DnsSniffer>,
     /// `dns.client_subnet`.
     client_subnet: Option<crate::config::model::Prefix>,
     /// Whether any rule has a `strategy` of its own, which then decides

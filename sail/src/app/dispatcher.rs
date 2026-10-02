@@ -10,10 +10,7 @@ use crate::{
     app::SyncDnsClient,
     net,
     session::*,
-    sniff::{
-        self,
-        dns::{DnsSniffer, SniffingDatagram},
-    },
+    sniff::{self, dns::SniffingDatagram},
 };
 
 use super::nat_manager::UdpPacket;
@@ -323,7 +320,6 @@ pub struct Dispatcher {
     pub(crate) router: SyncRouter,
     dns_client: SyncDnsClient,
     stat_manager: SyncStatManager,
-    dns_sniffer: DnsSniffer,
     env: crate::runtime::SyncRuntimeEnv,
     /// The protocol of each inbound, by tag.
     inbound_types: std::sync::RwLock<std::collections::HashMap<String, &'static str>>,
@@ -342,7 +338,6 @@ impl Dispatcher {
             router,
             dns_client,
             stat_manager,
-            dns_sniffer: DnsSniffer::new(),
             env,
             inbound_types: Default::default(),
         }
@@ -667,7 +662,7 @@ impl Dispatcher {
                 d = self.stat_manager.stat_outbound_datagram(d, sess.clone());
 
                 if reverse_mapping && sess.destination.port() == 53 {
-                    d = Box::new(SniffingDatagram::new(d, self.dns_sniffer.clone()));
+                    d = Box::new(SniffingDatagram::new(d, self.env.reverse_map.clone()));
                 }
                 // A destination a sniff or a rule overrode answers as the
                 // one asked for.
@@ -768,7 +763,7 @@ impl Dispatcher {
             return false;
         }
         if let Some(ip) = sess.destination.ip() {
-            if let Some(domain) = self.dns_sniffer.get(&ip).await {
+            if let Some(domain) = self.env.reverse_map.get(&ip).await {
                 debug!("dns reverse mapped domain={}", &domain);
                 sess.set_sniffed_domain(SniffedFrom::Dns, domain);
             }

@@ -165,7 +165,7 @@ impl DnsClient {
             strategy: dns.strategy,
             client_strategy: dns.client_strategy,
             timeout: dns.timeout(),
-            reverse_mapping: dns.reverse_mapping,
+            reverse_map: dns.reverse_mapping.then(|| env.reverse_map.clone()),
             client_subnet: dns.client_subnet,
             rules_set_strategy: dns.rules.iter().any(|r| r.strategy.is_some()),
             network,
@@ -258,7 +258,7 @@ impl DnsClient {
 
     /// Whether `dns.reverse_mapping` is on.
     pub fn reverse_mapping(&self) -> bool {
-        self.reverse_mapping
+        self.reverse_map.is_some()
     }
 
     /// Fails when resolving a name needs what the resolving itself needs:
@@ -1070,6 +1070,7 @@ impl DnsClient {
         match self.walk(request, ctx, true).await {
             Ok(rules::Walked::Response(mut response)) => {
                 response.set_id(request.id());
+                self.record_reverse_mapping(&response).await;
                 *response
             }
             Ok(rules::Walked::Refused) => Self::status(request, ResponseCode::Refused),
@@ -1077,6 +1078,30 @@ impl DnsClient {
                 debug!("{}: {}", Self::question(request), e);
                 Self::status(request, ResponseCode::ServFail)
             }
+        }
+    }
+
+    /// With `dns.reverse_mapping`, keeps the domain each address of
+    /// `response` is given for, for its TTL, as sing-box's DNS router does
+    /// with the answers it gives (dns/router.go recordReverseMapping): the
+    /// record's own name, and no fake IP, which stands for its domain anyway.
+    async fn record_reverse_mapping(&self, response: &Message) {
+        let Some(map) = &self.reverse_map else {
+            return;
+        };
+        for record in response.answers() {
+            let ip = match record.data {
+                RData::A(a) => IpAddr::V4(a.0),
+                RData::AAAA(aaaa) => IpAddr::V6(aaaa.0),
+                _ => continue,
+            };
+            if !matches!(self.fake_ip(ip), FakeIp::NotFake) {
+                continue;
+            }
+            let name = record.name.to_utf8();
+            let domain = name.trim_end_matches('.').to_string();
+            let ttl = Duration::from_secs(u64::from(record.ttl));
+            map.add_for(ip, domain, ttl).await;
         }
     }
 

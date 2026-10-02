@@ -173,6 +173,9 @@ pub struct RuntimeEnv {
     /// The LAN devices, by address, when a rule or DNS server needs them;
     /// kept across reloads.
     pub neighbors: crate::net::neighbor::Neighbors,
+    /// `dns.reverse_mapping`'s domains by address, which the DNS client
+    /// writes as it answers and routing reads; kept across reloads.
+    pub reverse_map: crate::sniff::dns::DnsSniffer,
 }
 
 pub type SyncRuntimeEnv = Arc<RuntimeEnv>;

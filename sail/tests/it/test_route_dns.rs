@@ -248,3 +248,102 @@ fn dns_rules_follow_the_clash_mode_as_it_changes() -> anyhow::Result<()> {
     common::shutdown_instances(&rt, ids);
     checked
 }
+
+// dns client -> (direct, hijack-dns)sail; app(socks, to an address) ->
+// sail(a rule on the domain the address was given for) -> echo
+//
+// Locks dns.reverse_mapping for the answers sail gives itself, as
+// sing-box's DNS router keeps them: once a hijacked query has named an
+// address, a connection to the bare address is routed by that name. Before
+// the query nothing names it, and the connection goes through.
+#[cfg(all(
+    feature = "inbound-socks",
+    feature = "inbound-direct",
+    feature = "outbound-direct",
+    feature = "outbound-drop"
+))]
+#[test]
+fn an_address_sail_answered_for_is_routed_by_its_name() -> anyhow::Result<()> {
+    use std::net::{IpAddr, SocketAddr};
+
+    use hickory_proto::op::{Message, MessageType, OpCode, Query};
+    use hickory_proto::rr::{Name, RData, RecordType};
+
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()?;
+    let echo = echo_server(&rt)?;
+    let (ids, (socks, dns)) = common::retry_port_clash(|| {
+        let [socks, dns] = common::free_ports();
+        let config = serde_json::json!({
+            "dns": {
+                "servers": [{ "type": "hosts", "tag": "hosts",
+                              "predefined": { "mapped.example": "127.0.0.1" } }],
+                "final": "hosts",
+                "reverse_mapping": true
+            },
+            "inbounds": [
+                { "type": "socks", "listen": "127.0.0.1", "listen_port": socks },
+                { "type": "direct", "tag": "dns-in", "listen": "127.0.0.1", "listen_port": dns }
+            ],
+            "outbounds": [
+                { "type": "direct", "tag": "direct" },
+                { "type": "block", "tag": "block" }
+            ],
+            "route": {
+                "rules": [
+                    { "inbound": "dns-in", "action": "hijack-dns" },
+                    { "domain": "mapped.example", "outbound": "block" }
+                ],
+                "final": "direct"
+            }
+        });
+        Ok((
+            common::run_sail_instances(&rt, vec![config.to_string()])?,
+            (socks, dns),
+        ))
+    })?;
+    let reaches_address = |ip: IpAddr| async move {
+        let sess = sail::session::Session {
+            destination: sail::session::SocksAddr::from(SocketAddr::new(ip, echo)),
+            ..Default::default()
+        };
+        let Ok(mut s) = common::new_socks_stream("127.0.0.1", socks, &sess, None, None).await
+        else {
+            return false;
+        };
+        let mut back = [0u8; 4];
+        s.write_all(b"ping").await.is_ok()
+            && tokio::time::timeout(Duration::from_secs(3), s.read_exact(&mut back))
+                .await
+                .is_ok_and(|r| r.is_ok())
+            && &back == b"ping"
+    };
+    let checked = rt.block_on(async {
+        let ip: IpAddr = "127.0.0.1".parse()?;
+        anyhow::ensure!(reaches_address(ip).await, "no name for the address yet: direct");
+
+        let mut m = Message::new(5, MessageType::Query, OpCode::Query);
+        m.metadata.recursion_desired = true;
+        m.add_query(Query::query(Name::from_ascii("mapped.example.")?, RecordType::A));
+        let udp = tokio::net::UdpSocket::bind("127.0.0.1:0").await?;
+        udp.send_to(&m.to_vec()?, ("127.0.0.1", dns)).await?;
+        let mut buf = vec![0u8; 1500];
+        let (n, _) = tokio::time::timeout(Duration::from_secs(5), udp.recv_from(&mut buf)).await??;
+        let reply = Message::from_vec(&buf[..n])?;
+        anyhow::ensure!(
+            matches!(reply.answers.first().map(|r| &r.data), Some(RData::A(a)) if IpAddr::V4(a.0) == ip),
+            "the hijacked query is answered with the address: {:?}",
+            reply.answers
+        );
+
+        anyhow::ensure!(
+            !reaches_address(ip).await,
+            "the address is now named mapped.example, which a rule blocks"
+        );
+        anyhow::Ok(())
+    });
+    common::shutdown_instances(&rt, ids);
+    checked
+}

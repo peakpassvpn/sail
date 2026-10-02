@@ -916,6 +916,51 @@ mod tests {
         assert_eq!(answer_ips(&plus), ips(&["10.0.0.2"]));
     }
 
+    /// With `dns.reverse_mapping`, an answer sail gives itself, as to a
+    /// hijacked query, maps its addresses back to the record's name, for
+    /// the record's TTL, as sing-box's DNS router does; a fake IP is left
+    /// out, and without the option nothing is kept.
+    #[tokio::test(start_paused = true)]
+    async fn the_answers_sail_gives_map_their_addresses_back() {
+        let client = |reverse_mapping: bool| {
+            let config = crate::config::Config::from_json(
+                &serde_json::json!({ "dns": {
+                    "servers": [
+                        { "type": "hosts", "tag": "hosts",
+                          "predefined": { "lan.example": ["192.168.1.9", "fd00::9"] } },
+                        { "type": "fakeip", "tag": "fake", "inet4_range": "198.18.0.0/15" }
+                    ],
+                    "rules": [{ "domain": "fake.example", "server": "fake" }],
+                    "final": "hosts",
+                    "reverse_mapping": reverse_mapping
+                } })
+                .to_string(),
+            )
+            .unwrap();
+            let env = crate::runtime::RuntimeEnv::default();
+            let client = DnsClient::new(&config.dns, Default::default(), &env).unwrap();
+            (client, env.reverse_map)
+        };
+
+        let (on, map) = client(true);
+        exchange(&on, "lan.example", RecordType::A).await;
+        exchange(&on, "lan.example", RecordType::AAAA).await;
+        let fake = answer_ips(&exchange(&on, "fake.example", RecordType::A).await);
+        assert_eq!(fake.len(), 1);
+        for ip in ["192.168.1.9", "fd00::9"] {
+            let ip: IpAddr = ip.parse().unwrap();
+            assert_eq!(map.get(&ip).await.as_deref(), Some("lan.example"), "{}", ip);
+        }
+        assert_eq!(map.get(&fake[0]).await, None, "a fake IP is not mapped");
+        // The hosts server's TTL, 600 s: gone after it.
+        tokio::time::advance(Duration::from_secs(601)).await;
+        assert_eq!(map.get(&"192.168.1.9".parse().unwrap()).await, None);
+
+        let (off, map) = client(false);
+        exchange(&off, "lan.example", RecordType::A).await;
+        assert_eq!(map.get(&"192.168.1.9".parse().unwrap()).await, None);
+    }
+
     fn fake_ip_client() -> DnsClient {
         let config = crate::config::Config::from_json(
             &serde_json::json!({ "dns": {
