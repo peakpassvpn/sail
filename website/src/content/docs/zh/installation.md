@@ -52,6 +52,12 @@ cargo test --workspace
 
 Apple 平台的 framework 在 macOS 上用 `scripts/build_apple_xcframework.sh` 构建。
 
+### 内存分配器
+
+为 Linux musl 目标构建的 CLI 用 [mimalloc](https://github.com/microsoft/mimalloc) 分配内存，即 x86_64、aarch64、i686、armv7 和 arm 的发布二进制。musl 自带的分配器让多路复用传输明显变慢。同一构建的 A/B 对比中，mux 上传从 1336 Mbit/s 提高到 2248 Mbit/s；16 组 sail 对 sail 测试相对 sing-box 的几何平均从 0.88× 提高到 1.10×。
+
+只有 `sail-cli` 设置分配器，`sail` 和 `sail-ffi` 库把它留给链接它们的程序。glibc Linux、Apple 平台、Windows 和 Android 的构建仍用系统分配器，MIPS 的 musl 构建也是：libmimalloc 的 C 代码需要 64 位原子操作，32 位 MIPS 没有。启用 `alloc-stats` 特性的构建改用它的计数分配器。
+
 ## 作为 systemd 服务运行
 
 `packaging/systemd` 提供面向 Linux 服务器的 unit。`install.sh` 把文件安装到明确指定的根目录下，不会启用、启动或重载任何服务：

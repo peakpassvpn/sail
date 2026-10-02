@@ -478,6 +478,17 @@ fn fetch_includes(config: &str, cache_dir: Option<&str>) -> Result<(), String> {
 #[global_allocator]
 static ALLOC: sail::alloc_stats::Counting = sail::alloc_stats::Counting;
 
+// musl's mallocng is slow under the mux's per-frame allocations: a mux
+// upload measured 1336 Mbit/s with it and 2248 with mimalloc. The library
+// crates leave the allocator to the binary; alloc-stats replaces this one.
+#[cfg(all(
+    target_env = "musl",
+    not(any(target_arch = "mips", target_arch = "mips64")),
+    not(feature = "alloc-stats")
+))]
+#[global_allocator]
+static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 fn main() {
     #[cfg(feature = "alloc-stats")]
     if let Some(path) = std::env::var_os("SAIL_ALLOC_STATS") {

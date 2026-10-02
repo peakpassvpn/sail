@@ -60,6 +60,12 @@ Feature-gated protocols and formats are registered at compile time. An error say
 
 Apple frameworks are built on macOS with `scripts/build_apple_xcframework.sh`.
 
+### Memory allocator
+
+The CLI built for a Linux musl target allocates with [mimalloc](https://github.com/microsoft/mimalloc): the x86_64, aarch64, i686, armv7 and arm release binaries. musl's own allocator made multiplexed transfers markedly slower. In an A/B of the same build, a mux upload went from 1336 to 2248 Mbit/s with mimalloc, and across 16 sail-to-sail cells the geometric mean against sing-box went from 0.88× to 1.10×.
+
+Only `sail-cli` sets the allocator. The `sail` and `sail-ffi` libraries leave it to the program that links them. Builds for glibc Linux, Apple platforms, Windows and Android keep the system allocator, as do MIPS musl builds: libmimalloc's C needs 64-bit atomics that 32-bit MIPS lacks. A build with the `alloc-stats` feature uses its counting allocator instead.
+
 ## Run as a systemd service
 
 `packaging/systemd` contains a unit for Linux servers. `install.sh` installs it below an explicit root and never enables, starts or reloads anything:

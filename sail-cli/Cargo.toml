@@ -22,6 +22,12 @@ serde_json = "1.0"
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
+# musl builds allocate with mimalloc (src/main.rs): musl's mallocng is
+# slow under the mux's per-frame allocations. MIPS keeps musl's: 32-bit
+# MIPS lacks the 64-bit atomics libmimalloc's C needs.
+[target.'cfg(all(target_env = "musl", not(any(target_arch = "mips", target_arch = "mips64"))))'.dependencies]
+mimalloc = "0.1.52"
+
 [target.'cfg(not(windows))'.dependencies.sail]
 path = "../sail"
 default-features = false
