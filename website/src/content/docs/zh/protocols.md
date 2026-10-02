@@ -80,6 +80,10 @@ ClientHello 使用浏览器指纹（`tls.utls`，默认 Chrome），客户端认
 
 sing-box 的 Hysteria2 和 TUIC 服务端允许客户端在一条 QUIC 连接上同时开任意多的流（1<<60）。sail 使用的 QUIC 库 quinn 会为允许的每一条流预留空间，因此 sail 服务端在客户端认证前每种流最多同时 100 条，认证后每当用到四分之三就翻倍，最多 65536 条。在一条 QUIC 连接上复用大量连接的客户端，开多少就得到多少；超出上限的会等待其他流关闭，而不是失败。用户的流数由 `user_limits.max_connections` 限制。如果让 quinn 像 quic-go 一样在流打开时才分配空间，就不再需要这个上限；sail 目前还没有这样做。
 
+### QUIC 的拥塞控制
+
+TUIC 和 `quic` 传输层用 `congestion_control` 选择拥塞控制（默认 `cubic`，也可用 `new_reno` 或 `bbr`）；Hysteria2 连接在两端的带宽设置协商出速率时用 Brutal，都没设置时用 BBR。sail 的 BBR 是 quinn 移植的 BBRv1：在丢包或缓冲很深的路径上，它估计的带宽比 sing-box（quic-go）的 BBR 低，因此在这类路径上发得更慢。在 sail 换用 BBRv3 之前，TUIC 建议用 `cubic`，Hysteria2 客户端建议设置 `up_mbps` 和 `down_mbps`，使用 Brutal。
+
 ### Hysteria2 伪装站
 
 Hysteria2 入站对没有密码的访问者（例如主动探测）提供 `masquerade` 指定的内容：后面的 `http://` 或 `https://` 站点，或固定响应。与 sing-box 一致，请求以站点自己的名字作为 SNI 和 Host 发往站点（对象写法中 `rewrite_host: false` 时保留客户端的 Host），站点支持时用 HTTP/2，否则用 HTTP/1.1，并去掉逐跳头和转发头。与 sing-box 不同，`https://` 站点按实例的证书库校验（未设置 `certificate` 时即系统证书库），并按实例的拨号默认值连接。

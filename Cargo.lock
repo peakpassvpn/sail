@@ -2359,7 +2359,7 @@ dependencies = [
 [[package]]
 name = "quinn-proto"
 version = "0.11.19"
-source = "git+https://github.com/peakpassvpn/quinn.git?rev=a0294adec58a09e6d4d1322ed123ff647dfa619b#a0294adec58a09e6d4d1322ed123ff647dfa619b"
+source = "git+https://github.com/peakpassvpn/quinn.git?rev=ac0737da7704788407daab3c5e6abd3dca7ae55e#ac0737da7704788407daab3c5e6abd3dca7ae55e"
 dependencies = [
  "bytes",
  "getrandom 0.4.3",
