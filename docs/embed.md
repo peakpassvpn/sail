@@ -104,7 +104,7 @@ nothing.
 |---|---|
 | inbound listeners | kept: no listener is closed or rebound. An inbound's users and certificates are replaced. An inbound added or removed in the configuration takes a restart, or `add_inbound`/`remove_inbound` |
 | connections already open | kept, on the outbound they were routed through (tested for a direct outbound over a socks inbound, with only `dns.servers` changed) |
-| outbounds | rebuilt from the new configuration. Endpoints (WireGuard) and the outbounds they are built on are kept. Tasks the replaced outbounds ran (health checks, idle-session cleanup) stop |
+| outbounds | rebuilt from the new configuration. Endpoints (WireGuard) and the outbounds they are built on are kept. Tasks the replaced outbounds ran (health checks, idle-session cleanup) stop. The replaced outbounds' sessions (AnyTLS, sing-mux) carry the connections they hold, and close when those connections end |
 | group selections, pins | kept, for groups of the same tag |
 | delays measured | kept |
 | DNS client | rebuilt from the new `dns`. **Its cache starts empty** |
