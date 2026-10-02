@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Builds what a release ships for Apple systems, on macOS:
-#   - sail for macOS, Apple silicon and Intel in one file, packaged by
-#     package-cli.sh as macos-universal;
+#   - sail for macOS, a file for each architecture (aarch64- and
+#     x86_64-apple-darwin), packaged by package-cli.sh as Linux's are;
 #   - SailC.xcframework: sail-ffi's static library for iOS, the iOS
 #     simulator and macOS, with sail.h as the C module SailC that
 #     bindings/swift imports. SwiftPM takes a binary target's name from
@@ -41,18 +41,14 @@ SIMULATOR="aarch64-apple-ios-sim x86_64-apple-ios"
 
 work=$(mktemp -d)
 
-# sail for macOS, both architectures in one file, and their dSYMs in one.
+# sail for macOS, a file for each architecture, with its own dSYM.
 for target in $MACOS; do
 	cargo build --locked --profile dist -p sail-cli --target "$target"
+	mkdir -p "$work/$target"
+	cp "target/$target/dist/sail" "$work/$target/sail"
+	DSYM="$ROOT/target/$target/dist/sail.dSYM" \
+		"$ROOT/scripts/release/package-cli.sh" "$target" "$version" "$work/$target/sail" "$out"
 done
-lipo -create target/{aarch64,x86_64}-apple-darwin/dist/sail -output "$work/sail"
-dsym=$work/sail.dSYM
-cp -RL target/aarch64-apple-darwin/dist/sail.dSYM "$dsym"
-dwarf=$(ls "$dsym"/Contents/Resources/DWARF/*)
-lipo -create "$dwarf" target/x86_64-apple-darwin/dist/sail.dSYM/Contents/Resources/DWARF/* \
-	-output "$dwarf.universal"
-mv "$dwarf.universal" "$dwarf"
-DSYM=$dsym "$ROOT/scripts/release/package-cli.sh" macos-universal "$version" "$work/sail" "$out"
 
 # sail-ffi's static library, a slice for each platform.
 # Each prints the system libraries it needs, which the module map links.

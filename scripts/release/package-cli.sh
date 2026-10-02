@@ -13,9 +13,9 @@
 #
 # Linux archives carry packaging/systemd and its guide; the Windows one
 # carries wintun.dll, exactly as wintun.net ships it (WINTUN_VERSION and
-# WINTUN_SHA256 pin the zip), with its license. On macOS (target
-# macos-universal) GNU tar does the archive, as gtar; DSYM names the
-# file's dSYM for split-symbols.sh.
+# WINTUN_SHA256 pin the zip), with its license. On macOS (the
+# *-apple-darwin targets) GNU tar does the archive, as gtar; DSYM names
+# the file's dSYM for split-symbols.sh.
 
 set -euo pipefail
 
@@ -80,9 +80,9 @@ The TUN inbound uses Wintun (wintun.dll, beside sail.exe), shipped
 unmodified from wintun.net under its own license, wintun-LICENSE.txt.
 TXT
 	;;
-macos*)
+*apple-darwin)
 	cat >"$stage/README.txt" <<TXT
-sail $version for macOS (Apple silicon and Intel)
+sail $version for macOS on $(case $target in aarch64-*) echo "Apple silicon" ;; *) echo Intel ;; esac)
 
 Run it:  ./sail -c config.json
 Not signed: macOS asks before the first run; allow it under System
