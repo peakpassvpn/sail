@@ -481,7 +481,10 @@ mod backend {
         fn the_host_s_namespace_is_told_from_another() {
             let ours = std::fs::read_link("/proc/self/ns/net").unwrap();
             let first = std::fs::read_link("/proc/1/ns/net");
-            let expected = first.map_or(true, |first| first == ours);
+            let expected = match first {
+                Ok(first) => first == ours,
+                Err(_) => true,
+            };
             assert_eq!(super::in_the_host_s_namespace(), expected);
         }
     }
