@@ -22,7 +22,6 @@ const SECRET: &str = "x-command-secret";
 
 pub(crate) use sail::control::listen::Address;
 
-/// What a listening address that does not do is, here.
 /// A unix socket or a descriptor asked for where there are none.
 #[cfg(not(unix))]
 pub(crate) fn off_unix() -> Failure {
@@ -32,6 +31,7 @@ pub(crate) fn off_unix() -> Failure {
     )
 }
 
+/// What a listening address that does not do is, here.
 pub(crate) fn listen_failure(e: sail::control::listen::ListenError) -> Failure {
     use sail::control::listen::ListenError as E;
     let code = match &e {
