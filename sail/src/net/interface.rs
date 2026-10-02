@@ -121,6 +121,17 @@ fn contains(network: IpAddr, len: u8, address: IpAddr) -> bool {
     }
 }
 
+/// Whether `address` is on a network one of the interfaces `names` is
+/// directly on.
+pub(crate) fn on_interfaces(names: &[String], address: IpAddr) -> bool {
+    !names.is_empty()
+        && subnets().is_ok_and(|subnets| {
+            subnets.iter().any(|(network, len, name)| {
+                names.contains(name) && contains(*network, *len, address)
+            })
+        })
+}
+
 /// The networks the interfaces that are up are directly on, loopback
 /// aside.
 #[cfg(unix)]

@@ -380,6 +380,8 @@ fn asks_through_default_dialer(defaults: &DialDefaults) -> bool {
 pub(super) struct LocalDialed {
     pub dialer: Dialer,
     pub servers: super::system::SystemServers,
+    /// sail's own TUNs, on whose networks no server is asked.
+    pub own_interfaces: Vec<String>,
 }
 
 impl Server {
@@ -467,6 +469,7 @@ impl Server {
                             dial,
                         },
                         servers: Default::default(),
+                        own_interfaces: defaults.env.own_interfaces.clone(),
                     })
                 };
                 // A system without a hosts file has no names in it.

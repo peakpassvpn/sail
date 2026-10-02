@@ -221,6 +221,11 @@ impl DnsClient {
             match &server.kind {
                 server::Kind::Tcp { pool, .. } => pool.clear(),
                 server::Kind::Upstream(upstream) => upstream.reset().await,
+                server::Kind::Local(local) => {
+                    if let Some(dialed) = &local.dialed {
+                        dialed.servers.forget();
+                    }
+                }
                 _ => {}
             }
         }
@@ -797,7 +802,7 @@ impl DnsClient {
                 let dialed = local.dialed.as_ref().expect("dialed");
                 let wire = Self::wire(server, request)?;
                 let mut last_err = None;
-                for addr in dialed.servers.get()? {
+                for addr in dialed.servers.get(&dialed.own_interfaces)? {
                     let asked = async {
                         let socket = self.dial_datagram(&dialed.dialer, addr).await?;
                         self.exchange_udp(socket, &wire, addr, server, time).await

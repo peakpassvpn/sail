@@ -12,7 +12,12 @@
 //! - Windows: the DNS servers of the adapters that are up and have a
 //!   gateway, as IP Helper tells them.
 //!
-//! Read again at most every 5 s, as Go's resolver reads resolv.conf.
+//! Read again at most every 5 s, as Go's resolver reads resolv.conf, and
+//! after the network changed. Servers on sail's own TUNs' networks are
+//! left out: auto_route gives a TUN a DNS server of its own (resolved's,
+//! the adapter's), which a query sent past the TUN cannot reach. So are
+//! the site-local servers Windows lists for an adapter without any
+//! (fec0:0:0:ffff::1-3).
 
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Mutex;
@@ -37,21 +42,41 @@ impl SystemServers {
             Some((Instant::now() + Duration::from_secs(86400), servers));
     }
 
-    /// The system's DNS servers now; an error when it has none.
-    pub(super) fn get(&self) -> Result<Vec<SocketAddr>> {
-        let mut read = self.read.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some((at, servers)) = read.as_ref() {
-            if at.elapsed() < REREAD {
-                return Ok(servers.clone());
+    /// Forgets what was read: the network changed, and the next query
+    /// reads the servers again.
+    pub(super) fn forget(&self) {
+        *self.read.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    }
+
+    /// The system's DNS servers now, but those on the networks of the
+    /// interfaces `own` (sail's TUNs); an error at once when no other is
+    /// left, with no fallback to the system's resolver or to a server on
+    /// this host.
+    pub(super) fn get(&self, own: &[String]) -> Result<Vec<SocketAddr>> {
+        let servers = {
+            let mut read = self.read.lock().unwrap_or_else(|e| e.into_inner());
+            match read.as_ref() {
+                Some((at, servers)) if at.elapsed() < REREAD => servers.clone(),
+                _ => {
+                    let servers: Vec<SocketAddr> = servers()
+                        .into_iter()
+                        .filter(|ip| match ip {
+                            // A link-local server needs a scope the files do
+                            // not tell; a site-local one is Windows' default.
+                            IpAddr::V6(v6) => !matches!(v6.segments()[0] & 0xffc0, 0xfe80 | 0xfec0),
+                            IpAddr::V4(_) => true,
+                        })
+                        .map(|ip| SocketAddr::new(ip, 53))
+                        .collect();
+                    *read = Some((Instant::now(), servers.clone()));
+                    servers
+                }
             }
-        }
-        let servers: Vec<SocketAddr> = servers()
+        };
+        let servers: Vec<SocketAddr> = servers
             .into_iter()
-            // A link-local IPv6 server needs a scope the files do not tell.
-            .filter(|ip| !matches!(ip, IpAddr::V6(v6) if (v6.segments()[0] & 0xffc0) == 0xfe80))
-            .map(|ip| SocketAddr::new(ip, 53))
+            .filter(|s| !crate::net::interface::on_interfaces(own, s.ip()))
             .collect();
-        *read = Some((Instant::now(), servers.clone()));
         if servers.is_empty() {
             return Err(anyhow!("the system has no DNS server to ask"));
         }
@@ -197,13 +222,46 @@ mod tests {
     /// link-local.
     #[test]
     fn the_host_s_servers_are_read() {
-        if let Ok(servers) = SystemServers::default().get() {
+        if let Ok(servers) = SystemServers::default().get(&[]) {
             for server in servers {
                 assert_eq!(server.port(), 53);
                 assert!(
-                    !matches!(server.ip(), IpAddr::V6(v6) if (v6.segments()[0] & 0xffc0) == 0xfe80)
+                    !matches!(server.ip(), IpAddr::V6(v6) if matches!(v6.segments()[0] & 0xffc0, 0xfe80 | 0xfec0))
                 );
             }
         }
+    }
+
+    /// A server on the network of one of sail's own interfaces is left
+    /// out, and with none left the answer is an error at once.
+    #[cfg(unix)]
+    #[test]
+    fn servers_on_sail_s_own_interfaces_are_left_out() {
+        let Some((network, _, name)) = crate::net::interface::subnets()
+            .unwrap()
+            .into_iter()
+            .find(|(network, ..)| network.is_ipv4())
+        else {
+            return;
+        };
+        let on = SocketAddr::new(network, 53);
+        let other: SocketAddr = "192.0.2.1:53".parse().unwrap();
+        let servers = SystemServers::default();
+        servers.set(vec![on, other]);
+        assert_eq!(servers.get(&[]).unwrap(), [on, other]);
+        assert_eq!(servers.get(std::slice::from_ref(&name)).unwrap(), [other]);
+        servers.set(vec![on]);
+        assert!(servers.get(&[name]).is_err());
+    }
+
+    /// After the network changed, the servers are read again.
+    #[test]
+    fn a_change_of_network_reads_them_again() {
+        let set: SocketAddr = "192.0.2.1:53".parse().unwrap();
+        let servers = SystemServers::default();
+        servers.set(vec![set]);
+        assert_eq!(servers.get(&[]).unwrap(), [set]);
+        servers.forget();
+        assert!(!servers.get(&[]).unwrap_or_default().contains(&set));
     }
 }
