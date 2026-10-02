@@ -44,7 +44,12 @@ for ns in "$HOST" "$NET"; do
     in_ns "$ns" ip link set lo up
 done
 
-ip link add sad-ha netns "$HOST" type veth peer name sad-wa netns "$NET"
+# Made here and moved, the veth keeps an index of the host's, and the TUN
+# sail makes is the namespace's index 2, as the host's first interface
+# is: where a TUN in a namespace and the host's DNS meet.
+ip link add sad-ha type veth peer name sad-wa
+ip link set sad-ha netns "$HOST"
+ip link set sad-wa netns "$NET"
 
 in_ns "$HOST" ip addr add 10.233.0.1/24 dev sad-ha
 in_ns "$HOST" ip addr add fd33::1/64 dev sad-ha nodad

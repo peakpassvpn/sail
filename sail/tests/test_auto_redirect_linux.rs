@@ -233,8 +233,11 @@ fn auto_redirect_takes_the_host_s_traffic_and_gives_it_back() -> Result<()> {
         }}"#
     );
     // systemd-resolved serves the host, whose links are numbered as the
-    // namespace's are not: sail in a namespace leaves its DNS alone.
-    let host_dns = || run("resolvectl", "dns").ok();
+    // namespace's are not: the TUN is the namespace's index 2, as the
+    // host's first interface is, and sail in a namespace must leave that
+    // interface's DNS alone. Read from the host's namespace, where the
+    // links' names are the host's.
+    let host_dns = || run("nsenter", "--net=/proc/1/ns/net resolvectl dns").ok();
     let before = host_dns();
     let sail = Sail::start(&dir, &config(&log, "", &route), &[])?;
     ensure!(
