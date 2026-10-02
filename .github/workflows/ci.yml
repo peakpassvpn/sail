@@ -319,6 +319,11 @@ jobs:
       run:
         shell: bash
     steps:
+      # The runner's git checks text out with CRLF, which the tests that
+      # compare generated files byte for byte would take for a change.
+      - name: LF checkout
+        run: git config --global core.autocrlf false
+
       - name: checkout
         uses: actions/checkout@v4
         with:
