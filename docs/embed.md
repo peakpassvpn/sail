@@ -49,6 +49,15 @@ dependency graph. It names each entry that is missing or different, and
 passes when every entry matches. Extra entries of the host's own are
 allowed.
 
+## Checking a configuration
+
+`sail::embed::check(&config, &options)` reads and builds a configuration
+as a start with those options would. It starts nothing: no listener,
+no dial, no download. It returns the warnings a start would log (as
+`sail -T` prints them), or a `Config` error saying why it does not build.
+It blocks while it builds, on a thread of its own, so it may be called
+from any thread.
+
 ## Runtime and threads
 
 - **Where it runs.** Each instance runs on a tokio runtime of its own, on

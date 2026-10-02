@@ -207,6 +207,47 @@ where
     crate::app::logger::instance_layer()
 }
 
+/// Checks `config` as a start with `options` would: it reads and builds,
+/// and nothing starts. No listener is bound, nothing is dialled, nothing
+/// is downloaded. The warnings are what a start would log of it (fields
+/// sail ignores, deprecated ones, what building it warned of), as
+/// `sail -T` prints them. It blocks while it builds, on a thread of its
+/// own, so any thread may call it, a runtime's too.
+pub fn check(config: &Config, options: &Options) -> Result<Vec<String>, Error> {
+    let config = config.clone();
+    let settings = options.settings.clone();
+    let platform = options.platform.clone();
+    std::thread::Builder::new()
+        .name("sail-check".into())
+        .spawn(move || {
+            let (runtime, mut host) = settings
+                .resolve()
+                .map_err(|e| Error::new(ErrorKind::Config, format!("{:#}", e)))?;
+            host.platform = platform.map(crate::runtime::PlatformRef);
+            let env = crate::runtime::RuntimeEnv {
+                options: runtime,
+                host,
+                ..Default::default()
+            };
+            let (read, mut warnings) = crate::app::logger::collect_warnings(|| match &config {
+                Config::Json(text) => crate::config::from_string_for(text, &env.host),
+                Config::File(path) => {
+                    crate::config::from_file_for(&path.to_string_lossy(), &env.host)
+                }
+            });
+            let read = read.map_err(|e| Error::new(ErrorKind::Config, format!("{:#}", e)))?;
+            warnings.extend(read.warnings.iter().cloned());
+            warnings.extend(
+                crate::check_config_with_warnings(&read, &env)
+                    .map_err(|e| Error::new(ErrorKind::Config, format!("{:#}", e)))?,
+            );
+            Ok(warnings)
+        })
+        .map_err(|e| Error::new(ErrorKind::Io, e.to_string()))?
+        .join()
+        .unwrap_or_else(|_| Err(Error::new(ErrorKind::Panicked, "sail panicked checking")))
+}
+
 /// The compiled-in features, as the management API lists them.
 pub fn features() -> Vec<&'static str> {
     crate::control::features()

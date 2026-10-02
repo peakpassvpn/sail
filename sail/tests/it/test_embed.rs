@@ -205,3 +205,30 @@ async fn a_configuration_that_fails_says_why_and_the_log_says_it_too() {
         ErrorKind::NotRunning
     );
 }
+
+/// A configuration checked as a start would build it: its warnings, or why
+/// it does not build; from the host's runtime, nothing started.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_configuration_is_checked_without_an_instance() {
+    let port = common::free_port();
+    let warned = serde_json::json!({
+        "inbounds": [{ "type": "socks", "tag": "in", "listen": "127.0.0.1", "listen_port": port }],
+        "outbounds": [{ "type": "direct", "tag": "direct", "tcp_multi_path": true }],
+    })
+    .to_string();
+    let warnings = sail::embed::check(&Config::Json(warned), &options()).unwrap();
+    assert_eq!(
+        warnings,
+        ["outbounds[0].tcp_multi_path: sail does not implement this field; ignored"]
+    );
+    // Nothing listens: the port is free.
+    std::net::TcpListener::bind(("127.0.0.1", port)).expect("check binds nothing");
+
+    let wrong = r#"{"outbounds": [{"type": "nonesuch"}]}"#.to_string();
+    assert_eq!(
+        sail::embed::check(&Config::Json(wrong), &options())
+            .unwrap_err()
+            .kind(),
+        ErrorKind::Config
+    );
+}

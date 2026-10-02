@@ -221,7 +221,7 @@ impl RuntimeEnv {
 ///   "sub_store": "https://sub.example.com/secret",
 ///   "asset_sources": { "asn.mmdb": "https://example.com/asn.mmdb" } }
 /// ```
-#[derive(Deserialize, Debug, Default)]
+#[derive(Deserialize, Debug, Default, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct StartSettings {
     #[serde(default)]
