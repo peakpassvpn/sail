@@ -140,3 +140,76 @@ fn a_clash_rule_on_addresses_leaves_a_proxy_the_domain() -> anyhow::Result<()> {
         Ok(())
     })
 }
+
+// app(socks) -> sail(resolve) -> (socks)sail -> udp echo
+//
+// Datagrams to the domain go to the address the resolve action handed the
+// proxy. Its answers come back as from the domain, or, with
+// `udp_disable_domain_unmapping`, from the address, as sing-box's
+// unidirectional NAT has it (route/conn.go:237-241).
+#[cfg(feature = "outbound-direct")]
+#[test]
+fn answers_to_an_address_handed_on_come_back_as_the_option_says() -> anyhow::Result<()> {
+    for disabled in [false, true] {
+        let from = common::retry_port_clash(|| {
+            let rt = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()?;
+            let [port, proxy_port] = common::free_ports();
+            let proxy = serde_json::json!({
+                "inbounds": [{ "type": "socks", "listen": "127.0.0.1",
+                               "listen_port": proxy_port }],
+                "outbounds": [{ "type": "direct" }],
+            });
+            let config = serde_json::json!({
+                "dns": { "servers": [
+                    { "type": "hosts", "predefined": { "resolve.test": "127.0.0.1" } }
+                ] },
+                "inbounds": [{ "type": "socks", "listen": "127.0.0.1", "listen_port": port }],
+                "outbounds": [{ "type": "socks", "tag": "proxy",
+                                "server": "127.0.0.1", "server_port": proxy_port }],
+                "route": {
+                    "rules": [
+                        { "action": "resolve" },
+                        { "action": "route-options", "udp_timeout": "30s",
+                          "udp_disable_domain_unmapping": disabled },
+                    ],
+                    "final": "proxy",
+                },
+            });
+            let ids = common::run_sail_instances(&rt, vec![proxy.to_string(), config.to_string()])?;
+            let result = rt.block_on(async {
+                let (echo_addr, echo) = common::run_udp_echo_server("127.0.0.1:0").await?;
+                tokio::spawn(echo);
+                tokio::time::sleep(Duration::from_millis(200)).await;
+                let to = sail::session::SocksAddr::Domain("resolve.test".into(), echo_addr.port());
+                let sess = sail::session::Session {
+                    network: sail::session::Network::Udp,
+                    destination: to.clone(),
+                    ..Default::default()
+                };
+                let datagram =
+                    common::new_socks_datagram("127.0.0.1", port, &sess, None, None).await?;
+                let (mut recv, mut send) = datagram.split();
+                send.send_to(b"x", &to).await?;
+                let mut buf = [0u8; 16];
+                let (_, from) =
+                    tokio::time::timeout(Duration::from_secs(10), recv.recv_from(&mut buf))
+                        .await??;
+                anyhow::Ok((from, echo_addr))
+            });
+            for id in ids {
+                assert!(sail::shutdown(id));
+            }
+            result
+        })?;
+        let (from, echo_addr) = from;
+        let expected = if disabled {
+            sail::session::SocksAddr::Ip(echo_addr)
+        } else {
+            sail::session::SocksAddr::Domain("resolve.test".into(), echo_addr.port())
+        };
+        anyhow::ensure!(from == expected, "disabled {}: from {}", disabled, from);
+    }
+    Ok(())
+}

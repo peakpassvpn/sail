@@ -101,6 +101,7 @@ impl OverriddenDatagram {
                 inner: recv,
                 origin: origin.clone(),
                 domain: domain.clone(),
+                unmap: true,
             },
             send: OverriddenSendHalf {
                 inner: send,
@@ -108,6 +109,18 @@ impl OverriddenDatagram {
                 domain,
             },
         }
+    }
+}
+
+impl OverriddenDatagram {
+    /// The same datagrams, whose answers come back from where they were
+    /// sent, not from the destination asked for, when `disabled`: a
+    /// rule's `udp_disable_domain_unmapping`, for an address a resolve
+    /// rule handed on, as sing-box's unidirectional NAT
+    /// (route/conn.go:238-241).
+    pub fn without_unmapping(mut self, disabled: bool) -> Self {
+        self.recv.unmap = !disabled;
+        self
     }
 }
 
@@ -126,13 +139,15 @@ struct OverriddenRecvHalf {
     inner: Box<dyn OutboundDatagramRecvHalf>,
     origin: SocksAddr,
     domain: SocksAddr,
+    /// Answers from `domain` come back from `origin`.
+    unmap: bool,
 }
 
 #[async_trait::async_trait]
 impl OutboundDatagramRecvHalf for OverriddenRecvHalf {
     async fn recv_from(&mut self, buf: &mut [u8]) -> io::Result<(usize, SocksAddr)> {
         let (n, from) = self.inner.recv_from(buf).await?;
-        if from == self.domain {
+        if self.unmap && from == self.domain {
             return Ok((n, self.origin.clone()));
         }
         Ok((n, from))

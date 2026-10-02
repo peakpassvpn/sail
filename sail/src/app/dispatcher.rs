@@ -827,8 +827,16 @@ impl Dispatcher {
                 // A destination a sniff or a rule overrode, or an address
                 // a resolve rule handed on, answers as the one asked for
                 // (route/conn.go:228-244).
+                // Answers to an address handed on come back from it, not
+                // from the domain, with `udp_disable_domain_unmapping`
+                // (route/conn.go:237-241).
                 if dialed != origin {
-                    d = Box::new(sniff::OverriddenDatagram::new(d, origin, dialed));
+                    let handed_on = dialed != sess.destination;
+                    d = Box::new(
+                        sniff::OverriddenDatagram::new(d, origin, dialed).without_unmapping(
+                            handed_on && sess.route.udp_disable_domain_unmapping,
+                        ),
+                    );
                 }
 
                 Ok((d, sess.route.udp_timeout))
