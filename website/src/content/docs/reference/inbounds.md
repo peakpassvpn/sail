@@ -795,9 +795,9 @@ Rust: [`TunInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/sr
 | `dns_mode` | string, one of `disabled`, `native`, `hijack` | — | Error: The TUN's own DNS handling: queries would be answered otherwise | — |
 | `dns_address` | listable-string | — | Error: The TUN's own DNS handling: queries would be answered otherwise | — |
 | `auto_route` | bool | `false` | Supported | Routes the system's traffic into the device. |
-| `iproute2_table_index` | number | unset | Supported | Linux: the routing table of the device's routes (2022). |
+| `iproute2_table_index` | number | unset | Supported | Linux: the routing table of the device's routes (2022). Elsewhere, or without `auto_route`, it changes nothing, and is ignored with a warning, as in sing-box; so is `iproute2_rule_index`. |
 | `iproute2_rule_index` | number | unset | Supported | Linux: the first of auto_route's and auto_redirect's ip rules (9000); the rules from it to 10 after it are sail's, and removed at start and stop. |
-| `auto_redirect` | bool | `false` | Supported | Linux: redirects TCP to sail with nftables and marks the rest into the device, and lets rules bypass sail before a connection is set up (sing-box 1.13). |
+| `auto_redirect` | bool | `false` | Supported | Linux: redirects TCP to sail with nftables and marks the rest into the device, and lets rules bypass sail before a connection is set up (sing-box 1.13). Without it, the fields of the redirect (its marks, NFQUEUE and fallback rule, and `exclude_mptcp`) change nothing, and are ignored with a warning, as in sing-box. |
 | `auto_redirect_input_mark` | number\|string | unset | Supported | The mark that routes a packet into the device (0x2023). Marks are numbers, or strings of hexadecimal ("0x2023"); 0 is the default. |
 | `auto_redirect_output_mark` | number\|string | unset | Supported | The mark sail's own sockets carry, and flows that bypass it (0x2024). `route.default_mark` and `routing_mark` conflict with it. |
 | `auto_redirect_reset_mark` | number\|string | unset | Supported | The mark of a connection pre-match rejects, which the kernel resets (0x2025). |

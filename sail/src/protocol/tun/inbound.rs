@@ -322,7 +322,9 @@ struct TunInboundOptions {
     auto_route: bool,
     /// Linux: redirects TCP to sail with nftables and marks the rest into
     /// the device, and lets rules bypass sail before a connection is set
-    /// up (sing-box 1.13).
+    /// up (sing-box 1.13). Without it, the fields of the redirect (its
+    /// marks, NFQUEUE and fallback rule, and `exclude_mptcp`) change
+    /// nothing, and are ignored with a warning, as in sing-box.
     #[serde(default)]
     auto_redirect: bool,
     /// The mark that routes a packet into the device (0x2023). Marks are
@@ -341,7 +343,9 @@ struct TunInboundOptions {
     /// be bound, sail runs without pre-match: `bypass` rules are skipped.
     #[serde(default)]
     auto_redirect_nfqueue: Option<u16>,
-    /// Linux: the routing table of the device's routes (2022).
+    /// Linux: the routing table of the device's routes (2022). Elsewhere,
+    /// or without `auto_route`, it changes nothing, and is ignored with a
+    /// warning, as in sing-box; so is `iproute2_rule_index`.
     #[serde(default)]
     iproute2_table_index: Option<u32>,
     /// Linux: the first of auto_route's and auto_redirect's ip rules
@@ -428,6 +432,9 @@ pub(crate) struct TunSettings {
     /// Android: the apps the host's VPN takes in or leaves out.
     pub include_package: Vec<String>,
     pub exclude_package: Vec<String>,
+    /// Fields set that this system does not act on, as sing-box ignores
+    /// them here: warned of when the TUN starts.
+    pub ignored: Vec<(&'static str, &'static str)>,
 }
 
 impl TunSettings {
@@ -630,6 +637,7 @@ pub(crate) fn options(inbound: &Inbound, host: &crate::runtime::Host) -> Result<
         .ok_or_else(|| error(format!("mtu {} is outside {minimum} to 65535", options.mtu)))?;
     let auto_redirect = auto_redirect(&options).map_err(error)?;
     let route = route_selection(&options).map_err(error)?;
+    let ignored = ignored_here(&options);
     Ok(TunSettings {
         name: options
             .interface_name
@@ -642,6 +650,7 @@ pub(crate) fn options(inbound: &Inbound, host: &crate::runtime::Host) -> Result<
         route,
         include_package: options.include_package,
         exclude_package: options.exclude_package,
+        ignored,
     })
 }
 
@@ -649,6 +658,67 @@ pub(crate) fn options(inbound: &Inbound, host: &crate::runtime::Host) -> Result<
 /// (its rules) and Windows (firewall rules against DNS leaks); elsewhere
 /// sing-box takes it and it changes nothing, as in sail.
 const STRICT_ROUTE_ACTS: bool = cfg!(any(target_os = "linux", target_os = "windows"));
+
+/// Whether the iproute2 table and rule indexes do anything here: they
+/// number Linux's ip rules; elsewhere sing-box takes them and they change
+/// nothing (sing-tun reads them in tun_linux.go only).
+const IPROUTE2_HERE: bool = cfg!(target_os = "linux");
+
+/// The fields of `options` set that change nothing, as set, with why:
+/// sing-box takes them and ignores them, and sail warns of them. Fields
+/// that choose traffic are never among them.
+fn ignored_here(options: &TunInboundOptions) -> Vec<(&'static str, &'static str)> {
+    let iproute2 = if !IPROUTE2_HERE {
+        Some("Linux only")
+    } else if !options.auto_route {
+        Some("only used with auto_route")
+    } else {
+        None
+    };
+    // sing-tun reads these in its redirect files only (redirect_*.go).
+    let redirect = (!options.auto_redirect).then_some("only used with auto_redirect");
+    [
+        (
+            "iproute2_table_index",
+            options.iproute2_table_index.is_some(),
+            iproute2,
+        ),
+        (
+            "iproute2_rule_index",
+            options.iproute2_rule_index.is_some(),
+            iproute2,
+        ),
+        ("exclude_mptcp", options.exclude_mptcp, redirect),
+        (
+            "auto_redirect_input_mark",
+            options.auto_redirect_input_mark.is_some(),
+            redirect,
+        ),
+        (
+            "auto_redirect_output_mark",
+            options.auto_redirect_output_mark.is_some(),
+            redirect,
+        ),
+        (
+            "auto_redirect_reset_mark",
+            options.auto_redirect_reset_mark.is_some(),
+            redirect,
+        ),
+        (
+            "auto_redirect_nfqueue",
+            options.auto_redirect_nfqueue.is_some(),
+            redirect,
+        ),
+        (
+            "auto_redirect_iproute2_fallback_rule_index",
+            options.auto_redirect_iproute2_fallback_rule_index.is_some(),
+            redirect,
+        ),
+    ]
+    .into_iter()
+    .filter_map(|(field, set, why)| why.filter(|_| set).map(|why| (field, why)))
+    .collect()
+}
 
 /// What `auto_route` takes, checked against what this system does: every
 /// field that chooses traffic is enforced or refused, never ignored.
@@ -674,17 +744,13 @@ fn route_selection(options: &TunInboundOptions) -> std::result::Result<RouteSele
         ("include_uid_range", !options.include_uid_range.is_empty()),
         ("exclude_uid", !options.exclude_uid.is_empty()),
         ("exclude_uid_range", !options.exclude_uid_range.is_empty()),
-        (
-            "iproute2_table_index",
-            options.iproute2_table_index.is_some(),
-        ),
-        ("iproute2_rule_index", options.iproute2_rule_index.is_some()),
     ];
     if let Some(field) = set(&choosing).filter(|_| !options.auto_route) {
         return Err(format!("{field}: needs `auto_route`"));
     }
     if !options.auto_redirect {
-        // The ip rules are Linux's; elsewhere sing-box has none of these.
+        // The ip rules are Linux's. Elsewhere sing-box ignores these, which
+        // would take in what they leave out.
         let rules = [
             ("include_interface", !options.include_interface.is_empty()),
             ("exclude_interface", !options.exclude_interface.is_empty()),
@@ -692,14 +758,11 @@ fn route_selection(options: &TunInboundOptions) -> std::result::Result<RouteSele
             ("include_uid_range", !options.include_uid_range.is_empty()),
             ("exclude_uid", !options.exclude_uid.is_empty()),
             ("exclude_uid_range", !options.exclude_uid_range.is_empty()),
-            (
-                "iproute2_table_index",
-                options.iproute2_table_index.is_some(),
-            ),
-            ("iproute2_rule_index", options.iproute2_rule_index.is_some()),
         ];
         if let Some(field) = set(&rules).filter(|_| !cfg!(target_os = "linux")) {
-            return Err(format!("{field}: Linux only"));
+            return Err(format!(
+                "{field}: only on Linux; ignoring it would send traffic the config excludes"
+            ));
         }
         // Route management of this system.
         let routes = [
@@ -776,33 +839,12 @@ fn route_selection(options: &TunInboundOptions) -> std::result::Result<RouteSele
 fn auto_redirect(
     options: &TunInboundOptions,
 ) -> std::result::Result<Option<AutoRedirectSettings>, String> {
-    let redirect_only = [
-        ("exclude_mptcp", options.exclude_mptcp),
-        ("loopback_address", !options.loopback_address.is_empty()),
-        (
-            "auto_redirect_input_mark",
-            options.auto_redirect_input_mark.is_some(),
-        ),
-        (
-            "auto_redirect_output_mark",
-            options.auto_redirect_output_mark.is_some(),
-        ),
-        (
-            "auto_redirect_reset_mark",
-            options.auto_redirect_reset_mark.is_some(),
-        ),
-        (
-            "auto_redirect_nfqueue",
-            options.auto_redirect_nfqueue.is_some(),
-        ),
-        (
-            "auto_redirect_iproute2_fallback_rule_index",
-            options.auto_redirect_iproute2_fallback_rule_index.is_some(),
-        ),
-    ];
     if !options.auto_redirect {
-        if let Some((field, _)) = redirect_only.iter().find(|(_, set)| *set) {
-            return Err(format!("{field}: sail takes it with auto_redirect only"));
+        // sing-box's stacks act on loopback_address too; sail's only with
+        // auto_redirect. The redirect's marks and the like change nothing
+        // without it: ignored_here warns of them.
+        if !options.loopback_address.is_empty() {
+            return Err("loopback_address: sail takes it with auto_redirect only".into());
         }
         return Ok(None);
     }
@@ -851,6 +893,9 @@ pub(crate) fn new(
         .clone()
         .filter(|platform| platform.opens_tun());
     let settings = options(&inbound, &dispatcher.env().host)?;
+    for (field, why) in &settings.ignored {
+        tracing::warn!("[{}] inbound: {}: ignored: {}", inbound.tag, field, why);
+    }
     if platform.is_none() {
         if let Some(field) = [
             ("include_package", !settings.include_package.is_empty()),
@@ -1248,8 +1293,8 @@ mod tests {
             "{err}"
         );
         // With auto_route alone: the routes take route_address on Linux and
-        // macOS, Linux's rules the uids; elsewhere they are refused, and
-        // what only auto_redirect does is refused everywhere.
+        // macOS, Linux's rules the uids; elsewhere they are refused, as
+        // ignoring them would take in what they leave out.
         for (field, value, elsewhere, here) in [
             (
                 "route_address",
@@ -1264,7 +1309,7 @@ mod tests {
             (
                 "include_uid",
                 serde_json::json!(1000),
-                "Linux only",
+                "only on Linux; ignoring it would send traffic the config excludes",
                 cfg!(target_os = "linux"),
             ),
         ] {
@@ -1278,15 +1323,44 @@ mod tests {
                 assert!(err.contains(field) && err.contains(elsewhere), "{err}");
             }
         }
+        // loopback_address sail takes with auto_redirect only, where
+        // sing-box's stacks act on it too: not ignored.
         let err = options(&tun(serde_json::json!({
             "address": "172.19.0.1/30", "auto_route": true,
-            "auto_redirect_output_mark": "0x100"
+            "loopback_address": "10.7.0.1"
         })))
         .unwrap_err()
         .to_string();
         assert!(
-            err.contains("auto_redirect_output_mark") && err.contains("auto_redirect only"),
+            err.contains("loopback_address") && err.contains("auto_redirect only"),
             "{err}"
+        );
+    }
+
+    /// What only auto_redirect reads changes nothing without it: sing-box
+    /// takes it and ignores it (sing-tun reads it in its redirect files
+    /// only), and sail warns of it.
+    #[test]
+    fn what_auto_redirect_reads_is_ignored_without_it() {
+        let settings = options(&tun(serde_json::json!({
+            "address": "172.19.0.1/30", "auto_route": true,
+            "auto_redirect_input_mark": "0x100", "auto_redirect_output_mark": "0x101",
+            "auto_redirect_reset_mark": "0x102", "auto_redirect_nfqueue": 7,
+            "auto_redirect_iproute2_fallback_rule_index": 30000, "exclude_mptcp": true
+        })))
+        .unwrap();
+        assert!(settings.auto_redirect.is_none());
+        let why = "only used with auto_redirect";
+        assert_eq!(
+            settings.ignored,
+            [
+                ("exclude_mptcp", why),
+                ("auto_redirect_input_mark", why),
+                ("auto_redirect_output_mark", why),
+                ("auto_redirect_reset_mark", why),
+                ("auto_redirect_nfqueue", why),
+                ("auto_redirect_iproute2_fallback_rule_index", why),
+            ]
         );
     }
 
@@ -1339,6 +1413,35 @@ mod tests {
         .unwrap_err()
         .to_string();
         assert!(err.contains("exclude each other"), "{err}");
+    }
+
+    /// The iproute2 indexes number Linux's ip rules, which auto_route
+    /// adds. Elsewhere, or without auto_route, sing-box takes them and does
+    /// nothing with them: sail warns of them, as a configuration written
+    /// for every system sets them.
+    #[test]
+    fn iproute2_indexes_are_ignored_where_they_change_nothing() {
+        for auto_route in [true, false] {
+            let settings = options(&tun(serde_json::json!({
+                "address": "172.19.0.1/30", "auto_route": auto_route,
+                "iproute2_table_index": 2100, "iproute2_rule_index": 9100
+            })))
+            .unwrap();
+            let why = match (cfg!(target_os = "linux"), auto_route) {
+                (true, true) => {
+                    assert!(settings.ignored.is_empty());
+                    assert_eq!(settings.route.table_index, 2100);
+                    assert_eq!(settings.route.rule_index, 9100);
+                    continue;
+                }
+                (true, false) => "only used with auto_route",
+                (false, _) => "Linux only",
+            };
+            assert_eq!(
+                settings.ignored,
+                [("iproute2_table_index", why), ("iproute2_rule_index", why)]
+            );
+        }
     }
 
     #[cfg(not(target_os = "linux"))]

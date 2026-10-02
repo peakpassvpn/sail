@@ -11625,7 +11625,7 @@
     },
     "iproute2_table_index": {
      "type": "number",
-     "description": "Linux: the routing table of the device's routes (2022)."
+     "description": "Linux: the routing table of the device's routes (2022). Elsewhere, or without `auto_route`, it changes nothing, and is ignored with a warning, as in sing-box; so is `iproute2_rule_index`."
     },
     "iproute2_rule_index": {
      "type": "number",
@@ -11633,7 +11633,7 @@
     },
     "auto_redirect": {
      "type": "boolean",
-     "description": "Linux: redirects TCP to sail with nftables and marks the rest into the device, and lets rules bypass sail before a connection is set up (sing-box 1.13)."
+     "description": "Linux: redirects TCP to sail with nftables and marks the rest into the device, and lets rules bypass sail before a connection is set up (sing-box 1.13). Without it, the fields of the redirect (its marks, NFQUEUE and fallback rule, and `exclude_mptcp`) change nothing, and are ignored with a warning, as in sing-box."
     },
     "auto_redirect_input_mark": {
      "anyOf": [
