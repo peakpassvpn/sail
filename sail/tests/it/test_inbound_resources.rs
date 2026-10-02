@@ -573,3 +573,54 @@ fn what_follows_the_files_stops_with_the_instance() -> Result<()> {
     );
     Ok(())
 }
+
+/// An instance a host embeds (`sail::embed`, which never watches a
+/// configuration file) follows its certificate files all the same.
+#[cfg(feature = "auto-reload")]
+#[test]
+fn an_embedded_instance_serves_a_replaced_certificate() -> Result<()> {
+    common::retry_port_clash(|| embedded_certificate_follow(common::free_port()))
+}
+
+#[cfg(feature = "auto-reload")]
+fn embedded_certificate_follow(port: u16) -> Result<()> {
+    use sail::embed::{Config, Instance, Options, Threads};
+
+    let dir = common::TempDir::new("embedded-certificate-follow")?;
+    let (cert_path, key_path) = (dir.join("cert.pem"), dir.join("key.pem"));
+    let first = rcgen::generate_simple_self_signed(vec!["localhost".into()])?;
+    let second = rcgen::generate_simple_self_signed(vec!["localhost".into()])?;
+    std::fs::write(&cert_path, first.cert.pem())?;
+    std::fs::write(&key_path, first.key_pair.serialize_pem())?;
+    let config = json!({
+        "inbounds": [{"type":"trojan", "tag":"server", "listen":"127.0.0.1", "listen_port":port,
+            "users":[{"name":"alice","password":"alice"}],
+            "tls":{"enabled":true,"certificate_path":cert_path,"key_path":key_path}}],
+        "outbounds":[{"type":"direct"}],
+    });
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()?;
+    let instance = Instance::new(Options::new().threads(Threads::One))
+        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    rt.block_on(instance.start(Config::Json(config.to_string())))
+        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    let result = (|| {
+        let old_cert = peer(&connect(port)?)?;
+        replace(&cert_path, second.cert.pem())?;
+        replace(&key_path, second.key_pair.serialize_pem())?;
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while peer(&connect(port)?)? == old_cert {
+            ensure!(
+                Instant::now() < deadline,
+                "an embedded instance did not serve the replaced certificate"
+            );
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        Ok(())
+    })();
+    rt.block_on(instance.stop())
+        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    result
+}
