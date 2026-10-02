@@ -12,6 +12,10 @@ jobs:
   # and the tests, in one job.
   check:
     runs-on: ubuntu-latest
+    env:
+      # Line numbers in a failing test's backtrace, without the full debug
+      # info, which only costs compile and link time and cache space here.
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
     steps:
       - name: checkout
         uses: actions/checkout@v4
@@ -51,15 +55,12 @@ jobs:
       - name: lint
         run: cargo clippy --workspace --all-targets -- -D warnings
 
-      - name: test sail
-        run: cargo test -p sail
-
-      - name: test sail-netstack
-        run: cargo test -p sail-netstack
-
-      # The C ABI as a host calls it, the command service included.
-      - name: test sail-ffi
-        run: cargo test -p sail-ffi
+      # sail, sail-netstack and sail-ffi (the C ABI as a host calls it, the
+      # command service included) in one run, so that sail is built once
+      # for all three: sail-ffi only adds sail's auto-reload feature, which
+      # the features job checks on its own as well.
+      - name: test
+        run: cargo test -p sail -p sail-netstack -p sail-ffi
 
       # include/sail.h is committed: it must be what cbindgen makes of the
       # source. The CLI is run, not linked (it is MPL-2.0); its binary is
@@ -186,13 +187,20 @@ jobs:
         with:
           toolchain: 1.98.1
 
-      # scripts/install_cross_toolchain.sh downloads into ~/.sail-cross. No
-      # build cache: the targets' builds would evict the check job's cache.
+      # scripts/install_cross_toolchain.sh downloads into ~/.sail-cross.
       - name: cache cross toolchain
         uses: actions/cache@v4
         with:
           path: ~/.sail-cross
           key: sail-cross-${{ matrix.name }}-${{ hashFiles('scripts/install_cross_toolchain.sh') }}
+
+      # The targets' dependencies (BoringSSL above all), one cache per job,
+      # saved from master only like the others; sail itself is rebuilt.
+      - name: cache build
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: cross-${{ matrix.name }}
+          save-if: ${{ github.ref == 'refs/heads/master' }}
 
       - name: install cross toolchains
         run: |
@@ -200,9 +208,9 @@ jobs:
             scripts/install_cross_toolchain.sh "$t" ${{ matrix.run && '--run' || '' }}
           done
 
-      # One target at a time, its output removed after use, so that the
-      # several targets of a job fit on the runner's disk; the host-side
-      # build (scripts, proc macros) is shared.
+      # One target at a time; the host-side build (scripts, proc macros) is
+      # shared, and each target's output stays for the build cache (the
+      # runner has the disk for it).
       - name: build, then smoke or nothing
         if: ${{ matrix.run != 'test' }}
         run: |
@@ -212,7 +220,6 @@ jobs:
             if [ "${{ matrix.run }}" = smoke ]; then
               scripts/cross.sh "$t" run -p sail-cli -- --version
             fi
-            rm -rf "target/$t"
             echo "::endgroup::"
           done
           df -h / | tail -1
