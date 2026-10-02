@@ -273,8 +273,18 @@ impl OutboundDatagram for HealthcheckUdpDatagram {
 }
 
 #[inline]
+/// The outbound `tag` with the members the groups on the way took,
+/// `group>member`, so that a failure names the member it is in.
+fn outbound_path(sess: &Session, tag: &str) -> String {
+    std::iter::once(tag.to_string())
+        .chain(sess.chain.get())
+        .collect::<Vec<_>>()
+        .join(">")
+}
+
 fn log_request(sess: &Session, outbound_tag: &str, handshake_time: Option<u128>) {
     let hs = handshake_time.map_or("failed".to_string(), |hs| format!("{}ms", hs));
+    let outbound_tag = outbound_path(sess, outbound_tag);
     let network = sess.network.to_string();
 
     #[cfg(feature = "rule-process-name")]
@@ -438,7 +448,7 @@ impl Dispatcher {
                         "connect outbound src={} dst={} out={} err={}",
                         &sess.source,
                         &sess.destination,
-                        &h.tag(),
+                        outbound_path(&sess, h.tag()),
                         e
                     );
                     log_request(&sess, h.tag(), None);
@@ -503,12 +513,22 @@ impl Dispatcher {
                         debug!("transfer end");
                     }
                     Err(e) => {
-                        debug!("transfer err={}", e);
+                        debug!(
+                            "transfer dst={} out={} err={}",
+                            &sess.destination,
+                            outbound_path(&sess, h.tag()),
+                            e
+                        );
                     }
                 }
             }
             Err(e) => {
-                debug!("outbound handle err={}", e);
+                debug!(
+                    "outbound handle dst={} out={} err={}",
+                    &sess.destination,
+                    outbound_path(&sess, h.tag()),
+                    e
+                );
                 log_request(&sess, h.tag(), None);
                 refuse(&sess, &mut lhs, &e).await;
             }
@@ -677,7 +697,12 @@ impl Dispatcher {
                 Ok((d, sess.route.udp_timeout))
             }
             Err(e) => {
-                debug!("outbound handle err={}", e);
+                debug!(
+                    "outbound handle dst={} out={} err={}",
+                    &sess.destination,
+                    outbound_path(&sess, h.tag()),
+                    e
+                );
                 log_request(&sess, h.tag(), None);
                 Err(e)
             }
@@ -920,6 +945,16 @@ async fn refuse<T: AsyncWrite + Unpin>(sess: &Session, lhs: &mut T, e: &io::Erro
 
 #[cfg(test)]
 mod tests {
+    /// A failure names the member a group took, not the group alone.
+    #[test]
+    fn the_outbound_path_names_the_members_taken() {
+        let sess = crate::session::Session::default();
+        assert_eq!(super::outbound_path(&sess, "direct"), "direct");
+        sess.chain.push("hk");
+        sess.chain.push("hk-ss");
+        assert_eq!(super::outbound_path(&sess, "selected"), "selected>hk>hk-ss");
+    }
+
     use std::net::IpAddr;
     use std::time::Duration;
 
