@@ -139,6 +139,28 @@ SHAPED = [
     ("rate2m", "delay 20ms rate 2mbit limit 85"),
 ]
 
+# rtt_step: one client, its connections kept, first on a link whose RTT
+# samples include some near zero (netem sends the reordered quarter of the
+# packets without the delay), then on a slower path with a deep queue
+# (150 ms, 50 Mbit/s, a 3000-packet queue of about 0.7 s). A congestion
+# controller that keeps the first phase's minimum RTT for good sizes its
+# window for that path and crawls in the second: quinn's BBR did, before
+# sail's fork made the minimum expire after 10 s. Measured 2026-10-03, hy2,
+# what sail sends in the second phase, 2 runs each: 2.3-2.8 Mbit/s before,
+# 20-27 after as client and 39-41 as server (the first 10 s of it still
+# under the old minimum). An unshaped or a plain 10 ms first phase does not
+# show it: their bandwidth samples are high, and the window stays large
+# (45 Mbit/s before and after).
+RTT_STEP_LOW = "delay 20ms reorder 25% 50%"
+RTT_STEP_HIGH = "delay 75ms rate 50mbit limit 3000"
+# Bytes per stream: the first phase runs at a few Mbit/s, about 10-20 s a
+# transfer; the second about 6 s each at the link's rate.
+RTT_STEP_BYTES = {"low": 2 << 20, "high": 8 << 20}
+# The least a sail side sends at in the second phase: 30 % of the link.
+# Between the measurements above (at most 2.8 before, at least 20 after); a
+# judgement.
+RTT_STEP_MIN_MBPS = 15
+
 # Bytes each bulk stream moves: enough to reach steady state, small enough
 # for the slow links.
 BULK_BYTES = {"rate10m": 8 << 20, "rate2m": 2 << 20, "rtt300": 16 << 20,
@@ -725,6 +747,33 @@ class Run:
             self.fail(f"soak: resting RSS grew {growth:.1%} from hour 2 to the last")
         print(f"  {self.name} soak: {json.dumps(res)}", flush=True)
 
+    def rtt_step(self, sampler):
+        """A step in RTT under one client: bulk both ways under RTT_STEP_LOW,
+        then under RTT_STEP_HIGH, upload first, with nothing restarted. In
+        the second phase every stream must arrive, and what a sail side
+        sends must reach RTT_STEP_MIN_MBPS."""
+        for phase, spec in (("low", RTT_STEP_LOW), ("high", RTT_STEP_HIGH)):
+            netns("shape", spec)
+            plan = ("bulk_down", "bulk_up") if phase == "low" else ("bulk_up", "bulk_down")
+            for workload in plan:
+                idle_before = self.idle(sampler, settle=1)
+                m = sampler.mark()
+                res = self.netgen("bulk", "-streams 4", f"-bytes {RTT_STEP_BYTES[phase]}",
+                                  f"-dir {workload.split('_')[1]}")
+                self.record(f"rtt_step-{phase}", workload, res, sampler.since(m), idle_before,
+                            None)
+                self.check(f"rtt_step-{phase}", workload, res)
+                print(f"  {self.name} rtt_step {phase} {workload}: {brief(res)}", flush=True)
+                if phase != "high":
+                    continue
+                if res.get("ok") != 4 or res.get("failed"):
+                    self.fail(f"rtt_step-high/{workload}: {res.get('ok')} of 4 streams arrived")
+                sender = self.client if workload == "bulk_up" else self.server
+                if sender.startswith("sail") and (res.get("mbps") or 0) < RTT_STEP_MIN_MBPS:
+                    self.fail(f"rtt_step-high/{workload}: {res.get('mbps') or 0:.1f} Mbit/s, "
+                              f"under {RTT_STEP_MIN_MBPS}")
+        netns("clear")
+
     def concurrency(self, sampler):
         idle_before = self.idle(sampler, settle=2)
         m = sampler.mark()
@@ -786,6 +835,8 @@ class Run:
         # route reaches, and follows the default interface.
         if self.args.only == "route_switch":
             self.route_switch(sampler)
+        if not self.args.only or any("rtt_step" in o for o in self.args.only_list):
+            self.rtt_step(sampler)
         if not self.args.only or any("concurrency" in o for o in self.args.only_list):
             self.concurrency(sampler)
         if not self.args.only or any("halfclose" in o for o in self.args.only_list):
@@ -941,7 +992,7 @@ def main():
     ap.add_argument("--servers", default="sing-box")
     ap.add_argument("--only", default="",
                     help="only these scenarios, comma-separated: each a part of a shaped "
-                         "scenario's name, or disconnect, concurrency, halfclose; "
+                         "scenario's name, or disconnect, rtt_step, concurrency, halfclose; "
                          "route_switch alone, as a run of its own")
     ap.add_argument("--shape", action="append", default=[], metavar="NAME=SPEC",
                     help="a shaped scenario of one's own, after the fixed ones: NAME, and "

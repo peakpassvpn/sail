@@ -23,7 +23,7 @@ python3 run.py --work WORK --sail WORK/sail --netgen WORK/netgen
 python3 run.py --protocols direct --clients sail-server --only baseline --quick   # 冒烟
 ```
 
-`--protocols` 取 `direct,ss,trojan,vless,reality,hy2,tuic,tuic-cubic,tuic-bbr,mux,h2mux,smux`（默认前三个；`vless` 是 TLS 上的 vless、不带 flow；`reality` 是 vless+REALITY+vision，握手目标是服务端 netns 里的 `openssl s_server`；`tuic` 两端都用 bbr，`tuic-cubic`、`tuic-bbr` 显式指定两端的拥塞控制；`mux` 是开了 sing-mux 的 trojan（max_connections 4，默认协议），`h2mux`、`smux` 指定其多路复用协议）；`--clients` 取 `sail-server,sail-mobile,sing-box`（sail 的运行档位，或 sing-box 作对照）；`--inbound tun` 让客户端改用 tun 入站（auto_route，接管客户端 netns 的全部流量），netgen 直接连目标，走的是 TUN 路径而不是 SOCKS；`--only` 只跑名字含该子串的场景，可用逗号分隔多个（如 `--only baseline,rate10m`；`disconnect`、`concurrency`、`halfclose` 选对应的一组）；`--shape NAME=SPEC` 加一个自定的受限场景（SPEC 是 netem 的参数，如 `rtt100='delay 50ms'`；限速时要自带 `limit`），配合 `--only NAME` 单独跑；`--churn-rates` 设并发场景里 churn 阶段每秒新建的连接数，逗号分隔，默认 `200,500`；`--quick` 缩短每项负载；`--client-set KEY=VALUE` 把 sail 的 `--set` 传给被测客户端（可重复）；`--only route_switch` 单独跑默认路由切换（客户端经默认路由连服务端并跟随默认网卡）。
+`--protocols` 取 `direct,ss,trojan,vless,reality,hy2,tuic,tuic-cubic,tuic-bbr,mux,h2mux,smux`（默认前三个；`vless` 是 TLS 上的 vless、不带 flow；`reality` 是 vless+REALITY+vision，握手目标是服务端 netns 里的 `openssl s_server`；`tuic` 两端都用 bbr，`tuic-cubic`、`tuic-bbr` 显式指定两端的拥塞控制；`mux` 是开了 sing-mux 的 trojan（max_connections 4，默认协议），`h2mux`、`smux` 指定其多路复用协议）；`--clients` 取 `sail-server,sail-mobile,sing-box`（sail 的运行档位，或 sing-box 作对照）；`--inbound tun` 让客户端改用 tun 入站（auto_route，接管客户端 netns 的全部流量），netgen 直接连目标，走的是 TUN 路径而不是 SOCKS；`--only` 只跑名字含该子串的场景，可用逗号分隔多个（如 `--only baseline,rate10m`；`disconnect`、`rtt_step`、`concurrency`、`halfclose` 选对应的一组）；`--shape NAME=SPEC` 加一个自定的受限场景（SPEC 是 netem 的参数，如 `rtt100='delay 50ms'`；限速时要自带 `limit`），配合 `--only NAME` 单独跑；`--churn-rates` 设并发场景里 churn 阶段每秒新建的连接数，逗号分隔，默认 `200,500`；`--quick` 缩短每项负载；`--client-set KEY=VALUE` 把 sail 的 `--set` 传给被测客户端（可重复）；`--only route_switch` 单独跑默认路由切换（客户端经默认路由连服务端并跟随默认网卡）。
 
 `--servers` 里的 `sail` 以 `--server-profile` 档位运行（默认 `server`）。2026-10-03 之前 sail 服务端不带 `--profile`，跑的是默认的桌面档位，那之前“sail 作服务端”的结果都属于桌面档位。每项负载除了客户端的 `cpu_s`，还记录协议服务端进程的 `server_cpu_s`（同一时段，/proc 的 utime+stime）。
 
@@ -41,13 +41,16 @@ python3 run.py --protocols direct --clients sail-server --only baseline --quick 
 | rtt50 / rtt150 / rtt300 | 往返延迟，±10% 正态抖动，包保持顺序（netem 加 `rate 100gbit`；只有抖动时 netem 会按各包的延迟乱序发出，测到的是乱序容忍度。2026-10-02 之前的 rtt* 结果属于这种情况） |
 | loss0.5 / loss2 / loss5 | 随机丢包，10ms 单向延迟 |
 | burst2 | Gilbert-Elliott 突发丢包，平均约 2% |
-| reorder5 / reorder25 | 乱序，20ms 单向延迟 |
+| reorder5 / reorder25 | 乱序，20ms 单向延迟。netem 让被乱序的包不经过延迟直接发出，RTT 样本里会有接近 0 的值：以最小 RTT 定窗口的拥塞控制（BBR）在这两格的结果混有这个假象，不是纯粹的乱序容忍度；rtt_step 有意用它触发问题 |
 | rate10m / rate2m | 限速，20ms 单向延迟 |
 | blackhole5 / blackhole30 | 双向全丢 5s / 30s，链路保持 up |
 | linkdown10 | 客户端一侧链路 down 10s |
 | server_restart | 服务端进程重启 |
+| rtt_step | 同一个客户端进程（连接不断）先在 RTT 样本里有接近 0 的链路上跑，再换到 150ms、50Mbit/s、深队列的链路上跑，见下 |
 | concurrency | 2000 条并发连接保持后逐条验证；200/s、500/s 的短连接 |
 | halfclose | 两个方向的半关闭各 50 次，无损和 2% 丢包下 |
+
+rtt_step 分两段，中间不重启任何进程，QUIC 类协议的那一条连接一直保持。第一段用 `delay 20ms reorder 25% 50%`：被乱序的那四分之一的包不经过延迟，RTT 样本里有接近 0 的值，速率只有几 Mbit/s；先下行后上行各一次大块传输（4 条流 × 2 MiB，各约 10–20 秒）。随后约 1 秒内换上 `delay 75ms rate 50mbit limit 3000`（RTT 150ms，队列约 0.7 秒），第二段先上行后下行各一次（4 条流 × 8 MiB，按链路速率各约 6 秒）。通过的标准：第二段两次传输的 4 条流都完整送达（netgen 的任一读写 10 秒没有进展、或上行发完后 120 秒内等不到服务端的校验结果，都算失败），并且由 sail 发送的那一向（sail 作客户端时的上行、作服务端时的下行）不低于 15 Mbit/s，即链路的 30%。最小 RTT 若一直沿用第一段测到的值，拥塞窗口只剩几个包：sail 的 quinn fork 修正 BBR 之前，sail 在第二段发送的速率是 2.3–2.8 Mbit/s（作客户端连 sing-box 或 sail 的上行，作服务端的下行，各 2 次）；修正后作客户端 20–27 Mbit/s、作服务端 39–41 Mbit/s（其中头 10 秒旧的最小值还在）。15 是这两组测量之间的判断值。第一段不整形或只是 10ms 延迟时测不出这个问题：那时的带宽样本高，窗口不会缩小（修正前后都是 45 Mbit/s）。
 
 ## 判定
 
