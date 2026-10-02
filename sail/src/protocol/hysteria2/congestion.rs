@@ -12,7 +12,7 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use quinn::congestion::{BbrConfig, Controller, ControllerFactory};
+use quinn::congestion::{BbrConfig, Controller, ControllerFactory, ControllerMetrics};
 use quinn_proto::RttEstimator;
 
 /// Selects the controller of one connection: BBR, or Brutal at a rate.
@@ -117,6 +117,19 @@ impl Controller for Switch {
         match self.handle.brutal_rate() {
             Some(bps) => self.brutal.window(bps),
             None => self.bbr.window(),
+        }
+    }
+
+    /// The selected controller's: BBR's own, with its pacing rate, or
+    /// Brutal's window alone, which quinn paces at 5/4 of a window per RTT.
+    fn metrics(&self) -> ControllerMetrics {
+        match self.handle.brutal_rate() {
+            Some(bps) => {
+                let mut metrics = ControllerMetrics::default();
+                metrics.congestion_window = self.brutal.window(bps);
+                metrics
+            }
+            None => self.bbr.metrics(),
         }
     }
 
@@ -277,5 +290,25 @@ mod tests {
         handle.set_bbr();
         assert_eq!(controller.window(), bbr_window);
         controller.on_mtu_update(1400);
+    }
+
+    /// quinn reads a controller's metrics, and with them BBR's pacing rate,
+    /// through the controller it built: the Switch.
+    #[test]
+    fn the_switch_reports_the_selected_controllers_metrics() {
+        let handle = CongestionHandle::default();
+        let now = Instant::now();
+        let controller = handle.factory().build(now, 1200);
+        let bbr = BbrConfig::default();
+        let bbr = Arc::new(bbr).build(now, 1200);
+        let (via_switch, own) = (controller.metrics(), bbr.metrics());
+        assert!(own.pacing_rate.is_some());
+        assert_eq!(via_switch.pacing_rate, own.pacing_rate);
+        assert_eq!(via_switch.congestion_window, own.congestion_window);
+
+        handle.set_brutal(10_000_000);
+        let metrics = controller.metrics();
+        assert_eq!(metrics.pacing_rate, None);
+        assert_eq!(metrics.congestion_window, INITIAL_WINDOW);
     }
 }
