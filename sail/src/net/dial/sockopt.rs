@@ -157,36 +157,35 @@ pub fn dont_fragment(socket: SockRef<'_>, ipv6: bool) -> io::Result<()> {
     {
         use std::os::windows::io::AsRawSocket;
         use windows_sys::Win32::Networking::WinSock;
-        // IP_MTU_DISCOVER, IPV6_MTU_DISCOVER and IP_PMTUDISC_DO, from
-        // ws2ipdef.h, as sing-box sets them.
-        const MTU_DISCOVER: i32 = 71;
-        const IP_PMTUDISC_DO: i32 = 1;
-        let set = |level: i32| {
-            let value = IP_PMTUDISC_DO;
+        // IP_DONTFRAGMENT and IPV6_DONTFRAG, the options quinn-udp sets on
+        // every socket it is given, so that it sets them again to what
+        // they are. sing-box sets IP_MTU_DISCOVER to IP_PMTUDISC_DO
+        // instead; on a socket with that, quinn-udp failed with WSAEINVAL
+        // in the Windows test runs, so a QUIC outbound with
+        // `udp_fragment: false` could not open its endpoint.
+        let set = |level: i32, name: i32| {
+            let value: u32 = 1;
             let ret = unsafe {
                 WinSock::setsockopt(
                     socket.as_raw_socket() as WinSock::SOCKET,
                     level,
-                    MTU_DISCOVER,
-                    &value as *const i32 as *const u8,
-                    std::mem::size_of::<i32>() as i32,
+                    name,
+                    &value as *const u32 as *const u8,
+                    std::mem::size_of::<u32>() as i32,
                 )
             };
             if ret != 0 {
-                let e = io::Error::last_os_error();
-                // A system without the option sends as it would.
-                if e.raw_os_error() != Some(WinSock::WSAENOPROTOOPT) {
-                    return Err(e);
-                }
+                return Err(io::Error::last_os_error());
             }
             Ok(())
         };
         if ipv6 {
-            set(WinSock::IPPROTO_IPV6)?;
-            let _ = set(WinSock::IPPROTO_IP);
+            set(WinSock::IPPROTO_IPV6, WinSock::IPV6_DONTFRAG)?;
+            // For the IPv4 it sends, dual-stack.
+            let _ = set(WinSock::IPPROTO_IP, WinSock::IP_DONTFRAGMENT);
             Ok(())
         } else {
-            set(WinSock::IPPROTO_IP)
+            set(WinSock::IPPROTO_IP, WinSock::IP_DONTFRAGMENT)
         }
     }
     #[cfg(not(any(
