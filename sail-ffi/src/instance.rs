@@ -405,12 +405,14 @@ pub extern "C" fn sail_instance_free(instance: SailInstance) {
 /// @param options JSON: `{"path"}`, a unix socket (an iOS app's group
 ///     container's, an Android app's files directory's), made readable
 ///     and writable by the app's user only, a stale file there replaced,
-///     the path at most 103 bytes on Darwin and 107 on Linux; or
-///     `{"port", "secret"}`, loopback TCP, every call carrying the
-///     secret (32 characters at least, as `sail generate secret` makes).
+///     the path at most 103 bytes on Darwin and 107 on Linux, on Unix
+///     only; or `{"port", "secret"}`, loopback TCP, every call carrying
+///     the secret (32 characters at least, as `sail generate secret`
+///     makes), the only one on Windows.
 /// @return SAIL_ERR_STATE when a service answers at the path already;
 ///     SAIL_ERR_CONFIG for options that do not read; SAIL_ERR_UNSUPPORTED
-///     in a build without the command service.
+///     in a build without the command service, or for a path on
+///     Windows.
 #[no_mangle]
 pub unsafe extern "C" fn sail_instance_serve(
     instance: SailInstance,
@@ -428,6 +430,10 @@ pub unsafe extern "C" fn sail_instance_serve(
             if let Some(options) = options {
                 let address = crate::command::Address::read(options, false)
                     .map_err(crate::command::listen_failure)?;
+                #[cfg(not(unix))]
+                if !matches!(address, crate::command::Address::Tcp(..)) {
+                    return Err(crate::command::off_unix());
+                }
                 let server = crate::command::server::serve(&instance, address)?;
                 *lock(&instance.server) = Some(server);
             }
@@ -453,10 +459,12 @@ pub unsafe extern "C" fn sail_instance_serve(
 ///
 /// @param options JSON: `{"path"}`, `{"port", "secret"}`, or `{"fd"}`, a
 ///     connected socket the host has (a macOS system extension's, passed
-///     over XPC), which the client owns from then on.
+///     over XPC), which the client owns from then on. `{"path"}` and
+///     `{"fd"}` are Unix only: on Windows only `{"port", "secret"}`.
 /// @param out Takes the client's handle.
 /// @return SAIL_ERR_IO when no service answers; SAIL_ERR_UNSUPPORTED in a
-///     build without the command service.
+///     build without the command service, or for a path or descriptor on
+///     Windows.
 #[no_mangle]
 pub unsafe extern "C" fn sail_client_connect(
     options: *const c_char,

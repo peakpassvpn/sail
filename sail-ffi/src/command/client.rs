@@ -73,9 +73,7 @@ impl Client {
         // Off Unix the service listens on loopback TCP only.
         #[cfg(not(unix))]
         if !matches!(address, Address::Tcp(..)) {
-            return Err(Failure::invalid(
-                "a unix socket or descriptor: not on this system, only port with secret",
-            ));
+            return Err(super::off_unix());
         }
         let events = Events::new(NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed))?;
         let secret = match &address {
