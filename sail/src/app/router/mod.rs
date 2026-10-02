@@ -289,6 +289,7 @@ impl Options {
             // What was resolved is of the destination before (route/route.go:633-635).
             if self.override_address.is_some() {
                 sess.route.resolved.clear();
+                sess.route.resolved_for_every_outbound = false;
             }
             let port = self.override_port.unwrap_or(sess.destination.port());
             sess.destination = match self.override_address.as_ref().unwrap_or(&sess.destination) {
@@ -668,6 +669,7 @@ impl Router {
         let pre_match = sniffer.is_none();
         sess.matched_rule = None;
         sess.route.resolved.clear();
+        sess.route.resolved_for_every_outbound = false;
         // The network as it is when the connection is matched, for every
         // rule alike.
         let network = self.network.as_ref().map(|n| n.snapshot());
@@ -711,6 +713,7 @@ impl Router {
                                 .resolve_as(how, &domain, sess, network.as_ref())
                                 .await?;
                             sess.route.resolved = resolved.clone();
+                            sess.route.resolved_for_every_outbound = false;
                             facts = facts_of(sess, &resolved);
                         }
                     }
@@ -789,6 +792,7 @@ impl Router {
                                 .resolve_as(how, &domain, sess, network.as_ref())
                                 .await?;
                             sess.route.resolved = resolved.clone();
+                            sess.route.resolved_for_every_outbound = true;
                         }
                     }
                 }

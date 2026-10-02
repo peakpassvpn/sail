@@ -70,6 +70,7 @@ mod test_route_dns;
 mod test_route_network;
 mod test_route_on_demand;
 mod test_route_pass;
+mod test_route_resolve_proxy;
 mod test_route_sing_box;
 mod test_rule_set;
 mod test_shadowsocks;

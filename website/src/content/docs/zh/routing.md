@@ -166,6 +166,11 @@ Sail 另外提供三个字段：`override_destination` 改为连接嗅探到的�
 
 把它放在需要解析结果的 IP 类规则之前。`server` 和 `strategy` 可为这次解析覆盖 DNS 规则与 `dns.strategy`。与 sing-box 一致，域名解析失败时连接失败；Sail 的 `ignore_failure` 改为不带地址继续匹配，Sail 的 `on_demand` 则只在后续规则需要地址时才解析。DNS 策略与缓存行为来自顶层 [`dns`](/sail/zh/configuration/#dns) 配置。
 
+两种解析在之后如何使用地址上有所不同，这关系到隐私：
+
+- 普通的 `resolve` 动作与 sing-box 一致：地址交给连接所走的任一出站。代理出站发给服务器的是 IP 地址而不是域名，因此由本地 DNS 决定连接去向，代理服务器看不到域名。
+- `on_demand` 解析（Clash 与 Surge 的 IP 规则，如未加 `no-resolve` 的 `IP-CIDR`、`GEOIP`，都会转换成它）与 Mihomo 一致：地址只用于匹配和直连出站。代理出站发送的仍是域名，由代理服务器解析。
+
 ## 选择网络（network_strategy）
 
 `network_strategy` 决定在主机的哪些网卡之间选择。它是所有出站都有的拨号字段；写在 `route` 或 `route-options` 规则上时，只在连接经直连出站发出时生效。

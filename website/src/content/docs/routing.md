@@ -175,6 +175,11 @@ A `resolve` action resolves a domain so later IP, CIDR or GeoIP rules can evalua
 
 Place this before the IP-based rules that need the result. `server` and `strategy` override the DNS rules and `dns.strategy` for this lookup. As in sing-box, a domain that does not resolve fails the connection. Sail's `ignore_failure` lets matching continue with no addresses instead, and Sail's `on_demand` resolves only when a later rule needs the addresses. DNS strategy and cache behavior come from the top-level [`dns`](/sail/configuration/#dns) section.
 
+What happens to the addresses afterwards differs between the two kinds of resolve, and it matters for privacy:
+
+- A plain `resolve` action works as in sing-box: the addresses go to whatever outbound the connection takes. A proxy outbound sends its server the IP address, not the domain, so the local DNS decides where the connection goes and the proxy server never sees the name.
+- An `on_demand` resolve, which Clash and Surge IP rules (`IP-CIDR`, `GEOIP` and the like, without `no-resolve`) turn into, works as in Mihomo: the addresses are only for matching and for a direct outbound. A proxy outbound still sends the domain, and the proxy server resolves it.
+
 ## Choosing a network (network_strategy)
 
 `network_strategy` chooses among the host's interfaces. It is a dial field of any outbound. On a `route` or `route-options` rule it applies when the connection goes out of a direct outbound.

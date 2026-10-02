@@ -9,6 +9,8 @@ Every field Mihomo v1.19.31 takes, and how sail reads it: measured by reading a 
 - `size-limit`: a download past it fails, and what was held before is kept; Mihomo cuts the body at the limit and reads what is left of it.
 - A download is not redirected from https to http, nor to another scheme, which Mihomo's client follows: what the request carries, a subscription's token, would go in the clear.
 
+As in Mihomo, a rule on addresses (`IP-CIDR`, `GEOIP` and the like, without `no-resolve`) resolves a domain only to match it: a direct outbound dials the address it resolved to, while a proxy's server is still sent the domain.
+
 | Section | Fields | Supported | Warned | Error |
 |---|--:|--:|--:|--:|
 | `clash-for-android` | 3 | 0 | 3 | 0 |

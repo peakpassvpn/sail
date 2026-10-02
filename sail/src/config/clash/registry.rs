@@ -334,7 +334,10 @@ const EN: Words = Words {
 - `size-limit`: a download past it fails, and what was held before is kept; Mihomo cuts \
   the body at the limit and reads what is left of it.\n\
 - A download is not redirected from https to http, nor to another scheme, which Mihomo's \
-  client follows: what the request carries, a subscription's token, would go in the clear.",
+  client follows: what the request carries, a subscription's token, would go in the clear.\n\n\
+As in Mihomo, a rule on addresses (`IP-CIDR`, `GEOIP` and the like, without `no-resolve`) \
+resolves a domain only to match it: a direct outbound dials the address it resolved to, \
+while a proxy's server is still sent the domain.",
     summary: "| Section | Fields | Supported | Warned | Error |",
     head: "| Field | sail | What sail says |",
     tiers: ["Supported", "Warned", "Error", "Unknown"],
@@ -356,7 +359,8 @@ const ZH: Words = Words {
             支持：读取（或仅因取值被拒）。警告：丢弃并警告。报错：未实现，拒绝。",
     differences: "## 有意的差异\n\n\
 - `size-limit`：下载超过它即失败，保留原有内容；Mihomo 会在上限处截断并读取截断后的内容。\n\
-- 下载不跟随从 https 到 http 或到其他协议的重定向（Mihomo 的客户端会跟随）：请求携带的内容（如订阅令牌）会以明文传出。",
+- 下载不跟随从 https 到 http 或到其他协议的重定向（Mihomo 的客户端会跟随）：请求携带的内容（如订阅令牌）会以明文传出。\n\n\
+与 Mihomo 一致，地址规则（`IP-CIDR`、`GEOIP` 等，未加 `no-resolve`）解析域名只为匹配：直连出站连接解析出的地址，代理服务器收到的仍是域名。",
     summary: "| 部分 | 字段 | 支持 | 警告 | 报错 |",
     head: "| 字段 | sail | sail 的说明 |",
     tiers: ["支持", "警告", "报错", "未知"],

@@ -440,31 +440,6 @@ impl Dispatcher {
         sess.chain = Default::default();
 
         let handshake_start = tokio::time::Instant::now();
-        let stream =
-            match crate::net::connect_stream_routed(&sess, self.dns_client.clone(), &h).await {
-                Ok(s) => s,
-                Err(e) => {
-                    debug!(
-                        "connect outbound src={} dst={} out={} err={}",
-                        &sess.source,
-                        &sess.destination,
-                        outbound_path(&sess, h.tag()),
-                        e
-                    );
-                    log_request(&sess, h.tag(), None);
-                    refuse(&sess, &mut lhs, &e).await;
-                    return;
-                }
-            };
-
-        let (stream, stats_wrapped) = if let Some(s) = stream {
-            let s = self.stat_manager.stat_stream(s, sess.clone());
-            (Some(s), true)
-        } else {
-            lhs = self.stat_manager.stat_inbound_stream(lhs, sess.clone());
-            (None, true)
-        };
-
         let th = match h.stream() {
             Ok(th) => th,
             Err(e) => {
@@ -473,7 +448,58 @@ impl Dispatcher {
                 return;
             }
         };
-        match th.handle(&sess, Some(&mut lhs), stream).await {
+        // Each address a resolve rule handed on, in turn, the first that
+        // connects taken; or the destination.
+        let mut handshake = Err(io::Error::other("nowhere to connect"));
+        let mut lhs_counted = false;
+        for to in net::destinations(&sess, &th.connect_addr()) {
+            let attempt;
+            let at = if to == sess.destination {
+                &sess
+            } else {
+                attempt = Session {
+                    destination: to,
+                    ..sess.clone()
+                };
+                &attempt
+            };
+            let stream =
+                match crate::net::connect_stream_routed(at, self.dns_client.clone(), &h).await {
+                    Ok(s) => s,
+                    Err(e) => {
+                        debug!(
+                            "connect outbound src={} dst={} out={} err={}",
+                            &at.source,
+                            &at.destination,
+                            outbound_path(at, h.tag()),
+                            e
+                        );
+                        handshake = Err(e);
+                        continue;
+                    }
+                };
+            let stream = match stream {
+                Some(s) => Some(self.stat_manager.stat_stream(s, sess.clone())),
+                None => {
+                    if !lhs_counted {
+                        lhs = self.stat_manager.stat_inbound_stream(lhs, sess.clone());
+                        lhs_counted = true;
+                    }
+                    None
+                }
+            };
+            handshake = th.handle(at, Some(&mut lhs), stream).await;
+            match &handshake {
+                Ok(_) => break,
+                Err(e) => debug!(
+                    "outbound handle dst={} out={} err={}",
+                    &at.destination,
+                    outbound_path(at, h.tag()),
+                    e
+                ),
+            }
+        }
+        match handshake {
             Ok(mut rhs) => {
                 // Connected: the inbound's client is told so before the
                 // first bytes either way.
@@ -486,10 +512,6 @@ impl Dispatcher {
                 let elapsed = tokio::time::Instant::now().duration_since(handshake_start);
 
                 log_request(&sess, h.tag(), Some(elapsed.as_millis()));
-
-                if !stats_wrapped {
-                    rhs = self.stat_manager.stat_stream(rhs, sess.clone());
-                }
 
                 match net::relay::copy_buf_bidirectional_with_timeout(
                     &mut lhs,
@@ -583,8 +605,24 @@ impl Dispatcher {
         })?;
         sess.outbound_tag = h.tag().clone();
         sess.chain = Default::default();
-        let stream = crate::net::connect_stream_routed(&sess, self.dns_client.clone(), &h).await?;
-        h.stream()?.handle(&sess, None, stream).await
+        let th = h.stream()?;
+        let mut handshake = Err(io::Error::other("nowhere to connect"));
+        for to in net::destinations(&sess, &th.connect_addr()) {
+            let at = Session {
+                destination: to,
+                ..sess.clone()
+            };
+            handshake = async {
+                let stream =
+                    crate::net::connect_stream_routed(&at, self.dns_client.clone(), &h).await?;
+                th.handle(&at, None, stream).await
+            }
+            .await;
+            if handshake.is_ok() {
+                break;
+            }
+        }
+        handshake
     }
 
     /// Datagrams to the session's destination through the outbound `tag`,
@@ -745,10 +783,37 @@ impl Dispatcher {
         let handshake_start = tokio::time::Instant::now();
 
         debug!("connect datagram outbound={}", h.tag());
-        let transport =
-            crate::net::connect_datagram_routed(&sess, self.dns_client.clone(), &h).await?;
+        let dh = h.datagram()?;
+        // Each address a resolve rule handed on, in turn, the first that
+        // opens taken; or the destination.
+        let mut handshake = Err(io::Error::other("nowhere to send"));
+        let mut dialed = sess.destination.clone();
+        for to in net::destinations(&sess, &dh.connect_addr()) {
+            let at = Session {
+                destination: to,
+                ..sess.clone()
+            };
+            handshake = async {
+                let transport =
+                    crate::net::connect_datagram_routed(&at, self.dns_client.clone(), &h).await?;
+                dh.handle(&at, transport).await
+            }
+            .await;
+            match &handshake {
+                Ok(_) => {
+                    dialed = at.destination;
+                    break;
+                }
+                Err(e) => debug!(
+                    "outbound handle dst={} out={} err={}",
+                    &at.destination,
+                    outbound_path(&at, h.tag()),
+                    e
+                ),
+            }
+        }
 
-        match h.datagram()?.handle(&sess, transport).await {
+        match handshake {
             Ok(mut d) => {
                 let elapsed = tokio::time::Instant::now().duration_since(handshake_start);
 
@@ -759,14 +824,11 @@ impl Dispatcher {
                 if reverse_mapping && sess.destination.port() == 53 {
                     d = Box::new(SniffingDatagram::new(d, self.env.reverse_map.clone()));
                 }
-                // A destination a sniff or a rule overrode answers as the
-                // one asked for.
-                if sess.destination != origin {
-                    d = Box::new(sniff::OverriddenDatagram::new(
-                        d,
-                        origin,
-                        sess.destination.clone(),
-                    ));
+                // A destination a sniff or a rule overrode, or an address
+                // a resolve rule handed on, answers as the one asked for
+                // (route/conn.go:228-244).
+                if dialed != origin {
+                    d = Box::new(sniff::OverriddenDatagram::new(d, origin, dialed));
                 }
 
                 Ok((d, sess.route.udp_timeout))

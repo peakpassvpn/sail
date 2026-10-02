@@ -383,6 +383,33 @@ fn resolved<'a>(sess: &'a Session, dialer: &Dialer) -> Option<&'a [std::net::IpA
     .then_some(sess.route.resolved.as_slice())
 }
 
+/// Where an outbound asking for `connect` is to take `sess`, each in turn
+/// until one connects: its destination; or, after a sing-box `resolve`
+/// rule, each address it resolved the domain to, as sing-box hands them to
+/// every outbound, a proxy's server then told the address
+/// (route/conn.go:101-104, 166-175, 203-205;
+/// common/dialer/default_parallel_network.go:16-45). Not to a direct dial
+/// of its own, which races them itself, nor after an `on_demand` resolve,
+/// whose addresses, as Mihomo's, only a direct dial takes.
+pub(crate) fn destinations(sess: &Session, connect: &OutboundConnect) -> Vec<SocksAddr> {
+    let self_dialing =
+        matches!(connect, OutboundConnect::Direct(dialer) if dialer.detour().is_none());
+    match &sess.destination {
+        SocksAddr::Domain(_, port)
+            if sess.route.resolved_for_every_outbound
+                && !sess.route.resolved.is_empty()
+                && !self_dialing =>
+        {
+            sess.route
+                .resolved
+                .iter()
+                .map(|ip| SocksAddr::Ip(SocketAddr::new(*ip, *port)))
+                .collect()
+        }
+        _ => vec![sess.destination.clone()],
+    }
+}
+
 /// Peeks data from the local side of a stream.
 pub async fn peek_tcp_one_off(lhs: Option<&mut AnyStream>) -> Vec<u8> {
     if let Some(lhs) = lhs {

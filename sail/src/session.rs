@@ -425,6 +425,11 @@ pub struct RouteOptions {
     /// dialled: sing-box's `DestinationAddresses`. A direct dial goes to
     /// these, not to what it would resolve itself.
     pub resolved: Vec<std::net::IpAddr>,
+    /// Whether every outbound is handed `resolved`, a proxy's server told
+    /// an address rather than the domain, as sing-box's `resolve` action
+    /// has it; not so for an `on_demand` resolve, whose addresses only a
+    /// direct dial takes, as Mihomo's rules on addresses have it.
+    pub resolved_for_every_outbound: bool,
 }
 
 /// How a TLS ClientHello is cut, in its server name.

@@ -12,6 +12,8 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 
 A deliberate difference: a remote rule-set's or outbound provider's download is not redirected from https to http, nor to another scheme, which sing-box's client follows: what the request carries, a subscription's token, would go in the clear.
 
+As in sing-box, the addresses a `resolve` route action resolves the destination's domain to go to whatever outbound the connection takes: a proxy's server is sent the address, which the local DNS chose, not the domain, and so does not resolve it itself.
+
 ## Summary
 
 | Section | Fields | Supported | Warned | Error |
