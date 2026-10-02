@@ -34,7 +34,7 @@ python3 run.py --protocols direct --clients sail-server --only baseline --quick 
 | 场景 | 条件 |
 | --- | --- |
 | baseline | 不整形 |
-| rtt50 / rtt150 / rtt300 | 往返延迟，±10% 正态抖动 |
+| rtt50 / rtt150 / rtt300 | 往返延迟，±10% 正态抖动，包保持顺序（netem 加 `rate 100gbit`；只有抖动时 netem 会按各包的延迟乱序发出，测到的是乱序容忍度。2026-10-02 之前的 rtt* 结果属于这种情况） |
 | loss0.5 / loss2 / loss5 | 随机丢包，10ms 单向延迟 |
 | burst2 | Gilbert-Elliott 突发丢包，平均约 2% |
 | reorder5 / reorder25 | 乱序，20ms 单向延迟 |

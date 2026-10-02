@@ -95,10 +95,19 @@ def netns(*args):
 
 # ------------------------------------------------------------- scenarios
 # Each shaping applies to both directions: an RTT of R is a delay of R/2
-# each way.
+# each way. netem gives each packet a delay of its own, and without a rate
+# sends them in the order of those delays: jitter alone reorders, and the
+# cell would measure reordering, which reorder5/25 do. With a rate, netem
+# sends no packet before the one ahead of it (sch_netem.c, netem_enqueue),
+# as a path's queue does; 100gbit is far above any link here, a 1500-byte
+# packet's 120 ns. Measured at 100 ms RTT, hy2 bulk: 4-7 Mbit/s reordered,
+# 217 in order, 328 without jitter.
+ORDERED = "rate 100gbit"
+
+
 def delay(rtt_ms, jitter=0.1):
     half = rtt_ms / 2
-    return f"delay {half}ms {half * jitter}ms distribution normal"
+    return f"delay {half}ms {half * jitter}ms distribution normal {ORDERED}"
 
 
 SHAPED = [
@@ -593,7 +602,7 @@ class Run:
         the judgement is the growth of the client's resting RSS from the
         second hour to the last, and its descriptors back at rest."""
         rotation = [("baseline", None),
-                    ("rtt150", "delay 75ms 7.5ms distribution normal"),
+                    ("rtt150", delay(150)),
                     ("loss2", "loss 2%"),
                     ("rate10m", "rate 10mbit limit 420"),
                     ("burst2", "loss gemodel 1% 30% 70% 0.1%")]
