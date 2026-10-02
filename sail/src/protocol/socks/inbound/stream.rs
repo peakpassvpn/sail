@@ -149,15 +149,6 @@ impl Handler {
         // USERID
         let _userid = read_nul_terminated(&mut stream).await?;
 
-        // SOCKS4 has no passwords, so it cannot authenticate anyone.
-        if !self.users.is_empty() {
-            // Reply: VN=0, CD=91(Rejected)
-            stream.write_all(&[0, 91, 0, 0, 0, 0, 0, 0]).await?;
-            return Err(io::Error::other(
-                "socks4 refused: users are configured, and socks4 cannot authenticate",
-            ));
-        }
-
         // SOCKS4a check: 0.0.0.x, x != 0
         let is_socks4a =
             ip_bytes[0] == 0 && ip_bytes[1] == 0 && ip_bytes[2] == 0 && ip_bytes[3] != 0;
@@ -172,6 +163,18 @@ impl Handler {
                 ip, port,
             )))
         };
+
+        // SOCKS4 has no passwords, so it cannot authenticate anyone. Refused
+        // only once the whole request is read: a socket closed with a request
+        // left unread is reset, and on Windows the reset discards the reply
+        // before the client reads it.
+        if !self.users.is_empty() {
+            // Reply: VN=0, CD=91(Rejected)
+            stream.write_all(&[0, 91, 0, 0, 0, 0, 0, 0]).await?;
+            return Err(io::Error::other(
+                "socks4 refused: users are configured, and socks4 cannot authenticate",
+            ));
+        }
 
         // Reply: VN=0, CD=90(Granted), DSTPORT, DSTIP; once connected.
         let mut granted = BytesMut::new();

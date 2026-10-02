@@ -301,8 +301,18 @@ fn test_mixed_socks4a() -> anyhow::Result<()> {
             anyhow::ensure!(status == 90, "socks4a refused: {}", status);
             expect_echo(&mut stream).await?;
 
-            let (status, _) = socks4a(port2).await?;
+            let (status, mut refused) = socks4a(port2).await?;
             anyhow::ensure!(status == 91, "socks4a let in with users set: {}", status);
+            // The refusal closes after reading the whole request: closed with
+            // some left unread, the connection is reset, which on Windows
+            // discards the reply before the client reads it.
+            let mut rest = [0u8; 1];
+            let end = timeout(Duration::from_secs(5), refused.read(&mut rest)).await?;
+            anyhow::ensure!(
+                matches!(end, Ok(0)),
+                "the refusal did not end in an orderly close: {:?}",
+                end
+            );
             Ok(())
         })
     })
