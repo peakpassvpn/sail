@@ -140,7 +140,7 @@ final class Tracked: @unchecked Sendable {
 final class SailTests: XCTestCase {
     func testCapabilities() throws {
         let capabilities = try Sail.capabilities()
-        XCTAssertEqual(capabilities.apiVersion, 3)
+        XCTAssertEqual(capabilities.apiVersion, 4)
         XCTAssertEqual(capabilities.jsonVersion, 5)
         XCTAssertTrue(capabilities.features.contains("inbound-socks"))
     }

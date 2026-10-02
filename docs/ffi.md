@@ -131,11 +131,12 @@ and the next start with the same directories runs.
 | Providers and rule-sets | `sail_providers`, `sail_update_provider`, `sail_rule_sets`, `sail_update_rule_set` (an update waits for it; no URL is told, as a subscription's carries its token) | |
 | Dial through an outbound | `sail_dial` (waits until connected; see below) | |
 | Mode | `sail_mode`, `sail_set_mode` (an instance has modes though its configuration has no Clash API, as libbox's apps do) | |
-| Log | `sail_clear_logs` | `SAIL_EVENT_LOG` |
+| Log | `sail_clear_logs` | `SAIL_EVENT_LOG` (the lines as `log.redact` leaves them: destinations, sources or processes taken out of INFO, WARN and ERROR lines when it names them) |
 | Network | `sail_set_network_state`, `sail_network_changed` | `SAIL_EVENT_NETWORK` (each change the connections do not survive) |
 | Capabilities | `sail_capabilities`, `sail_instance_capabilities` | |
 
-Without an instance: `sail_check_config`, `sail_import_share_links`,
+Without an instance: `sail_check_config` (with the warnings a start would
+give, as `sail -T` prints them), `sail_import_share_links`,
 `sail_required_assets`, `sail_test_outbounds`.
 
 The data is what the Clash API reads: the traffic, connections, delays and

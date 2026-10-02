@@ -53,18 +53,26 @@ fn start_env(settings: Option<&str>) -> Result<sail::runtime::RuntimeEnv, Failur
 /// instance with `settings` would start it, without starting.
 ///
 /// @param settings The instance's settings, or null.
+/// @param out Takes JSON, or null for none: `{"warnings": [...]}`, what a
+///     start would warn of (fields sail ignores, deprecated ones, what
+///     building it logged as a warning), as `sail -T` prints them.
 /// @param err Takes what is wrong with it, or null.
 #[no_mangle]
 pub unsafe extern "C" fn sail_check_config(
     path: *const c_char,
     settings: *const c_char,
+    out: *mut *mut c_char,
     err: *mut *mut c_char,
 ) -> i32 {
     call(err, || {
         let path = unsafe { str_arg(path, "path") }?;
         let settings = unsafe { opt_str_arg(settings, "settings") }?;
         let env = start_env(settings)?;
-        sail::test_config_with(path, &env).map_err(Failure::from)
+        let warnings = sail::test_config_with_warnings(path, &env).map_err(Failure::from)?;
+        if out.is_null() {
+            return Ok(());
+        }
+        out_json(out, &serde_json::json!({ "warnings": warnings }))
     })
 }
 
@@ -260,17 +268,52 @@ mod tests {
         std::fs::write(&good, r#"{ "outbounds": [{ "type": "direct" }] }"#).unwrap();
         let bad = dir.join("bad.json");
         std::fs::write(&bad, r#"{ "outbounds": [{ "type": "nothing" }] }"#).unwrap();
+        let warned = dir.join("warned.json");
+        std::fs::write(
+            &warned,
+            r#"{ "outbounds": [{ "type": "direct", "tcp_multi_path": true }] }"#,
+        )
+        .unwrap();
         let path = |p: &std::path::Path| CString::new(p.to_str().unwrap()).unwrap();
+        let null = std::ptr::null_mut();
         let mut err = std::ptr::null_mut();
         assert_eq!(
-            unsafe { sail_check_config(path(&good).as_ptr(), std::ptr::null(), &mut err) },
-            crate::SAIL_OK
+            unsafe { sail_check_config(path(&good).as_ptr(), std::ptr::null(), null, &mut err) },
+            crate::SAIL_OK,
+            "the warnings not asked for"
         );
         assert!(err.is_null());
+        let mut out = std::ptr::null_mut();
         assert_eq!(
-            unsafe { sail_check_config(path(&bad).as_ptr(), std::ptr::null(), &mut err) },
+            unsafe {
+                sail_check_config(path(&good).as_ptr(), std::ptr::null(), &mut out, &mut err)
+            },
+            crate::SAIL_OK
+        );
+        let none: serde_json::Value = serde_json::from_str(&take(out)).unwrap();
+        assert_eq!(none, serde_json::json!({ "warnings": [] }));
+        let mut out = std::ptr::null_mut();
+        assert_eq!(
+            unsafe {
+                sail_check_config(path(&warned).as_ptr(), std::ptr::null(), &mut out, &mut err)
+            },
+            crate::SAIL_OK
+        );
+        let warned: serde_json::Value = serde_json::from_str(&take(out)).unwrap();
+        let warnings = warned["warnings"].as_array().unwrap();
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.as_str().unwrap().contains("tcp_multi_path")),
+            "{}",
+            warned
+        );
+        let mut out = std::ptr::null_mut();
+        assert_eq!(
+            unsafe { sail_check_config(path(&bad).as_ptr(), std::ptr::null(), &mut out, &mut err) },
             SAIL_ERR_CONFIG
         );
+        assert!(out.is_null(), "nothing given on a failure");
         assert!(take(err).contains("nothing"));
         std::fs::remove_dir_all(&dir).unwrap();
     }

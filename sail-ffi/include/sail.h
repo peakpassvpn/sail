@@ -75,7 +75,7 @@
 /*
  The version of this C ABI: raised when a function changes.
  */
-#define SAIL_API_VERSION 3
+#define SAIL_API_VERSION 4
 
 /*
  The instance's state, as `sail_instance_state` gives it: now, then on
@@ -609,9 +609,12 @@ int32_t sail_instance_state(SailInstance instance, char **out, char **err);
  instance with `settings` would start it, without starting.
 
  @param settings The instance's settings, or null.
+ @param out Takes JSON, or null for none: `{"warnings": [...]}`, what a
+     start would warn of (fields sail ignores, deprecated ones, what
+     building it logged as a warning), as `sail -T` prints them.
  @param err Takes what is wrong with it, or null.
  */
-int32_t sail_check_config(const char *path, const char *settings, char **err);
+int32_t sail_check_config(const char *path, const char *settings, char **out, char **err);
 
 /*
  Reads share links into sing-box outbounds.
