@@ -250,7 +250,10 @@ impl Neighbors {
     /// sing-box, logged at info when found.
     pub fn lookup(&self, source: std::net::SocketAddr) -> Option<Arc<Neighbor>> {
         let neighbor = self.0.get()?.neighbor(source.ip())?;
+        // A device is a source: with sources redacted, not logged at all.
+        let shown = !crate::app::logger::redacts(crate::config::model::LogRedact::Source);
         match (neighbor.mac_string(), &neighbor.hostname) {
+            _ if !shown => {}
             (Some(mac), Some(name)) => {
                 tracing::info!("found neighbor: {}, hostname: {}", mac, name)
             }

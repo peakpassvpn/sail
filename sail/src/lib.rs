@@ -1429,6 +1429,31 @@ pub fn test_config_with(config_path: &str, env: &runtime::RuntimeEnv) -> Result<
     check_config(&config, env).map_err(Error::Config)
 }
 
+/// `test_config_with`, and the warnings a start would log: what reading
+/// the file found, and what building it logged, as `sing-box check`
+/// prints its warnings.
+pub fn test_config_with_warnings(
+    config_path: &str,
+    env: &runtime::RuntimeEnv,
+) -> Result<Vec<String>, Error> {
+    let (read, logged) =
+        app::logger::collect_warnings(|| config::from_file_for(config_path, &env.host));
+    let config = read.map_err(Error::Config)?;
+    let mut warnings = logged;
+    warnings.extend(config.warnings.iter().cloned());
+    warnings.extend(check_config_with_warnings(&config, env).map_err(Error::Config)?);
+    Ok(warnings)
+}
+
+/// `check_config`, and what building logged at WARN or above.
+pub fn check_config_with_warnings(
+    config: &config::Config,
+    env: &runtime::RuntimeEnv,
+) -> anyhow::Result<Vec<String>> {
+    let (built, warnings) = app::logger::collect_warnings(|| check_config(config, env));
+    built.map(|()| warnings)
+}
+
 /// Builds the inbounds, outbounds, DNS and routing of `config` and throws
 /// them away, so that every mistake building would find is found.
 pub fn check_config(config: &config::Config, env: &runtime::RuntimeEnv) -> anyhow::Result<()> {

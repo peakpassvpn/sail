@@ -13530,6 +13530,10 @@
       "compact"
      ],
      "description": "A sail extension: `compact` writes the message alone."
+    },
+    "redact": {
+     "type": "array",
+     "description": "A sail extension: what lines at INFO, WARN and ERROR leave out. DEBUG and TRACE lines are not redacted."
     }
    },
    "additionalProperties": false

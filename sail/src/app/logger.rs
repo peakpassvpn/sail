@@ -192,6 +192,71 @@ pub fn flush() {
     drop(guard);
 }
 
+/// What `log.redact` leaves out, as bits: the process's, as the level is.
+static REDACT: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+fn redact_bit(what: config::model::LogRedact) -> u8 {
+    use config::model::LogRedact;
+    match what {
+        LogRedact::Destination => 1,
+        LogRedact::Source => 2,
+        LogRedact::Process => 4,
+    }
+}
+
+/// Whether lines at INFO and above leave `what` out.
+pub(crate) fn redacts(what: config::model::LogRedact) -> bool {
+    REDACT.load(std::sync::atomic::Ordering::Relaxed) & redact_bit(what) != 0
+}
+
+/// A destination as a line at INFO or above shows it: `*:443` when
+/// destinations are redacted.
+pub(crate) fn destination(addr: &crate::session::SocksAddr) -> String {
+    if redacts(config::model::LogRedact::Destination) {
+        format!("*:{}", addr.port())
+    } else {
+        addr.to_string()
+    }
+}
+
+/// A client address or device as a line at INFO or above shows it.
+pub(crate) fn source(shown: impl std::fmt::Display) -> String {
+    if redacts(config::model::LogRedact::Source) {
+        "*".to_string()
+    } else {
+        shown.to_string()
+    }
+}
+
+/// Runs `f` with what sail logs on this thread at WARN or above kept,
+/// not written out: a check tells them, as a start would log them.
+pub(crate) fn collect_warnings<T>(f: impl FnOnce() -> T) -> (T, Vec<String>) {
+    struct Collect(Arc<Mutex<Vec<String>>>);
+    impl<S: tracing::Subscriber> Layer<S> for Collect {
+        fn on_event(
+            &self,
+            event: &tracing::Event<'_>,
+            _ctx: tracing_subscriber::layer::Context<'_, S>,
+        ) {
+            let meta = event.metadata();
+            if *meta.level() > tracing::Level::WARN || !meta.target().starts_with("sail") {
+                return;
+            }
+            let mut fields = Fields(String::new());
+            event.record(&mut fields);
+            self.0
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push(fields.0);
+        }
+    }
+    let kept = Arc::new(Mutex::new(Vec::new()));
+    let subscriber = tracing_subscriber::registry().with(Collect(kept.clone()));
+    let out = tracing::subscriber::with_default(subscriber, f);
+    let kept = std::mem::take(&mut *kept.lock().unwrap_or_else(|e| e.into_inner()));
+    (out, kept)
+}
+
 /// Sets up logging as `config` says; `host` may send console output to the
 /// system log instead of standard output. Logging is the process's: the
 /// last instance to start or reload sets its level and output. Where the
@@ -210,6 +275,13 @@ pub fn setup_logger(config: &config::Log, host: &Host) -> Result<()> {
         LogLevel::Error | LogLevel::Fatal | LogLevel::Panic => LevelFilter::ERROR,
     };
     let (writer, writer_guard) = get_writer(config, host)?;
+    REDACT.store(
+        config
+            .redact
+            .iter()
+            .fold(0, |bits, r| bits | redact_bit(*r)),
+        std::sync::atomic::Ordering::Relaxed,
+    );
     let mut h = HANDLE.write().unwrap_or_else(|e| e.into_inner());
     if let Some(h) = h.as_mut() {
         h.reload(filter, writer, writer_guard)?;
@@ -361,6 +433,32 @@ impl Drop for LogScope {
     }
 }
 
+/// A line's message and fields, as one string.
+struct Fields(String);
+impl Visit for Fields {
+    fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+        if !self.0.is_empty() {
+            self.0.push(' ');
+        }
+        if field.name() == "message" {
+            self.0.push_str(&format!("{:?}", value));
+        } else {
+            self.0.push_str(&format!("{}={:?}", field.name(), value));
+        }
+    }
+
+    fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
+        if !self.0.is_empty() {
+            self.0.push(' ');
+        }
+        if field.name() == "message" {
+            self.0.push_str(value);
+        } else {
+            self.0.push_str(&format!("{}={}", field.name(), value));
+        }
+    }
+}
+
 /// Sends each event to its instance's log; with no one to tell, nothing
 /// is formatted.
 struct Broadcast;
@@ -374,30 +472,6 @@ impl<S: tracing::Subscriber> Layer<S> for Broadcast {
         let Some(log) = current().filter(|log| log.wanted()) else {
             return;
         };
-        struct Fields(String);
-        impl Visit for Fields {
-            fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
-                if !self.0.is_empty() {
-                    self.0.push(' ');
-                }
-                if field.name() == "message" {
-                    self.0.push_str(&format!("{:?}", value));
-                } else {
-                    self.0.push_str(&format!("{}={:?}", field.name(), value));
-                }
-            }
-
-            fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
-                if !self.0.is_empty() {
-                    self.0.push(' ');
-                }
-                if field.name() == "message" {
-                    self.0.push_str(value);
-                } else {
-                    self.0.push_str(&format!("{}={}", field.name(), value));
-                }
-            }
-        }
         let mut fields = Fields(String::new());
         event.record(&mut fields);
         log.push(Arc::new(LogLine {
@@ -428,6 +502,24 @@ pub fn set_level(level: Option<config::model::LogLevel>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A check keeps what sail logs at WARN and above on its thread, and
+    /// nothing else.
+    #[test]
+    fn warnings_are_collected_on_the_checking_thread() {
+        let (out, kept) = collect_warnings(|| {
+            tracing::warn!(target: "sail::check", "a field is ignored");
+            tracing::error!(target: "sail::check", "and an error");
+            tracing::info!(target: "sail::check", "not a warning");
+            tracing::warn!(target: "other", "not sail's");
+            std::thread::spawn(|| tracing::warn!(target: "sail::check", "another thread"))
+                .join()
+                .unwrap();
+            7
+        });
+        assert_eq!(out, 7);
+        assert_eq!(kept, ["a field is ignored", "and an error"]);
+    }
 
     fn line(message: &str) -> Arc<LogLine> {
         Arc::new(LogLine {

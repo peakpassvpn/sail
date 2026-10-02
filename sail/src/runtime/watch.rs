@@ -27,6 +27,18 @@ impl Drop for ReloadEvents {
 
 impl FileWatcher {
     pub(crate) fn new(paths: Vec<PathBuf>, events: &ReloadEvents) -> Result<Self, crate::Error> {
+        let events = events.events.clone();
+        Self::on_change(paths, move || {
+            let _ = events.try_send(());
+        })
+    }
+
+    /// Calls `changed` on the notify thread whenever one of `paths` is
+    /// written, created, renamed over or removed.
+    pub(crate) fn on_change(
+        paths: Vec<PathBuf>,
+        changed: impl Fn() + Send + 'static,
+    ) -> Result<Self, crate::Error> {
         let cwd = std::env::current_dir().map_err(|e| crate::Error::Config(e.into()))?;
         let mut watched = HashSet::new();
         for path in paths {
@@ -44,14 +56,13 @@ impl FileWatcher {
             .iter()
             .filter_map(|p| p.parent().map(PathBuf::from))
             .collect();
-        let events = events.events.clone();
         let mut watcher =
             notify::recommended_watcher(move |event: notify::Result<notify::Event>| match event {
                 Ok(event)
                     if !matches!(event.kind, notify::EventKind::Access(_))
                         && event.paths.iter().any(|p| watched.contains(p)) =>
                 {
-                    let _ = events.try_send(());
+                    changed();
                 }
                 Err(error) => tracing::warn!("resource file watch failed: {}", error),
                 _ => {}

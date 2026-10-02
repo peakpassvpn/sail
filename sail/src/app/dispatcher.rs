@@ -283,9 +283,16 @@ fn outbound_path(sess: &Session, tag: &str) -> String {
 }
 
 fn log_request(sess: &Session, outbound_tag: &str, handshake_time: Option<u128>) {
+    use crate::app::logger;
+    use crate::config::model::LogRedact;
+    if !tracing::enabled!(tracing::Level::INFO) {
+        return;
+    }
     let hs = handshake_time.map_or("failed".to_string(), |hs| format!("{}ms", hs));
     let outbound_tag = outbound_path(sess, outbound_tag);
     let network = sess.network.to_string();
+    let src = logger::source(sess.forwarded_source.unwrap_or_else(|| sess.source.ip()));
+    let dst = logger::destination(&sess.destination);
 
     #[cfg(feature = "rule-process-name")]
     {
@@ -299,30 +306,21 @@ fn log_request(sess: &Session, outbound_tag: &str, handshake_time: Option<u128>)
                     .unwrap_or(x)
             })
             .unwrap_or("");
-        info!(
-            "handled process={} src={} proto={} in={} out={} connect={} dst={}",
-            process_name,
-            sess.forwarded_source.unwrap_or_else(|| sess.source.ip()),
-            network,
-            &sess.inbound_tag,
-            outbound_tag,
-            hs,
-            &sess.destination,
-        );
+        if !logger::redacts(LogRedact::Process) {
+            info!(
+                "handled process={} src={} proto={} in={} out={} connect={} dst={}",
+                process_name, src, network, &sess.inbound_tag, outbound_tag, hs, dst,
+            );
+            return;
+        }
     }
 
     #[cfg(not(feature = "rule-process-name"))]
-    {
-        info!(
-            "handled src={} proto={} in={} out={} connect={} dst={}",
-            sess.forwarded_source.unwrap_or_else(|| sess.source.ip()),
-            network,
-            &sess.inbound_tag,
-            outbound_tag,
-            hs,
-            &sess.destination,
-        );
-    }
+    let _ = LogRedact::Process;
+    info!(
+        "handled src={} proto={} in={} out={} connect={} dst={}",
+        src, network, &sess.inbound_tag, outbound_tag, hs, dst,
+    );
 }
 
 pub struct Dispatcher {

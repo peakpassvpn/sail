@@ -1036,6 +1036,11 @@ const EXTENSIONS: &[(&str, &str, &str)] = &[
     ),
     ("log.format", r#""compact""#, "`compact` writes the message alone"),
     (
+        "log.redact",
+        r#"["destination", "source", "process"]"#,
+        "What lines at INFO, WARN and ERROR leave out: `destination` (the host or address a connection goes to; the port is kept), `source` (the client's address, and the LAN devices learned of) and `process`; DEBUG and TRACE lines are not redacted",
+    ),
+    (
         "dns.client_strategy",
         r#""ipv4_only""#,
         "The address families of the answers to clients' queries",

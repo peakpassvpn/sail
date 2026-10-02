@@ -3100,6 +3100,7 @@ Fields and types sail accepts that sing-box does not.
 | `outbound_providers` | Outbounds given together, downloaded or in place, for groups to take (Mihomo's proxy-providers) |
 | `user_limits` | What each user, by name, may do across its inbounds: `max_connections`, `quota_bytes` (up and down together; needs `cache_file`), `expire_at`, and `up_mbps` and `down_mbps` |
 | `log.format` | `compact` writes the message alone |
+| `log.redact` | What lines at INFO, WARN and ERROR leave out: `destination` (the host or address a connection goes to; the port is kept), `source` (the client's address, and the LAN devices learned of) and `process`; DEBUG and TRACE lines are not redacted |
 | `dns.client_strategy` | The address families of the answers to clients' queries |
 | `dns.servers[race].servers` | A server that asks its members at once and takes the first good answer |
 | `dns.servers[udp|tcp|tls|quic|https|h3].respect_rules` | Queries go through the outbound the routing rules pick (Mihomo's respect-rules) |

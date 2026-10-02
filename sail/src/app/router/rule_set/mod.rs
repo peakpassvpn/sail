@@ -214,6 +214,39 @@ pub(crate) struct RuleSets {
     configs: Vec<(String, Arc<config::RuleSet>)>,
     #[cfg(feature = "auto-reload")]
     files: Vec<std::path::PathBuf>,
+    /// The local rule-sets, which follow their files as sing-box's do.
+    #[cfg(feature = "auto-reload")]
+    locals: Vec<Arc<Local>>,
+}
+
+/// A local rule-set, read again when its file changes.
+#[cfg(feature = "auto-reload")]
+struct Local {
+    tag: String,
+    config: Arc<config::RuleSet>,
+    path: std::path::PathBuf,
+    set: SharedRuleSet,
+    env: RuntimeEnv,
+}
+
+#[cfg(feature = "auto-reload")]
+impl Local {
+    /// Puts the file's rules in place; ones that do not read leave the
+    /// rules in use, as sing-box does.
+    fn reload(&self) {
+        let path = self.path.to_string_lossy();
+        match read_file(&path, &self.config, &self.env) {
+            Ok(set) => {
+                self.set.publish(Arc::new(set));
+                tracing::info!("rule-set [{}]: reloaded from its file", self.tag);
+            }
+            Err(e) => tracing::error!(
+                "rule-set [{}]: reload failed, keeping the rules in use: {:#}",
+                self.tag,
+                e
+            ),
+        }
+    }
 }
 
 impl RuleSets {
@@ -228,6 +261,8 @@ impl RuleSets {
         let mut remotes = Vec::new();
         #[cfg(feature = "auto-reload")]
         let mut files = Vec::new();
+        #[cfg(feature = "auto-reload")]
+        let mut locals = Vec::new();
         let mut listed = Vec::new();
         for (i, config) in configs.iter().enumerate() {
             let shared = Arc::new(config.clone());
@@ -258,7 +293,24 @@ impl RuleSets {
                     remotes.push(remote);
                     set
                 } else {
-                    HotResource::new(Self::load_one(config, tag, env).with_context(context)?)
+                    let set =
+                        HotResource::new(Self::load_one(config, tag, env).with_context(context)?);
+                    #[cfg(feature = "auto-reload")]
+                    if config.kind == RuleSetKind::Local {
+                        locals.push(Arc::new(Local {
+                            tag: tag.clone(),
+                            config: shared.clone(),
+                            path: env
+                                .data_path(&config::RuleSet::for_tag(
+                                    config.path.as_deref().unwrap_or_default(),
+                                    tag,
+                                ))
+                                .into(),
+                            set: set.clone(),
+                            env: env.clone(),
+                        }));
+                    }
+                    set
                 };
                 sets.insert(tag.clone(), set);
             }
@@ -270,6 +322,8 @@ impl RuleSets {
             configs: listed,
             #[cfg(feature = "auto-reload")]
             files,
+            #[cfg(feature = "auto-reload")]
+            locals,
         })
     }
 
@@ -298,12 +352,19 @@ impl RuleSets {
         &self,
         dispatcher: std::sync::Weak<Dispatcher>,
     ) -> Option<tokio::task::AbortHandle> {
-        if self.remotes.is_empty() {
+        #[cfg(feature = "auto-reload")]
+        let locals = self.locals.clone();
+        #[cfg(not(feature = "auto-reload"))]
+        let locals: Vec<()> = Vec::new();
+        if self.remotes.is_empty() && locals.is_empty() {
             return None;
         }
         let remotes = self.remotes.clone();
         let network = self.network.clone();
-        let task = tokio::spawn(async move {
+        let downloads = async move {
+            if remotes.is_empty() {
+                return;
+            }
             let mut changes = network.changes();
             loop {
                 until_due(&remotes, &network, &mut changes).await;
@@ -320,6 +381,15 @@ impl RuleSets {
                         );
                     }
                 }
+            }
+        };
+        let task = tokio::spawn(async move {
+            #[cfg(feature = "auto-reload")]
+            tokio::join!(downloads, follow_files(locals));
+            #[cfg(not(feature = "auto-reload"))]
+            {
+                let _ = locals;
+                downloads.await;
             }
         });
         Some(task.abort_handle())
@@ -417,6 +487,42 @@ async fn until_due(
             return;
         }
     }
+}
+
+/// Reads each local rule-set again when its file changes, a quarter of a
+/// second after the last change, so that one write is one read.
+#[cfg(feature = "auto-reload")]
+async fn follow_files(locals: Vec<Arc<Local>>) {
+    use std::collections::BTreeSet;
+    use std::time::Duration;
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<usize>(locals.len().max(1) * 4);
+    let mut watchers = Vec::new();
+    for (i, local) in locals.iter().enumerate() {
+        let tx = tx.clone();
+        match crate::runtime::watch::FileWatcher::on_change(vec![local.path.clone()], move || {
+            let _ = tx.try_send(i);
+        }) {
+            Ok(watcher) => watchers.push(watcher),
+            Err(e) => tracing::error!("rule-set [{}]: cannot watch its file: {}", local.tag, e),
+        }
+    }
+    drop(tx);
+    while let Some(first) = rx.recv().await {
+        let mut changed = BTreeSet::from([first]);
+        loop {
+            match tokio::time::timeout(Duration::from_millis(250), rx.recv()).await {
+                Ok(Some(i)) => {
+                    changed.insert(i);
+                }
+                Ok(None) => return,
+                Err(_) => break,
+            }
+        }
+        for i in changed {
+            locals[i].reload();
+        }
+    }
+    drop(watchers);
 }
 
 fn read_file(path: &str, config: &config::RuleSet, env: &RuntimeEnv) -> Result<RuleSet> {
@@ -558,6 +664,52 @@ mod tests {
 
     use crate::app::router::matcher::Matcher;
     use crate::session::Network::{Tcp, Udp};
+
+    /// A local rule-set follows its file, as sing-box's does: replaced, its
+    /// rules are those of the new file; one that does not read leaves the
+    /// rules in use.
+    #[cfg(feature = "auto-reload")]
+    #[tokio::test]
+    async fn a_local_rule_set_follows_its_file() {
+        use std::time::Duration;
+        let dir = std::env::temp_dir().join(format!("sail-rs-follow-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&dir).unwrap();
+        let path = dir.join("rs.json");
+        let replace = |domain: &str| {
+            let staged = dir.join("staged");
+            let rules = serde_json::json!({ "version": 3, "rules": [{ "domain": [domain] }] });
+            std::fs::write(&staged, rules.to_string()).unwrap();
+            std::fs::rename(&staged, &path).unwrap();
+        };
+        replace("a.example");
+        let configs: Vec<config::RuleSet> = serde_json::from_value(serde_json::json!([
+            { "type": "local", "tag": "rs", "format": "source", "path": path }
+        ]))
+        .unwrap();
+        let sets =
+            RuleSets::load(&configs, &HttpClients::default(), &RuntimeEnv::default()).unwrap();
+        let matches = |domain: &str| {
+            sets.get("rs")
+                .unwrap()
+                .load()
+                .matches(&at(domain, 443, Tcp), false)
+        };
+        assert!(matches("a.example") && !matches("b.example"));
+        let updater = sets.spawn_updater(std::sync::Weak::new()).unwrap();
+        // The watch is set up on the updater's first run.
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        replace("b.example");
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        while !(matches("b.example") && !matches("a.example")) {
+            assert!(tokio::time::Instant::now() < deadline, "not reloaded");
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        std::fs::write(&path, "{ cut sho").unwrap();
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+        assert!(matches("b.example") && !matches("a.example"));
+        updater.abort();
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     /// Destination CIDRs of every default rule, nested in logical ones
     /// too, merged; source CIDRs and domains are not addresses to route.

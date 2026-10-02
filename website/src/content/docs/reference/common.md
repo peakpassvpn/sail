@@ -67,6 +67,7 @@ Rust: [`Log`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model
 | `output` | string | unset | Supported | A file to append to. Logs go to the console when it is not set. |
 | `timestamp` | bool | `false` | Supported | Starts each line with the time. |
 | `format` | string, one of `full`, `compact` | `full` | sail extension | A sail extension: `compact` writes the message alone. |
+| `redact` | array of string, one of `destination`, `source`, `process` | `[]` | sail extension | A sail extension: what lines at INFO, WARN and ERROR leave out. DEBUG and TRACE lines are not redacted. |
 
 <a id="certificate"></a>
 

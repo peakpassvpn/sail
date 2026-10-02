@@ -77,7 +77,15 @@ fn read_within(data: &[u8], env: &RuntimeEnv, max: usize) -> Result<Vec<Conditio
             miniz_oxide::inflate::TINFLStatus::HasMoreOutput => {
                 anyhow!("inflates to more than {} bytes", max)
             }
-            status => anyhow!("inflate: {:?}", status),
+            // The input ran out before the compressed stream ended: a file
+            // cut short, as sing-box's "unexpected EOF".
+            miniz_oxide::inflate::TINFLStatus::FailedCannotMakeProgress => {
+                anyhow!("unexpected end of file: the compressed rules are cut short")
+            }
+            miniz_oxide::inflate::TINFLStatus::Adler32Mismatch => {
+                anyhow!("the compressed rules do not match their checksum")
+            }
+            status => anyhow!("the compressed rules are corrupt ({:?})", status),
         })?;
     let mut reader = Reader::new(&inflated);
     let count = reader.count(1)?;
@@ -211,5 +219,22 @@ mod tests {
             .err()
             .unwrap();
         assert_eq!(err.to_string(), "inflates to more than 10000 bytes");
+    }
+
+    /// A file cut short says so, as sing-box's "unexpected EOF" does.
+    #[test]
+    fn a_rule_set_cut_short_says_so() {
+        let whole = std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/rule_set/two_rules.srs"
+        ))
+        .unwrap();
+        let err = read_within(&whole[..30], &RuntimeEnv::default(), 1 << 20)
+            .err()
+            .unwrap();
+        assert_eq!(
+            err.to_string(),
+            "unexpected end of file: the compressed rules are cut short"
+        );
     }
 }

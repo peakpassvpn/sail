@@ -67,6 +67,7 @@ Rust 定义：[`Log`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/conf
 | `output` | string | 未设置 | 支持 | A file to append to. Logs go to the console when it is not set. |
 | `timestamp` | bool | `false` | 支持 | Starts each line with the time. |
 | `format` | string, 取值 `full`, `compact` | `full` | sail 扩展 | A sail extension: `compact` writes the message alone. |
+| `redact` | 数组，元素为 string, 取值 `destination`, `source`, `process` | `[]` | sail 扩展 | A sail extension: what lines at INFO, WARN and ERROR leave out. DEBUG and TRACE lines are not redacted. |
 
 <a id="certificate"></a>
 

@@ -611,6 +611,19 @@ pub enum LogFormat {
     Compact,
 }
 
+/// What a log line at INFO or above leaves out, a sail extension.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum LogRedact {
+    /// Where a connection goes: its host or address, the port kept.
+    Destination,
+    /// Where it comes from: the client's address, and the LAN devices
+    /// sail learns of.
+    Source,
+    /// The process that opened it.
+    Process,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Log {
@@ -628,6 +641,10 @@ pub struct Log {
     /// A sail extension: `compact` writes the message alone.
     #[serde(default)]
     pub format: LogFormat,
+    /// A sail extension: what lines at INFO, WARN and ERROR leave out.
+    /// DEBUG and TRACE lines are not redacted.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub redact: Vec<LogRedact>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]

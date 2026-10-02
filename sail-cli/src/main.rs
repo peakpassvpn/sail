@@ -557,12 +557,20 @@ fn main() {
     }
 
     if args.test {
-        if let Err(e) = sail::test_config_with(&args.config, &env) {
-            println!("{}", e);
-            exit(1);
-        } else {
-            println!("ok");
-            exit(0);
+        match sail::test_config_with_warnings(&args.config, &env) {
+            Err(e) => {
+                println!("{:#}", e);
+                exit(1);
+            }
+            Ok(warnings) => {
+                // As sing-box check: warnings on standard error, and the
+                // check passes.
+                for warning in &warnings {
+                    eprintln!("warning: {}", warning);
+                }
+                println!("ok");
+                exit(0);
+            }
         }
     }
 
@@ -570,7 +578,7 @@ fn main() {
         let config = match sail::config::from_file_for(&args.config, &host) {
             Ok(config) => config,
             Err(e) => {
-                println!("{}", e);
+                println!("{:#}", e);
                 exit(1);
             }
         };
@@ -620,7 +628,7 @@ fn main() {
         host,
     ) {
         sail::flush_log();
-        println!("start sail failed: {}", e);
+        println!("start sail failed: {:#}", e);
         exit(1);
     }
     // The last lines, such as how a stop went, are written before exiting.
