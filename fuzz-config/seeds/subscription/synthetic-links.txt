@@ -1,0 +1,6 @@
+# Synthetic credentials and reserved example domains only.
+trojan://password@example.com:443?sni=example.com#duplicate
+trojan://another@example.net:8443?sni=example.net#duplicate
+ss://YWVzLTEyOC1nY206cGFzc3dvcmQ@example.org:8388#sample
+vless://00000000-0000-4000-8000-000000000000@example.com:443?security=tls&sni=example.com#vless
+not-a-share-link

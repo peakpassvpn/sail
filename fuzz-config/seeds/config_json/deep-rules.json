@@ -1,0 +1,1 @@
+{"outbounds":[{"type":"direct","tag":"d"}],"route":{"rules":[{"type":"logical","mode":"and","outbound":"d","rules":[{"type":"logical","mode":"or","rules":[{"type":"logical","mode":"and","rules":[{"port":[0,1,65535],"network":["tcp","udp"],"invert":true}]}]}]}],"final":"d"}}

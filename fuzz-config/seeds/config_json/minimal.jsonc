@@ -1,0 +1,5 @@
+{
+  // JSONC comments and trailing commas are accepted.
+  "outbounds": [{ "type": "direct", "tag": "direct", }],
+  "route": { "final": "direct", },
+}

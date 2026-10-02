@@ -1,0 +1,16 @@
+{
+  "log": { "level": "debug", "timestamp": true },
+  "dns": {
+    "servers": [{ "type": "local", "tag": "local" }],
+    "final": "local",
+    "strategy": "prefer_ipv6",
+    "cache_capacity": 1,
+    "timeout": "1m30.5s"
+  },
+  "inbounds": [{ "type": "socks", "tag": "in", "listen": "127.0.0.1", "listen_port": 1080 }],
+  "outbounds": [{ "type": "direct", "tag": "direct", "domain_resolver": "local" }],
+  "route": {
+    "rules": [{ "domain_suffix": ["example.test"], "outbound": "direct" }],
+    "final": "direct"
+  }
+}

@@ -1,0 +1,4 @@
+﻿STATUS=Traffic: 1 GB
+REMARKS=synthetic corpus
+// ignored comment
+# ignored comment

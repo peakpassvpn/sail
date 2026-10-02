@@ -1,0 +1,9 @@
+{
+  "version": 3,
+  "rules": [
+    {
+      "domain_suffix": ["example.com"],
+      "ip_cidr": ["192.0.2.0/24"]
+    }
+  ]
+}

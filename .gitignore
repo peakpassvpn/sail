@@ -15,7 +15,6 @@
 
 # Local-only: run evidence (logs hold local paths and hosts). The fuzz
 # workspaces' own .gitignore keep their runs out.
-/fuzz-config/
 /packaging/systemd/validation/
 /tools/security/evidence/
 

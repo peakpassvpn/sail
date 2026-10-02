@@ -16,7 +16,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-WORKSPACES=(fuzz sail-netstack/fuzz)
+WORKSPACES=(fuzz sail-netstack/fuzz fuzz-config)
 
 python3 - "${1:-}" "${WORKSPACES[@]}" <<'PY'
 import re, sys, tomllib

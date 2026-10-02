@@ -197,6 +197,7 @@ jobs:
           workspaces: |
             fuzz -> target
             sail-netstack/fuzz -> target
+            fuzz-config -> target
           save-if: ${{ github.ref == 'refs/heads/master' }}
 
       - name: fuzz workspaces build
