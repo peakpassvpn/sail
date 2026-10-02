@@ -111,8 +111,11 @@ jobs:
       - name: test
         run: cargo test -p sail -p sail-netstack -p sail-ffi
 
-  # Small builds, one feature set at a time, tests included, so that cfg
-  # gates and feature dependencies stay right.
+  # Small builds, one feature set at a time, tests included, linted as the
+  # full build is, so that cfg gates and feature dependencies stay right.
+  # With lint and test, this is the whole merge gate: no local gate run is
+  # needed before a ci/* branch merges. A new feature (or a group whose
+  # cfg gates matter) adds its set to the list below.
   features:
     runs-on: ubuntu-latest
     env:
@@ -127,15 +130,19 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.98.1
+          components: clippy
 
       - name: cache
         uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.ref == 'refs/heads/master' }}
 
-      - name: check feature sets
+      - name: lint feature sets
         run: |
           set -e
+          echo "::group::no default features"
+          cargo clippy -p sail --no-default-features --all-targets
+          echo "::endgroup::"
           for features in \
             inbound-socks,outbound-direct \
             inbound-shadowsocks,outbound-shadowsocks \
@@ -152,10 +159,12 @@ jobs:
             config-clash,inbound-mixed,outbound-direct \
             config-surge,inbound-mixed,outbound-direct \
             outbound-provider,outbound-select,outbound-direct,inbound-socks \
-            api,outbound-direct
+            api,outbound-direct \
+            outbound-fallback,outbound-direct \
+            config-clash,outbound-fallback,outbound-direct
           do
             echo "::group::$features"
-            cargo check -p sail --no-default-features --features "$features" --all-targets
+            cargo clippy -p sail --no-default-features --features "$features" --all-targets
             echo "::endgroup::"
           done
 
