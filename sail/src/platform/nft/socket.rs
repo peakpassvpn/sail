@@ -56,7 +56,8 @@ impl Socket {
         let _ = socket.set_int(libc::SOL_NETLINK, libc::NETLINK_CAP_ACK, 1);
         let _ = socket.set_int(libc::SOL_NETLINK, libc::NETLINK_EXT_ACK, 1);
         let timeout = libc::timeval {
-            tv_sec: ANSWER_TIMEOUT.as_secs() as libc::time_t,
+            // `as _`: time_t is 32 or 64 bits on 32-bit musl, as its version has it.
+            tv_sec: ANSWER_TIMEOUT.as_secs() as _,
             tv_usec: 0,
         };
         socket.set(libc::SOL_SOCKET, libc::SO_RCVTIMEO, &timeout)?;
