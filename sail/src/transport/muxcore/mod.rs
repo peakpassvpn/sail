@@ -117,11 +117,12 @@ pub enum Flow {
 pub enum Closing {
     /// A FIN ends one direction; the other goes on (yamux).
     Half,
-    /// There is no half-close: shutting a stream down does nothing, it is
-    /// finished when dropped, and a FIN ends it both ways (smux).
-    OnDrop,
-    /// A FIN ends a stream both ways, sent when it is shut down: what
-    /// comes after is dropped, what came before is still read (AnyTLS).
+    /// There is no half-close: a FIN ends a stream both ways, sent when it
+    /// is shut down: what comes after is dropped, what came before is
+    /// still read (smux, AnyTLS). Shutting down ends the stream, as
+    /// sing-box closes a connection that cannot half-close once one way is
+    /// done: a stream left open would wait on a peer that never hears the
+    /// end, and hold its session.
     Whole,
 }
 

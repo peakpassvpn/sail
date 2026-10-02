@@ -717,6 +717,192 @@ mod tests {
         assert!(counted(2).await, "no new connection after the change");
     }
 
+    /// A mux server on a new port whose TCP streams echo: its port, and
+    /// how many of its connections have ended.
+    async fn echo_server() -> (u16, Arc<std::sync::atomic::AtomicUsize>) {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let ended = Arc::new(AtomicUsize::new(0));
+        let counted = ended.clone();
+        tokio::spawn(async move {
+            while let Ok((tcp, _)) = listener.accept().await {
+                let counted = counted.clone();
+                tokio::spawn(async move {
+                    if let Ok(mut server) = super::super::server::Server::start(
+                        Box::new(tcp),
+                        Tuning::default(),
+                        "test",
+                    )
+                    .await
+                    {
+                        while let Some(stream) = server.accept().await {
+                            tokio::spawn(async move {
+                                let Ok((_, stream)) =
+                                    super::super::server::read_stream(stream).await
+                                else {
+                                    return;
+                                };
+                                let (mut r, mut w) = tokio::io::split(stream);
+                                let _ = tokio::io::copy(&mut r, &mut w).await;
+                                let _ = w.shutdown().await;
+                            });
+                        }
+                    }
+                    counted.fetch_add(1, Ordering::SeqCst);
+                });
+            }
+        });
+        (port, ended)
+    }
+
+    /// A mux outbound of `protocol` to the server on `port`.
+    fn mux_to(port: u16, protocol: Protocol) -> AnyOutboundHandler {
+        let dns = crate::app::dns::DnsClient::new(
+            &Default::default(),
+            Default::default(),
+            &Default::default(),
+        )
+        .unwrap()
+        .into_shared();
+        let whole = crate::adapter::outbound::HandlerBuilder::default()
+            .tag("test".to_owned())
+            .stream_handler(Arc::new(Direct(port)))
+            .build();
+        outbound(
+            "test",
+            whole,
+            dns,
+            ClientOptions::new(protocol, false, None, None, None, None).unwrap(),
+            Tuning::default(),
+            &mut Vec::new(),
+        )
+    }
+
+    fn echo_session() -> Session {
+        Session {
+            destination: SocksAddr::try_from(("example.com", 443)).unwrap(),
+            ..Default::default()
+        }
+    }
+
+    /// Whether `n` connections have ended by `within`.
+    async fn ended_by(ended: &std::sync::atomic::AtomicUsize, n: usize, within: Duration) -> bool {
+        use std::sync::atomic::Ordering;
+        tokio::time::timeout(within, async {
+            while ended.load(Ordering::SeqCst) < n {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .is_ok()
+    }
+
+    async fn round_trip<S: AsyncRead + AsyncWrite + Unpin>(s: &mut S, what: &[u8]) {
+        use tokio::io::AsyncReadExt;
+        s.write_all(what).await.unwrap();
+        let mut back = vec![0u8; what.len()];
+        tokio::time::timeout(Duration::from_secs(5), s.read_exact(&mut back))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(back, what);
+    }
+
+    /// A client a reload replaced: a connection relayed over its stream goes
+    /// on, and once the user ends it, the relay ends and so does the
+    /// session, long before any idle timeout. smux cannot half-close: its
+    /// stream ends when shut down, or the relay waits on a server that
+    /// never hears the user is done, and holds the session.
+    async fn replaced_client_closes_with_its_last_stream(protocol: Protocol) {
+        use std::sync::atomic::Ordering;
+        let (port, ended) = echo_server().await;
+        let mux = mux_to(port, protocol);
+        let mut rhs = mux
+            .stream()
+            .unwrap()
+            .handle(&echo_session(), None, None)
+            .await
+            .unwrap();
+        let (mut user, mut lhs) = tokio::io::duplex(4096);
+        let relay = tokio::spawn(async move {
+            let relay = crate::runtime::options::Relay::default();
+            let _ = crate::net::relay::copy_buf_bidirectional_with_timeout(
+                &mut lhs,
+                &mut rhs,
+                1024,
+                1024,
+                crate::net::relay::RelayTimeouts {
+                    write_stall: relay.write_stall_timeout,
+                    a_to_b_idle: relay.uplink_idle_timeout,
+                    b_to_a_idle: relay.downlink_idle_timeout,
+                },
+            )
+            .await;
+        });
+        round_trip(&mut user, b"before").await;
+        // The reload drops the outbound, and with it the client.
+        drop(mux);
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert_eq!(ended.load(Ordering::SeqCst), 0, "cut with its stream open");
+        round_trip(&mut user, b"after").await;
+        drop(user);
+        tokio::time::timeout(Duration::from_secs(5), relay)
+            .await
+            .expect("the relay outlived its user")
+            .unwrap();
+        assert!(
+            ended_by(&ended, 1, Duration::from_secs(5)).await,
+            "the session outlived its last stream"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_replaced_smux_client_closes_with_its_last_stream() {
+        replaced_client_closes_with_its_last_stream(Protocol::Smux).await;
+    }
+
+    #[tokio::test]
+    async fn a_replaced_h2mux_client_closes_with_its_last_stream() {
+        replaced_client_closes_with_its_last_stream(Protocol::H2Mux).await;
+    }
+
+    /// A client that goes away closes its sessions without streams at once.
+    async fn a_client_gone_closes_its_idle_sessions(protocol: Protocol) {
+        use std::sync::atomic::Ordering;
+        let (port, ended) = echo_server().await;
+        let mux = mux_to(port, protocol);
+        let mut stream = mux
+            .stream()
+            .unwrap()
+            .handle(&echo_session(), None, None)
+            .await
+            .unwrap();
+        round_trip(&mut stream, b"once").await;
+        drop(stream);
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert_eq!(
+            ended.load(Ordering::SeqCst),
+            0,
+            "an idle session kept no while"
+        );
+        drop(mux);
+        assert!(
+            ended_by(&ended, 1, Duration::from_secs(2)).await,
+            "an idle session outlived its client"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_smux_client_gone_closes_its_idle_sessions() {
+        a_client_gone_closes_its_idle_sessions(Protocol::Smux).await;
+    }
+
+    #[tokio::test]
+    async fn a_h2mux_client_gone_closes_its_idle_sessions() {
+        a_client_gone_closes_its_idle_sessions(Protocol::H2Mux).await;
+    }
+
     #[test]
     fn a_new_connection_only_when_the_least_busy_is_busy_enough() {
         let o = options(Some(2), Some(3), None).unwrap();

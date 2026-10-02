@@ -42,7 +42,7 @@ impl Codec for Smux {
     }
 
     fn closing(&self) -> Closing {
-        Closing::OnDrop
+        Closing::Whole
     }
 
     fn max_data(&self) -> usize {

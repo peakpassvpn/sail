@@ -1005,12 +1005,9 @@ impl AsyncWrite for Stream {
         Poll::Ready(Ok(()))
     }
 
-    /// With half-close, sends a FIN, and can still read. Without, streams
-    /// are finished when dropped instead.
+    /// Sends a FIN: with half-close, the stream can still be read; without,
+    /// it is over both ways.
     fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        if self.shared.closing == Closing::OnDrop {
-            return Poll::Ready(Ok(()));
-        }
         let mut guard = self.shared.lock();
         let state = &mut *guard;
         if state.error.is_some() {
@@ -1050,7 +1047,6 @@ impl Drop for Stream {
         if state.error.is_none() && !slot.stalled && slot.refused.is_none() {
             let codec = &shared.codec;
             let frame = match shared.closing {
-                Closing::OnDrop => Some(codec.fin(self.id)),
                 Closing::Whole if !slot.local_fin && !slot.remote_fin => Some(codec.fin(self.id)),
                 Closing::Whole => None,
                 // Abandoned before the peer finished: reset, so that it

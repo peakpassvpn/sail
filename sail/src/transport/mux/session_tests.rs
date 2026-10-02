@@ -116,6 +116,36 @@ fn yamux_half_close_and_reset() {
     });
 }
 
+/// smux cannot half-close: a stream shut down is over both ways, and the
+/// peer reads its end, as sing-box closes a connection that cannot
+/// half-close. Left open, a relay would wait on a peer that never hears
+/// the end.
+#[test]
+fn smux_shutdown_ends_the_stream() {
+    runtime().block_on(async {
+        let (a, b) = tokio::io::duplex(64 << 10);
+        let (client, _) = Session::new(a, Flavor::Smux.codec(), false, Tuning::default(), "test");
+        let (_server, accept) =
+            Session::new(b, Flavor::Smux.codec(), true, Tuning::default(), "test");
+        let mut accept = accept.unwrap();
+        let mut stream = client.open().unwrap();
+        stream.write_all(b"ping").await.unwrap();
+        stream.shutdown().await.unwrap();
+        let mut served = accept.recv().await.unwrap();
+        let mut got = Vec::new();
+        tokio::time::timeout(Duration::from_secs(5), served.read_to_end(&mut got))
+            .await
+            .expect("the peer never heard the end")
+            .unwrap();
+        assert_eq!(got, b"ping");
+        let n = tokio::time::timeout(Duration::from_secs(1), stream.read(&mut [0u8; 4]))
+            .await
+            .expect("still open the other way")
+            .unwrap();
+        assert_eq!(n, 0);
+    });
+}
+
 #[test]
 fn a_closed_connection_fails_the_streams() {
     runtime().block_on(async {
