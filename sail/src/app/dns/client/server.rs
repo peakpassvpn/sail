@@ -298,7 +298,8 @@ const LOCAL_DIAL: &[&str] = &[
 /// hosts file itself, and asks mDNS for `.local` names off Apple's
 /// systems, whose resolver asks it.
 pub(super) struct Local {
-    /// With dial fields: the system's servers, which it asks itself.
+    /// With dial fields, or where the default dialer binds its sockets:
+    /// the system's servers, which it asks itself.
     pub dialed: Option<LocalDialed>,
     pub hosts: Hosts,
     /// The `neighbor_domain` suffixes, lower case, without a trailing dot
@@ -355,8 +356,27 @@ impl Local {
     }
 }
 
-/// A local server with dial fields: the system's servers, and how they
-/// are reached.
+/// Whether a local server without dial fields of its own asks the
+/// system's servers itself, through the instance's default dialer: where
+/// that dialer binds its sockets (`auto_detect_interface`, which a TUN
+/// taking the default route turns on, `default_interface`,
+/// `default_mark`). The system's resolver would send the query out
+/// unbound, into such a TUN, whose `hijack-dns` hands it back here.
+/// sing-box's local server off Apple's systems always asks the servers
+/// through its dialer (dns/transport/local, `exchange`); Android's are the
+/// host's, which no file tells.
+fn asks_through_default_dialer(defaults: &DialDefaults) -> bool {
+    let route = &defaults.route;
+    !cfg!(any(target_vendor = "apple", target_os = "android"))
+        && (route.auto_detect_interface
+            || route.bind_interface.is_some()
+            || route.inet4_bind_address.is_some()
+            || route.inet6_bind_address.is_some()
+            || route.routing_mark.is_some())
+}
+
+/// A local server that asks the system's servers itself: how they are
+/// reached.
 pub(super) struct LocalDialed {
     pub dialer: Dialer,
     pub servers: super::system::SystemServers,
@@ -429,10 +449,13 @@ impl Server {
             "local" => {
                 let o: LocalOptions = parse_options("dns server", tag, &config.options)?;
                 let neighbor_suffixes = neighbor_suffixes(&o.neighbor_domain).map_err(err)?;
-                let dialed = if o.dial == DialFields::default() {
+                let own = o.dial != DialFields::default();
+                let dialed = if !own && !asks_through_default_dialer(defaults) {
                     None
                 } else {
-                    o.dial.check(LOCAL_DIAL).map_err(err)?;
+                    if own {
+                        o.dial.check(LOCAL_DIAL).map_err(err)?;
+                    }
                     let dial = defaults
                         .dialer(&o.dial, None)
                         .map_err(|e| err(anyhow!("[{}] dns server: {}", tag, e)))?;

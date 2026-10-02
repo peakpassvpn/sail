@@ -18,6 +18,11 @@
 //! - a crash leaves rules that route nothing, and the next start replaces
 //!   them.
 //!
+//! - with a TUN taking the default route, a DNS server without a detour,
+//!   `local` (which asks the servers of resolv.conf) or `udp`, sends its
+//!   queries out of the uplink too, not into the TUN, where `hijack-dns`
+//!   would hand them back to it in a loop.
+//!
 //! The script also checks, in the host's namespace, that the host's DNS
 //! settings are as they were: resolved is the host's, and sail in a
 //! namespace once set the host's eth0's servers by the namespace's
@@ -43,6 +48,11 @@ const BLOCKED: &str = "198.51.100.12";
 const LAN: &str = "10.241.0.3";
 /// What the server sees as the peer through each uplink.
 const FIRST_UPLINK: &str = "peer=10.241.0.1";
+/// The DNS server the host's resolv.conf names, which answers every name
+/// with SERVER.
+const DNS: &str = "198.51.100.53";
+/// sail's mixed inbound, in the host's namespace.
+const PROXY: &str = "127.0.0.1:1080";
 const SECOND_UPLINK: &str = "peer=10.242.0.1";
 
 fn run(program: &str, args: &str) -> Result<String> {
@@ -98,6 +108,37 @@ fn udp_echoes(addr: &str) -> bool {
     echoed().unwrap_or(false)
 }
 
+/// What the server answers on TCP for the name `name`, connected to
+/// through sail's SOCKS5 inbound, which resolves the name; nothing within
+/// 12 s, more than a DNS query's time, if it cannot.
+fn tcp_by_name(name: &str) -> Option<String> {
+    use std::io::{Read, Write};
+    let mut s =
+        std::net::TcpStream::connect_timeout(&PROXY.parse().ok()?, Duration::from_secs(3)).ok()?;
+    s.set_read_timeout(Some(Duration::from_secs(12))).ok()?;
+    s.write_all(&[5, 1, 0]).ok()?;
+    let mut method = [0u8; 2];
+    s.read_exact(&mut method).ok()?;
+    let mut connect = vec![5, 1, 0, 3, name.len() as u8];
+    connect.extend_from_slice(name.as_bytes());
+    connect.extend_from_slice(&8080u16.to_be_bytes());
+    s.write_all(&connect).ok()?;
+    let mut reply = [0u8; 4];
+    s.read_exact(&mut reply).ok()?;
+    if reply[1] != 0 {
+        return None;
+    }
+    let bound = match reply[3] {
+        1 => 4 + 2,
+        4 => 16 + 2,
+        _ => return None,
+    };
+    s.read_exact(&mut vec![0u8; bound]).ok()?;
+    let mut out = String::new();
+    s.read_to_string(&mut out).ok()?;
+    Some(out.trim().to_string())
+}
+
 struct Sail {
     child: Option<Child>,
 }
@@ -105,10 +146,9 @@ struct Sail {
 impl Sail {
     /// Starts sail with `more` tun fields, and waits for its rules.
     fn start(dir: &std::path::Path, more: &str) -> Result<Self> {
-        let config = dir.join("config.json");
-        std::fs::write(
-            &config,
-            format!(
+        Self::start_config(
+            dir,
+            &format!(
                 r#"{{
                     "inbounds": [{{
                         "type": "tun", "tag": "tun-in", "interface_name": "sartun",
@@ -126,7 +166,45 @@ impl Sail {
                     }}
                 }}"#
             ),
-        )?;
+        )
+    }
+
+    /// Starts sail with the TUN, a mixed inbound on PROXY, the DNS server
+    /// `server` as the default domain resolver, and a rule that blocks DNS:
+    /// a query that enters the TUN goes nowhere.
+    fn start_dns(dir: &std::path::Path, server: &str) -> Result<Self> {
+        Self::start_config(
+            dir,
+            &format!(
+                r#"{{
+                    "inbounds": [
+                        {{
+                            "type": "tun", "tag": "tun-in", "interface_name": "sartun",
+                            "address": ["172.31.241.1/30"],
+                            "auto_route": true, "strict_route": true
+                        }},
+                        {{ "type": "mixed", "tag": "mixed", "listen": "127.0.0.1",
+                           "listen_port": 1080 }}
+                    ],
+                    "outbounds": [
+                        {{ "type": "direct", "tag": "direct" }},
+                        {{ "type": "block", "tag": "block" }}
+                    ],
+                    "dns": {{ "servers": [{server}] }},
+                    "route": {{
+                        "rules": [{{ "ip_cidr": ["{DNS}/32"], "outbound": "block" }}],
+                        "final": "direct",
+                        "default_domain_resolver": "resolver"
+                    }}
+                }}"#
+            ),
+        )
+    }
+
+    /// Starts sail with `config`, and waits for its rules.
+    fn start_config(dir: &std::path::Path, config_text: &str) -> Result<Self> {
+        let config = dir.join("config.json");
+        std::fs::write(&config, config_text)?;
         let bin = PathBuf::from(std::env::var("SAIL_BIN").context("SAIL_BIN")?);
         let child = Command::new(bin)
             .arg("-c")
@@ -263,6 +341,34 @@ fn auto_route_takes_the_host_s_traffic_and_gives_it_back() -> Result<()> {
     );
     sail.stop()?;
 
+    let _ = std::fs::remove_dir_all(&dir);
+    Ok(())
+}
+
+#[test]
+#[ignore = "needs root, in the namespace tests/scripts/auto_route_netns.sh builds"]
+fn dns_servers_without_a_detour_go_out_of_the_uplink() -> Result<()> {
+    ensure!(
+        std::env::var_os("SAIL_BIN").is_some(),
+        "run through tests/scripts/auto_route_netns.sh"
+    );
+    let dir = std::env::temp_dir().join(format!("sail-auto-route-dns-{}", std::process::id()));
+    std::fs::create_dir_all(&dir)?;
+    for server in [
+        r#"{ "type": "local", "tag": "resolver" }"#.to_string(),
+        format!(r#"{{ "type": "udp", "tag": "resolver", "server": "{DNS}" }}"#),
+    ] {
+        let sail = Sail::start_dns(&dir, &server)?;
+        let answered = tcp_by_name("server.test");
+        sail.stop()?;
+        ensure!(
+            answered.as_deref() == Some(FIRST_UPLINK),
+            "{}: the name resolved past the TUN, and the connection went out \
+             of the first uplink: {:?}",
+            server,
+            answered
+        );
+    }
     let _ = std::fs::remove_dir_all(&dir);
     Ok(())
 }

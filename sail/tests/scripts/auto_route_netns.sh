@@ -14,7 +14,12 @@
 #   sar-rb 10.242.0.1/24  ----------   sar-wb 10.242.0.2/24
 #   default via 10.241.0.2             lo 198.51.100.10-12/32: tcp 8080 answers
 #                                      the peer's address, udp 9999 echoes;
-#                                      10.241.0.3 serves the same
+#                                      10.241.0.3 serves the same;
+#                                      lo 198.51.100.53/32: udp 53 answers
+#                                      every A query with 198.51.100.10
+#
+# The host's /etc/resolv.conf, as `ip netns exec` mounts it from
+# /etc/netns/sar-r, names 198.51.100.53.
 
 set -euo pipefail
 
@@ -28,6 +33,7 @@ cleanup() {
     ip netns pids "$HOST" 2>/dev/null | xargs -r kill -9 2>/dev/null || true
     ip netns del "$HOST" 2>/dev/null || true
     ip netns del "$NET" 2>/dev/null || true
+    rm -rf "/etc/netns/$HOST"
 }
 trap cleanup EXIT
 cleanup
@@ -57,7 +63,7 @@ in_ns "$NET" ip addr add 10.241.0.3/24 dev sar-wa
 in_ns "$NET" ip addr add 10.242.0.2/24 dev sar-wb
 in_ns "$NET" ip link set sar-wa up
 in_ns "$NET" ip link set sar-wb up
-for ip in 198.51.100.10 198.51.100.11 198.51.100.12; do
+for ip in 198.51.100.10 198.51.100.11 198.51.100.12 198.51.100.53; do
     in_ns "$NET" ip addr add "$ip/32" dev lo
 done
 
@@ -87,8 +93,31 @@ def udp(address):
 
 for address in ("198.51.100.10", "198.51.100.11", "198.51.100.12", "10.241.0.3"):
     threading.Thread(target=udp, args=(address,), daemon=True).start()
+
+# A DNS server: every A query is answered with 198.51.100.10, any other
+# with no records.
+def dns():
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.bind(("198.51.100.53", 53))
+    while True:
+        query, peer = sock.recvfrom(2048)
+        end = 12
+        while end < len(query) and query[end] != 0:
+            end += query[end] + 1
+        end += 5
+        if end > len(query):
+            continue
+        a = query[end - 4:end - 2] == b"\x00\x01"
+        header = query[:2] + b"\x81\x80\x00\x01" + (b"\x00\x01" if a else b"\x00\x00") + b"\x00\x00\x00\x00"
+        answer = b"\xc0\x0c\x00\x01\x00\x01\x00\x00\x00\x3c\x00\x04" + bytes([198, 51, 100, 10]) if a else b""
+        sock.sendto(header + query[12:end] + answer, peer)
+
+threading.Thread(target=dns, daemon=True).start()
 threading.Event().wait()
 ' &
+
+mkdir -p "/etc/netns/$HOST"
+echo "nameserver 198.51.100.53" >"/etc/netns/$HOST/resolv.conf"
 
 cd "$SAIL_DIR"
 # Built outside the namespaces, where cargo may reach the network.
@@ -103,7 +132,7 @@ host_dns() { resolvectl dns 2>/dev/null || true; }
 dns_before=$(host_dns)
 status=0
 in_ns "$HOST" env SAIL_BIN="${CARGO_TARGET_DIR:-$SAIL_DIR/../target}/debug/sail" \
-    cargo test --offline -p sail --test test_auto_route_linux "$@" -- --ignored --nocapture ||
+    cargo test --offline -p sail --test test_auto_route_linux "$@" -- --ignored --nocapture --test-threads=1 ||
     status=$?
 dns_after=$(host_dns)
 if [ -z "$dns_before" ]; then

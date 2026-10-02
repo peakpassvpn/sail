@@ -1,8 +1,9 @@
-//! The system's DNS servers, for a `local` server with dial fields: sail
-//! asks them itself, through its dialer, as sing-box's local server does
-//! off Apple's systems (dns/transport/local: `dnsReadConfig`, then
-//! `exchangeOne` through its dialer). Without dial fields a local server
-//! is the system's resolver, which knows them itself.
+//! The system's DNS servers, for a `local` server with dial fields, or
+//! one whose instance's default dialer binds its sockets: sail asks them
+//! itself, through its dialer, as sing-box's local server does off
+//! Apple's systems (dns/transport/local: `dnsReadConfig`, then
+//! `exchangeOne` through its dialer). Otherwise a local server is the
+//! system's resolver, which knows them itself.
 //!
 //! - Unix: `nameserver` lines of /etc/resolv.conf; where they are only
 //!   systemd-resolved's stub (127.0.0.53, 127.0.0.54), the servers it

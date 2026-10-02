@@ -75,6 +75,31 @@ mod tests {
         assert!(matches!(&client.servers["local"].kind, Kind::Local(l) if l.dialed.is_none()));
     }
 
+    /// Where the default dialer binds its sockets, a local server asks the
+    /// system's servers through it, as one with dial fields does: the
+    /// system's resolver would send the query into a TUN that takes the
+    /// default route. Not on Apple's systems or Android.
+    #[test]
+    fn a_local_server_asks_through_a_default_dialer_that_binds() {
+        let binds: [fn(&mut crate::net::dial::RouteDefaults); 3] = [
+            |r| r.auto_detect_interface = true,
+            |r| r.bind_interface = Some("eth0".into()),
+            |r| r.routing_mark = Some(0x2024),
+        ];
+        let asks = !cfg!(any(target_vendor = "apple", target_os = "android"));
+        for (i, bind) in binds.into_iter().enumerate() {
+            let mut defaults = crate::net::DialDefaults::default();
+            bind(&mut defaults.route);
+            let servers = serde_json::json!([{ "type": "local", "tag": "local" }]);
+            let client =
+                DnsClient::new(&dns(servers), std::sync::Arc::new(defaults), &Default::default())
+                    .unwrap();
+            let dialed =
+                matches!(&client.servers["local"].kind, Kind::Local(l) if l.dialed.is_some());
+            assert_eq!(dialed, asks, "bind {}", i);
+        }
+    }
+
     #[test]
     fn mistakes_name_the_server() {
         for (servers, message) in [
