@@ -35,6 +35,11 @@ export NETEM_NS=${NETEM_NS:-54} NETEM_NET=${NETEM_NET:-90}
 SERVER_NAME=${SERVER_NAME:-pf54} SERVER_NET=${SERVER_NET:-92}
 # Quiet: the 1-minute load the 5.5 runs took as quiet.
 MAX_LOAD=${MAX_LOAD:-1.0}
+# Its peak memory, declared in the registry: 10k connections held, the
+# server and its load clients (3.6's per-connection figures), with room.
+MEM_MB=${MEM_MB:-800}
+# What the registry lets all jobs declare together.
+HOST_MEM_MB=${HOST_MEM_MB:-3000}
 JOB=sail-5.4-perf
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 # netem's scripts must take the namespaces chosen above, or the run would
@@ -75,6 +80,23 @@ if [ -n "$held" ]; then
   echo "skipped: registered jobs hold CPUs $CLIENT_CPU-$SERVER_CPU: $held" | tee "$OUT/skipped"
   exit 0
 fi
+# A measurement needs quiet: no build running, no other measurement, and
+# the memory declared by all jobs within the host's share.
+building=$(remote "pgrep -x 'cargo|rustc|cc1|cc1plus|ld' | head -1 || true")
+if [ -n "$building" ]; then
+  echo "skipped: a build runs on the host" | tee "$OUT/skipped"
+  exit 0
+fi
+measuring=$(remote "grep -l -E '^kind: *measurement' $PERF_JOBS/* 2>/dev/null | grep -v '/$JOB\$' || true")
+if [ -n "$measuring" ]; then
+  echo "skipped: another measurement runs: $measuring" | tee "$OUT/skipped"
+  exit 0
+fi
+declared=$(remote "grep -h -E '^mem:' $PERF_JOBS/* 2>/dev/null | awk '{ for (i = 2; i <= NF; i++) if (\$i ~ /^[0-9]+\$/) { sum += \$i; break } } END { print sum + 0 }'")
+if [ $((${declared:-0} + MEM_MB)) -gt "$HOST_MEM_MB" ]; then
+  echo "skipped: ${declared} MB declared, and $MEM_MB more passes $HOST_MEM_MB" | tee "$OUT/skipped"
+  exit 0
+fi
 load=$(remote "cut -d' ' -f1 /proc/loadavg")
 if awk -v l="$load" -v m="$MAX_LOAD" 'BEGIN { exit !(l > m) }'; then
   echo "skipped: load $load above $MAX_LOAD" | tee "$OUT/skipped"
@@ -84,7 +106,9 @@ fi
 WORK=$PERF_DIR/$STAMP
 remote "mkdir -p $WORK/base $WORK/new && cat > $PERF_JOBS/$JOB" <<JOBFILE
 owner: $OWNER (5.4 performance regression, tier B)
+kind: measurement
 what: base $BASE / new $NEW, $ROUNDS rounds each, in turn
+mem: $MEM_MB MB
 cores: $CLIENT_CPU-$SERVER_CPU (taskset)
 netns: nc$NETEM_NS/ns$NETEM_NS, ${SERVER_NAME}c/${SERVER_NAME}s; subnets 10.$NETEM_NET-10.$((NETEM_NET + 2)), 10.$SERVER_NET
 started: $(date -u '+%Y-%m-%d %H:%M UTC')
