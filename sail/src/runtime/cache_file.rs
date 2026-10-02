@@ -247,7 +247,7 @@ impl Shared {
                 }
             })
             .context("cache_file: start its writer")?;
-        static SERIAL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        static SERIAL: portable_atomic::AtomicU64 = portable_atomic::AtomicU64::new(0);
         Ok(Arc::new(Shared {
             serial: SERIAL.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             path,

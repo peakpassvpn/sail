@@ -4,8 +4,9 @@
 //! (FFI, the runtime API); without a push, sail detects what the system
 //! tells it. One state and one notice of change for all of sail.
 
+use portable_atomic::AtomicU64;
 use std::net::IpAddr;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use anyhow::{anyhow, Result};

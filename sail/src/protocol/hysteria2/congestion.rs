@@ -6,8 +6,9 @@
 //! controller. So every connection gets a `Switch`, which runs both and
 //! answers with the one its `CongestionHandle` selects.
 
+use portable_atomic::AtomicU64;
 use std::any::Any;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 

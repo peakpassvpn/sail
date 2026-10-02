@@ -8,9 +8,10 @@
 //! `store_dns`, every answer kept is written there as well, and one not in
 //! memory is looked for there, so that answers outlive a restart.
 
+use portable_atomic::AtomicU64;
 use std::collections::HashSet;
 use std::num::NonZeroUsize;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 

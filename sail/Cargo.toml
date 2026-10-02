@@ -234,6 +234,9 @@ uuid = { version = "1", features = ["v4"] }
 # DNS
 hickory-proto = { version = "0.26.1", default-features = false, features = ["std"] }
 lru = "0.18.2"
+# 64-bit atomics where the target has none (32-bit mips); the native
+# ones elsewhere.
+portable-atomic = "1"
 
 # Logging
 tracing = "0.1"

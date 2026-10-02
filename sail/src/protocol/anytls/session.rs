@@ -14,10 +14,11 @@
 //! answering, so a stream that has sent one reads no further either, and
 //! one that has received one writes no further.
 
+use portable_atomic::AtomicU64;
 use std::collections::VecDeque;
 use std::io;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::task::{Context, Poll};
 use std::time::Duration;

@@ -19,11 +19,12 @@
 //! out at once: its connections are closed, and new ones are refused as
 //! those of an unknown user.
 
+use portable_atomic::AtomicU64;
 use std::collections::HashMap;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::ops::Deref;
-use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::SystemTime;
 

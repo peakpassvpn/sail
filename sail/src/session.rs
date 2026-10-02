@@ -150,7 +150,7 @@ impl UdpAssociation {
 impl UdpAssociationOwner {
     /// A new association, alive until this is dropped.
     pub fn new() -> Self {
-        static NEXT_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        static NEXT_ID: portable_atomic::AtomicU64 = portable_atomic::AtomicU64::new(1);
         let (alive, ended) = tokio::sync::watch::channel(());
         UdpAssociationOwner {
             association: UdpAssociation {

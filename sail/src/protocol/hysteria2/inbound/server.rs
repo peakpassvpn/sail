@@ -1,11 +1,12 @@
 //! Serving Hysteria2 connections: the HTTP/3 authentication, then proxied
 //! TCP streams and UDP sessions, handed on as they arrive.
 
+use portable_atomic::AtomicU64;
 use std::collections::HashMap;
 use std::io;
 use std::net::SocketAddr;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::task::{Context, Poll};
 use std::time::Duration;

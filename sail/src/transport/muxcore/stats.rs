@@ -2,8 +2,9 @@
 //! instances of the process: how many are open, their streams, and the
 //! streams reset for stalling.
 
+use portable_atomic::AtomicU64;
 use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 
 use serde_derive::Serialize;

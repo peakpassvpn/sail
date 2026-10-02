@@ -11,9 +11,10 @@
 //! outbounds are shared by every connection, so their counts are striped:
 //! a thread adds to a stripe of its own, and a read sums them.
 
+use portable_atomic::AtomicU64;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::future::Future;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::{io, pin::Pin};
 

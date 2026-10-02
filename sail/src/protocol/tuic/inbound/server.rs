@@ -2,11 +2,12 @@
 //! it, and hands on each `Connect` stream and each UDP association as a
 //! transport of its own.
 
+use portable_atomic::AtomicU64;
 use std::collections::HashMap;
 use std::io;
 use std::net::SocketAddr;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};

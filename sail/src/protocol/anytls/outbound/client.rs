@@ -6,10 +6,11 @@
 //! sessions idle for longer than `idle_timeout`, oldest first, keeping the
 //! newest `min_idle` of them open whatever their age.
 
+use portable_atomic::AtomicU64;
 use std::collections::BTreeMap;
 use std::convert::TryFrom;
 use std::io;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 use std::time::{Duration, Instant};
 

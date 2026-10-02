@@ -283,8 +283,8 @@ pub const STREAMS_CEILING: u64 = 65536;
 /// bounds a user. Making quinn allocate as quic-go does, lazily, would
 /// do without it.
 pub struct StreamLimit {
-    open: std::sync::atomic::AtomicU64,
-    limit: std::sync::atomic::AtomicU64,
+    open: portable_atomic::AtomicU64,
+    limit: portable_atomic::AtomicU64,
     grows: std::sync::atomic::AtomicBool,
     raise: Box<dyn Fn(u64) + Send + Sync>,
 }

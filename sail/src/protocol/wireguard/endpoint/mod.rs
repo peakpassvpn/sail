@@ -19,11 +19,12 @@
 //! when their destination is one of the local addresses the outbound
 //! handed out, and datagrams from peers to route otherwise.
 
+use portable_atomic::AtomicU64;
 use std::collections::HashMap;
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::num::NonZeroUsize;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 

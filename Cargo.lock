@@ -2685,6 +2685,7 @@ dependencies = [
  "parking_lot",
  "percent-encoding",
  "pnet_datalink",
+ "portable-atomic",
  "protobuf",
  "protobuf-codegen",
  "protoc-bin-vendored",
