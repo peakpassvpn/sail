@@ -20,6 +20,7 @@ pub mod json;
 pub mod listen;
 mod providers;
 
+pub(crate) use dial::relay_stream;
 pub use dial::{Dialed, DIAL_INBOUND};
 pub use inbounds::{InboundError, InboundInfo};
 pub use providers::{Failure, ProviderInfo, RuleSetInfo, SourceKind, SubscriptionInfo};

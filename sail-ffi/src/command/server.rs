@@ -230,7 +230,7 @@ impl Started for StartedService {
         &self,
         _: Request<proto::Empty>,
     ) -> Result<Response<Self::SubscribeServiceStatusStream>, Status> {
-        let state = self.instance()?.state.subscribe();
+        let state = self.instance()?.states();
         Ok(self.stream(move |out: Out<proto::ServiceStatus>| {
             Box::pin(events::follow_state(RefOut(out), state))
         }))
@@ -240,7 +240,7 @@ impl Started for StartedService {
         &self,
         _: Request<proto::Empty>,
     ) -> Result<Response<proto::ServiceStatus>, Status> {
-        ok((&*self.instance()?.state.borrow()).into())
+        ok((&self.instance()?.state()).into())
     }
 
     type SubscribeLogStream = Streamed<proto::Log>;

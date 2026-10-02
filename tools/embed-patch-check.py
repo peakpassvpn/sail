@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""For a workspace that depends on sail as a crate: its [patch.crates-io]
-holds sail's, entry for entry.
+"""For a workspace that depends on sail as a crate, directly or through
+another crate: its [patch.crates-io] holds sail's, entry for entry.
 
 A [patch] section applies only in the workspace that declares it, so a
 crate built on sail copies sail's: the forks sail builds with (btls,

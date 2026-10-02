@@ -29,6 +29,7 @@ pub mod assets;
 pub mod common;
 pub mod config;
 pub mod control;
+pub mod embed;
 #[cfg(feature = "http-client")]
 pub mod fetch;
 #[cfg(feature = "fuzzing")]
@@ -632,6 +633,9 @@ impl RuntimeManager {
         )
         .map_err(Error::Config)?;
         app::logger::setup_logger(&config.log, &self.env.host)?;
+        if let Some(log) = &self.env.host.log {
+            log.0.configure(&config.log);
+        }
         log_warnings(&config);
 
         #[cfg(feature = "outbound-select")]
@@ -1088,6 +1092,14 @@ pub fn shutdown(key: RuntimeId) -> bool {
         }
         None => false,
     }
+}
+
+/// Forgets the instance `key` as running or starting: after a run that
+/// unwound, which left them registered.
+#[doc(hidden)]
+pub fn forget(key: RuntimeId) {
+    runtime_managers().remove(&key);
+    starting().remove(&key);
 }
 
 /// Tells runtime `key` what network the host is on (JSON, as
@@ -1605,6 +1617,7 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
     });
 
     app::logger::setup_logger(&config.log, &env.host)?;
+    log.configure(&config.log);
     log_warnings(&config);
     tracing::debug!("runtime options: {:?}", env.options);
     #[cfg(unix)]

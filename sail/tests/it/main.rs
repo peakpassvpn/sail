@@ -27,6 +27,7 @@ mod test_dns_respect_rules;
 mod test_dns_server;
 mod test_dns_upstreams;
 mod test_domain_resolver;
+mod test_embed;
 mod test_examples;
 mod test_fakeip;
 mod test_fallback;

@@ -43,7 +43,10 @@ impl Handler {
             .map_err(|e| anyhow!("private key does not match the certificate: {}", e))?;
         if !alpn.is_empty() {
             builder.set_alpn_select_callback(move |_, client| {
-                select_alpn(&alpn, client).ok_or(AlpnError::NOACK)
+                crate::transport::tls::guarded(
+                    || Err(AlpnError::ALERT_FATAL),
+                    || select_alpn(&alpn, client).ok_or(AlpnError::NOACK),
+                )
             });
         }
         Ok(Self {

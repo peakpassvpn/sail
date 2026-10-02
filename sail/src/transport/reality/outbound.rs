@@ -117,10 +117,15 @@ impl Handler {
             btls_sys::SSL_set_client_hello_finalize_cb(ssl.as_ptr(), Some(finalize_client_hello));
         }
         ssl.set_custom_verify_callback(SslVerifyMode::PEER, move |ssl| {
-            verify_certificate(ssl, &auth).map_err(|e| {
-                tracing::debug!("reality: {}", e);
-                SslVerifyError::Invalid(SslAlert::BAD_CERTIFICATE)
-            })
+            crate::transport::tls::guarded(
+                || Err(SslVerifyError::Invalid(SslAlert::INTERNAL_ERROR)),
+                || {
+                    verify_certificate(ssl, &auth).map_err(|e| {
+                        tracing::debug!("reality: {}", e);
+                        SslVerifyError::Invalid(SslAlert::BAD_CERTIFICATE)
+                    })
+                },
+            )
         });
         BoringConnection::client(ssl)
     }
@@ -164,6 +169,31 @@ fn seal_session_id(
 }
 
 unsafe extern "C" fn finalize_client_hello(
+    ssl: *mut btls_sys::SSL,
+    hello: *const u8,
+    hello_len: usize,
+    client_random: *const u8,
+    x25519_private_key: *const u8,
+    out_session_id: *mut u8,
+) -> std::os::raw::c_int {
+    crate::transport::tls::guarded(
+        || 0,
+        // SAFETY: as the body's.
+        || unsafe {
+            seal_client_hello(
+                ssl,
+                hello,
+                hello_len,
+                client_random,
+                x25519_private_key,
+                out_session_id,
+            )
+        },
+    )
+}
+
+/// `finalize_client_hello`'s body.
+unsafe fn seal_client_hello(
     ssl: *mut btls_sys::SSL,
     hello: *const u8,
     hello_len: usize,

@@ -1,27 +1,23 @@
 //! Instances by handle: made with their settings and the host's callbacks,
 //! started from a configuration, reloaded, stopped and freed, any number
-//! at once, any number of times.
+//! at once, any number of times. Each is a `sail::embed::Instance`; this
+//! is its C face.
 
-use std::collections::BTreeSet;
 use std::ffi::c_char;
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, Weak};
-use std::thread::{JoinHandle, ThreadId};
-use std::time::{Duration, SystemTime};
+use std::sync::{Arc, Mutex, MutexGuard, Weak};
+use std::time::Duration;
+
+use sail::embed;
 
 use crate::events::Events;
 use crate::handles::Table;
 use crate::platform::{Callbacks, FfiPlatform, SailPlatform};
 use crate::{call, json, opt_str_arg, out_json, out_value, str_arg, Failure};
-use crate::{SAIL_ERR_CANCELLED, SAIL_ERR_TIMEOUT, SAIL_ERR_WRONG_THREAD};
 
 /// An instance, as the host holds it; 0 is none.
 pub type SailInstance = u64;
 
 static INSTANCES: Mutex<Table<Instance>> = Mutex::new(Table::new());
-
-/// The runtime ids the instances made here hold, from their making until
-/// they have stopped: two never share one.
-static IDS: Mutex<BTreeSet<sail::RuntimeId>> = Mutex::new(BTreeSet::new());
 
 /// The lines an instance keeps of its log, unless the settings say: what
 /// both sing-box apps keep (their `LogMaxLines`).
@@ -71,84 +67,23 @@ pub(crate) fn local(handle: SailInstance) -> Result<Arc<Instance>, Failure> {
     }
 }
 
-fn take_id() -> Result<sail::RuntimeId, Failure> {
-    let mut ids = lock(&IDS);
-    // Not 0: a host of its own may start an instance 0, as sail-cli does.
-    (1..=sail::RuntimeId::MAX)
-        .find(|id| !ids.contains(id) && !sail::is_running(*id))
-        .inspect(|id| {
-            ids.insert(*id);
-        })
-        .ok_or_else(|| Failure::state("too many instances"))
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Phase {
-    Idle,
-    Starting,
-    Running,
-    Stopping,
-    Stopped,
-    Failed,
-}
-
-impl Phase {
-    fn name(self) -> &'static str {
-        match self {
-            Phase::Idle => "idle",
-            Phase::Starting => "starting",
-            Phase::Running => "running",
-            Phase::Stopping => "stopping",
-            Phase::Stopped => "stopped",
-            Phase::Failed => "failed",
-        }
-    }
-
-    /// Whether the instance's thread may still run.
-    fn live(self) -> bool {
-        matches!(self, Phase::Starting | Phase::Running | Phase::Stopping)
-    }
-}
-
 /// What an instance is started from.
 enum Source {
     Text(String),
     File(String),
 }
 
-struct Life {
-    phase: Phase,
-    failure: Option<Failure>,
-    manager: Option<Arc<sail::RuntimeManager>>,
-    thread: Option<JoinHandle<()>>,
-    thread_id: Option<ThreadId>,
-    /// A stop was asked for this run.
-    stop: bool,
-    started_at: Option<SystemTime>,
-}
-
 pub(crate) struct Instance {
     pub id: sail::RuntimeId,
-    options: sail::runtime::RuntimeOptions,
-    host: sail::runtime::Host,
-    runtime: RuntimeShape,
+    core: embed::Instance,
     pub log: Arc<sail::app::logger::InstanceLog>,
     callbacks: Arc<Callbacks>,
-    life: Mutex<Life>,
-    changed: Condvar,
-    /// The state, as the `state` subscription follows it.
-    pub state: tokio::sync::watch::Sender<json::State>,
     pub events: Events,
     /// The command service it serves, if it does.
     #[cfg(feature = "command-server")]
     server: Mutex<Option<crate::command::server::Server>>,
+    #[allow(dead_code)]
     me: Weak<Instance>,
-}
-
-#[derive(Clone, Copy)]
-enum RuntimeShape {
-    SingleThread,
-    MultiThread(usize, usize),
 }
 
 /// The settings the FFI reads before the core's.
@@ -160,47 +95,55 @@ struct FfiSettings {
     stack_size: Option<usize>,
 }
 
+/// The state, as the host is told it.
+pub(crate) fn state_json(state: &embed::State) -> json::State {
+    json::State {
+        state: state.name().to_string(),
+        error: match state {
+            embed::State::Failed(e) => Some(e.message().to_string()),
+            _ => None,
+        },
+        started_at_ms: match state {
+            embed::State::Running { since } => Some(
+                since
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0, |d| d.as_millis() as u64),
+            ),
+            _ => None,
+        },
+    }
+}
+
 impl Instance {
     fn new(settings: Option<&str>, platform: SailPlatform) -> Result<Arc<Self>, Failure> {
         let (ffi, core) = split_settings(settings)?;
-        let (options, host) = crate::tools::start_settings(core.as_deref())?;
-        let runtime = match ffi.worker_threads {
-            None | Some(0) => RuntimeShape::SingleThread,
-            Some(n) => RuntimeShape::MultiThread(n, ffi.stack_size.unwrap_or(STACK_SIZE)),
+        let settings = crate::tools::parse_settings(core.as_deref())?;
+        // A host that says nothing gets one thread, whatever the profile:
+        // the C ABI's default since it has one.
+        let threads = match ffi.worker_threads {
+            None | Some(0) => embed::Threads::One,
+            Some(n) => embed::Threads::Workers(n, ffi.stack_size.unwrap_or(STACK_SIZE)),
         };
         let callbacks = Callbacks::new(platform);
-        let id = take_id()?;
-        let events = match Events::new(id) {
-            Ok(events) => events,
-            Err(e) => {
-                lock(&IDS).remove(&id);
-                return Err(e);
-            }
-        };
         let log = sail::app::logger::InstanceLog::new(ffi.log_lines.unwrap_or(LOG_LINES));
-        let (state, _) = tokio::sync::watch::channel(json::State {
-            state: Phase::Idle.name().to_string(),
-            error: None,
-            started_at_ms: None,
-        });
+        let core = embed::Instance::new(
+            embed::Options::new()
+                .settings(settings)
+                .threads(threads)
+                .platform(Arc::new(FfiPlatform {
+                    callbacks: callbacks.clone(),
+                }))
+                // As libbox's apps have them, a Clash API or not.
+                .clash_modes(true)
+                .log(log.clone()),
+        )?;
+        let id = core.id();
+        let events = Events::new(id)?;
         Ok(Arc::new_cyclic(|me| Instance {
             id,
-            options,
-            host,
-            runtime,
+            core,
             log,
             callbacks,
-            life: Mutex::new(Life {
-                phase: Phase::Idle,
-                failure: None,
-                manager: None,
-                thread: None,
-                thread_id: None,
-                stop: false,
-                started_at: None,
-            }),
-            changed: Condvar::new(),
-            state,
             events,
             #[cfg(feature = "command-server")]
             server: Mutex::new(None),
@@ -208,25 +151,21 @@ impl Instance {
         }))
     }
 
-    fn publish(&self, life: &Life) {
-        self.state.send_replace(json::State {
-            state: life.phase.name().to_string(),
-            error: life.failure.as_ref().map(|f| f.message.clone()),
-            started_at_ms: life.started_at.map(|t| {
-                t.duration_since(std::time::UNIX_EPOCH)
-                    .map_or(0, |d| d.as_millis() as u64)
-            }),
-        });
-        self.changed.notify_all();
+    /// The state now, as the host is told it.
+    pub fn state(&self) -> json::State {
+        state_json(&self.core.state())
+    }
+
+    /// The state, as each change is followed.
+    pub fn states(&self) -> tokio::sync::watch::Receiver<embed::State> {
+        self.core.states()
     }
 
     /// Whether this thread is one of the instance's own: the one starting
     /// it, or its runtime's. Waiting on the instance there would wait on
     /// itself.
     pub fn on_own_thread(&self) -> bool {
-        let current = std::thread::current().id();
-        lock(&self.life).thread_id == Some(current)
-            || sail::app::logger::current().is_some_and(|log| Arc::ptr_eq(&log, &self.log))
+        self.core.on_own_thread()
     }
 
     /// Whether the host opens the TUN device, and protects sockets.
@@ -234,12 +173,15 @@ impl Instance {
         self.callbacks.given()
     }
 
+    /// The instance, as Rust hosts hold it.
+    #[allow(dead_code)]
+    pub fn core(&self) -> &embed::Instance {
+        &self.core
+    }
+
     /// What controls the instance, while it runs.
     pub fn manager(&self) -> Result<Arc<sail::RuntimeManager>, Failure> {
-        lock(&self.life)
-            .manager
-            .clone()
-            .ok_or_else(|| Failure::state("the instance is not running"))
+        Ok(self.core.manager()?)
     }
 
     /// Runs `task` on the instance's runtime, and waits for it.
@@ -247,169 +189,20 @@ impl Instance {
         &self,
         task: impl FnOnce(Arc<sail::RuntimeManager>) -> futures::future::BoxFuture<'static, T>,
     ) -> Result<T, Failure> {
-        if self.on_own_thread() {
-            return Err(Failure::new(
-                SAIL_ERR_WRONG_THREAD,
-                "called on a thread of the instance's own, where it would wait on itself",
-            ));
-        }
-        let manager = self.manager()?;
-        let (tx, rx) = std::sync::mpsc::sync_channel(1);
-        let task = task(manager.clone());
-        manager.handle().spawn(async move {
-            let _ = tx.send(task.await);
-        });
-        rx.recv()
-            .map_err(|_| Failure::state("the instance stopped"))
-    }
-
-    /// Told by the core, on the thread starting it, that it runs.
-    pub fn running(&self, manager: Arc<sail::RuntimeManager>) {
-        let mut life = lock(&self.life);
-        if life.stop {
-            // Asked to stop before the core had it to stop.
-            manager.blocking_shutdown();
-            life.phase = Phase::Stopping;
-        } else {
-            life.phase = Phase::Running;
-            life.started_at = Some(SystemTime::now());
-        }
-        life.manager = Some(manager);
-        self.publish(&life);
-    }
-
-    fn finished(&self, result: Result<(), sail::Error>) {
-        let mut life = lock(&self.life);
-        life.manager = None;
-        life.thread_id = None;
-        match result {
-            Ok(()) => life.phase = Phase::Stopped,
-            Err(e) => {
-                life.phase = Phase::Failed;
-                life.failure = Some(Failure::from(e));
-            }
-        }
-        self.publish(&life);
+        Ok(self.core.blocking_with_manager(task)?)
     }
 
     fn start(&self, source: Source) -> Result<(), Failure> {
-        let mut life = lock(&self.life);
-        if life.phase.live() {
-            return Err(Failure::state(format!(
-                "the instance is {} already",
-                life.phase.name()
-            )));
-        }
-        // The last run's thread has ended, or is ending.
-        if let Some(thread) = life.thread.take() {
-            let _ = thread.join();
-        }
-        let this = self
-            .me
-            .upgrade()
-            .ok_or_else(|| Failure::state("the instance is being freed"))?;
-        let mut host = self.host.clone();
-        host.platform = Some(sail::runtime::PlatformRef(Arc::new(FfiPlatform {
-            callbacks: self.callbacks.clone(),
-            instance: self.me.clone(),
-        })));
-        host.log = Some(sail::app::logger::InstanceLogRef(self.log.clone()));
-        // As libbox's apps have them, a Clash API or not.
-        host.clash_modes = true;
-        let options = sail::StartOptions {
-            config: match source {
-                Source::Text(text) => sail::Config::Str(text),
-                Source::File(path) => sail::Config::File(path),
-            },
-            #[cfg(feature = "auto-reload")]
-            auto_reload: false,
-            runtime_opt: match self.runtime {
-                RuntimeShape::SingleThread => sail::RuntimeOption::SingleThread,
-                RuntimeShape::MultiThread(n, stack) => sail::RuntimeOption::MultiThread(n, stack),
-            },
-            runtime: self.options.clone(),
-            host,
-        };
-        let id = self.id;
-        let thread = std::thread::Builder::new()
-            .name(format!("sail-{}", id))
-            .spawn(move || {
-                let stopped = lock(&this.life).stop;
-                let result = if stopped {
-                    Ok(())
-                } else {
-                    sail::start(id, options)
-                };
-                this.finished(result);
-            })
-            .map_err(|e| Failure::new(crate::SAIL_ERR_IO, e.to_string()))?;
-        life.phase = Phase::Starting;
-        life.failure = None;
-        life.stop = false;
-        life.started_at = None;
-        life.thread_id = Some(thread.thread().id());
-        life.thread = Some(thread);
-        self.publish(&life);
-        let life = self
-            .changed
-            .wait_while(life, |l| l.phase == Phase::Starting)
-            .unwrap_or_else(|e| e.into_inner());
-        match life.phase {
-            Phase::Running => Ok(()),
-            Phase::Failed => Err(life
-                .failure
-                .clone()
-                .unwrap_or_else(|| Failure::state("the instance failed"))),
-            _ => Err(Failure::new(
-                SAIL_ERR_CANCELLED,
-                "the instance was stopped while it started",
-            )),
-        }
+        Ok(self.core.blocking_start(match source {
+            Source::Text(text) => embed::Config::Json(text),
+            Source::File(path) => embed::Config::File(path.into()),
+        })?)
     }
 
     /// Asks the instance to stop, then waits up to `wait` for it to have
     /// stopped; on a thread of its own, it does not wait.
     pub fn stop(&self, wait: Duration) -> Result<(), Failure> {
-        let own = self.on_own_thread();
-        let mut life = lock(&self.life);
-        if !life.phase.live() {
-            return Ok(());
-        }
-        life.stop = true;
-        if life.phase != Phase::Stopping {
-            life.phase = Phase::Stopping;
-            self.publish(&life);
-        }
-        let manager = life.manager.clone();
-        drop(life);
-        // Either the running instance, or its start, takes it; one not in
-        // the core yet sees `stop` when it gets there.
-        match manager {
-            Some(manager) => {
-                manager.blocking_shutdown();
-            }
-            None => {
-                sail::shutdown(self.id);
-            }
-        }
-        if own || wait.is_zero() {
-            return Ok(());
-        }
-        let (mut life, timeout) = self
-            .changed
-            .wait_timeout_while(lock(&self.life), wait, |l| l.phase.live())
-            .unwrap_or_else(|e| e.into_inner());
-        if timeout.timed_out() {
-            return Err(Failure::new(
-                SAIL_ERR_TIMEOUT,
-                "the instance is still stopping",
-            ));
-        }
-        if let Some(thread) = life.thread.take() {
-            drop(life);
-            let _ = thread.join();
-        }
-        Ok(())
+        Ok(self.core.blocking_stop(wait)?)
     }
 
     /// Stops it as the host does, for a command service client.
@@ -433,26 +226,15 @@ impl Instance {
     }
 
     pub(crate) fn reload(&self, config: Option<String>) -> Result<(), Failure> {
-        let host = self.host.clone();
-        self.run(move |manager| {
-            Box::pin(async move {
-                match config {
-                    Some(text) => {
-                        let config = sail::config::from_string_for(&text, &host)
-                            .map_err(sail::Error::Config)?;
-                        manager.reload_with(config).await
-                    }
-                    None => manager.reload().await,
-                }
-            })
-        })?
-        .map_err(Failure::from)
-    }
-}
-
-impl Drop for Instance {
-    fn drop(&mut self) {
-        lock(&IDS).remove(&self.id);
+        if self.on_own_thread() {
+            return Err(Failure::new(
+                crate::SAIL_ERR_WRONG_THREAD,
+                "called on a thread of the instance's own, where it would wait on itself",
+            ));
+        }
+        Ok(futures::executor::block_on(
+            self.core.reload(config.map(embed::Config::Json)),
+        )?)
     }
 }
 
@@ -712,7 +494,7 @@ pub unsafe extern "C" fn sail_instance_state(
 ) -> i32 {
     call(err, || {
         let state = match target(instance)? {
-            Target::Local(instance) => instance.state.borrow().clone(),
+            Target::Local(instance) => instance.state(),
             #[cfg(feature = "command-server")]
             Target::Remote(client) => json::State::from(client.unary(|mut s| async move {
                 s.get_service_status(crate::command::proto::Empty {}).await
@@ -729,5 +511,5 @@ pub(crate) fn live_instances() -> usize {
 
 #[cfg(test)]
 pub(crate) fn ids_held() -> usize {
-    lock(&IDS).len()
+    embed::ids_held()
 }

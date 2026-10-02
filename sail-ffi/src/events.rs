@@ -378,7 +378,7 @@ fn produce(kind: u32, options: &Options, instance: &Arc<Instance>) -> Result<Pro
     let weak = Arc::downgrade(instance);
     Ok(match kind {
         SAIL_EVENT_STATE => {
-            let state = instance.state.subscribe();
+            let state = instance.states();
             Box::new(move |sink| Box::pin(follow_state(sink, state)))
         }
         SAIL_EVENT_LOG => {
@@ -470,10 +470,10 @@ pub(crate) fn ticker(every: Duration) -> tokio::time::Interval {
 /// The state, then each change.
 pub(crate) async fn follow_state(
     mut out: impl Emit<json::State>,
-    mut state: tokio::sync::watch::Receiver<json::State>,
+    mut state: tokio::sync::watch::Receiver<sail::embed::State>,
 ) {
     loop {
-        let now = state.borrow_and_update().clone();
+        let now = crate::instance::state_json(&state.borrow_and_update());
         if !out.emit(now).await || state.changed().await.is_err() {
             return;
         }

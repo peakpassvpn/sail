@@ -160,6 +160,17 @@ fn secret_index() -> Index<Ssl, SecretSlot> {
 unsafe extern "C" fn select_certificate(
     client_hello: *const btls_sys::SSL_CLIENT_HELLO,
 ) -> btls_sys::ssl_select_cert_result_t {
+    crate::transport::tls::guarded(
+        || btls_sys::ssl_select_cert_result_t::ssl_select_cert_error,
+        // SAFETY: as the body's.
+        || unsafe { swap_sigalg(client_hello) },
+    )
+}
+
+/// `select_certificate`'s body.
+unsafe fn swap_sigalg(
+    client_hello: *const btls_sys::SSL_CLIENT_HELLO,
+) -> btls_sys::ssl_select_cert_result_t {
     // SAFETY: BoringSSL passes a valid SSL_CLIENT_HELLO whose body stays in
     // place, and writable, until the handshake next waits for IO; the
     // ClientHello is not hashed before `restore_sigalgs` runs.
@@ -188,6 +199,15 @@ unsafe extern "C" fn restore_sigalgs(
     ssl: *mut btls_sys::SSL,
     _arg: *mut std::os::raw::c_void,
 ) -> std::os::raw::c_int {
+    crate::transport::tls::guarded(
+        || 0,
+        // SAFETY: as the body's.
+        || unsafe { put_sigalg_back(ssl) },
+    )
+}
+
+/// `restore_sigalgs`'s body.
+unsafe fn put_sigalg_back(ssl: *mut btls_sys::SSL) -> std::os::raw::c_int {
     // SAFETY: as in `select_certificate`; `swapped_at` points into the same
     // ClientHello, which has not moved.
     unsafe {
@@ -204,6 +224,12 @@ unsafe extern "C" fn restore_sigalgs(
 /// BoringSSL's key log: keeps the server handshake traffic secret, which
 /// the flight is re-framed under, and nothing else.
 unsafe extern "C" fn keylog(ssl: *const btls_sys::SSL, line: *const std::os::raw::c_char) {
+    // SAFETY: as the body's.
+    crate::transport::tls::guarded(|| (), || unsafe { keep_secret(ssl, line) })
+}
+
+/// `keylog`'s body.
+unsafe fn keep_secret(ssl: *const btls_sys::SSL, line: *const std::os::raw::c_char) {
     // SAFETY: BoringSSL passes a valid SSL and a NUL-terminated line for
     // the duration of the call.
     let (ssl, line) = unsafe {

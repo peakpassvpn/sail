@@ -128,6 +128,25 @@ impl From<sail::Error> for Failure {
     }
 }
 
+impl From<sail::embed::Error> for Failure {
+    fn from(e: sail::embed::Error) -> Self {
+        use sail::embed::ErrorKind as K;
+        let code = match e.kind() {
+            K::Config => SAIL_ERR_CONFIG,
+            K::InvalidArgument => SAIL_ERR_INVALID_ARGUMENT,
+            K::NotRunning | K::State => SAIL_ERR_STATE,
+            K::NotFound => SAIL_ERR_NOT_FOUND,
+            K::Unsupported => SAIL_ERR_UNSUPPORTED,
+            K::Timeout => SAIL_ERR_TIMEOUT,
+            K::Cancelled => SAIL_ERR_CANCELLED,
+            K::WrongThread => SAIL_ERR_WRONG_THREAD,
+            K::Failed | K::Io => SAIL_ERR_IO,
+            _ => SAIL_ERR_INTERNAL,
+        };
+        Failure::new(code, e.message())
+    }
+}
+
 impl From<sail::control::ControlError> for Failure {
     fn from(e: sail::control::ControlError) -> Self {
         use sail::control::ControlError as E;

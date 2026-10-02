@@ -137,6 +137,20 @@ unsafe extern "C" fn finalize_client_hello(
     _x25519_private_key: *const u8,
     out_session_id: *mut u8,
 ) -> std::os::raw::c_int {
+    crate::transport::tls::guarded(
+        || 0,
+        // SAFETY: as the body's.
+        || unsafe { sign_client_hello(ssl, hello, hello_len, out_session_id) },
+    )
+}
+
+/// `finalize_client_hello`'s body.
+unsafe fn sign_client_hello(
+    ssl: *mut btls_sys::SSL,
+    hello: *const u8,
+    hello_len: usize,
+    out_session_id: *mut u8,
+) -> std::os::raw::c_int {
     // SAFETY: BoringSSL passes a live SSL and buffers of the documented sizes.
     let (ssl, hello) = unsafe {
         (

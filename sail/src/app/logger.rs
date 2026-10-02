@@ -257,23 +257,41 @@ pub(crate) fn collect_warnings<T>(f: impl FnOnce() -> T) -> (T, Vec<String>) {
     (out, kept)
 }
 
-/// Sets up logging as `config` says; `host` may send console output to the
-/// system log instead of standard output. Logging is the process's: the
-/// last instance to start or reload sets its level and output. Where the
-/// host installed a subscriber of its own already, sail's is not
-/// installed, and logs nothing.
-pub fn setup_logger(config: &config::Log, host: &Host) -> Result<()> {
+/// The levels `config` keeps.
+fn level_filter(config: &config::Log) -> LevelFilter {
     use config::model::LogLevel;
-    // Installed even when disabled, so that a reload can turn it back on,
-    // and one that disables it takes effect.
-    let filter = match config.level {
+    match config.level {
         _ if config.disabled => LevelFilter::OFF,
         LogLevel::Trace => LevelFilter::TRACE,
         LogLevel::Debug => LevelFilter::DEBUG,
         LogLevel::Info => LevelFilter::INFO,
         LogLevel::Warn => LevelFilter::WARN,
         LogLevel::Error | LogLevel::Fatal | LogLevel::Panic => LevelFilter::ERROR,
-    };
+    }
+}
+
+/// A filter as a number, the more severe the smaller: OFF 0, ERROR 1, …,
+/// TRACE 5.
+fn level_rank(filter: LevelFilter) -> u8 {
+    match filter.into_level() {
+        None => 0,
+        Some(tracing::Level::ERROR) => 1,
+        Some(tracing::Level::WARN) => 2,
+        Some(tracing::Level::INFO) => 3,
+        Some(tracing::Level::DEBUG) => 4,
+        Some(tracing::Level::TRACE) => 5,
+    }
+}
+
+/// Sets up logging as `config` says; `host` may send console output to the
+/// system log instead of standard output. Logging is the process's: the
+/// last instance to start or reload sets its level and output. Where the
+/// host installed a subscriber of its own already, sail's is not
+/// installed, and logs nothing.
+pub fn setup_logger(config: &config::Log, host: &Host) -> Result<()> {
+    // Installed even when disabled, so that a reload can turn it back on,
+    // and one that disables it takes effect.
+    let filter = level_filter(config);
     let (writer, writer_guard) = get_writer(config, host)?;
     REDACT.store(
         config
@@ -336,6 +354,10 @@ pub struct InstanceLog {
     kept: Mutex<VecDeque<Arc<LogLine>>>,
     capacity: usize,
     events: tokio::sync::broadcast::Sender<LogEvent>,
+    /// The least severe level it takes, as its configuration's `log`
+    /// says: what reaches it under a host's subscriber, which filters as
+    /// the host does.
+    level: std::sync::atomic::AtomicU8,
 }
 
 impl std::fmt::Debug for InstanceLog {
@@ -351,7 +373,21 @@ impl InstanceLog {
             kept: Mutex::new(VecDeque::new()),
             capacity,
             events: tokio::sync::broadcast::channel(FOLLOWERS_BEHIND).0,
+            level: std::sync::atomic::AtomicU8::new(level_rank(LevelFilter::TRACE)),
         })
+    }
+
+    /// Takes the lines `config` asks for from now on.
+    pub fn configure(&self, config: &config::Log) {
+        self.level.store(
+            level_rank(level_filter(config)),
+            std::sync::atomic::Ordering::Relaxed,
+        );
+    }
+
+    fn takes(&self, level: &tracing::Level) -> bool {
+        level_rank(LevelFilter::from_level(*level))
+            <= self.level.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// The lines kept, and what comes after them: none missed, none twice.
@@ -469,7 +505,8 @@ impl<S: tracing::Subscriber> Layer<S> for Broadcast {
         event: &tracing::Event<'_>,
         _ctx: tracing_subscriber::layer::Context<'_, S>,
     ) {
-        let Some(log) = current().filter(|log| log.wanted()) else {
+        let Some(log) = current().filter(|log| log.wanted() && log.takes(event.metadata().level()))
+        else {
             return;
         };
         let mut fields = Fields(String::new());
@@ -480,6 +517,15 @@ impl<S: tracing::Subscriber> Layer<S> for Broadcast {
             time: std::time::SystemTime::now(),
         }));
     }
+}
+
+/// What sends sail's lines to the instance each belongs to, for a host
+/// that installs its own subscriber: sail then installs none of its own.
+pub fn instance_layer<S>() -> impl Layer<S> + Send + Sync + 'static
+where
+    S: tracing::Subscriber + for<'span> tracing_subscriber::registry::LookupSpan<'span>,
+{
+    Broadcast.with_filter(filter_fn(|metadata| metadata.target().starts_with("sail")))
 }
 
 /// Sets the level logs are kept at, as the Clash API sets it; none keeps

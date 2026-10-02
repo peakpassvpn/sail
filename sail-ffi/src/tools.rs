@@ -6,12 +6,12 @@ use std::ffi::{c_char, c_void, CString};
 
 use crate::{call, opt_str_arg, out_json, str_arg, Failure, SAIL_ERR_CONFIG};
 
-/// The tuning and host that `settings` (the core's JSON, see
+/// The settings `settings` (the core's JSON, see
 /// `sail::runtime::StartSettings`) says, or the defaults: on iOS and
 /// Android, the "mobile" profile and the system log unless it says.
-pub(crate) fn start_settings(
+pub(crate) fn parse_settings(
     settings: Option<&str>,
-) -> Result<(sail::runtime::RuntimeOptions, sail::runtime::Host), Failure> {
+) -> Result<sail::runtime::StartSettings, Failure> {
     let mut parsed = match settings {
         None => sail::runtime::StartSettings::default(),
         Some(json) => sail::runtime::StartSettings::from_json(json)
@@ -23,7 +23,15 @@ pub(crate) fn start_settings(
     if phone {
         parsed.profile.get_or_insert_with(|| "mobile".to_string());
     }
-    parsed
+    Ok(parsed)
+}
+
+/// The tuning and host the settings `settings` say, as `parse_settings`
+/// reads them.
+pub(crate) fn start_settings(
+    settings: Option<&str>,
+) -> Result<(sail::runtime::RuntimeOptions, sail::runtime::Host), Failure> {
+    parse_settings(settings)?
         .resolve()
         .map_err(|e| Failure::new(SAIL_ERR_CONFIG, format!("{:#}", e)))
 }
@@ -38,7 +46,6 @@ fn start_env(settings: Option<&str>) -> Result<sail::runtime::RuntimeEnv, Failur
                 callbacks: crate::platform::Callbacks::new(unsafe {
                     crate::platform::SailPlatform::read(std::ptr::null())
                 }?),
-                instance: std::sync::Weak::new(),
             },
         )));
     }

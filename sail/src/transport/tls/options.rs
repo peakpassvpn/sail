@@ -401,15 +401,20 @@ impl Pins {
     pub fn apply(&self, builder: &mut SslContextBuilder) {
         let pins = self.clone();
         builder.set_custom_verify_callback(SslVerifyMode::PEER, move |ssl| {
-            let checked = match &pins {
-                Self::PublicKeys(pins) => pins.check_peer(ssl),
-                Self::Certificates(pins) => pins.check_peer(ssl),
-            };
-            checked.map_err(|why| {
-                tracing::warn!("tls: {}", why);
-                ssl.set_ex_data(failure_index(), why);
-                SslVerifyError::Invalid(SslAlert::BAD_CERTIFICATE)
-            })
+            super::guarded(
+                || Err(SslVerifyError::Invalid(SslAlert::INTERNAL_ERROR)),
+                || {
+                    let checked = match &pins {
+                        Self::PublicKeys(pins) => pins.check_peer(ssl),
+                        Self::Certificates(pins) => pins.check_peer(ssl),
+                    };
+                    checked.map_err(|why| {
+                        tracing::warn!("tls: {}", why);
+                        ssl.set_ex_data(failure_index(), why);
+                        SslVerifyError::Invalid(SslAlert::BAD_CERTIFICATE)
+                    })
+                },
+            )
         });
     }
 

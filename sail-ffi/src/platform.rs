@@ -3,7 +3,7 @@
 //! and the system log of the target.
 
 use std::ffi::{c_char, c_void, CString};
-use std::sync::{Arc, Weak};
+use std::sync::Arc;
 
 #[cfg(any(target_os = "ios", target_os = "macos", target_os = "android"))]
 #[allow(
@@ -178,11 +178,10 @@ const OWNER_FIRST: usize = 1024;
 /// The most a host may ask for it: more is a host gone wrong.
 const OWNER_MOST: usize = 64 * 1024;
 
-/// The platform an instance runs with: the host's callbacks, the system
-/// log, and the instance to tell once it runs.
+/// The platform an instance runs with: the host's callbacks, and the
+/// system log.
 pub(crate) struct FfiPlatform {
     pub callbacks: Arc<Callbacks>,
-    pub instance: Weak<crate::instance::Instance>,
 }
 
 impl sail::runtime::Platform for FfiPlatform {
@@ -263,12 +262,6 @@ impl sail::runtime::Platform for FfiPlatform {
                     capacity = needed;
                 }
             }
-        }
-    }
-
-    fn running(&self, manager: &Arc<sail::RuntimeManager>) {
-        if let Some(instance) = self.instance.upgrade() {
-            instance.running(manager.clone());
         }
     }
 }

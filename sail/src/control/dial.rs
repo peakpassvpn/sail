@@ -106,12 +106,13 @@ impl RuntimeManager {
 }
 
 /// The host's stream and the outbound's, relayed as a routed connection's.
-#[cfg(unix)]
-async fn relay_stream(
-    mut host: tokio::net::UnixStream,
+pub(crate) async fn relay_stream<H>(
+    mut host: H,
     mut outbound: AnyStream,
     relay: crate::runtime::options::Relay,
-) {
+) where
+    H: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
     let _ = crate::net::relay::copy_buf_bidirectional_with_timeout(
         &mut host,
         &mut outbound,
