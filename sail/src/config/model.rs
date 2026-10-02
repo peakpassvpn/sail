@@ -2885,15 +2885,10 @@ impl Rule {
         if self.override_port == Some(0) {
             return Err(anyhow!("{}.override_port: must be more than 0", path));
         }
-        // A rule that ends the matching for every connection is `final`.
-        let ends_matching = matches!(action, RuleAction::Route | RuleAction::Reject)
-            || (action == RuleAction::Bypass && self.outbound.is_some());
-        if ends_matching && !self.has_conditions() {
-            return Err(anyhow!(
-                "{}: the rule has no conditions; route.final is where everything else goes",
-                path
-            ));
-        }
+        // A rule with an action and no conditions matches everything, as
+        // in sing-box, whose IsValid counts the action as content
+        // (option/rule.go:206-210); only a nested rule, which takes no
+        // action, must have conditions.
         Ok(())
     }
 
@@ -3929,8 +3924,6 @@ mod tests {
                 r#"[{ "domain": ["a"], "action": "reject", "sniffer": ["tls"] }]"#,
                 "route.rules[0].sniffer: not for a reject rule",
             ),
-            (r#"[{ "outbound": "direct" }]"#, "route.final"),
-            (r#"[{ "action": "reject" }]"#, "route.final"),
             (r#"[{ "action": "sniff", "sniffer": ["ssh"] }]"#, "ssh"),
             (
                 r#"[{ "action": "route-options" }]"#,
@@ -3977,10 +3970,6 @@ mod tests {
                 "route.rules[0]: outbound [proxy] does not exist",
             ),
             (
-                r#"[{ "action": "bypass", "outbound": "direct" }]"#,
-                "route.final",
-            ),
-            (
                 r#"[{ "port": 1, "action": "bypass", "method": "drop" }]"#,
                 "route.rules[0].method: not for a bypass rule",
             ),
@@ -4015,6 +4004,25 @@ mod tests {
         ] {
             let err = config(rules).unwrap_err().to_string();
             assert!(err.contains(message), "{}: {}", rules, err);
+        }
+    }
+
+    /// A rule with an action and no conditions is taken and matches
+    /// everything, as sing-box takes it: `{"action": "reject"}` is how a
+    /// generated configuration ends with a rejection.
+    #[test]
+    fn a_rule_with_only_an_action_is_taken() {
+        for rules in [
+            r#"[{ "outbound": "direct" }]"#,
+            r#"[{ "action": "reject" }]"#,
+            r#"[{ "action": "bypass", "outbound": "direct" }]"#,
+        ] {
+            let config = Config::from_json(&format!(
+                r#"{{ "outbounds": [{{ "type": "direct" }}], "route": {{ "rules": {} }} }}"#,
+                rules
+            ))
+            .unwrap_or_else(|e| panic!("{}: {}", rules, e));
+            assert!(!config.route.rules[0].has_conditions(), "{}", rules);
         }
     }
 
