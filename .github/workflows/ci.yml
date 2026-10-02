@@ -1,7 +1,7 @@
 name: ci
 
-# Day-to-day checks, Linux only. A ci/* branch runs three jobs in parallel
-# (lint, test, features); master adds the cross jobs, one per target, and a
+# Day-to-day checks, Linux only. A ci/* branch runs four jobs in parallel
+# (lint, test, features, fuzz); master adds the cross jobs, one per target, and a
 # native aarch64 test run. Apple builds run at release. Public-repository
 # runners are free, so jobs are split for wall time.
 on: [push, pull_request, workflow_dispatch]
@@ -172,6 +172,35 @@ jobs:
       # code's fields and tiers; a field change regenerates it.
       - name: configuration reference is current
         run: cd website && node scripts/build-config.mjs --check
+
+  # The fuzz workspaces build apart from sail's, with a BoringSSL of their
+  # own: a job of its own, beside the others, so that it adds no wall time.
+  # They must build, with the workspace's [patch]es; nothing is fuzzed here.
+  fuzz:
+    runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: -D warnings
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: install rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+
+      - name: cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            fuzz -> target
+            sail-netstack/fuzz -> target
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+
+      - name: fuzz workspaces build
+        run: tools/fuzz-check.sh
 
   # The non-Apple release targets, built from Linux with the scripts the
   # release uses, one job per target so that they run side by side: a debug

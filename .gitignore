@@ -13,8 +13,8 @@
 # Local benchmarks, not published
 /bench/
 
-# Local-only: fuzz workspaces and run evidence (logs hold local paths and hosts)
-/fuzz/
+# Local-only: run evidence (logs hold local paths and hosts). The fuzz
+# workspaces' own .gitignore keep their runs out.
 /fuzz-config/
 /packaging/systemd/validation/
 /tools/security/evidence/

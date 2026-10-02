@@ -1,4 +1,6 @@
 /artifacts/
 /corpus/
 /target/
-
+/coverage/
+/Cargo.lock
+*.log

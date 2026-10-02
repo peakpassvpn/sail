@@ -1,0 +1,77 @@
+# Fuzz targets for the parsers sniffing runs on what clients send, and for
+# share links, which come from subscriptions anyone may serve. From the
+# repository root, with cargo-fuzz:
+#
+#     cargo +nightly fuzz run --fuzz-dir fuzz sniff_quic -- -max_total_time=60
+#
+# Targets: sniff_tls, sniff_http, sniff_dns, sniff_quic, sniff_any,
+# share_link.
+
+[package]
+name = "sail-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+# The sniffers, and btls for QUIC's Initial packets.
+sail = { path = "../sail", default-features = false, features = ["aead"] }
+
+# A workspace of its own: the targets build on nightly with sanitizers,
+# apart from sail's.
+[workspace]
+
+# The workspace's, kept identical by tools/fuzz-check.sh.
+[patch.crates-io]
+btls = { git = "https://github.com/peakpassvpn/btls.git", rev = "3eb203a7ed44fd93d31056156a1ddfab5a6b9338" }
+btls-sys = { git = "https://github.com/peakpassvpn/btls.git", rev = "3eb203a7ed44fd93d31056156a1ddfab5a6b9338" }
+quinn-proto = { git = "https://github.com/peakpassvpn/quinn.git", rev = "29761c5b2d16f3508dcd3f5b525a2dd052810bb0" }
+# tun-rs's netlink graph without paste (RUSTSEC-2024-0436); see
+# tools/security/policy.toml for when these go.
+netconfig-rs = { git = "https://github.com/peakpassvpn/netconfig-rs.git", rev = "a5caf848a0e0f18bc9810c1fa854f3ac6a903443" }
+route_manager = { git = "https://github.com/peakpassvpn/route_manager.git", rev = "5703367f56a7b4fed9fd02e216f2f110b4186eda" }
+[[bin]]
+name = "sniff_tls"
+path = "fuzz_targets/sniff_tls.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "sniff_http"
+path = "fuzz_targets/sniff_http.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "sniff_dns"
+path = "fuzz_targets/sniff_dns.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "sniff_quic"
+path = "fuzz_targets/sniff_quic.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "sniff_any"
+path = "fuzz_targets/sniff_any.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "share_link"
+path = "fuzz_targets/share_link.rs"
+test = false
+doc = false
+bench = false

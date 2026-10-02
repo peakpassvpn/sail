@@ -1,0 +1,8 @@
+# Only the targets are tracked: what a run makes stays local, as its logs
+# and inputs may name hosts and paths.
+/target/
+/corpus/
+/artifacts/
+/coverage/
+/Cargo.lock
+*.log
