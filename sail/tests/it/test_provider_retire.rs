@@ -97,7 +97,7 @@ mod harness {
                     "type": "local", "tag": "sub", "path": "{}", "update_interval": "1s"
                 }}]
             }}"#,
-            proxies.display()
+            crate::common::json_path(&proxies)
         );
         let config = sail::config::from_string(&config)?;
 

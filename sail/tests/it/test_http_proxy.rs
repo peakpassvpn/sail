@@ -48,8 +48,8 @@ fn certs(name: &str) -> anyhow::Result<Certs> {
     std::fs::write(&cert_path, cert.pem())?;
     std::fs::write(&key_path, key_pair.serialize_pem())?;
     Ok(Certs {
-        cert: cert_path.to_string_lossy().into_owned(),
-        key: key_path.to_string_lossy().into_owned(),
+        cert: crate::common::json_path(&cert_path),
+        key: crate::common::json_path(&key_path),
         _dir: dir,
     })
 }

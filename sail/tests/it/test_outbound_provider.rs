@@ -65,7 +65,7 @@ fn a_selector_follows_its_provider_on(port: u16, first: u16, second: u16) -> any
                     "update_interval": "1s"
                 }}]
             }}"#,
-            proxies.display()
+            crate::common::json_path(&proxies)
         ),
     )?;
     let server = |port: u16| {

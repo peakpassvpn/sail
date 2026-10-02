@@ -22,6 +22,13 @@ use sail::session::Session;
 static NEXT_RT_ID: AtomicU16 = AtomicU16::new(0);
 
 /// A runtime ID no other instance of the tests has.
+/// `path` as it goes into a configuration written as JSON text: with `/`
+/// for separators, which Windows takes too, so that a `\` is not read as
+/// an escape.
+pub fn json_path(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
+}
+
 pub fn next_rt_id() -> sail::RuntimeId {
     NEXT_RT_ID.fetch_add(1, Ordering::Relaxed)
 }
