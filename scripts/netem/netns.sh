@@ -19,6 +19,13 @@
 #                               veth pair and take the first down, as a
 #                               phone leaving Wi-Fi for cellular; and back
 #   netns.sh down               delete both namespaces
+#
+# On a shared host whose jobs claim named resources by creating a directory
+# (mkdir is atomic), NETEM_LOCK_DIR names where: `up` claims
+# $NETEM_LOCK_DIR/netns-nc$NS and .../netns-ns$NS before it creates
+# anything, writing NETEM_LOCK_OWNER (default "netem") into each one's
+# owner file, and fails if either is held; `down` releases the claims it
+# owns.
 set -eu
 # Which pair: NETEM_NS names the namespaces nc$NS and ns$NS (default 5),
 # NETEM_NET the three /24s 10.$NET-10.$((NET+2)) they use (default 95), so
@@ -56,8 +63,41 @@ FAR=10.$NET1.0.1
 CA2=10.$NET2.0.1
 SA2=10.$NET2.0.2
 
+LOCKS=${NETEM_LOCK_DIR:-}
+OWNER=${NETEM_LOCK_OWNER:-netem}
+
+# Claims the lock of each namespace, or none: one held by another is left.
+claim() {
+  [ -n "$LOCKS" ] || return 0
+  mkdir -p "$LOCKS"
+  taken=""
+  for ns in $C $S; do
+    if mkdir "$LOCKS/netns-$ns" 2>/dev/null; then
+      echo "$OWNER" > "$LOCKS/netns-$ns/owner"
+      taken="$taken $ns"
+    else
+      echo "netns $ns is claimed by $(cat "$LOCKS/netns-$ns/owner" 2>/dev/null || echo '?')" >&2
+      for t in $taken; do rm -rf "$LOCKS/netns-$t"; done
+      exit 1
+    fi
+  done
+}
+
+# Releases the claims this owner holds.
+release() {
+  [ -n "$LOCKS" ] || return 0
+  for ns in $C $S; do
+    if [ "$(cat "$LOCKS/netns-$ns/owner" 2>/dev/null)" = "$OWNER" ]; then
+      rm -rf "$LOCKS/netns-$ns"
+    fi
+  done
+}
+
 case "$1" in
 up)
+  claim
+  # Whatever stops it from here gives the claims back.
+  trap release EXIT
   for ns in $C $S; do
     if ip netns list | grep -qw "$ns"; then
       echo "netns $ns exists: another run?" >&2
@@ -93,6 +133,7 @@ up)
   # offload, so a "packet" is one on the wire.
   ip netns exec $C ethtool -K $CV0 tso off gso off gro off >/dev/null 2>&1 || true
   ip netns exec $S ethtool -K $SV0 tso off gso off gro off >/dev/null 2>&1 || true
+  trap - EXIT
   ;;
 shape)
   shift
@@ -133,6 +174,7 @@ unswitch)
 down)
   ip netns del $C 2>/dev/null || true
   ip netns del $S 2>/dev/null || true
+  release
   ;;
 *)
   echo "usage: netns.sh up|shape SPEC...|clear|blackhole|linkdown|linkup|switch|unswitch|down" >&2
