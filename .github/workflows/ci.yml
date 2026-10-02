@@ -1,21 +1,19 @@
 name: ci
 
-# Day-to-day checks, Linux only. A ci/* branch runs two jobs (check,
-# features); master adds three cross jobs. Apple builds run at release.
+# Day-to-day checks, Linux only. A ci/* branch runs three jobs in parallel
+# (lint, test, features); master adds the cross jobs, one per target, and a
+# native aarch64 test run. Apple builds run at release. Public-repository
+# runners are free, so jobs are split for wall time.
 on: [push, pull_request, workflow_dispatch]
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # The pre-merge check, on every push: the sensitive check, format, lint
-  # and the tests, in one job.
-  check:
+  # The pre-merge checks, on every push, in two parallel jobs. lint: the
+  # sensitive check, format, clippy and the generated C header.
+  lint:
     runs-on: ubuntu-latest
-    env:
-      # Line numbers in a failing test's backtrace, without the full debug
-      # info, which only costs compile and link time and cache space here.
-      CARGO_PROFILE_DEV_DEBUG: line-tables-only
     steps:
       - name: checkout
         uses: actions/checkout@v4
@@ -55,13 +53,6 @@ jobs:
       - name: lint
         run: cargo clippy --workspace --all-targets -- -D warnings
 
-      # sail, sail-netstack and sail-ffi (the C ABI as a host calls it, the
-      # command service included) in one run, so that sail is built once
-      # for all three: sail-ffi only adds sail's auto-reload feature, which
-      # the features job checks on its own as well.
-      - name: test
-        run: cargo test -p sail -p sail-netstack -p sail-ffi
-
       # include/sail.h is committed: it must be what cbindgen makes of the
       # source. The CLI is run, not linked (it is MPL-2.0); its binary is
       # cached by version, saved from master only.
@@ -89,6 +80,36 @@ jobs:
             echo "::error file=sail-ffi/include/sail.h::not what cbindgen makes of the source; generate it again: (cd sail-ffi && cbindgen --config cbindgen.toml src/lib.rs -o include/sail.h)"
             exit 1
           fi
+
+  # test: the tests of sail, sail-netstack and sail-ffi.
+  test:
+    runs-on: ubuntu-latest
+    env:
+      # Line numbers in a failing test's backtrace, without the full debug
+      # info, which only costs compile and link time and cache space here.
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: install rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+
+      - name: cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+
+      # sail, sail-netstack and sail-ffi (the C ABI as a host calls it, the
+      # command service included) in one run, so that sail is built once
+      # for all three. sail-ffi adds sail's auto-reload feature, so sail's
+      # tests run with it on; the features job builds sail without it.
+      - name: test
+        run: cargo test -p sail -p sail-netstack -p sail-ffi
 
   # Small builds, one feature set at a time, tests included, so that cfg
   # gates and feature dependencies stay right.
@@ -144,13 +165,12 @@ jobs:
         run: cd website && node scripts/build-config.mjs --check
 
   # The non-Apple release targets, built from Linux with the scripts the
-  # release uses, in three jobs: a debug build links, which `cargo check`
-  # would not, and BoringSSL is compiled either way. On master and by hand
-  # only; a ci/* branch skips them.
-  # - linux: the musl and Windows CLIs, each started once (`sail --version`,
-  #   under qemu-user or wine), which catches a binary that does not load;
-  # - aarch64: the sail tests under qemu-user, the one non-x86 test run;
-  # - android: the four sail-ffi libraries, built only.
+  # release uses, one job per target so that they run side by side: a debug
+  # build links, which `cargo check` would not, and BoringSSL is compiled
+  # either way. The CLIs are started once (`sail --version`, under qemu-user
+  # or wine), which catches a binary that does not load; the Android
+  # sail-ffi libraries are built only. On master and by hand only; a ci/*
+  # branch skips them.
   cross:
     if: github.ref == 'refs/heads/master' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
@@ -158,22 +178,19 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: linux
-            targets: x86_64-unknown-linux-musl i686-unknown-linux-musl armv7-unknown-linux-musleabihf arm-unknown-linux-musleabi x86_64-pc-windows-gnu
-            package: sail-cli
-            run: smoke
-          - name: aarch64
-            targets: aarch64-unknown-linux-musl
-            package: sail-cli
-            run: test
-          - name: android
-            targets: aarch64-linux-android armv7-linux-androideabi x86_64-linux-android i686-linux-android
-            package: sail-ffi
-            run: ''
-    name: cross (${{ matrix.name }})
+          - { target: x86_64-unknown-linux-musl, package: sail-cli, run: smoke }
+          - { target: i686-unknown-linux-musl, package: sail-cli, run: smoke }
+          - { target: aarch64-unknown-linux-musl, package: sail-cli, run: smoke }
+          - { target: armv7-unknown-linux-musleabihf, package: sail-cli, run: smoke }
+          - { target: arm-unknown-linux-musleabi, package: sail-cli, run: smoke }
+          - { target: x86_64-pc-windows-gnu, package: sail-cli, run: smoke }
+          - { target: aarch64-linux-android, package: sail-ffi, run: '' }
+          - { target: armv7-linux-androideabi, package: sail-ffi, run: '' }
+          - { target: x86_64-linux-android, package: sail-ffi, run: '' }
+          - { target: i686-linux-android, package: sail-ffi, run: '' }
+    name: cross (${{ matrix.target }})
     env:
-      # Debug info and incremental state only cost disk and time here; the
-      # statically linked test binaries are large enough without them.
+      # Debug info and incremental state only cost disk and time here.
       CARGO_PROFILE_DEV_DEBUG: 0
       CARGO_INCREMENTAL: 0
     steps:
@@ -187,50 +204,57 @@ jobs:
         with:
           toolchain: 1.98.1
 
-      # scripts/install_cross_toolchain.sh downloads into ~/.sail-cross.
+      # scripts/install_cross_toolchain.sh downloads into ~/.sail-cross. The
+      # four Android jobs share one NDK entry (it is large).
       - name: cache cross toolchain
         uses: actions/cache@v4
         with:
           path: ~/.sail-cross
-          key: sail-cross-${{ matrix.name }}-${{ hashFiles('scripts/install_cross_toolchain.sh') }}
+          key: sail-cross-${{ contains(matrix.target, 'android') && 'android' || matrix.target }}-${{ hashFiles('scripts/install_cross_toolchain.sh') }}
 
-      # The targets' dependencies (BoringSSL above all), one cache per job,
-      # saved from master only like the others; sail itself is rebuilt.
+      # The target's dependencies (BoringSSL above all), saved from master
+      # only like the other caches; sail itself is rebuilt. Not for the
+      # Android libraries: four more large entries would push the others
+      # out of the 10 GB the repository gets.
       - name: cache build
+        if: ${{ matrix.package == 'sail-cli' }}
         uses: Swatinem/rust-cache@v2
         with:
-          key: cross-${{ matrix.name }}
+          key: cross-${{ matrix.target }}
           save-if: ${{ github.ref == 'refs/heads/master' }}
 
-      - name: install cross toolchains
-        run: |
-          for t in ${{ matrix.targets }}; do
-            scripts/install_cross_toolchain.sh "$t" ${{ matrix.run && '--run' || '' }}
-          done
+      - name: install cross toolchain
+        run: scripts/install_cross_toolchain.sh ${{ matrix.target }} ${{ matrix.run && '--run' || '' }}
 
-      # One target at a time; the host-side build (scripts, proc macros) is
-      # shared, and each target's output stays for the build cache (the
-      # runner has the disk for it).
-      - name: build, then smoke or nothing
-        if: ${{ matrix.run != 'test' }}
-        run: |
-          for t in ${{ matrix.targets }}; do
-            echo "::group::$t"
-            scripts/cross.sh "$t" build -p ${{ matrix.package }}
-            if [ "${{ matrix.run }}" = smoke ]; then
-              scripts/cross.sh "$t" run -p sail-cli -- --version
-            fi
-            echo "::endgroup::"
-          done
-          df -h / | tail -1
+      - name: build
+        run: scripts/cross.sh ${{ matrix.target }} build -p ${{ matrix.package }}
 
-      # test_tls_split pushes 32 MiB each way within a 20 s deadline. Its
-      # tests run one at a time here: side by side under qemu-user they
-      # miss it on throughput alone, though each passes on its own.
+      - name: smoke
+        if: ${{ matrix.run == 'smoke' }}
+        run: scripts/cross.sh ${{ matrix.target }} run -p sail-cli -- --version
+
+  # The one non-x86 test run, natively on an arm64 runner (free for public
+  # repositories) rather than under qemu-user, which took about 20 minutes.
+  test-aarch64:
+    if: github.ref == 'refs/heads/master' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04-arm
+    env:
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: install rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+
+      - name: cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+
       - name: test sail
-        if: ${{ matrix.run == 'test' }}
-        run: |
-          for t in ${{ matrix.targets }}; do
-            scripts/cross.sh "$t" test -p sail -- --skip test_tls_split_
-            scripts/cross.sh "$t" test -p sail --test test_tls_split -- --test-threads=1
-          done
+        run: cargo test -p sail
