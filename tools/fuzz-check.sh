@@ -10,22 +10,38 @@
 #
 #   tools/fuzz-check.sh             the drift check and the builds
 #   tools/fuzz-check.sh --patches   the drift check alone
+#   tools/fuzz-check.sh --sync      writes the workspace's [patch.crates-io]
+#                                   into each fuzz workspace, after a bump
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
 WORKSPACES=(fuzz sail-netstack/fuzz)
 
-python3 - "${WORKSPACES[@]}" <<'PY'
-import sys, tomllib
+python3 - "${1:-}" "${WORKSPACES[@]}" <<'PY'
+import re, sys, tomllib
+
+mode, workspaces = sys.argv[1], sys.argv[2:]
+TABLE = re.compile(r"^\[patch\.crates-io\]\n.*?(?=^\[|\Z)", re.S | re.M)
 
 def patches(path):
     with open(path, "rb") as f:
         return tomllib.load(f).get("patch", {}).get("crates-io", {})
 
+if mode == "--sync":
+    block = TABLE.search(open("Cargo.toml").read()).group(0).rstrip() + "\n"
+    for ws in workspaces:
+        path = f"{ws}/Cargo.toml"
+        text = open(path).read()
+        if TABLE.search(text):
+            text = TABLE.sub(lambda _: block + "\n", text, count=1)
+        else:
+            text = text.rstrip() + "\n\n" + block
+        open(path, "w").write(re.sub(r"\n{3,}", "\n\n", text).rstrip() + "\n")
+
 root = patches("Cargo.toml")
 drift = False
-for ws in sys.argv[1:]:
+for ws in workspaces:
     ours = patches(f"{ws}/Cargo.toml")
     if ours != root:
         drift = True
@@ -33,11 +49,13 @@ for ws in sys.argv[1:]:
         for name in sorted(set(root) | set(ours)):
             if root.get(name) != ours.get(name):
                 print(f"  {name}: workspace {root.get(name)!r}, here {ours.get(name)!r}")
+if drift:
+    print("run tools/fuzz-check.sh --sync, which writes the workspace's [patch.crates-io] into them")
 sys.exit(1 if drift else 0)
 PY
 echo "fuzz-check: [patch.crates-io] matches in ${WORKSPACES[*]}"
 
-[ "${1:-}" = "--patches" ] && exit 0
+case "${1:-}" in --patches|--sync) exit 0 ;; esac
 
 for ws in "${WORKSPACES[@]}"; do
     echo "::group::cargo check $ws"

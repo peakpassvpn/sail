@@ -46,7 +46,7 @@ bench = false
 [patch.crates-io]
 btls = { git = "https://github.com/peakpassvpn/btls.git", rev = "3eb203a7ed44fd93d31056156a1ddfab5a6b9338" }
 btls-sys = { git = "https://github.com/peakpassvpn/btls.git", rev = "3eb203a7ed44fd93d31056156a1ddfab5a6b9338" }
-quinn-proto = { git = "https://github.com/peakpassvpn/quinn.git", rev = "29761c5b2d16f3508dcd3f5b525a2dd052810bb0" }
+quinn-proto = { git = "https://github.com/peakpassvpn/quinn.git", rev = "a0294adec58a09e6d4d1322ed123ff647dfa619b" }
 # tun-rs's netlink graph without paste (RUSTSEC-2024-0436); see
 # tools/security/policy.toml for when these go.
 netconfig-rs = { git = "https://github.com/peakpassvpn/netconfig-rs.git", rev = "a5caf848a0e0f18bc9810c1fa854f3ac6a903443" }
