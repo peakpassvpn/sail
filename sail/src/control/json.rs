@@ -6,7 +6,7 @@
 //! version of each API that answers with it.
 
 /// The version of the shape, raised with any change to it.
-pub const VERSION: u32 = 4;
+pub const VERSION: u32 = 5;
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -236,6 +236,41 @@ impl Stats {
             outbounds: by(&r.outbounds),
         }
     }
+}
+
+/// An inbound as it runs.
+#[derive(Serialize)]
+pub struct Inbound {
+    pub tag: String,
+    /// Its type, as the configuration has it.
+    pub protocol: String,
+    pub listen: Option<String>,
+    pub listen_port: Option<u16>,
+    /// Whether its users and certificate change while it runs.
+    pub reloadable: bool,
+}
+
+impl Inbound {
+    pub fn of(i: &crate::control::InboundInfo) -> Self {
+        Self {
+            tag: i.tag.clone(),
+            protocol: i.protocol.clone(),
+            listen: i.listen.clone(),
+            listen_port: i.listen_port,
+            reloadable: i.reloadable,
+        }
+    }
+}
+
+#[derive(Serialize)]
+pub struct Inbounds {
+    pub inbounds: Vec<Inbound>,
+}
+
+/// The names of an inbound's users; their credentials are not told.
+#[derive(Serialize)]
+pub struct InboundUsers {
+    pub users: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -524,6 +559,11 @@ mod tests {
                                  up_mbps: None, down_mbps: Some(5) },
                 traffic: Counts { up: 1, down: 2, tcp: 3, udp: 4 }, live: 1, quota_used: 12,
             }] },
+            "inbounds": Inbounds { inbounds: vec![Inbound {
+                tag: "t".into(), protocol: "trojan".into(), listen: Some("::".into()),
+                listen_port: Some(443), reloadable: true,
+            }] },
+            "inbound_users": InboundUsers { users: vec!["alice".into()] },
             "stats": Stats {
                 users: [("alice".to_string(), Counts { up: 1, down: 2, tcp: 3, udp: 0 })].into(),
                 inbounds: Default::default(), outbounds: Default::default(),
@@ -535,6 +575,9 @@ mod tests {
         });
         let published = r#"{
   "capabilities": {"has_modes": true, "has_tun": true, "needs_network": false, "opens_tun": false, "protects_sockets": true},
+  "inbound_users": {"users": ["alice"]},
+  "inbounds": {"inbounds": [{"listen": "::", "listen_port": 443, "protocol": "trojan", "reloadable": true,
+                             "tag": "t"}]},
   "connection": {"chains": ["b", "sel"], "destination": "example.com:443", "download": 5, "host": "example.com", "id": 12,
                  "inbound_tag": "in", "inbound_type": "socks", "network": "tcp", "packages": ["com.example"],
                  "process": null, "rule": null, "source": "127.0.0.1:5000", "start": 1759300000,

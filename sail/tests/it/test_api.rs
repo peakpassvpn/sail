@@ -305,7 +305,9 @@ fn the_api_reads_and_changes_users_and_connections() -> anyhow::Result<()> {
     let result = (|| {
         let (status, _, body) = get("/api/v1")?;
         anyhow::ensure!(
-            status == 200 && body["api_version"] == 1 && body["json_version"] == 4,
+            status == 200
+                && body["api_version"] == 1
+                && body["json_version"] == sail::control::json::VERSION,
             "{} {}",
             status,
             body
@@ -482,6 +484,179 @@ fn the_api_reads_and_changes_users_and_connections() -> anyhow::Result<()> {
         // The pages /connections replaced are gone.
         let (status, _, _) = get("/api/v1/runtime/stat/json")?;
         anyhow::ensure!(status == 404, "{}", status);
+        Ok(())
+    })();
+    for id in ids {
+        sail::shutdown(id);
+    }
+    result
+}
+
+#[cfg(all(feature = "inbound-trojan", feature = "inbound-direct"))]
+#[test]
+fn the_api_changes_an_inbounds_users_one_change_at_a_time() -> anyhow::Result<()> {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    let (ids, api_port, trojan_port) = common::retry_port_clash(|| {
+        let [api_port, trojan_port, direct_port] = common::free_ports();
+        let config = serde_json::json!({
+            "api": { "listen": format!("127.0.0.1:{}", api_port), "secret": SECRET },
+            "inbounds": [
+                { "type": "trojan", "tag": "t", "listen": "127.0.0.1", "listen_port": trojan_port,
+                  "users": [{ "name": "alice", "password": "a" }] },
+                { "type": "direct", "tag": "d", "listen": "127.0.0.1", "listen_port": direct_port,
+                  "override_address": "127.0.0.1", "override_port": 9 },
+            ],
+            "outbounds": [{ "type": "direct" }],
+        });
+        Ok((
+            common::run_sail_instances(&rt, vec![config.to_string()])?,
+            api_port,
+            trojan_port,
+        ))
+    })?;
+    let at = At::Port(api_port);
+    let send =
+        |method: &str, path: &str, body: &str| call(&rt, &at, Some(SECRET), method, path, body);
+    let users = "/api/v1/runtime/inbounds/t/users";
+    let result = (|| {
+        let (status, _, body) = send("GET", "/api/v1/runtime/inbounds", "")?;
+        anyhow::ensure!(status == 200, "{} {}", status, body);
+        let inbounds = body["inbounds"].as_array().cloned().unwrap_or_default();
+        anyhow::ensure!(
+            inbounds.len() == 2
+                && inbounds[0]["tag"] == "d"
+                && inbounds[0]["reloadable"] == false
+                && inbounds[1]["tag"] == "t"
+                && inbounds[1]["protocol"] == "trojan"
+                && inbounds[1]["listen_port"] == trojan_port
+                && inbounds[1]["reloadable"] == true,
+            "{}",
+            body
+        );
+
+        let names = |body: &serde_json::Value| body["users"].clone();
+        let (status, _, body) = send("GET", users, "")?;
+        anyhow::ensure!(
+            status == 200 && names(&body) == serde_json::json!(["alice"]),
+            "{}",
+            body
+        );
+        let (status, _, body) = send("GET", "/api/v1/runtime/inbounds/x/users", "")?;
+        anyhow::ensure!(
+            status == 404 && error(&body).0 == "not_found",
+            "{} {}",
+            status,
+            body
+        );
+
+        let (status, _, body) = send("POST", users, r#"{ "name": "bob", "password": "b" }"#)?;
+        anyhow::ensure!(status == 201, "{} {}", status, body);
+        let (status, _, body) = send("POST", users, r#"{ "name": "bob", "password": "c" }"#)?;
+        anyhow::ensure!(
+            status == 409 && error(&body).0 == "exists",
+            "{} {}",
+            status,
+            body
+        );
+        let (status, _, body) = send("POST", users, r#"{ "password": "anonymous" }"#)?;
+        anyhow::ensure!(
+            status == 400 && error(&body).0 == "invalid",
+            "{} {}",
+            status,
+            body
+        );
+        let (_, _, body) = send("GET", users, "")?;
+        anyhow::ensure!(
+            names(&body) == serde_json::json!(["alice", "bob"]),
+            "{}",
+            body
+        );
+
+        // A password changed; the name stays, from the path.
+        let (status, _, body) = send("PUT", &format!("{}/bob", users), r#"{ "password": "b2" }"#)?;
+        anyhow::ensure!(status == 204, "{} {}", status, body);
+        let (status, _, body) = send(
+            "PUT",
+            &format!("{}/bob", users),
+            r#"{ "name": "carol", "password": "b3" }"#,
+        )?;
+        anyhow::ensure!(status == 400, "{} {}", status, body);
+        let (status, _, body) = send("PUT", &format!("{}/carol", users), r#"{ "password": "c" }"#)?;
+        anyhow::ensure!(status == 404, "{} {}", status, body);
+
+        let (status, _, body) = send("DELETE", &format!("{}/bob", users), "")?;
+        anyhow::ensure!(status == 204, "{} {}", status, body);
+        let (status, _, body) = send("DELETE", &format!("{}/bob", users), "")?;
+        anyhow::ensure!(status == 404, "{} {}", status, body);
+
+        // An inbound whose users do not change while it runs says so.
+        let (status, _, body) = send(
+            "POST",
+            "/api/v1/runtime/inbounds/d/users",
+            r#"{ "name": "eve", "password": "e" }"#,
+        )?;
+        anyhow::ensure!(
+            status == 422 && error(&body).0 == "unsupported",
+            "{} {}",
+            status,
+            body
+        );
+
+        // The whole inbound replaced: the same socket, other users.
+        let inbound = serde_json::json!({
+            "type": "trojan", "tag": "t", "listen": "127.0.0.1", "listen_port": trojan_port,
+            "users": [{ "name": "frank", "password": "f" }],
+        });
+        let (status, _, body) = send("PUT", "/api/v1/runtime/inbounds/t", &inbound.to_string())?;
+        anyhow::ensure!(status == 204, "{} {}", status, body);
+        let (_, _, body) = send("GET", users, "")?;
+        anyhow::ensure!(names(&body) == serde_json::json!(["frank"]), "{}", body);
+        let (status, _, body) = send("PUT", "/api/v1/runtime/inbounds/u", &inbound.to_string())?;
+        anyhow::ensure!(status == 400, "{} {}", status, body);
+        let mut other = inbound.clone();
+        other["tag"] = "nope".into();
+        let (status, _, body) = send("PUT", "/api/v1/runtime/inbounds/nope", &other.to_string())?;
+        anyhow::ensure!(status == 404, "{} {}", status, body);
+
+        // Ten at once adding one user: one is added, the rest find it there.
+        let statuses: Vec<u16> = std::thread::scope(|scope| {
+            let handles: Vec<_> = (0..10)
+                .map(|_| {
+                    scope.spawn(|| -> anyhow::Result<u16> {
+                        let rt = tokio::runtime::Builder::new_current_thread()
+                            .enable_all()
+                            .build()?;
+                        let (status, _, _) = call(
+                            &rt,
+                            &At::Port(api_port),
+                            Some(SECRET),
+                            "POST",
+                            users,
+                            r#"{ "name": "dave", "password": "d" }"#,
+                        )?;
+                        Ok(status)
+                    })
+                })
+                .collect();
+            handles
+                .into_iter()
+                .map(|h| h.join().unwrap().unwrap_or(0))
+                .collect()
+        });
+        anyhow::ensure!(
+            statuses.iter().filter(|s| **s == 201).count() == 1
+                && statuses.iter().filter(|s| **s == 409).count() == 9,
+            "{:?}",
+            statuses
+        );
+        let (_, _, body) = send("GET", users, "")?;
+        anyhow::ensure!(
+            names(&body) == serde_json::json!(["dave", "frank"]),
+            "{}",
+            body
+        );
         Ok(())
     })();
     for id in ids {

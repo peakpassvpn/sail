@@ -827,12 +827,22 @@ impl RuntimeManager {
         if inbound.tag.is_empty() {
             inbound.tag = inbound.protocol.clone();
         }
+        self.update_inbound_resources_locked(&inbound)
+    }
+
+    /// `update_inbound_resources`, the changes lock held: what reads an
+    /// inbound's configuration and writes it back changes it under the
+    /// same lock.
+    pub(crate) fn update_inbound_resources_locked(
+        &self,
+        inbound: &config::Inbound,
+    ) -> Result<(), Error> {
         let mut inbounds = self
             .inbound_manager
             .lock()
             .map_err(|_| Error::RuntimeManager)?;
         let prepared = inbounds
-            .prepare_update_resources(&inbound)
+            .prepare_update_resources(inbound)
             .map_err(Error::Config)?;
         #[cfg(feature = "auto-reload")]
         let watcher = self.prepare_watcher(inbounds.prepared_resource_files(&prepared))?;

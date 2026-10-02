@@ -407,6 +407,111 @@ mod handlers {
         Json(serde_json::json!({ "closed": rm.close_all_connections().await }))
     }
 
+    /// Why a change to an inbound or its users was not made.
+    fn inbound_failed(e: crate::control::InboundError) -> Response {
+        use crate::control::InboundError::*;
+        match e {
+            NoInbound(_) | NoUser(..) => error(StatusCode::NOT_FOUND, "not_found", e),
+            NotReloadable(_) => error(StatusCode::UNPROCESSABLE_ENTITY, "unsupported", e),
+            UserExists(..) => error(StatusCode::CONFLICT, "exists", e),
+            Invalid(_) => error(StatusCode::BAD_REQUEST, "invalid", e),
+            Failed(e) => failed(e),
+        }
+    }
+
+    /// The inbounds, by tag: their type, where they listen, and whether
+    /// their users change while they run.
+    pub async fn inbounds(State(rm): State<Arc<RuntimeManager>>) -> Response {
+        match rm.inbounds() {
+            Ok(inbounds) => Json(json::Inbounds {
+                inbounds: inbounds.iter().map(json::Inbound::of).collect(),
+            })
+            .into_response(),
+            Err(e) => failed(e),
+        }
+    }
+
+    /// Replaces the inbound's users and certificate by the body, the whole
+    /// inbound as the configuration has it, without its socket rebound.
+    pub async fn inbound_update(
+        State(rm): State<Arc<RuntimeManager>>,
+        Path(tag): Path<String>,
+        Json(mut inbound): Json<crate::config::Inbound>,
+    ) -> Response {
+        if inbound.tag.is_empty() {
+            inbound.tag = tag.clone();
+        }
+        if inbound.tag != tag {
+            return error(
+                StatusCode::BAD_REQUEST,
+                "invalid",
+                format!("tag: [{}] is not the inbound [{}]", inbound.tag, tag),
+            );
+        }
+        match rm.inbounds() {
+            Ok(inbounds) => match inbounds.iter().find(|i| i.tag == tag) {
+                None => return inbound_failed(crate::control::InboundError::NoInbound(tag)),
+                Some(i) if !i.reloadable => {
+                    return inbound_failed(crate::control::InboundError::NotReloadable(tag))
+                }
+                Some(_) => {}
+            },
+            Err(e) => return failed(e),
+        }
+        match rm.update_inbound_resources(inbound).await {
+            Ok(()) => StatusCode::NO_CONTENT.into_response(),
+            Err(e) => failed(e),
+        }
+    }
+
+    /// The names of the inbound's users.
+    pub async fn inbound_users(
+        State(rm): State<Arc<RuntimeManager>>,
+        Path(tag): Path<String>,
+    ) -> Response {
+        match rm.inbound_users(&tag) {
+            Ok(Some(users)) => Json(json::InboundUsers { users }).into_response(),
+            Ok(None) => inbound_failed(crate::control::InboundError::NoInbound(tag)),
+            Err(e) => failed(e),
+        }
+    }
+
+    /// Adds the body, a user as the inbound's `users` has them, named.
+    pub async fn inbound_user_add(
+        State(rm): State<Arc<RuntimeManager>>,
+        Path(tag): Path<String>,
+        Json(user): Json<serde_json::Value>,
+    ) -> Response {
+        match rm.add_inbound_user(&tag, user).await {
+            Ok(()) => StatusCode::CREATED.into_response(),
+            Err(e) => inbound_failed(e),
+        }
+    }
+
+    /// Replaces the user's credentials by the body: its connections go on.
+    pub async fn inbound_user_replace(
+        State(rm): State<Arc<RuntimeManager>>,
+        Path((tag, name)): Path<(String, String)>,
+        Json(user): Json<serde_json::Value>,
+    ) -> Response {
+        match rm.replace_inbound_user(&tag, &name, user).await {
+            Ok(()) => StatusCode::NO_CONTENT.into_response(),
+            Err(e) => inbound_failed(e),
+        }
+    }
+
+    /// Takes the user out of the inbound, and closes its connections
+    /// through it.
+    pub async fn inbound_user_remove(
+        State(rm): State<Arc<RuntimeManager>>,
+        Path((tag, name)): Path<(String, String)>,
+    ) -> Response {
+        match rm.remove_inbound_user(&tag, &name).await {
+            Ok(()) => StatusCode::NO_CONTENT.into_response(),
+            Err(e) => inbound_failed(e),
+        }
+    }
+
     /// The network the host is on, as it told or sail detected it.
     pub async fn network(
         State(rm): State<Arc<RuntimeManager>>,
@@ -691,10 +796,21 @@ impl ApiServer {
                 "/api/v1/runtime/dns/cache/flush",
                 post(handlers::dns_cache_flush),
             )
-            .route("/api/v1/runtime/inbounds", post(handlers::inbound_add))
+            .route(
+                "/api/v1/runtime/inbounds",
+                get(handlers::inbounds).post(handlers::inbound_add),
+            )
             .route(
                 "/api/v1/runtime/inbounds/:tag",
-                delete(handlers::inbound_remove),
+                put(handlers::inbound_update).delete(handlers::inbound_remove),
+            )
+            .route(
+                "/api/v1/runtime/inbounds/:tag/users",
+                get(handlers::inbound_users).post(handlers::inbound_user_add),
+            )
+            .route(
+                "/api/v1/runtime/inbounds/:tag/users/:name",
+                put(handlers::inbound_user_replace).delete(handlers::inbound_user_remove),
             )
             .route("/api/v1/runtime/assets", get(handlers::assets))
             .route(

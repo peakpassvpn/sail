@@ -153,7 +153,15 @@ The management API, version 1 (`GET /api/v1` gives it, the JSON's version and th
 | `GET /status` | Traffic in total, connections and memory |
 | `GET /connections`, `DELETE /connections`, `DELETE /connections/{id}` | The connections open, closing them all, or one |
 | `POST /reload`, `POST /shutdown` | Reloads the configuration file, or stops |
+| `GET /inbounds` | The inbounds: tag, type, where they listen, and whether their users change while they run (`reloadable`) |
 | `POST /inbounds`, `DELETE /inbounds/{tag}`, `POST /outbounds`, `DELETE /outbounds/{tag}` | Adds or removes one, as the configuration has them |
+| `PUT /inbounds/{tag}` | Replaces a reloadable inbound's users and certificate by the body, the whole inbound, without rebinding its socket; 204 |
+| `GET /inbounds/{tag}/users` | The names of its users; their credentials are never told |
+| `POST /inbounds/{tag}/users` | Adds a user, as the inbound's `users` has them, with a name; 201, or 409 when the name is there already |
+| `PUT /inbounds/{tag}/users/{name}` | Replaces the user's credentials, as a password is changed; its connections go on, as in sing-box; 204 |
+| `DELETE /inbounds/{tag}/users/{name}` | Takes the user out of the inbound and closes its connections through it; 204 |
+
+A change to the users of an inbound that is not reloadable answers 422 (`unsupported`): change it with a reload.
 
 What the API changes is not written to the configuration: a reload or a restart goes by the file. A user is 404 when no inbound has it.
  The Clash API, which dashboards use, is configured in `clash_api` or in sing-box's `experimental.clash_api`, not both.

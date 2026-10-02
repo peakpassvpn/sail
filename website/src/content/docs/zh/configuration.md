@@ -153,7 +153,15 @@ sing-box 的 `ntp` 段会被丢弃并给出警告；其 `services`、`certificat
 | `GET /status` | 总流量、连接数和内存 |
 | `GET /connections`、`DELETE /connections`、`DELETE /connections/{id}` | 列出进行中的连接，关闭全部或其中一条 |
 | `POST /reload`、`POST /shutdown` | 重载配置文件，或停止 |
+| `GET /inbounds` | 列出入站：tag、类型、监听地址，以及运行中能否修改用户（`reloadable`） |
 | `POST /inbounds`、`DELETE /inbounds/{tag}`、`POST /outbounds`、`DELETE /outbounds/{tag}` | 增删一个入站或出站，格式同配置文件 |
+| `PUT /inbounds/{tag}` | 用请求体（完整的入站配置）替换一个可热更新入站的用户和证书，不重新绑定端口；返回 204 |
+| `GET /inbounds/{tag}/users` | 该入站的用户名列表，从不返回凭据 |
+| `POST /inbounds/{tag}/users` | 增加一个用户，格式同该入站的 `users`，必须有名字；返回 201，同名已存在时返回 409 |
+| `PUT /inbounds/{tag}/users/{name}` | 替换该用户的凭据，例如改密码；已有连接不断开，与 sing-box 一致；返回 204 |
+| `DELETE /inbounds/{tag}/users/{name}` | 把该用户移出入站，并断开它经这个入站的连接；返回 204 |
+
+对不可热更新的入站修改用户，返回 422（`unsupported`）：请改配置文件后重载。
 
 经 API 做的修改不写回配置文件：重载或重启以文件为准。没有入站包含的用户返回 404。
 供面板使用的 Clash API 写在 `clash_api` 或 sing-box 的 `experimental.clash_api` 中，二者只能选一。

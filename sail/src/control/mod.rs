@@ -15,11 +15,13 @@ use crate::session::{Network, SocksAddr};
 use crate::RuntimeManager;
 
 mod dial;
+mod inbounds;
 pub mod json;
 pub mod listen;
 mod providers;
 
 pub use dial::{Dialed, DIAL_INBOUND};
+pub use inbounds::{InboundError, InboundInfo};
 pub use providers::{Failure, ProviderInfo, RuleSetInfo, SourceKind, SubscriptionInfo};
 
 /// What the instance sent and received since it started, those

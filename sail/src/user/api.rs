@@ -129,55 +129,33 @@ impl RuntimeManager {
     }
 
     /// Adds `user`, an entry of the inbound's `users` as its protocol has
-    /// them, to the inbound `tag`, as `update_inbound_resources` would.
+    /// them, with a name, to the inbound `tag`, as `update_inbound_resources`
+    /// would.
     pub async fn add_user(&self, tag: &str, user: serde_json::Value) -> Result<(), Error> {
-        let mut inbound = self.inbound_config(tag)?;
-        let users = inbound
-            .options
-            .entry("users")
-            .or_insert_with(|| serde_json::Value::Array(Vec::new()));
-        users
-            .as_array_mut()
-            .ok_or_else(|| Error::Config(anyhow!("[{}] inbound: users is not a list", tag)))?
-            .push(user);
-        self.update_inbound_resources(inbound).await
+        self.add_inbound_user(tag, user).await.map_err(plain)
     }
 
     /// Takes the user `name` out of the inbound `tag`: its entries there go,
     /// and so do its connections through it. False when it had none.
     pub async fn remove_user(&self, tag: &str, name: &str) -> Result<bool, Error> {
-        let mut inbound = self.inbound_config(tag)?;
-        let Some(users) = inbound
-            .options
-            .get_mut("users")
-            .and_then(|v| v.as_array_mut())
-        else {
-            return Ok(false);
-        };
-        let before = users.len();
-        users.retain(|user| {
-            ["name", "username"]
-                .iter()
-                .all(|field| user.get(*field).and_then(|v| v.as_str()) != Some(name))
-        });
-        if users.len() == before {
-            return Ok(false);
+        match self.remove_inbound_user(tag, name).await {
+            Ok(()) => Ok(true),
+            Err(crate::control::InboundError::NoUser(..)) => Ok(false),
+            Err(e) => Err(plain(e)),
         }
-        self.update_inbound_resources(inbound).await?;
-        Ok(true)
-    }
-
-    fn inbound_config(&self, tag: &str) -> Result<crate::config::Inbound, Error> {
-        self.inbound_manager
-            .lock()
-            .map_err(|_| Error::RuntimeManager)?
-            .config(tag)
-            .ok_or_else(|| Error::Config(anyhow!("[{}] inbound: does not exist", tag)))
     }
 
     /// What happens to users from now on: shut out, or taken out of an
     /// inbound.
     pub fn user_events(&self) -> tokio::sync::broadcast::Receiver<UserEvent> {
         self.env.users.subscribe()
+    }
+}
+
+/// `e` as the rest of this API tells an error.
+fn plain(e: crate::control::InboundError) -> Error {
+    match e {
+        crate::control::InboundError::Failed(e) => e,
+        e => Error::Config(anyhow!("{}", e)),
     }
 }

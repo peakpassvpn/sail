@@ -54,8 +54,17 @@ pub struct InboundManager {
 }
 
 impl InboundManager {
-    fn reloadable(&self, tag: &str) -> bool {
+    /// Whether the users and certificate of the inbound `tag` change while
+    /// it runs, without its socket rebound.
+    pub(crate) fn reloadable(&self, tag: &str) -> bool {
         self.resources.contains_key(tag) || self.stateful_resources.contains(tag)
+    }
+
+    /// The configurations of the inbounds, by tag.
+    pub(crate) fn configs(&self) -> Vec<config::Inbound> {
+        let mut configs: Vec<_> = self.configs.values().cloned().collect();
+        configs.sort_by(|a, b| a.tag.cmp(&b.tag));
+        configs
     }
     #[cfg(feature = "auto-reload")]
     pub(crate) fn resource_files(&self) -> Vec<std::path::PathBuf> {
