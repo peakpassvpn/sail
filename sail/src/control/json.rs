@@ -273,6 +273,42 @@ pub struct InboundUsers {
     pub users: Vec<String>,
 }
 
+/// What happened to a user: an event of the management API's stream.
+#[derive(Serialize)]
+pub struct UserEvent {
+    /// `shut`: it went over its quota, or past its expiry, and was
+    /// disconnected; `removed`: it was taken out of `inbound`, and
+    /// disconnected from it.
+    pub event: &'static str,
+    pub user: String,
+    /// For `shut`.
+    pub over_quota: bool,
+    pub expired: bool,
+    /// For `removed`.
+    pub inbound: Option<String>,
+}
+
+impl UserEvent {
+    pub fn of(e: &crate::user::UserEvent) -> Self {
+        match e {
+            crate::user::UserEvent::Shut { user, status } => Self {
+                event: "shut",
+                user: user.clone(),
+                over_quota: status.exhausted(),
+                expired: status.expired(),
+                inbound: None,
+            },
+            crate::user::UserEvent::Removed { user, inbound } => Self {
+                event: "removed",
+                user: user.clone(),
+                over_quota: false,
+                expired: false,
+                inbound: Some(inbound.clone()),
+            },
+        }
+    }
+}
+
 #[derive(Serialize)]
 pub struct Connections {
     pub connections: Vec<Connection>,
@@ -563,6 +599,10 @@ mod tests {
                 tag: "t".into(), protocol: "trojan".into(), listen: Some("::".into()),
                 listen_port: Some(443), reloadable: true,
             }] },
+            "user_event": UserEvent {
+                event: "removed", user: "alice".into(), over_quota: false, expired: false,
+                inbound: Some("t".into()),
+            },
             "inbound_users": InboundUsers { users: vec!["alice".into()] },
             "stats": Stats {
                 users: [("alice".to_string(), Counts { up: 1, down: 2, tcp: 3, udp: 0 })].into(),
@@ -576,6 +616,7 @@ mod tests {
         let published = r#"{
   "capabilities": {"has_modes": true, "has_tun": true, "needs_network": false, "opens_tun": false, "protects_sockets": true},
   "inbound_users": {"users": ["alice"]},
+  "user_event": {"event": "removed", "expired": false, "inbound": "t", "over_quota": false, "user": "alice"},
   "inbounds": {"inbounds": [{"listen": "::", "listen_port": 443, "protocol": "trojan", "reloadable": true,
                              "tag": "t"}]},
   "connection": {"chains": ["b", "sel"], "destination": "example.com:443", "download": 5, "host": "example.com", "id": 12,

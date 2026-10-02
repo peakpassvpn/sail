@@ -664,3 +664,109 @@ fn the_api_changes_an_inbounds_users_one_change_at_a_time() -> anyhow::Result<()
     }
     result
 }
+
+#[cfg(feature = "inbound-trojan")]
+#[test]
+fn the_api_streams_what_happens_to_users() -> anyhow::Result<()> {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    let (ids, api_port) = common::retry_port_clash(|| {
+        let [api_port, trojan_port] = common::free_ports();
+        let config = serde_json::json!({
+            "api": { "listen": format!("127.0.0.1:{}", api_port), "secret": SECRET },
+            "inbounds": [{ "type": "trojan", "tag": "t", "listen": "127.0.0.1",
+                           "listen_port": trojan_port,
+                           "users": [{ "name": "alice", "password": "a" }] }],
+            "outbounds": [{ "type": "direct" }],
+        });
+        Ok((
+            common::run_sail_instances(&rt, vec![config.to_string()])?,
+            api_port,
+        ))
+    })?;
+    let result = (|| {
+        // The stream, read on a thread of its own until both events came.
+        let (opened, open) = std::sync::mpsc::channel();
+        let reader = std::thread::spawn(move || -> anyhow::Result<String> {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()?;
+            rt.block_on(async {
+                let mut s = tokio::net::TcpStream::connect(("127.0.0.1", api_port)).await?;
+                let request = format!(
+                    "GET /api/v1/runtime/events HTTP/1.1\r\nHost: sail\r\n\
+                     Authorization: Bearer {}\r\n\r\n",
+                    SECRET
+                );
+                s.write_all(request.as_bytes()).await?;
+                let mut got = String::new();
+                let mut buf = [0u8; 4096];
+                let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+                let mut told = false;
+                while !(got.contains("event: removed") && got.contains("event: shut")) {
+                    let n = tokio::time::timeout_at(deadline, s.read(&mut buf))
+                        .await
+                        .map_err(|_| anyhow::anyhow!("no more within 10s: {:?}", got))??;
+                    anyhow::ensure!(n > 0, "the stream ended: {}", got);
+                    got.push_str(&String::from_utf8_lossy(&buf[..n]));
+                    if !told && got.contains("\r\n\r\n") {
+                        told = true;
+                        let _ = opened.send(());
+                    }
+                }
+                Ok(got)
+            })
+        });
+        open.recv_timeout(Duration::from_secs(10))?;
+        let at = At::Port(api_port);
+        let send =
+            |method: &str, path: &str, body: &str| call(&rt, &at, Some(SECRET), method, path, body);
+        let users = "/api/v1/runtime/inbounds/t/users";
+        let (status, _, body) = send("POST", users, r#"{ "name": "bob", "password": "b" }"#)?;
+        anyhow::ensure!(status == 201, "{} {}", status, body);
+        let (status, _, body) = send("DELETE", &format!("{}/bob", users), "")?;
+        anyhow::ensure!(status == 204, "{} {}", status, body);
+        // Expired long ago: shut out at once.
+        let (status, _, body) = send(
+            "PUT",
+            "/api/v1/runtime/users/alice/limits",
+            r#"{ "expire_at_ms": 1 }"#,
+        )?;
+        anyhow::ensure!(status == 204, "{} {}", status, body);
+        let got = reader
+            .join()
+            .map_err(|_| anyhow::anyhow!("the reader panicked"))??;
+        anyhow::ensure!(
+            got.to_ascii_lowercase()
+                .contains("content-type: text/event-stream"),
+            "{}",
+            got
+        );
+        let data = |event: &str| -> anyhow::Result<serde_json::Value> {
+            let at = got.find(&format!("event: {}", event)).unwrap();
+            let line = got[at..]
+                .lines()
+                .find_map(|l| l.strip_prefix("data: "))
+                .ok_or_else(|| anyhow::anyhow!("no data: {}", got))?;
+            Ok(serde_json::from_str(line)?)
+        };
+        let removed = data("removed")?;
+        anyhow::ensure!(
+            removed["user"] == "bob" && removed["inbound"] == "t",
+            "{}",
+            removed
+        );
+        let shut = data("shut")?;
+        anyhow::ensure!(
+            shut["user"] == "alice" && shut["expired"] == true && shut["over_quota"] == false,
+            "{}",
+            shut
+        );
+        Ok(())
+    })();
+    for id in ids {
+        sail::shutdown(id);
+    }
+    result
+}

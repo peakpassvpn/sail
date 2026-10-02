@@ -512,6 +512,37 @@ mod handlers {
         }
     }
 
+    /// What happens to users from now on, as Server-Sent Events: each
+    /// event named as its `event` field, its data the JSON. One that falls
+    /// behind by more than the events kept gets `lagged`, with how many it
+    /// missed, and goes on from the oldest kept.
+    pub async fn events(
+        State(rm): State<Arc<RuntimeManager>>,
+    ) -> axum::response::sse::Sse<
+        impl futures::Stream<Item = Result<axum::response::sse::Event, Infallible>>,
+    > {
+        use axum::response::sse::{Event, KeepAlive, Sse};
+        use tokio::sync::broadcast::error::RecvError;
+        let events = futures::stream::unfold(rm.user_events(), |mut events| async move {
+            let event = match events.recv().await {
+                Ok(e) => {
+                    let e = json::UserEvent::of(&e);
+                    Event::default()
+                        .event(e.event)
+                        .json_data(&e)
+                        .unwrap_or_else(|_| Event::default().event("error"))
+                }
+                Err(RecvError::Lagged(missed)) => Event::default()
+                    .event("lagged")
+                    .data(serde_json::json!({ "missed": missed }).to_string()),
+                // The instance stopped.
+                Err(RecvError::Closed) => return None,
+            };
+            Some((Ok(event), events))
+        });
+        Sse::new(events).keep_alive(KeepAlive::default())
+    }
+
     /// The network the host is on, as it told or sail detected it.
     pub async fn network(
         State(rm): State<Arc<RuntimeManager>>,
@@ -862,6 +893,7 @@ impl ApiServer {
                 "/api/v1/runtime/users/:name/disconnect",
                 post(handlers::user_disconnect),
             )
+            .route("/api/v1/runtime/events", get(handlers::events))
             .route("/api/v1/runtime/stats", get(handlers::stats))
             .route("/api/v1/runtime/status", get(handlers::status))
             .route(

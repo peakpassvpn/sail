@@ -151,6 +151,7 @@ The management API, version 1 (`GET /api/v1` gives it, the JSON's version and th
 | `POST /users/{name}/disconnect` | Closes its connections, `{"closed": n}`; it may connect again |
 | `GET /stats` | Traffic by user, inbound and outbound; `?clear=true` counts from the last such read, which quotas do not |
 | `GET /status` | Traffic in total, connections and memory |
+| `GET /events` | Server-Sent Events of what happens to users: `shut` (over its quota or expired, and disconnected) and `removed` (taken out of an inbound), the event's JSON as its data; `lagged`, with how many were missed, to one that fell behind |
 | `GET /connections`, `DELETE /connections`, `DELETE /connections/{id}` | The connections open, closing them all, or one |
 | `POST /reload`, `POST /shutdown` | Reloads the configuration file, or stops |
 | `GET /inbounds` | The inbounds: tag, type, where they listen, and whether their users change while they run (`reloadable`) |

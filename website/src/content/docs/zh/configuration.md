@@ -151,6 +151,7 @@ sing-box 的 `ntp` 段会被丢弃并给出警告；其 `services`、`certificat
 | `POST /users/{name}/disconnect` | 断开该用户的连接，返回 `{"closed": n}`；之后它仍可重新连接 |
 | `GET /stats` | 按用户、入站、出站给出流量；`?clear=true` 表示自上次这样读取以来的增量，不影响配额 |
 | `GET /status` | 总流量、连接数和内存 |
+| `GET /events` | 以 Server-Sent Events 推送用户的变化：`shut`（超额或到期，已断开）与 `removed`（被移出入站），数据为该事件的 JSON；订阅方落后太多时收到 `lagged`，带漏掉的条数 |
 | `GET /connections`、`DELETE /connections`、`DELETE /connections/{id}` | 列出进行中的连接，关闭全部或其中一条 |
 | `POST /reload`、`POST /shutdown` | 重载配置文件，或停止 |
 | `GET /inbounds` | 列出入站：tag、类型、监听地址，以及运行中能否修改用户（`reloadable`） |

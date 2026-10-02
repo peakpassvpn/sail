@@ -698,16 +698,24 @@ impl UserRegistry {
     /// it is closed, and what it would open refused; how many connections
     /// there were.
     pub fn remove_from(&self, name: &str, tag: &str) -> usize {
-        let user = self.lock().users.get(name).and_then(Weak::upgrade);
+        let (user, events) = {
+            let registry = self.lock();
+            (
+                registry.users.get(name).and_then(Weak::upgrade),
+                registry.events.clone(),
+            )
+        };
+        // Told whether or not anything holds the user now: one with no
+        // connection is gone with the credentials that held it.
+        let _ = events.send(UserEvent::Removed {
+            user: name.to_owned(),
+            inbound: tag.to_owned(),
+        });
         user.map_or(0, |user| {
             user.removed
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .insert(tag.into());
-            let _ = user.events.send(UserEvent::Removed {
-                user: name.to_owned(),
-                inbound: tag.to_owned(),
-            });
             user.disconnect_inbound(tag)
         })
     }
