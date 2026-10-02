@@ -14821,8 +14821,30 @@
      "type": "boolean",
      "description": "Ends the connections through the member left once the group switches."
     },
+    "debounce": {
+     "$ref": "#/$defs/outbounds%5Bfallback%5D.debounce",
+     "description": "How many rounds of tests in a row have the group leave a member, or take an earlier one back, and how long it stays on a member at least; a sail extension. Unset, every round counts at once."
+    },
     "type": {
      "const": "fallback"
+    }
+   },
+   "additionalProperties": false
+  },
+  "outbounds[fallback].debounce": {
+   "type": "object",
+   "properties": {
+    "fail_after": {
+     "type": "number",
+     "description": "Failed rounds in a row before the member the group is on is left, by default one. A connection that finds its server unreachable leaves it at once all the same."
+    },
+    "recover_after": {
+     "type": "number",
+     "description": "Passed rounds in a row before a member that was down, failed or found unreachable, is up again, and taken back if it comes first, by default one."
+    },
+    "min_dwell": {
+     "type": "string",
+     "description": "The least time on a member before the group leaves it, while it is up, for an earlier member up again; 0s. The first round past it switches. A member down is left at once."
     }
    },
    "additionalProperties": false

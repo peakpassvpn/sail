@@ -73,9 +73,71 @@ impl Failures {
 pub use crate::app::healthcheck::DEFAULT_URL;
 pub const DEFAULT_INTERVAL: Duration = Duration::from_secs(3 * 60);
 
-/// Called after every round of tests with the members tested and their
-/// latencies, in the same order.
-pub type OnTested = Box<dyn Fn(&Snapshot, &[Option<Duration>]) + Send + Sync>;
+/// How many rounds in a row turn a member's standing, a fallback's
+/// `debounce`: `fail_after` failed rounds take a member that is up down,
+/// `recover_after` passed ones bring one that is down back up. One and
+/// one, the default, go by the last round alone.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Debounce {
+    pub fail_after: u32,
+    pub recover_after: u32,
+}
+
+impl Default for Debounce {
+    fn default() -> Self {
+        Self {
+            fail_after: 1,
+            recover_after: 1,
+        }
+    }
+}
+
+/// Whether a member is up, as its rounds have it, and how many rounds in
+/// a row went the other way since it last turned.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Standing {
+    pub up: bool,
+    pub against: u32,
+}
+
+impl Standing {
+    #[cfg(feature = "outbound-fallback")]
+    const DOWN: Self = Self {
+        up: false,
+        against: 0,
+    };
+
+    /// The standing a member's first round gives it: what the round says,
+    /// there being nothing before it to weigh it against.
+    fn first(passed: bool) -> Self {
+        Self {
+            up: passed,
+            against: 0,
+        }
+    }
+
+    /// Counts a round, `passed` or not; whether the standing turned.
+    fn counted(&mut self, passed: bool, debounce: Debounce) -> bool {
+        if passed == self.up {
+            self.against = 0;
+            return false;
+        }
+        self.against = self.against.saturating_add(1);
+        let needed = match self.up {
+            true => debounce.fail_after,
+            false => debounce.recover_after,
+        };
+        if self.against < needed {
+            return false;
+        }
+        *self = Self::first(passed);
+        true
+    }
+}
+
+/// Called after every round of tests with the checker, the members tested
+/// and their latencies, in the same order.
+pub type OnTested = Box<dyn Fn(&Checker, &Snapshot, &[Option<Duration>]) + Send + Sync>;
 
 pub struct Checker {
     tag: String,
@@ -101,6 +163,11 @@ pub struct Checker {
     idle: Option<Duration>,
     /// A member is taken to be up until it is tested.
     latencies: MemberLatencies,
+    /// How many rounds in a row turn a member's standing.
+    debounce: Debounce,
+    /// The members' standings, as their rounds turn them; a member missing
+    /// was not tested yet, and is up.
+    standings: Mutex<HashMap<MemberKey, Standing>>,
     /// Held through a round: one asked for through the API waits for the
     /// one under way, rather than running beside it.
     round: tokio::sync::Mutex<()>,
@@ -127,6 +194,7 @@ impl Checker {
         timeout: Duration,
         max_failed_times: u32,
         idle: Option<Duration>,
+        debounce: Debounce,
         on_tested: OnTested,
     ) -> (Arc<Self>, AbortHandle) {
         let checker = Arc::new(Self {
@@ -141,6 +209,8 @@ impl Checker {
             failures: Default::default(),
             idle,
             latencies: Default::default(),
+            debounce,
+            standings: Default::default(),
             round: Default::default(),
             last_used: Mutex::new(Instant::now()),
             wake: Notify::new(),
@@ -176,23 +246,73 @@ impl Checker {
         self.latencies.clone()
     }
 
-    /// Whether `member` passed its last test, or was not tested yet. A
-    /// `pass` outbound is never up, see `Snapshot::first_up`; this goes by
-    /// the tests only.
+    /// Whether `member` stands up, as its rounds of tests have it, see
+    /// `Debounce`, or was not tested yet. With the default debounce, as
+    /// load-balance and urltest have it, whether it passed its last test.
+    /// A `pass` outbound is never up, see `Snapshot::first_up`; this goes
+    /// by the tests only.
     #[cfg(any(feature = "outbound-load-balance", feature = "outbound-fallback"))]
     pub fn is_up(&self, member: &MemberKey) -> bool {
+        self.standing(member).is_none_or(|s| s.up)
+    }
+
+    /// Whether `member` passed its last test, or was not tested yet,
+    /// whatever its standing.
+    #[cfg(feature = "outbound-fallback")]
+    pub fn passed(&self, member: &MemberKey) -> bool {
         self.latencies.read(|l| is_up(l, member))
     }
 
+    /// `member`'s standing, if it was tested.
+    #[cfg(any(feature = "outbound-load-balance", feature = "outbound-fallback"))]
+    pub fn standing(&self, member: &MemberKey) -> Option<Standing> {
+        self.standings
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(member)
+            .copied()
+    }
+
+    #[cfg(feature = "outbound-fallback")]
+    pub fn debounce(&self) -> Debounce {
+        self.debounce
+    }
+
+    /// Counts a test of `member`, `passed` or not, toward its standing.
+    fn count(
+        standings: &mut HashMap<MemberKey, Standing>,
+        debounce: Debounce,
+        member: &MemberKey,
+        passed: bool,
+    ) {
+        match standings.get_mut(member) {
+            Some(standing) => {
+                standing.counted(passed, debounce);
+            }
+            None => {
+                standings.insert(member.clone(), Standing::first(passed));
+            }
+        }
+    }
+
     /// A connection through `member` failed in a way that says the member
-    /// itself cannot be reached: it is down from now until a round of
-    /// tests that begins after this passes it, which is asked for. True
-    /// if it was up.
+    /// itself cannot be reached: it is down from now until rounds of tests
+    /// that begin after this pass it, `recover_after` in a row, which are
+    /// asked for. `fail_after` does not apply: such a failure is evidence
+    /// enough. True if it was up.
     #[cfg(feature = "outbound-fallback")]
     pub fn mark_down(&self, member: &MemberKey) -> bool {
         let at = SystemTime::now();
-        let was_up = self.latencies.update(|tested| {
-            if tested.get(member).is_some_and(|t| t.latency.is_none()) {
+        let was_up = self
+            .standings
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(member.clone(), Standing::DOWN)
+            .is_none_or(|s| s.up);
+        // One that failed its last test and still stood is down from now
+        // too: a round under way does not bring it back.
+        self.latencies.update(|tested| {
+            if !was_up && tested.get(member).is_some_and(|t| t.latency.is_none()) {
                 return false;
             }
             tested.insert(member.clone(), Tested { latency: None, at });
@@ -209,8 +329,9 @@ impl Checker {
     }
 
     /// A test of `member` made elsewhere, through the API, ended at `at`:
-    /// it counts as the member's last check, and, once every member was
-    /// checked, the group chooses again, as after a round.
+    /// it counts as the member's last check, and as a round toward its
+    /// standing, and, once every member was checked, the group chooses
+    /// again, as after a round.
     ///
     /// It never awaits and never takes the selector's `RwLock`; it may set
     /// the `Selection`, whose own lock is separate. The API calls it under
@@ -221,6 +342,12 @@ impl Checker {
         if snapshot.position(member).is_none() {
             return;
         }
+        Self::count(
+            &mut self.standings.lock().unwrap_or_else(|e| e.into_inner()),
+            self.debounce,
+            member,
+            latency.is_some(),
+        );
         self.latencies.update(|tested| {
             let new = Tested { latency, at };
             tested.insert(member.clone(), new) != Some(new)
@@ -233,7 +360,7 @@ impl Checker {
                 .collect()
         });
         if let Some(latencies) = latencies {
-            (self.on_tested)(&snapshot, &latencies);
+            (self.on_tested)(self, &snapshot, &latencies);
         }
     }
 
@@ -368,6 +495,18 @@ impl Checker {
                 }
             });
         let latencies = futures::future::join_all(tests).await;
+        self.round_ended(snapshot, started, latencies)
+    }
+
+    /// Ends a round of tests of `snapshot` begun at `started`: records
+    /// its `latencies`, counts them toward the members' standings, and
+    /// has the group choose.
+    fn round_ended(
+        &self,
+        snapshot: Arc<Snapshot>,
+        started: SystemTime,
+        latencies: Vec<Option<Duration>>,
+    ) -> (Arc<Snapshot>, Vec<Option<Duration>>) {
         // The round's time is when it ended, as Mihomo's and sing-box's
         // histories have it, the same for every member.
         let at = SystemTime::now();
@@ -398,13 +537,32 @@ impl Checker {
                 .collect::<Vec<_>>()
                 .join(" ")
         );
+        {
+            // Those of members since gone are dropped, as their latencies.
+            let mut standings = self.standings.lock().unwrap_or_else(|e| e.into_inner());
+            let mut before = std::mem::take(&mut *standings);
+            for (m, l) in snapshot.members.iter().zip(&latencies) {
+                if let Some(standing) = before.remove(&m.key) {
+                    standings.insert(m.key.clone(), standing);
+                }
+                Self::count(&mut standings, self.debounce, &m.key, l.is_some());
+            }
+        }
         self.latencies.replace(measured(&snapshot, &latencies, at));
         // The failures counted asked for this round, or come before it.
         if let Ok(mut f) = self.failures.lock() {
             f.reset();
         }
-        (self.on_tested)(&snapshot, &latencies);
+        (self.on_tested)(self, &snapshot, &latencies);
         (snapshot, latencies)
+    }
+
+    /// A round of tests that began now, after anything marked down, and
+    /// ended with `latencies`, for the members as they are now.
+    #[cfg(all(test, feature = "outbound-fallback"))]
+    pub(crate) fn round(&self, latencies: &[Option<Duration>]) {
+        let started = SystemTime::now() + Duration::from_nanos(1);
+        self.round_ended(self.members.load(), started, latencies.to_vec());
     }
 }
 
@@ -450,7 +608,7 @@ fn measured(
         .collect()
 }
 
-#[cfg(any(feature = "outbound-load-balance", feature = "outbound-fallback"))]
+#[cfg(feature = "outbound-fallback")]
 fn is_up(tested: &HashMap<MemberKey, Tested>, member: &MemberKey) -> bool {
     tested.get(member).is_none_or(|t| t.latency.is_some())
 }
@@ -484,7 +642,7 @@ async fn test_loop(checker: Weak<Checker>) {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::net::network::{ChangeReason, NetworkState};
     use crate::protocol::group::members::tests::{member, outbounds};
@@ -508,7 +666,7 @@ mod tests {
         assert_eq!(after[&snapshot.members[1].key].at, at);
     }
 
-    #[cfg(any(feature = "outbound-load-balance", feature = "outbound-fallback"))]
+    #[cfg(feature = "outbound-fallback")]
     #[test]
     fn a_member_is_up_until_it_fails_a_test() {
         let members = outbounds(&["a", "b"]);
@@ -548,8 +706,46 @@ mod tests {
         assert!(Failures::default().failed(at(0), window, 1));
     }
 
+    /// A checker of `members`, debounced so, that tests nothing by itself:
+    /// the network is down. Its rounds are `Checker::round`'s.
+    #[cfg(feature = "outbound-fallback")]
+    pub(crate) fn checker(
+        members: Arc<Members>,
+        debounce: Debounce,
+        on_tested: OnTested,
+    ) -> Arc<Checker> {
+        let network = Network::default();
+        network.detected(NetworkState::default(), ChangeReason::State);
+        let (checker, abort) = with(members, &network, None, debounce, on_tested);
+        abort.abort();
+        checker
+    }
+
     /// A checker of no members, which counts its rounds, on `network`.
     fn counting(network: &Network, idle: Option<Duration>) -> (Arc<Checker>, Arc<AtomicUsize>) {
+        let rounds = Arc::new(AtomicUsize::new(0));
+        let (checker, _) = with(
+            outbounds(&[]),
+            network,
+            idle,
+            Default::default(),
+            Box::new({
+                let rounds = rounds.clone();
+                move |_, _, _| {
+                    rounds.fetch_add(1, Ordering::Relaxed);
+                }
+            }),
+        );
+        (checker, rounds)
+    }
+
+    fn with(
+        members: Arc<Members>,
+        network: &Network,
+        idle: Option<Duration>,
+        debounce: Debounce,
+        on_tested: OnTested,
+    ) -> (Arc<Checker>, AbortHandle) {
         let dns_client = crate::app::dns::DnsClient::new(
             &Default::default(),
             Arc::new(crate::net::DialDefaults::default()),
@@ -563,10 +759,9 @@ mod tests {
             &Default::default(),
         )
         .unwrap();
-        let rounds = Arc::new(AtomicUsize::new(0));
-        let (checker, _) = Checker::new(
+        Checker::new(
             "t",
-            outbounds(&[]),
+            members,
             probe,
             dns_client,
             network.clone(),
@@ -574,14 +769,99 @@ mod tests {
             DEFAULT_TIMEOUT,
             DEFAULT_MAX_FAILED_TIMES,
             idle,
-            Box::new({
-                let rounds = rounds.clone();
-                move |_, _| {
-                    rounds.fetch_add(1, Ordering::Relaxed);
-                }
-            }),
+            debounce,
+            on_tested,
+        )
+    }
+
+    #[test]
+    fn a_standing_turns_after_enough_rounds_in_a_row() {
+        let d = Debounce {
+            fail_after: 2,
+            recover_after: 3,
+        };
+        let mut s = Standing::first(true);
+        // One failed round of two: still up; a pass forgets it.
+        assert!(!s.counted(false, d));
+        assert_eq!((s.up, s.against), (true, 1));
+        assert!(!s.counted(true, d));
+        assert_eq!((s.up, s.against), (true, 0));
+        assert!(!s.counted(false, d));
+        assert!(s.counted(false, d));
+        assert_eq!((s.up, s.against), (false, 0));
+        // Down: three passed in a row bring it back, a failure in between
+        // starts them again.
+        assert!(!s.counted(true, d));
+        assert!(!s.counted(true, d));
+        assert!(!s.counted(false, d));
+        assert_eq!((s.up, s.against), (false, 0));
+        assert!(!s.counted(true, d));
+        assert!(!s.counted(true, d));
+        assert_eq!(s.against, 2);
+        assert!(s.counted(true, d));
+        assert_eq!((s.up, s.against), (true, 0));
+        // By default each round turns it.
+        let d = Debounce::default();
+        assert!(s.counted(false, d));
+        assert!(s.counted(true, d));
+        assert!(!s.counted(true, d));
+    }
+
+    #[cfg(feature = "outbound-fallback")]
+    #[tokio::test]
+    async fn a_checker_counts_rounds_toward_its_members_standings() {
+        let ms = Some(Duration::from_millis(10));
+        let members = outbounds(&["a", "b"]);
+        let checker = checker(
+            members.clone(),
+            Debounce {
+                fail_after: 2,
+                recover_after: 3,
+            },
+            Box::new(|_, _, _| ()),
         );
-        (checker, rounds)
+        let (a, b) = (MemberKey::outbound("a"), MemberKey::outbound("b"));
+        // Untested, both are up; the first round says what each is.
+        assert!(checker.is_up(&a) && checker.is_up(&b));
+        checker.round(&[ms, None]);
+        assert!(checker.is_up(&a));
+        assert!(!checker.is_up(&b));
+        // [a] fails one round: it still stands, though it failed its last
+        // test.
+        checker.round(&[None, ms]);
+        assert!(checker.is_up(&a) && !checker.passed(&a));
+        assert_eq!(checker.standing(&a).unwrap().against, 1);
+        assert!(!checker.is_up(&b) && checker.passed(&b));
+        checker.round(&[None, ms]);
+        assert!(!checker.is_up(&a));
+        assert!(!checker.is_up(&b));
+        checker.round(&[ms, ms]);
+        assert!(checker.is_up(&b));
+        // Marked down, at once, whatever `fail_after`; and three rounds to
+        // come back, as after failed ones.
+        assert!(checker.mark_down(&b));
+        assert!(!checker.mark_down(&b));
+        assert!(!checker.is_up(&b) && !checker.passed(&b));
+        for _ in 0..2 {
+            checker.round(&[ms, ms]);
+            assert!(!checker.is_up(&b));
+        }
+        checker.round(&[ms, ms]);
+        assert!(checker.is_up(&b));
+        // A test through the API counts as a round of its member.
+        checker.record(&b, None, SystemTime::now());
+        checker.record(&b, None, SystemTime::now());
+        assert!(!checker.is_up(&b));
+        // A member gone is forgotten: back, it is untested.
+        members.publish(vec![crate::protocol::group::members::tests::member(
+            None, "a",
+        )]);
+        checker.round(&[ms]);
+        members.publish(vec![
+            crate::protocol::group::members::tests::member(None, "a"),
+            crate::protocol::group::members::tests::member(None, "b"),
+        ]);
+        assert!(checker.standing(&b).is_none() && checker.is_up(&b));
     }
 
     fn on(interface: &str) -> NetworkState {

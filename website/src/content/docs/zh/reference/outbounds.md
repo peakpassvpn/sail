@@ -129,6 +129,19 @@ Rust 定义：[`FallbackOutboundOptions`](https://github.com/peakpassvpn/sail/bl
 | `max_failed_times` | number | 未设置 | sail 扩展 | How many failed connections, within `timeout` of the first, have the members tested again; 5, as Mihomo's `max-failed-times`. Only failures that may be the destination's count: one that says the member's server cannot be reached marks the member down at once. |
 | `lazy` | bool | `true` | sail 扩展 | Tests only while the group is in use: not when it was not used since the last ones. |
 | `interrupt_exist_connections` | bool | `false` | sail 扩展 | Ends the connections through the member left once the group switches. |
+| `debounce` | 对象 → [对象](#outbounds-fallback-debounce) | 类型的默认值 | sail 扩展 | How many rounds of tests in a row have the group leave a member, or take an earlier one back, and how long it stays on a member at least; a sail extension. Unset, every round counts at once. |
+
+<a id="outbounds-fallback-debounce"></a>
+
+### `outbounds[fallback].debounce`
+
+Rust 定义：[`DebounceOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/fallback/mod.rs) · 构建条件：`feature = "outbound-fallback"` · **sail 扩展**
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `fail_after` | number | `1` | sail 扩展 | Failed rounds in a row before the member the group is on is left, by default one. A connection that finds its server unreachable leaves it at once all the same. |
+| `recover_after` | number | `1` | sail 扩展 | Passed rounds in a row before a member that was down, failed or found unreachable, is up again, and taken back if it comes first, by default one. |
+| `min_dwell` | duration | 未设置 | sail 扩展 | The least time on a member before the group leaves it, while it is up, for an earlier member up again; 0s. The first round past it switches. A member down is left at once. |
 
 <a id="outbounds-http"></a>
 

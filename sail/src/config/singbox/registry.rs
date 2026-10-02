@@ -195,7 +195,7 @@ fn outbound(kind: &str) -> Value {
     let server = json!({ "server": "example.com", "server_port": 443 });
     let extra = match kind {
         "direct" | "block" | "bridge" => json!({}),
-        "selector" | "urltest" => json!({ "outbounds": ["direct"] }),
+        "selector" | "urltest" | "fallback" => json!({ "outbounds": ["direct"] }),
         "shadowsocks" => json!({ "method": "aes-128-gcm", "password": "p" }),
         "trojan" | "naive" => json!({ "password": "p" }),
         "anytls" | "hysteria2" => json!({ "password": "p",
@@ -1387,6 +1387,11 @@ const EXTENSIONS: &[(&str, &str, &str)] = &[
         "outbounds[fallback].outbounds",
         r#"["direct"]"#,
         "A group: the first member that works",
+    ),
+    (
+        "outbounds[fallback].debounce",
+        r#"{ "fail_after": 2, "recover_after": 3, "min_dwell": "30s" }"#,
+        "Failed rounds in a row before a member is left, passed ones before an earlier member is taken back, and the least time on a member before going back",
     ),
     (
         "outbounds[load-balance].outbounds",

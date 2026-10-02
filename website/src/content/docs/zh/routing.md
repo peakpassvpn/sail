@@ -223,6 +223,24 @@ sing-box 没有这个选项：它的 sniff `override_destination` 已废弃，�
 
 `selector`、`urltest`、`fallback`、`load-balance` 和 `smart` 组都可以在自身 `outbounds` 之外使用 `providers`。
 
+`fallback` 组在第一次测试失败时就切走，在第一次测试通过时就切回。成员时好时坏时，流量会来回切换。Sail 扩展字段 `debounce` 可以抑制这种切换：
+
+```json
+{
+  "type": "fallback",
+  "tag": "auto",
+  "outbounds": ["primary", "backup"],
+  "interval": "10s",
+  "debounce": { "fail_after": 1, "recover_after": 3, "min_dwell": "30s" }
+}
+```
+
+- `fail_after`：连续失败多少轮测试后才离开该成员；默认 1。
+- `recover_after`：曾经不可用的成员要连续通过多少轮测试才重新算作可用，排在前面时才会被切回；默认 1。
+- `min_dwell`：在一个成员上至少停留多久，才会切回排在前面的成员；默认 0s。超过这个时间后的第一轮测试完成切换。
+
+默认值与不写 `debounce` 时的行为完全相同。连接发现成员的服务器不可达（拨号时被拒绝、超时或不可达）时，组仍然立即离开它，不受 `fail_after` 和 `min_dwell` 影响；之后该成员要连续通过 `recover_after` 轮测试才会再被使用。计入 `max_failed_times` 的失败连接只会让下一轮测试提前，不计入上面两个计数。通过 API 手动固定的成员，只要可用或最近一次测试通过，就会被使用，不受 debounce 影响。设置 `recover_after: 3` 和 `min_dwell: "30s"` 后，第一个成员连续通过三轮测试后，组会在离开它至少 30 秒后的第一轮测试时切回。
+
 ## 防止 TUN 回环
 
 开了 `auto_route` 的 TUN 入站会接管系统流量，Sail 自己的出站套接字本会绕回 TUN。Sail 把它们绑定到物理网卡：目标所在网段的那块网卡，否则是默认网卡。网络变化时 Sail 会跟着切换，默认网卡变了就重置 TUN 上的连接。开了 `auto_route` 时，即使没写 `route.auto_detect_interface`，这个机制也会自动开启；出口必须固定时改用 `route.default_interface`。

@@ -3169,6 +3169,7 @@ Fields and types sail accepts that sing-box does not.
 | `outbounds[urltest].expected_status` | The HTTP statuses a test must get to pass (Mihomo's expected-status) |
 | `outbounds[urltest].lazy` | `false`: the members are tested whether the group is used or not (Mihomo's lazy) |
 | `outbounds[fallback].outbounds` | A group: the first member that works |
+| `outbounds[fallback].debounce` | Failed rounds in a row before a member is left, passed ones before an earlier member is taken back, and the least time on a member before going back |
 | `outbounds[load-balance].outbounds` | A group spreading connections over its members |
 | `outbounds[smart].outbounds` | A group scoring its members by the connections through them |
 | `outbounds[network].default` | A group picking its member by the network the host is on |

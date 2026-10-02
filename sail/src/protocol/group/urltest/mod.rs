@@ -199,21 +199,23 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
     let on_tested = {
         let selected = selected.clone();
         let tag = ctx.tag.to_owned();
-        Box::new(move |snapshot: &Snapshot, latencies: &[Option<Duration>]| {
-            let current = selected.get();
-            // A selection that is not a member is left for the fastest.
-            let at = snapshot.position(&current).unwrap_or(usize::MAX);
-            if let Some(next) = choose(at, latencies, tolerance) {
-                if next != at {
-                    let next = &snapshot.members[next].key;
-                    debug!(
-                        "[{}] switches from [{}] to [{}]",
-                        tag, current.name, next.name
-                    );
-                    selected.set(next.clone());
+        Box::new(
+            move |_: &Checker, snapshot: &Snapshot, latencies: &[Option<Duration>]| {
+                let current = selected.get();
+                // A selection that is not a member is left for the fastest.
+                let at = snapshot.position(&current).unwrap_or(usize::MAX);
+                if let Some(next) = choose(at, latencies, tolerance) {
+                    if next != at {
+                        let next = &snapshot.members[next].key;
+                        debug!(
+                            "[{}] switches from [{}] to [{}]",
+                            tag, current.name, next.name
+                        );
+                        selected.set(next.clone());
+                    }
                 }
-            }
-        })
+            },
+        )
     };
     let (checker, abort_handle) = Checker::new(
         ctx.tag,
@@ -225,6 +227,7 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         timeout,
         max_failed_times,
         options.lazy.then_some(idle_timeout),
+        Default::default(),
         on_tested,
     );
     ctx.abort_handles.push(abort_handle);

@@ -508,6 +508,16 @@ fn configuration_mistakes_are_errors() {
         (json!({ "max_failed_times": 0 }), "max_failed_times"),
         (json!({ "max_failed_times": -1 }), "max_failed_times"),
         (json!({ "expected_status": "2xx" }), "expected_status"),
+        (json!({ "debounce": { "fail_after": 0 } }), "fail_after"),
+        (
+            json!({ "debounce": { "recover_after": 0 } }),
+            "recover_after",
+        ),
+        (json!({ "debounce": { "min_dwell": "soon" } }), "min_dwell"),
+        (
+            json!({ "debounce": { "recover_rounds": 3 } }),
+            "recover_rounds",
+        ),
     ] {
         let msg = error(fallback(a, extra.clone()));
         assert!(msg.contains(field), "{}: {}", extra, msg);

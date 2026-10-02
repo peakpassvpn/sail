@@ -117,7 +117,8 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         health::DEFAULT_TIMEOUT,
         health::DEFAULT_MAX_FAILED_TIMES,
         options.lazy.then_some(interval),
-        Box::new(|_, _| ()),
+        Default::default(),
+        Box::new(|_, _, _| ()),
     );
     ctx.abort_handles.push(abort_handle);
     merged.on_merged({

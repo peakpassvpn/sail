@@ -232,6 +232,24 @@ Group outbounds pick a member for each connection. sing-box's `selector` and `ur
 
 `selector`, `urltest`, `fallback`, `load-balance` and `smart` groups take `providers`, beside their own `outbounds`.
 
+A `fallback` group switches on the first failed test and switches back on the first passing one. A member that flaps then sends traffic back and forth. `debounce`, a Sail extension, holds the switches back:
+
+```json
+{
+  "type": "fallback",
+  "tag": "auto",
+  "outbounds": ["primary", "backup"],
+  "interval": "10s",
+  "debounce": { "fail_after": 1, "recover_after": 3, "min_dwell": "30s" }
+}
+```
+
+- `fail_after`: failed rounds of tests in a row before the group leaves a member; 1.
+- `recover_after`: passed rounds in a row before a member that was down is up again, and taken back if it comes first; 1.
+- `min_dwell`: the least time on a member before the group goes back to an earlier one; 0s. The first round after it switches.
+
+The defaults keep the behaviour without `debounce`. A connection that finds a member's server unreachable (refused, timed out or unreachable at dial) still has the group leave it at once, whatever `fail_after` and `min_dwell` say. The member then needs `recover_after` passed rounds before it is used again. Failed connections counted toward `max_failed_times` only bring the next round forward: they count toward neither. A member pinned by hand through the API is used while it is up or passed its last test, whatever the debounce. With `recover_after: 3` and `min_dwell: "30s"`, the group goes back to its first member at the first round at least 30 seconds after leaving it, once that member has passed three rounds in a row.
+
 ## TUN loop prevention
 
 A TUN inbound with `auto_route` takes the system's traffic, and Sail's own outbound sockets would go back into it. Sail binds them to the physical interface: the one the destination's network is on, or the default one. It follows that interface as the network changes, and resets the TUN's connections when it moves. With `auto_route`, this is on even without `route.auto_detect_interface`; set `route.default_interface` instead when the egress interface must be fixed.
