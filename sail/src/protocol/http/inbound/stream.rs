@@ -27,9 +27,9 @@ const EOH: [u8; 4] = [13, 10, 13, 10];
 /// it is not one to hold memory for.
 const MAX_HEAD_SIZE: usize = 16 * 1024;
 
-/// The realm `407` answers name, which clients show when asking for
-/// credentials.
-const REALM: &str = "sail";
+/// The realm `407` answers name when `realm` is unset, which clients show
+/// when asking for credentials.
+pub(crate) const DEFAULT_REALM: &str = "sail";
 
 const BAD_REQUEST: &[u8] = b"HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n";
 
@@ -38,13 +38,13 @@ fn bad_request() -> io::Error {
 }
 
 /// The `407` a request without acceptable credentials is answered with.
-fn proxy_auth_required() -> Vec<u8> {
+fn proxy_auth_required(realm: &str) -> Vec<u8> {
     format!(
         "HTTP/1.1 407 Proxy Authentication Required\r\n\
          Proxy-Authenticate: Basic realm=\"{}\"\r\n\
          Content-Length: 0\r\n\
          Connection: close\r\n\r\n",
-        REALM
+        realm
     )
     .into_bytes()
 }
@@ -254,6 +254,7 @@ impl HttpStream {
     async fn accept(
         &mut self,
         users: &Passwords,
+        realm: &str,
         prefix: Vec<u8>,
     ) -> io::Result<(SocksAddr, Option<crate::user::UserRef>)> {
         let (head, rest) = self.read_head(prefix).await?;
@@ -271,7 +272,7 @@ impl HttpStream {
             match authenticate(users, head.header("Proxy-Authorization")) {
                 Some(user) => user,
                 None => {
-                    let _ = self.origin.write_all(&proxy_auth_required()).await;
+                    let _ = self.origin.write_all(&proxy_auth_required(realm)).await;
                     return Err(io::Error::other("http proxy authentication failed"));
                 }
             }
@@ -367,12 +368,15 @@ impl AsyncWrite for HttpStream {
 pub struct Handler {
     /// Passwords by username. Empty lets anyone in.
     users: Arc<Passwords>,
+    /// What a `407` names as the realm.
+    realm: Arc<str>,
 }
 
 impl Handler {
-    pub fn new(users: Passwords) -> Self {
+    pub fn new(users: Passwords, realm: &str) -> Self {
         Handler {
             users: Arc::new(users),
+            realm: realm.into(),
         }
     }
 
@@ -388,7 +392,7 @@ impl Handler {
             cache: Vec::new(),
             origin: stream,
         };
-        let (destination, user) = http_stream.accept(&self.users, prefix).await?;
+        let (destination, user) = http_stream.accept(&self.users, &self.realm, prefix).await?;
         sess.destination = destination;
         if user.is_some() {
             sess.user = user;
@@ -471,7 +475,7 @@ mod tests {
             cache: Vec::new(),
             origin: Box::new(server),
         };
-        let result = stream.accept(&users, Vec::new()).await;
+        let result = stream.accept(&users, DEFAULT_REALM, Vec::new()).await;
         let cache = std::mem::take(&mut stream.cache);
         drop(stream);
         drop(client_w);
@@ -552,6 +556,31 @@ mod tests {
                 .collect();
             assert_eq!(hosts, [format!("Host: {}", host)], "{}", request);
         }
+    }
+
+    /// The realm a `407` names is the inbound's `realm`.
+    #[tokio::test]
+    async fn the_407_names_the_realm_set() {
+        let (client, server) = tokio::io::duplex(64 * 1024);
+        let (mut client_r, mut client_w) = tokio::io::split(client);
+        client_w
+            .write_all(b"CONNECT example.com:443 HTTP/1.1\r\n\r\n")
+            .await
+            .unwrap();
+        let mut stream = HttpStream {
+            cache: Vec::new(),
+            origin: Box::new(server),
+        };
+        assert!(stream.accept(&users(), "Office", Vec::new()).await.is_err());
+        drop(stream);
+        let mut answer = Vec::new();
+        client_r.read_to_end(&mut answer).await.unwrap();
+        let answer = String::from_utf8(answer).unwrap();
+        assert!(
+            answer.contains("Proxy-Authenticate: Basic realm=\"Office\"\r\n"),
+            "{}",
+            answer
+        );
     }
 
     #[tokio::test]

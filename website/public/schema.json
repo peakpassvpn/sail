@@ -7325,6 +7325,10 @@
     "tls": {
      "$ref": "#/$defs/inbounds%5Bhttp%5D.tls"
     },
+    "realm": {
+     "type": "string",
+     "description": "The realm a `407` names, which clients show when asking for credentials: a sail extension; `sail` when unset."
+    },
     "type": {
      "const": "http"
     }
@@ -8975,6 +8979,10 @@
     "tls": {
      "not": {},
      "description": "sail refuses this field: TLS on a mixed inbound: it would take plain connections"
+    },
+    "realm": {
+     "type": "string",
+     "description": "The realm an HTTP `407` names: a sail extension; `sail` when unset."
     },
     "type": {
      "const": "mixed"

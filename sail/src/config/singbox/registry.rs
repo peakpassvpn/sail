@@ -1224,6 +1224,11 @@ const EXTENSIONS: &[(&str, &str, &str)] = &[
         "As an outbound's, for the peers' names",
     ),
     (
+        "inbounds[http|mixed].realm",
+        r#""Office""#,
+        "The realm a 407 names, which clients show when asking for credentials; `sail` when unset (sing-box sends `sing-box`)",
+    ),
+    (
         "inbounds[shadowtls].handshake.skip_default_domain_resolver",
         "true",
         "As an outbound's, for the handshake server's name",

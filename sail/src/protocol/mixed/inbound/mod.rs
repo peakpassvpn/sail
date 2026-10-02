@@ -33,6 +33,9 @@ struct MixedInboundOptions {
     /// none.
     #[serde(default)]
     users: Vec<MixedUser>,
+    /// The realm an HTTP `407` names: a sail extension; `sail` when unset.
+    #[serde(default)]
+    realm: Option<String>,
 }
 
 #[derive(Deserialize, Clone)]
@@ -44,6 +47,7 @@ struct MixedUser {
 
 fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
     let options: MixedInboundOptions = ctx.options()?;
+    let realm = http::inbound::realm(ctx.tag, options.realm.as_deref())?;
     // Both protocols' rules apply, as either may carry the credentials.
     let http_users = http::inbound::users_by_name(
         ctx.tag,
@@ -71,7 +75,7 @@ fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
         &ctx.env.users,
     )?;
     let stream = Arc::new(StreamHandler {
-        http: http::inbound::StreamHandler::new(http_users),
+        http: http::inbound::StreamHandler::new(http_users, realm),
         socks: socks::inbound::StreamHandler::new(
             socks_users,
             ctx.state

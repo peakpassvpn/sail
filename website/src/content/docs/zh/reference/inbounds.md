@@ -209,6 +209,7 @@ Rust 定义：[`HttpInboundOptions`](https://github.com/peakpassvpn/sail/blob/de
 | `domain_resolver` | string\|object → [对象](/sail/zh/reference/shared/#domain-resolver-inbounds) | — | 报错：Resolving requested names with a resolver of its own: another server would answer | — |
 | `set_system_proxy` | bool | — | 警告：The platform proxy is the host's to set | — |
 | `tls` | object → [对象](/sail/zh/reference/shared/#tls-inbounds) | 未设置 | 支持 | — |
+| `realm` | string | 未设置 | sail 扩展 | The realm a `407` names, which clients show when asking for credentials: a sail extension; `sail` when unset. |
 
 <a id="inbounds-http-users"></a>
 
@@ -315,6 +316,7 @@ Rust 定义：[`MixedInboundOptions`](https://github.com/peakpassvpn/sail/blob/d
 | `domain_resolver` | string\|object → [对象](/sail/zh/reference/shared/#domain-resolver-inbounds) | — | 报错：Resolving requested names with a resolver of its own: another server would answer | — |
 | `set_system_proxy` | bool | — | 警告：The platform proxy is the host's to set | — |
 | `tls` | object → [对象](#inbounds-mixed-tls) | — | 报错：TLS on a mixed inbound: it would take plain connections | — |
+| `realm` | string | 未设置 | sail 扩展 | The realm an HTTP `407` names: a sail extension; `sail` when unset. |
 
 <a id="inbounds-mixed-users"></a>
 

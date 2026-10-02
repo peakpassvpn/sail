@@ -30,6 +30,10 @@ struct HttpInboundOptions {
     /// Basic`; anyone may connect when there are none.
     #[serde(default)]
     users: Vec<HttpUser>,
+    /// The realm a `407` names, which clients show when asking for
+    /// credentials: a sail extension; `sail` when unset.
+    #[serde(default)]
+    realm: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -37,6 +41,23 @@ struct HttpInboundOptions {
 pub(crate) struct HttpUser {
     pub username: String,
     pub password: String,
+}
+
+/// The realm `realm` names, checked: it goes into a header as a quoted
+/// string, so it may hold no quote, backslash or control character.
+pub(crate) fn realm<'a>(tag: &str, realm: Option<&'a str>) -> Result<&'a str> {
+    let realm = realm.unwrap_or(stream::DEFAULT_REALM);
+    if realm.is_empty()
+        || realm
+            .chars()
+            .any(|c| c == '"' || c == '\\' || c.is_control())
+    {
+        return Err(anyhow!(
+            "[{}] inbound: realm: not empty, and no quote, backslash or control character",
+            tag
+        ));
+    }
+    Ok(realm)
 }
 
 /// The users by username, with their passwords.
@@ -74,10 +95,31 @@ pub(crate) fn users_by_name(
 fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
     let options: HttpInboundOptions = ctx.options()?;
     let users = users_by_name(ctx.tag, options.users, &ctx.env.users)?;
-    let stream = Arc::new(StreamHandler::new(users));
+    let realm = realm(ctx.tag, options.realm.as_deref())?;
+    let stream = Arc::new(StreamHandler::new(users, realm));
     Ok(Arc::new(Handler::new(
         ctx.tag.to_owned(),
         Some(stream),
         None,
     )))
+}
+
+#[cfg(test)]
+mod realm_tests {
+    /// A realm goes into a quoted header value: one that could end the
+    /// quote or the line is a mistake.
+    #[test]
+    fn a_realm_that_could_break_the_header_is_refused() {
+        assert_eq!(super::realm("in", None).unwrap(), "sail");
+        assert_eq!(super::realm("in", Some("Office")).unwrap(), "Office");
+        for bad in ["", "a\"b", "a\\b", "a\r\nX-Injected: 1"] {
+            let err = super::realm("in", Some(bad)).unwrap_err().to_string();
+            assert!(
+                err.starts_with("[in] inbound: realm:"),
+                "{:?}: {}",
+                bad,
+                err
+            );
+        }
+    }
 }

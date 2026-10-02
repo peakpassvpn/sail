@@ -209,6 +209,7 @@ Rust: [`HttpInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/s
 | `domain_resolver` | string\|object → [object](/sail/reference/shared/#domain-resolver-inbounds) | — | Error: Resolving requested names with a resolver of its own: another server would answer | — |
 | `set_system_proxy` | bool | — | Warned: The platform proxy is the host's to set | — |
 | `tls` | object → [object](/sail/reference/shared/#tls-inbounds) | unset | Supported | — |
+| `realm` | string | unset | sail extension | The realm a `407` names, which clients show when asking for credentials: a sail extension; `sail` when unset. |
 
 <a id="inbounds-http-users"></a>
 
@@ -315,6 +316,7 @@ Rust: [`MixedInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/
 | `domain_resolver` | string\|object → [object](/sail/reference/shared/#domain-resolver-inbounds) | — | Error: Resolving requested names with a resolver of its own: another server would answer | — |
 | `set_system_proxy` | bool | — | Warned: The platform proxy is the host's to set | — |
 | `tls` | object → [object](#inbounds-mixed-tls) | — | Error: TLS on a mixed inbound: it would take plain connections | — |
+| `realm` | string | unset | sail extension | The realm an HTTP `407` names: a sail extension; `sail` when unset. |
 
 <a id="inbounds-mixed-users"></a>
 
