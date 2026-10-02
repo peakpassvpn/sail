@@ -503,3 +503,86 @@ fn shadowsocks_reload(legacy: bool) -> Result<()> {
     common::shutdown_instances(&rt, running.0.clone());
     result
 }
+
+/// A QUIC inbound's certificate files replaced are served to the
+/// connections that come next, with no reload, as sing-box's are; a
+/// stream open goes on, and a certificate without its key is not taken.
+#[cfg(feature = "auto-reload")]
+#[test]
+fn a_quic_certificate_file_replaced_is_served_with_no_reload() -> Result<()> {
+    fn replace(path: &std::path::Path, contents: impl AsRef<[u8]>) -> Result<()> {
+        let staged = path.with_extension("new");
+        std::fs::write(&staged, contents)?;
+        std::fs::rename(&staged, path)?;
+        Ok(())
+    }
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()?;
+    let [port] = common::free_ports();
+    let dir = common::TempDir::new("quic-certificate-follow")?;
+    let (cert_path, key_path) = (dir.join("cert.pem"), dir.join("key.pem"));
+    let first = rcgen::generate_simple_self_signed(vec!["localhost".into()])?;
+    let second = rcgen::generate_simple_self_signed(vec!["localhost".into()])?;
+    std::fs::write(&cert_path, first.cert.pem())?;
+    std::fs::write(&key_path, first.key_pair.serialize_pem())?;
+    let inbound = json!({"type":"hysteria2","tag":"server","listen":"127.0.0.1","listen_port":port,
+        "users":[{"name":"alice","password":"alice"}],
+        "tls":{"enabled":true,"alpn":["h3"],"certificate_path":cert_path,"key_path":key_path}});
+    let config = json!({"inbounds":[inbound],"outbounds":[{"type":"direct"}]}).to_string();
+    let running = Running(common::run_sail_instances(&rt, vec![config])?);
+    let manager = sail::runtime_manager(running.0[0]).unwrap();
+    ensure!(
+        manager.certificates_followed() == 1,
+        "the files are not followed"
+    );
+    let reloads = manager.reloads();
+    rt.block_on(async {
+        let (address, echo) = common::run_tcp_echo_server("127.0.0.1:0").await?;
+        let echo = tokio::spawn(echo);
+        let (_old_client, old) = client("hysteria2", port, "alice", &first.cert.pem())?;
+        let mut old_stream = open(&old, address).await?;
+        ping(&mut old_stream).await?;
+
+        // A certificate without its key is not taken.
+        replace(&cert_path, second.cert.pem())?;
+        tokio::time::sleep(Duration::from_millis(1000)).await;
+        let (_early_client, early) = client("hysteria2", port, "alice", &second.cert.pem())?;
+        ensure!(
+            refused_new(&early, address).await,
+            "a certificate was taken without its key"
+        );
+
+        replace(&key_path, second.key_pair.serialize_pem())?;
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            let (_new_client, new) = client("hysteria2", port, "alice", &second.cert.pem())?;
+            if let Ok(mut stream) = open(&new, address).await {
+                if ping(&mut stream).await.is_ok() {
+                    break;
+                }
+            }
+            ensure!(
+                tokio::time::Instant::now() < deadline,
+                "the replaced certificate was not served"
+            );
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        // The stream open before goes on; a client trusting the old
+        // certificate alone gets no new connection.
+        ping(&mut old_stream).await?;
+        let (_stale_client, stale) = client("hysteria2", port, "alice", &first.cert.pem())?;
+        ensure!(
+            refused_new(&stale, address).await,
+            "the old certificate is still served to new connections"
+        );
+        echo.abort();
+        anyhow::Ok(())
+    })?;
+    ensure!(
+        manager.reloads() == reloads,
+        "a certificate file reloaded the whole instance"
+    );
+    Ok(())
+}

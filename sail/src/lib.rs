@@ -110,8 +110,16 @@ pub struct RuntimeManager {
     watcher: Mutex<Option<runtime::watch::FileWatcher>>,
     #[cfg(feature = "auto-reload")]
     watch_events: Mutex<Option<runtime::watch::ReloadEvents>>,
+    /// The certificate files of the inbounds, followed; the instance's,
+    /// gone when it stops.
     #[cfg(feature = "auto-reload")]
-    rule_set_files: Mutex<Vec<std::path::PathBuf>>,
+    cert_follow: Mutex<Option<app::inbound::follow::CertFollow>>,
+    /// How many reloads took, for tests: what follows a file must not
+    /// reload the whole instance.
+    reloads: portable_atomic::AtomicU64,
+    /// The instance itself, for what it starts to call back into.
+    #[cfg_attr(not(feature = "auto-reload"), allow(dead_code))]
+    this: std::sync::Weak<Self>,
     /// Where a reload's rule-sets go for the TUN's routing.
     #[cfg(all(
         feature = "inbound-tun",
@@ -147,7 +155,9 @@ impl RuntimeManager {
         #[cfg(feature = "inbound-tun")] network_change_tx: mpsc::Sender<NetworkChange>,
         instance: &app::instance::Instance,
     ) -> Arc<Self> {
-        Arc::new(Self {
+        Arc::new_cyclic(|this| Self {
+            this: this.clone(),
+            reloads: portable_atomic::AtomicU64::new(0),
             handle: tokio::runtime::Handle::current(),
             config_path,
             #[cfg(feature = "auto-reload")]
@@ -192,7 +202,7 @@ impl RuntimeManager {
             #[cfg(feature = "auto-reload")]
             watch_events: Mutex::new(None),
             #[cfg(feature = "auto-reload")]
-            rule_set_files: Mutex::new(instance.rule_sets.files()),
+            cert_follow: Mutex::new(None),
             #[cfg(feature = "clash-api")]
             clash_view: Default::default(),
             modes: Default::default(),
@@ -655,11 +665,6 @@ impl RuntimeManager {
             .inbound_manager
             .lock()
             .map_err(|_| Error::RuntimeManager)?;
-        #[cfg(feature = "auto-reload")]
-        let watcher = self.prepare_watcher_with_rules(
-            inbounds.prepared_resource_files(&inbound_resources),
-            rule_sets.files(),
-        )?;
         self.env.clash_mode.configure(
             config.clash_api.as_ref(),
             self.env.host.clash_modes,
@@ -668,18 +673,11 @@ impl RuntimeManager {
         self.set_views(&config);
         self.set_assets(&config);
         inbounds.publish_resources(inbound_resources);
+        drop(inbounds);
         // The users the new inbounds bound are limited as configured now.
         self.env
             .users
             .set_limits(user::UserRegistry::configured(&config));
-        #[cfg(feature = "auto-reload")]
-        {
-            *self.watcher.lock().unwrap_or_else(|e| e.into_inner()) = watcher;
-            *self
-                .rule_set_files
-                .lock()
-                .unwrap_or_else(|e| e.into_inner()) = rule_sets.files();
-        }
         self.dns_client.store(dns_client.into_arc());
         let replaced = self.outbound_manager.swap(Arc::new(outbound_manager));
         self.router.store(Arc::new(router));
@@ -723,7 +721,17 @@ impl RuntimeManager {
         self.prune_stats(&config);
         // What it matches on may be new to this configuration.
         self.detect_network(net::network::ChangeReason::State);
+        #[cfg(feature = "auto-reload")]
+        self.follow_certificates();
+        self.reloads
+            .fetch_add(1, portable_atomic::Ordering::Relaxed);
         Ok(())
+    }
+
+    /// How many reloads took since the instance started.
+    #[doc(hidden)]
+    pub fn reloads(&self) -> u64 {
+        self.reloads.load(portable_atomic::Ordering::Relaxed)
     }
 
     /// Drops the traffic counts of the inbounds and outbounds `config` no
@@ -808,13 +816,10 @@ impl RuntimeManager {
             .inbound_manager
             .lock()
             .map_err(|_| Error::RuntimeManager)?;
-        #[cfg(feature = "auto-reload")]
-        let watcher = self.prepare_watcher(inbounds.resource_files_after_add(&inbound))?;
         inbounds.add(&inbound).map_err(Error::Config)?;
+        drop(inbounds);
         #[cfg(feature = "auto-reload")]
-        {
-            *self.watcher.lock().unwrap_or_else(|e| e.into_inner()) = watcher;
-        }
+        self.follow_certificates();
         info!("added inbound [{}]", inbound.tag);
         Ok(())
     }
@@ -848,13 +853,10 @@ impl RuntimeManager {
         let prepared = inbounds
             .prepare_update_resources(inbound)
             .map_err(Error::Config)?;
-        #[cfg(feature = "auto-reload")]
-        let watcher = self.prepare_watcher(inbounds.prepared_resource_files(&prepared))?;
         inbounds.publish_resources(prepared);
+        drop(inbounds);
         #[cfg(feature = "auto-reload")]
-        {
-            *self.watcher.lock().unwrap_or_else(|e| e.into_inner()) = watcher;
-        }
+        self.follow_certificates();
         Ok(())
     }
 
@@ -865,13 +867,10 @@ impl RuntimeManager {
             .inbound_manager
             .lock()
             .map_err(|_| Error::RuntimeManager)?;
-        #[cfg(feature = "auto-reload")]
-        let watcher = self.prepare_watcher(inbounds.resource_files_after_remove(tag))?;
         inbounds.remove(tag).map_err(Error::Config)?;
+        drop(inbounds);
         #[cfg(feature = "auto-reload")]
-        {
-            *self.watcher.lock().unwrap_or_else(|e| e.into_inner()) = watcher;
-        }
+        self.follow_certificates();
         info!("removed inbound [{}]", tag);
         Ok(())
     }
@@ -957,50 +956,37 @@ impl RuntimeManager {
         }
     }
 
+    /// Watches the configuration file, when the instance reloads as it
+    /// changes. What the configuration names, certificates and local
+    /// rule-sets, each follows its own files, without a reload.
     #[cfg(feature = "auto-reload")]
-    fn prepare_watcher(
-        &self,
-        files: Vec<std::path::PathBuf>,
-    ) -> Result<Option<runtime::watch::FileWatcher>, Error> {
-        self.prepare_watcher_with_rules(
-            files,
-            self.rule_set_files
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .clone(),
-        )
-    }
-
-    #[cfg(feature = "auto-reload")]
-    fn prepare_watcher_with_rules(
-        &self,
-        mut files: Vec<std::path::PathBuf>,
-        rules: Vec<std::path::PathBuf>,
-    ) -> Result<Option<runtime::watch::FileWatcher>, Error> {
+    fn prepare_watcher(&self) -> Result<Option<runtime::watch::FileWatcher>, Error> {
         if !self.auto_reload {
             return Ok(None);
         }
         let Some(config_path) = self.config_path.as_ref() else {
             return Ok(None);
         };
-        files.push(config_path.into());
-        files.extend(rules);
         let mut events = self.watch_events.lock().unwrap_or_else(|e| e.into_inner());
         let events =
             events.get_or_insert_with(|| runtime::watch::ReloadEvents::new(self.reload_tx.clone()));
-        runtime::watch::FileWatcher::new(files, events).map(Some)
+        runtime::watch::FileWatcher::new(vec![config_path.into()], events).map(Some)
     }
 
     #[cfg(feature = "auto-reload")]
     pub(crate) fn new_watcher(&self) -> Result<(), Error> {
-        let files = self
-            .inbound_manager
-            .lock()
-            .map_err(|_| Error::RuntimeManager)?
-            .resource_files();
-        let watcher = self.prepare_watcher(files)?;
+        let watcher = self.prepare_watcher()?;
         *self.watcher.lock().unwrap_or_else(|e| e.into_inner()) = watcher;
         Ok(())
+    }
+
+    /// Stops watching files: what the instance followed goes with it.
+    pub(crate) fn stop_watching(&self) {
+        #[cfg(feature = "auto-reload")]
+        {
+            *self.watcher.lock().unwrap_or_else(|e| e.into_inner()) = None;
+            self.stop_following_certificates();
+        }
     }
 }
 
@@ -1693,12 +1679,15 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
         &instance,
     );
 
-    // Monitor config file changes.
+    // The configuration file is watched when the host asked for it
+    // (new_watcher checks); the inbounds' certificate files are followed
+    // whatever the host asked, an FFI or embedded host's as well.
     #[cfg(feature = "auto-reload")]
     {
         if let Err(e) = runtime_manager.new_watcher() {
             warn!("start config file watcher failed: {}", e);
         }
+        runtime_manager.follow_certificates();
     }
 
     runtime_manager.set_assets(&config);
@@ -1854,6 +1843,7 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
             drop((running, starting));
             #[cfg(feature = "inbound-tun")]
             rt.block_on(stop_tun(tun_control));
+            runtime_manager.stop_watching();
             instance.stop();
             drop(instance);
             rt.shutdown_background();
@@ -1870,6 +1860,7 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
 
     rt.block_on(futures::future::select_all(tasks));
 
+    runtime_manager.stop_watching();
     instance.stop();
     drop(instance);
 

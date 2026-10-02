@@ -419,3 +419,157 @@ fn local_rule_files_reload_and_invalid_replacements_keep_previous_rules() -> Res
     }
     Ok(())
 }
+
+/// `path` replaced by `contents` as a deployment replaces it: written
+/// beside it, then renamed over it.
+#[cfg(feature = "auto-reload")]
+fn replace(path: &std::path::Path, contents: impl AsRef<[u8]>) -> Result<()> {
+    let staged = path.with_extension("new");
+    std::fs::write(&staged, contents)?;
+    std::fs::rename(&staged, path)?;
+    Ok(())
+}
+
+/// A certificate whose files are replaced is served to the handshakes
+/// that come next, with no reload and no configuration file, as
+/// sing-box's is; those open go on.
+#[cfg(feature = "auto-reload")]
+#[test]
+fn a_certificate_file_replaced_is_served_with_no_reload() -> Result<()> {
+    common::retry_port_clash(|| follow_certificate_files(common::free_port()))
+}
+
+#[cfg(feature = "auto-reload")]
+fn follow_certificate_files(port: u16) -> Result<()> {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+
+    let dir = common::TempDir::new("certificate-follow")?;
+    let (cert_path, key_path) = (dir.join("cert.pem"), dir.join("key.pem"));
+    let first = rcgen::generate_simple_self_signed(vec!["localhost".into()])?;
+    let second = rcgen::generate_simple_self_signed(vec!["localhost".into()])?;
+    std::fs::write(&cert_path, first.cert.pem())?;
+    std::fs::write(&key_path, first.key_pair.serialize_pem())?;
+    let config = json!({
+        "inbounds": [{"type":"trojan", "tag":"server", "listen":"127.0.0.1", "listen_port":port,
+            "users":[{"name":"alice","password":"alice"},{"name":"keeper","password":"keeper"}],
+            "tls":{"enabled":true,"certificate_path":cert_path,"key_path":key_path}}],
+        "outbounds":[{"type":"direct"}],
+    });
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()?;
+    let ids = common::run_sail_instances(&rt, vec![config.to_string()])?;
+    let _running = Running(ids[0]);
+    let manager = sail::runtime_manager(ids[0]).unwrap();
+    ensure!(
+        manager.certificates_followed() == 1,
+        "the files are not followed"
+    );
+    let reloads = manager.reloads();
+    let destination = rt.block_on(async {
+        let (address, server) = common::run_tcp_echo_server("127.0.0.1:0").await?;
+        tokio::spawn(server);
+        anyhow::Ok(address)
+    })?;
+
+    let mut kept = connect(port)?;
+    let old_cert = peer(&kept)?;
+    authenticate(&mut kept, "keeper", destination)?;
+    ping(&mut kept)?;
+
+    // A certificate without its key is not taken: the pair in use is kept.
+    replace(&cert_path, second.cert.pem())?;
+    std::thread::sleep(Duration::from_millis(1000));
+    ensure!(
+        peer(&connect(port)?)? == old_cert,
+        "a certificate was taken without its key"
+    );
+
+    // Handshakes go on through the swap, each with one pair or the other.
+    let swapping = Arc::new(AtomicBool::new(true));
+    let handshakes = std::thread::spawn({
+        let swapping = swapping.clone();
+        move || {
+            let (mut seen, mut failed) = (std::collections::HashSet::new(), 0);
+            while swapping.load(Ordering::Relaxed) {
+                match connect(port).and_then(|s| peer(&s)) {
+                    Ok(cert) => {
+                        seen.insert(cert);
+                    }
+                    Err(_) => failed += 1,
+                }
+            }
+            (seen, failed)
+        }
+    });
+    replace(&key_path, second.key_pair.serialize_pem())?;
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let new_cert = loop {
+        let cert = peer(&connect(port)?)?;
+        if cert != old_cert {
+            break cert;
+        }
+        ensure!(
+            Instant::now() < deadline,
+            "the replaced certificate was not served"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    swapping.store(false, Ordering::Relaxed);
+    let (seen, failed) = handshakes.join().unwrap();
+    ensure!(failed == 0, "{failed} handshakes failed during the swap");
+    ensure!(
+        seen.iter()
+            .all(|cert| *cert == old_cert || *cert == new_cert),
+        "a handshake saw a pair that was neither"
+    );
+
+    // What was open goes on; who comes next gets in with the new pair.
+    ping(&mut kept)?;
+    let mut fresh = connect(port)?;
+    authenticate(&mut fresh, "alice", destination)?;
+    ping(&mut fresh)?;
+    ensure!(
+        manager.reloads() == reloads,
+        "a certificate file reloaded the whole instance"
+    );
+    Ok(())
+}
+
+/// What follows the files is the instance's: nothing of it is left once
+/// it stops.
+#[cfg(feature = "auto-reload")]
+#[test]
+fn what_follows_the_files_stops_with_the_instance() -> Result<()> {
+    let dir = common::TempDir::new("certificate-follow-stop")?;
+    let (cert_path, key_path) = (dir.join("cert.pem"), dir.join("key.pem"));
+    let pair = rcgen::generate_simple_self_signed(vec!["localhost".into()])?;
+    std::fs::write(&cert_path, pair.cert.pem())?;
+    std::fs::write(&key_path, pair.key_pair.serialize_pem())?;
+    let config = json!({
+        "inbounds": [{"type":"trojan", "tag":"server", "listen":"127.0.0.1", "listen_port":0,
+            "users":[{"name":"alice","password":"alice"}],
+            "tls":{"enabled":true,"certificate_path":cert_path,"key_path":key_path}}],
+        "outbounds":[{"type":"direct"}],
+    });
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()?;
+    let id = common::run_sail_instances(&rt, vec![config.to_string()])?[0];
+    let manager = sail::runtime_manager(id).unwrap();
+    ensure!(manager.certificates_followed() == 1);
+    sail::shutdown(id);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while sail::is_running(id) {
+        ensure!(Instant::now() < deadline, "the instance did not stop");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    ensure!(
+        manager.certificates_followed() == 0,
+        "the files are still followed after the instance stopped"
+    );
+    Ok(())
+}

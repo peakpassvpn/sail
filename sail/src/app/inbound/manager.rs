@@ -66,46 +66,21 @@ impl InboundManager {
         configs.sort_by(|a, b| a.tag.cmp(&b.tag));
         configs
     }
+    /// The files the resources of each reloadable inbound are read from,
+    /// its certificate and key, by tag; those that read none left out.
     #[cfg(feature = "auto-reload")]
-    pub(crate) fn resource_files(&self) -> Vec<std::path::PathBuf> {
-        self.files_for(self.configs.values())
-    }
-
-    #[cfg(feature = "auto-reload")]
-    pub(crate) fn resource_files_after_add(
-        &self,
-        inbound: &config::Inbound,
-    ) -> Vec<std::path::PathBuf> {
-        let mut files = self.resource_files();
-        if resource::supported(inbound) {
-            files.extend(resource::files(inbound, self.dispatcher.env()));
-        }
+    pub(crate) fn resource_files(&self) -> Vec<(String, Vec<std::path::PathBuf>)> {
+        let mut files: Vec<_> = self
+            .configs
+            .values()
+            .filter(|i| self.reloadable(&i.tag))
+            .map(|i| (i.tag.clone(), resource::files(i, self.dispatcher.env())))
+            .filter(|(_, files)| !files.is_empty())
+            .collect();
+        files.sort();
         files
     }
 
-    #[cfg(feature = "auto-reload")]
-    pub(crate) fn resource_files_after_remove(&self, tag: &str) -> Vec<std::path::PathBuf> {
-        self.files_for(self.configs.values().filter(|i| i.tag != tag))
-    }
-
-    #[cfg(feature = "auto-reload")]
-    pub(crate) fn prepared_resource_files(
-        &self,
-        prepared: &PreparedResources,
-    ) -> Vec<std::path::PathBuf> {
-        self.files_for(prepared.configs.values())
-    }
-
-    #[cfg(feature = "auto-reload")]
-    fn files_for<'a>(
-        &self,
-        configs: impl Iterator<Item = &'a config::Inbound>,
-    ) -> Vec<std::path::PathBuf> {
-        configs
-            .filter(|i| self.reloadable(&i.tag))
-            .flat_map(|i| resource::files(i, self.dispatcher.env()))
-            .collect()
-    }
     pub fn new(
         inbounds: &[config::Inbound],
         env: &crate::runtime::RuntimeEnv,

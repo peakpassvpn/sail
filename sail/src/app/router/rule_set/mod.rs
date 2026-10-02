@@ -212,8 +212,6 @@ pub(crate) struct RuleSets {
     network: Network,
     /// Each rule-set's tag and configuration, in order, for the Clash API.
     configs: Vec<(String, Arc<config::RuleSet>)>,
-    #[cfg(feature = "auto-reload")]
-    files: Vec<std::path::PathBuf>,
     /// The local rule-sets, which follow their files as sing-box's do.
     #[cfg(feature = "auto-reload")]
     locals: Vec<Arc<Local>>,
@@ -260,24 +258,12 @@ impl RuleSets {
         let mut sets = HashMap::new();
         let mut remotes = Vec::new();
         #[cfg(feature = "auto-reload")]
-        let mut files = Vec::new();
-        #[cfg(feature = "auto-reload")]
         let mut locals = Vec::new();
         let mut listed = Vec::new();
         for (i, config) in configs.iter().enumerate() {
             let shared = Arc::new(config.clone());
             for tag in &config.tag {
                 listed.push((tag.clone(), shared.clone()));
-                #[cfg(feature = "auto-reload")]
-                if config.kind == RuleSetKind::Local {
-                    files.push(
-                        env.data_path(&config::RuleSet::for_tag(
-                            config.path.as_deref().unwrap_or_default(),
-                            tag,
-                        ))
-                        .into(),
-                    );
-                }
                 let context = || format!("route.rule_set[{}]: [{}]", i, tag);
                 let set = if config.kind == RuleSetKind::Remote {
                     let client = clients
@@ -321,15 +307,8 @@ impl RuleSets {
             network: env.network.clone(),
             configs: listed,
             #[cfg(feature = "auto-reload")]
-            files,
-            #[cfg(feature = "auto-reload")]
             locals,
         })
-    }
-
-    #[cfg(feature = "auto-reload")]
-    pub(crate) fn files(&self) -> Vec<std::path::PathBuf> {
-        self.files.clone()
     }
 
     /// Downloads the remote rule-sets that have no copy yet: the rules

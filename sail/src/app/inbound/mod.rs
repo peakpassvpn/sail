@@ -1,3 +1,5 @@
+#[cfg(feature = "auto-reload")]
+pub(crate) mod follow;
 mod magic;
 pub mod network_listener;
 mod resource;

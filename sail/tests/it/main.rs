@@ -31,6 +31,7 @@ mod test_embed;
 mod test_examples;
 mod test_fakeip;
 mod test_fallback;
+mod test_follow;
 mod test_group_checks;
 mod test_group_fallback;
 mod test_group_load_balance;
