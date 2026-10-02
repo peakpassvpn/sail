@@ -431,16 +431,21 @@ impl DnsClient {
                     );
                     let (server, options) = (server.clone(), options.with(own));
                     let host = host.clone();
-                    ev.inflight.push(Box::pin(async move {
-                        let response = match self.resolve(&server, request, &options).await {
-                            Ok(response) => Some(response),
-                            Err(e) => {
-                                debug!("{} {}: evaluate [{}]: {}", host, ty, server, e);
-                                None
-                            }
-                        };
-                        (i, response)
-                    }));
+                    // Its type named first: coerced inside the push, the
+                    // compiler overflows evaluating it (a warning on
+                    // nightly, which may become an error).
+                    let asked: futures::future::BoxFuture<'_, (usize, Option<Message>)> =
+                        Box::pin(async move {
+                            let response = match self.resolve(&server, request, &options).await {
+                                Ok(response) => Some(response),
+                                Err(e) => {
+                                    debug!("{} {}: evaluate [{}]: {}", host, ty, server, e);
+                                    None
+                                }
+                            };
+                            (i, response)
+                        });
+                    ev.inflight.push(asked);
                     match tag {
                         None => ev.latest = Some(i),
                         Some(tag) => {

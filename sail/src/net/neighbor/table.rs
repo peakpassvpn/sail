@@ -234,8 +234,10 @@ fn pipe() -> io::Result<(std::os::fd::OwnedFd, std::os::fd::OwnedFd)> {
 fn set_receive_timeout(fd: &std::os::fd::OwnedFd, timeout: std::time::Duration) -> io::Result<()> {
     use std::os::fd::AsRawFd;
     let tv = libc::timeval {
-        tv_sec: timeout.as_secs() as libc::time_t,
-        tv_usec: timeout.subsec_micros() as libc::suseconds_t,
+        // `as _`: the field's own type, which 32-bit musl widens to 64 bits
+        // from musl 1.2.
+        tv_sec: timeout.as_secs() as _,
+        tv_usec: timeout.subsec_micros() as _,
     };
     // SAFETY: `tv` is a timeval, of the length given, set on a descriptor
     // this owns.
