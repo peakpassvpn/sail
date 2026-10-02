@@ -154,6 +154,53 @@ fn it_is_not_selected_by_hand() {
     });
 }
 
+/// A member that dials the destination itself: a failure through it may
+/// be the destination's, and is counted, as in Mihomo's url-test.
+#[cfg(feature = "outbound-direct")]
+#[test]
+fn failures_that_may_be_the_destinations_test_after_max_failed_times() {
+    rt().block_on(async {
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+        let m = manager(
+            json!([
+                {
+                    "type": "urltest",
+                    "tag": "auto",
+                    "outbounds": ["d"],
+                    "url": format!("http://127.0.0.1:{}/", port),
+                    "interval": "1h",
+                    "timeout": "10s",
+                    "max_failed_times": 2,
+                    "lazy": false,
+                },
+                { "type": "direct", "tag": "d" },
+            ]),
+            &env("urltest-max-failed"),
+        )
+        .unwrap();
+        let at = || {
+            let selector = m.get_selector("auto").unwrap();
+            let tested = selector.try_read().unwrap().get_tested().unwrap();
+            tested[0].1.map(|t| t.at)
+        };
+        assert!(eventually(Duration::from_secs(5), || at().is_some()).await);
+        let first = at();
+        let sess = sail::session::Session {
+            destination: sail::session::SocksAddr::Ip(([127, 0, 0, 1], port).into()),
+            ..Default::default()
+        };
+        assert!(connect(&m, "auto", &sess).await.is_err());
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        assert_eq!(at(), first);
+        assert!(connect(&m, "auto", &sess).await.is_err());
+        assert!(eventually(Duration::from_secs(3), || at() > first).await);
+    });
+}
+
 #[test]
 fn configuration_mistakes_are_errors() {
     let error = |outbounds| {
@@ -177,4 +224,16 @@ fn configuration_mistakes_are_errors() {
     assert!(msg.contains("interval"), "{}", msg);
     let msg = error(urltest(&[("a", UNSERVED)], json!({ "default": "a" })));
     assert!(msg.contains("default"), "{}", msg);
+    for (extra, field) in [
+        (json!({ "timeout": "0s" }), "timeout"),
+        (json!({ "max_failed_times": 0 }), "max_failed_times"),
+        (json!({ "expected_status": "2xx" }), "expected_status"),
+        (
+            json!({ "lazy": false, "idle_timeout": "1m" }),
+            "idle_timeout",
+        ),
+    ] {
+        let msg = error(urltest(&[("a", UNSERVED)], extra.clone()));
+        assert!(msg.contains(field), "{}: {}", extra, msg);
+    }
 }

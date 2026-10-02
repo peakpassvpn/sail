@@ -3,8 +3,9 @@
 use crate::test_group_common;
 
 use std::sync::atomic::Ordering;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
+use sail::session::{Session, SocksAddr};
 use serde_json::json;
 use test_group_common::*;
 
@@ -275,17 +276,201 @@ fn a_switch_interrupts_connections_when_asked_to() {
     });
 }
 
+/// The time of the last round of tests of the group `tag`.
+fn tested_at(m: &sail::app::outbound::manager::OutboundManager, tag: &str) -> Option<SystemTime> {
+    let selector = m.get_selector(tag).expect("a selector");
+    let tested = selector.try_read().expect("not locked").get_tested();
+    tested?.into_iter().find_map(|(_, t)| t.map(|t| t.at))
+}
+
+/// A port nothing listens on: a connection to it is refused.
+async fn closed_port() -> u16 {
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+        .await
+        .unwrap();
+    listener.local_addr().unwrap().port()
+}
+
+fn pinned(m: &sail::app::outbound::manager::OutboundManager) -> Option<String> {
+    let selector = m.get_selector("fb").unwrap();
+    let fixed = selector.try_read().unwrap().fixed();
+    fixed
+}
+
 #[test]
-fn it_is_not_selected_by_hand() {
+fn it_is_pinned_by_hand_while_the_member_is_up() {
     rt().block_on(async {
+        let (_a, p_a) = serve("a", Duration::ZERO).await;
+        let (b, p_b) = serve("b", Duration::ZERO).await;
+        let (_c, p_c) = serve("c", Duration::ZERO).await;
         let m = manager(
-            fallback(&[("a", UNSERVED), ("b", UNSERVED)], json!({})),
-            &env("fallback-by-hand"),
+            fallback(&[("a", p_a), ("b", p_b), ("c", p_c)], json!({})),
+            &env("fallback-pinned"),
         )
         .unwrap();
+        assert!(eventually(Duration::from_secs(5), || tested(&m)).await);
         let selector = m.get_selector("fb").unwrap();
+        // It still picks by itself; it is pinned, not selected.
         assert!(!selector.read().await.is_selectable());
-        assert!(selector.write().await.set_selected("b").is_err());
+        assert!(selector.write().await.set_selected("nope").is_err());
+
+        selector.write().await.set_selected("b").unwrap();
+        assert_eq!(selected(&m, "fb"), "b");
+        assert_eq!(pinned(&m).as_deref(), Some("b"));
+        let sess = session("10.0.0.1", "example.com");
+        assert_eq!(reached(&m, "fb", &sess).await.unwrap(), "b");
+        // Rounds of tests leave it there, [a] up as it is.
+        let at = tested_at(&m, "fb");
+        assert!(eventually(Duration::from_secs(5), || tested_at(&m, "fb") > at).await);
+        assert_eq!(selected(&m, "fb"), "b");
+
+        // Down, it is unpinned, and the group goes by itself.
+        b.stop().await;
+        assert!(eventually(Duration::from_secs(5), || pinned(&m).is_none()).await);
+        assert_eq!(selected(&m, "fb"), "a");
+
+        // Unpinned by hand, back to its own choice.
+        selector.write().await.set_selected("c").unwrap();
+        assert_eq!(selected(&m, "fb"), "c");
+        assert!(selector.read().await.unfix());
+        assert_eq!(selected(&m, "fb"), "a");
+        assert_eq!(pinned(&m), None);
+    });
+}
+
+#[test]
+fn a_pin_is_kept_across_a_restart() {
+    rt().block_on(async {
+        let (_a, p_a) = serve("a", Duration::ZERO).await;
+        let (_b, p_b) = serve("b", Duration::ZERO).await;
+        let env = cached_env("fallback-pin-kept");
+        let config = fallback(&[("a", p_a), ("b", p_b)], json!({}));
+        let m = manager(config.clone(), &env).unwrap();
+        m.get_selector("fb")
+            .unwrap()
+            .write()
+            .await
+            .set_selected("b")
+            .unwrap();
+        drop(m);
+        restart(&env);
+        let m = manager(config.clone(), &env).unwrap();
+        assert_eq!(pinned(&m).as_deref(), Some("b"));
+        assert_eq!(selected(&m, "fb"), "b");
+        // Unpinned, it is not pinned after the next.
+        assert!(m.get_selector("fb").unwrap().read().await.unfix());
+        drop(m);
+        restart(&env);
+        let m = manager(config, &env).unwrap();
+        assert_eq!(pinned(&m), None);
+        assert_eq!(selected(&m, "fb"), "a");
+    });
+}
+
+#[test]
+fn when_every_member_is_down_the_first_takes_the_connections() {
+    rt().block_on(async {
+        let (a, p_a) = serve("a", Duration::ZERO).await;
+        let (b, p_b) = serve("b", Duration::ZERO).await;
+        let m = manager(
+            fallback(&[("a", p_a), ("b", p_b)], json!({})),
+            &env("fallback-all-down"),
+        )
+        .unwrap();
+        assert!(eventually(Duration::from_secs(5), || tested(&m)).await);
+        a.stop().await;
+        assert!(eventually(Duration::from_secs(5), || selected(&m, "fb") == "b").await);
+        // Both down: back to the first, as Mihomo's fallback.
+        b.stop().await;
+        assert!(
+            eventually(Duration::from_secs(5), || selected(&m, "fb") == "a").await,
+            "{:?}",
+            latencies(&m, "fb")
+        );
+        assert!(latencies(&m, "fb").iter().all(|(_, l)| l.is_none()));
+    });
+}
+
+/// A member that dials the destination itself: a failure through it may
+/// be the destination's.
+#[cfg(feature = "outbound-direct")]
+#[test]
+fn failures_that_may_be_the_destinations_test_after_max_failed_times() {
+    rt().block_on(async {
+        let port = closed_port().await;
+        let m = manager(
+            json!([
+                {
+                    "type": "fallback",
+                    "tag": "fb",
+                    "outbounds": ["d"],
+                    "url": format!("http://127.0.0.1:{}/", port),
+                    "interval": "1h",
+                    "timeout": "10s",
+                    "max_failed_times": 3,
+                    "lazy": false,
+                },
+                { "type": "direct", "tag": "d" },
+            ]),
+            &env("fallback-max-failed"),
+        )
+        .unwrap();
+        assert!(eventually(Duration::from_secs(5), || tested_at(&m, "fb").is_some()).await);
+        let first = tested_at(&m, "fb");
+        let sess = Session {
+            destination: SocksAddr::Ip(([127, 0, 0, 1], port).into()),
+            ..Default::default()
+        };
+        // Two refused by the destination: not enough to test again, well
+        // past the least time between two rounds.
+        for _ in 0..2 {
+            assert!(connect(&m, "fb", &sess).await.is_err());
+        }
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        assert_eq!(tested_at(&m, "fb"), first);
+        // The third, within the timeout of the first, is.
+        assert!(connect(&m, "fb", &sess).await.is_err());
+        assert!(eventually(Duration::from_secs(3), || tested_at(&m, "fb") > first).await);
+    });
+}
+
+#[test]
+fn only_the_statuses_expected_pass() {
+    rt().block_on(async {
+        let (_a, p_a) = serve("a", Duration::ZERO).await;
+        let (_b, p_b) = serve("b", Duration::ZERO).await;
+        // The members answer 204.
+        let passed = manager(
+            fallback(&[("a", p_a)], json!({ "expected_status": "200-299" })),
+            &env("fallback-expected"),
+        )
+        .unwrap();
+        let failed = manager(
+            json!([
+                {
+                    "type": "fallback",
+                    "tag": "other",
+                    "outbounds": ["b"],
+                    "url": URL,
+                    "interval": "300ms",
+                    "expected_status": "200/301-399",
+                },
+                member("b", p_b),
+            ]),
+            &env("fallback-unexpected"),
+        )
+        .unwrap();
+        assert!(eventually(Duration::from_secs(5), || tested(&passed)).await);
+        assert!(
+            eventually(Duration::from_secs(5), || {
+                latencies(&failed, "other")[0].1.is_none() && tested_at(&failed, "other").is_some()
+            })
+            .await
+        );
+        let selector = failed.get_selector("other").unwrap();
+        let checks = selector.read().await.checks().unwrap();
+        assert_eq!(checks.expected_status(), "200/301-399");
+        assert_eq!(checks.url(), URL);
     });
 }
 
@@ -320,6 +505,9 @@ fn configuration_mistakes_are_errors() {
             "health_check_prefers",
         ),
         (json!({ "tolerance": 50 }), "tolerance"),
+        (json!({ "max_failed_times": 0 }), "max_failed_times"),
+        (json!({ "max_failed_times": -1 }), "max_failed_times"),
+        (json!({ "expected_status": "2xx" }), "expected_status"),
     ] {
         let msg = error(fallback(a, extra.clone()));
         assert!(msg.contains(field), "{}: {}", extra, msg);

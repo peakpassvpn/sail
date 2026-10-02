@@ -1,5 +1,7 @@
 //! Outbounds that are built out of other outbounds.
 
+#[cfg(any(feature = "outbound-urltest", feature = "outbound-fallback"))]
+mod attempt;
 pub mod chain;
 #[cfg(any(feature = "outbound-load-balance", feature = "outbound-smart"))]
 mod domain;

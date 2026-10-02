@@ -2,17 +2,17 @@
   "clash/0001.yaml": {
     "check": "route.rule_set[0]: [set-1]: <data_dir>/./path-1.yaml: No such file or directory (os error 2)",
     "ok": true,
-    "warnings": 6
+    "warnings": 4
   },
   "clash/0002.yaml": {
     "check": "route.rules[24].process_name: not supported, rule-process-name is not compiled in",
     "ok": true,
-    "warnings": 36
+    "warnings": 27
   },
   "clash/0003.yaml": {
     "check": "route.rules[15].process_name: not supported, rule-process-name is not compiled in",
     "ok": true,
-    "warnings": 27
+    "warnings": 18
   },
   "clash/0004.yaml": {
     "check": "route.rules[25].process_name: not supported, rule-process-name is not compiled in",
@@ -55,7 +55,7 @@
   "clash/0011.yaml": {
     "check": "route.rules[4].process_name: not supported, rule-process-name is not compiled in",
     "ok": true,
-    "warnings": 11
+    "warnings": 1
   },
   "clash/0012.yaml": {
     "error": "proxy-groups[0].type: sail does not implement \"relay\" groups yet"
@@ -67,15 +67,15 @@
       "macos": {
         "check": "[DEFAULT-REDIR] inbound: redirect: only supported on Linux",
         "ok": true,
-        "warnings": 12
+        "warnings": 11
       }
     },
-    "warnings": 12
+    "warnings": 11
   },
   "clash/0014.yaml": {
     "check": "[Proxy 9] outbound: transport: path: must start with /",
     "ok": true,
-    "warnings": 24
+    "warnings": 15
   },
   "clash/0015.yaml": {
     "check": "ok",
@@ -132,7 +132,7 @@
   "clash/0029.yaml": {
     "check": "route.rules[9].process_name_regex: not supported, rule-process-name is not compiled in",
     "ok": true,
-    "warnings": 39
+    "warnings": 27
   },
   "clash/0030.yaml": {
     "error": "[Proxy 1] outbound: tls.reality.public_key: neither hex nor base64url"
@@ -190,7 +190,7 @@
   "clash/0043.yaml": {
     "check": "ok",
     "ok": true,
-    "warnings": 13
+    "warnings": 9
   },
   "clash/0044.yaml": {
     "check": "dns.servers[https://192.0.2.1/dns-query#Proxy 1]: [https://192.0.2.1/dns-query#Proxy 1] dns server: bind_interface: there is no interface \"Proxy 1\"",
@@ -247,7 +247,7 @@
   "clash/0052.yaml": {
     "check": "ok",
     "ok": true,
-    "warnings": 9
+    "warnings": 8
   },
   "clash/0053.yaml": {
     "check": "ok",
@@ -257,12 +257,12 @@
   "clash/0054.yaml": {
     "check": "ok",
     "ok": true,
-    "warnings": 3
+    "warnings": 1
   },
   "clash/0055.yaml": {
     "check": "[Group 2] outbound: url: invalid URL \"str2\": expected http:// or https://",
     "ok": true,
-    "warnings": 3
+    "warnings": 0
   },
   "clash/0056.yaml": {
     "check": "ok",
@@ -272,7 +272,7 @@
   "clash/0057.yaml": {
     "check": "ok",
     "ok": true,
-    "warnings": 16
+    "warnings": 0
   },
   "clash/0058.yaml": {
     "error": "[Proxy 1] outbound: tls.reality.public_key: neither hex nor base64url"
@@ -536,10 +536,10 @@
       "macos": {
         "check": "[DEFAULT-REDIR] inbound: redirect: only supported on Linux",
         "ok": true,
-        "warnings": 18
+        "warnings": 4
       }
     },
-    "warnings": 18
+    "warnings": 4
   },
   "clash/0115.yaml": {
     "check": "ok",
@@ -636,7 +636,7 @@
   "clash/0138.yaml": {
     "check": "ok",
     "ok": true,
-    "warnings": 2
+    "warnings": 0
   },
   "clash/0139.yaml": {
     "error": "proxies[1].network: sail does not implement the xhttp transport yet"
@@ -851,7 +851,7 @@
   "clash/0185.yaml": {
     "check": "ok",
     "ok": true,
-    "warnings": 4
+    "warnings": 2
   },
   "clash/0186.yaml": {
     "check": "ok",

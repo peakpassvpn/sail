@@ -256,6 +256,30 @@ fn mistakes_name_the_field() {
 }
 
 #[test]
+fn how_groups_test_their_members_is_lowered() {
+    let config = load(
+        "proxies: [{ name: a, type: direct }, { name: b, type: direct }]\n\
+         proxy-groups:\n\
+         \x20 - { name: F, type: fallback, proxies: [a, b], timeout: 2000, max-failed-times: 3, expected-status: '200/204', lazy: false }\n\
+         \x20 - { name: U, type: url-test, proxies: [a, b], timeout: 0, max-failed-times: 0, expected-status: '*', lazy: true }\n\
+         \x20 - { name: S, type: select, proxies: [F, U], timeout: 2000 }\n",
+    );
+    let f = &outbound(&config, "F").options;
+    assert_eq!(f["timeout"], "2000ms");
+    assert_eq!(f["max_failed_times"], 3);
+    assert_eq!(f["expected_status"], "200/204");
+    assert_eq!(f["lazy"], false);
+    // Mihomo's defaults are sail's.
+    let u = &outbound(&config, "U").options;
+    for key in ["timeout", "max_failed_times", "expected_status", "lazy"] {
+        assert!(u.get(key).is_none(), "{}: {:?}", key, u);
+    }
+    // Only a select group's are passed over.
+    assert_eq!(config.warnings.len(), 1, "{:?}", config.warnings);
+    assert!(config.warnings[0].contains("proxy-groups[2].timeout"));
+}
+
+#[test]
 fn a_reject_proxy_is_a_block() {
     let config = load("proxies: [{ name: 拒绝, type: reject }, { name: 直连, type: direct }]\nrules: [\"MATCH,拒绝\"]\n");
     assert_eq!(outbound(&config, "拒绝").protocol, "block");

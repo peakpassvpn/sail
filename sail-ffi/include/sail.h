@@ -286,10 +286,11 @@ int32_t sail_groups(SailInstance instance, char **out, char **err);
 
 /*
  Selects `member` of the selector `group`; the choice is kept in the
- cache file, as sing-box keeps it.
+ cache file, as sing-box keeps it. A fallback is pinned to `member`
+ instead, as Mihomo pins it: it goes there while the member is up.
 
  @return SAIL_ERR_NOT_FOUND with no such group; SAIL_ERR_INVALID_ARGUMENT
-     when it is not a selector, or has no such member.
+     when it is neither a selector nor a fallback, or has no such member.
  */
 int32_t sail_select(SailInstance instance, const char *group, const char *member, char **err);
 

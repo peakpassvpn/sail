@@ -3162,6 +3162,10 @@ sail 接受而 sing-box 没有的字段和类型。
 | `outbounds[selector|urltest].exclude_filter` | Regular expressions no member's name may match, the group's own outbounds' too (Mihomo's exclude-filter) |
 | `outbounds[selector|urltest].exclude_type` | Types no member may be of, in Mihomo's names (Mihomo's exclude-type) |
 | `outbounds[selector|urltest].empty_fallback` | The outbound, not a group, that is the member while there is none else |
+| `outbounds[urltest].timeout` | How long a test may take before its member counts as failed (Mihomo's timeout) |
+| `outbounds[urltest].max_failed_times` | How many failed connections within the timeout have the members tested again (Mihomo's max-failed-times) |
+| `outbounds[urltest].expected_status` | The HTTP statuses a test must get to pass (Mihomo's expected-status) |
+| `outbounds[urltest].lazy` | `false`: the members are tested whether the group is used or not (Mihomo's lazy) |
 | `outbounds[fallback].outbounds` | A group: the first member that works |
 | `outbounds[load-balance].outbounds` | A group spreading connections over its members |
 | `outbounds[smart].outbounds` | A group scoring its members by the connections through them |

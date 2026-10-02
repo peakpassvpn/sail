@@ -116,6 +116,7 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         ctx.env.network.clone(),
         interval,
         health::DEFAULT_TIMEOUT,
+        health::DEFAULT_MAX_FAILED_TIMES,
         options.lazy.then_some(interval),
         Box::new(|_, _| ()),
     );

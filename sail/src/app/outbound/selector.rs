@@ -144,6 +144,28 @@ pub trait GroupChecks: Send + Sync {
     /// the `Selection`, whose own lock is separate. The API calls it under
     /// the selector's read lock, so this must stay true.
     fn record(&self, member: &MemberKey, latency: Option<Duration>, at: SystemTime);
+
+    /// What it requests through each member.
+    fn url(&self) -> String;
+
+    /// The HTTP statuses that pass, as Mihomo shows them: `*` for any.
+    fn expected_status(&self) -> String;
+}
+
+/// A group that selects by itself, which can be pinned to a member by
+/// hand, as Mihomo's fallback can (adapter/outboundgroup/fallback.go): it
+/// goes to that member while the member is up, and is unpinned once the
+/// member is down.
+pub trait GroupPin: Send + Sync {
+    /// Pins the group to the first member named `name`, and keeps the
+    /// pin.
+    fn pin(&self, name: &str) -> Result<()>;
+
+    /// Unpins the group; it goes back to its own choice.
+    fn unpin(&self);
+
+    /// The member it is pinned to.
+    fn pinned(&self) -> Option<String>;
 }
 
 /// What changes as a group's state shown does: the member it selects,
@@ -182,6 +204,7 @@ pub struct OutboundSelector {
     selected_by: SelectedBy,
     latencies: Option<MemberLatencies>,
     checks: Option<Arc<dyn GroupChecks>>,
+    pin: Option<Arc<dyn GroupPin>>,
 }
 
 impl OutboundSelector {
@@ -199,6 +222,34 @@ impl OutboundSelector {
             selected_by,
             latencies,
             checks: None,
+            pin: None,
+        }
+    }
+
+    /// With a pin, for a group that selects by itself and can be pinned.
+    pub fn with_pin(mut self, pin: Arc<dyn GroupPin>) -> Self {
+        self.pin = Some(pin);
+        self
+    }
+
+    /// Whether it selects by itself and can be pinned to a member by hand.
+    pub fn is_pinnable(&self) -> bool {
+        self.pin.is_some()
+    }
+
+    /// The member it is pinned to, for a group that can be pinned.
+    pub fn fixed(&self) -> Option<String> {
+        self.pin.as_ref()?.pinned()
+    }
+
+    /// Unpins it, if it can be pinned; true if it can.
+    pub fn unfix(&self) -> bool {
+        match &self.pin {
+            Some(pin) => {
+                pin.unpin();
+                true
+            }
+            None => false,
         }
     }
 
@@ -296,6 +347,10 @@ impl OutboundSelector {
                 self.selected.want(&name);
             }
         }
+        // A pin, unless the new group has none of the name.
+        if let (Some(pin), Some(name)) = (&self.pin, previous.fixed()) {
+            let _ = pin.pin(&name);
+        }
     }
 
     /// Whether a member can be selected by hand.
@@ -304,8 +359,11 @@ impl OutboundSelector {
     }
 
     /// Selects the member `tag`, the first so named, by hand, and keeps
-    /// the choice.
+    /// the choice; or, for a group that can be pinned, pins it there.
     pub fn set_selected(&mut self, tag: &str) -> Result<()> {
+        if let Some(pin) = &self.pin {
+            return pin.pin(tag);
+        }
         let SelectedBy::Hand { cache_file } = &self.selected_by else {
             return Err(anyhow!(
                 "[{}] selects its outbound by itself, not by hand",

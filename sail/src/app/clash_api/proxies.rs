@@ -54,9 +54,15 @@ pub(super) fn proxy(outbound: &OutboundInfo) -> Value {
         proxy.insert("all".into(), json!(group.members));
         proxy.insert("hidden".into(), json!(false));
         proxy.insert("icon".into(), json!(""));
-        proxy.insert("testUrl".into(), json!(""));
+        proxy.insert(
+            "testUrl".into(),
+            json!(group.test_url.as_deref().unwrap_or("")),
+        );
+        if let Some(expected) = &group.expected_status {
+            proxy.insert("expectedStatus".into(), json!(expected));
+        }
         if !group.selectable {
-            proxy.insert("fixed".into(), json!(""));
+            proxy.insert("fixed".into(), json!(group.fixed.as_deref().unwrap_or("")));
         }
     }
     Value::Object(proxy)
@@ -162,22 +168,17 @@ pub(super) async fn select(
     }
 }
 
-/// Mihomo unpins a group that selects by itself; sail's groups do not pin,
-/// so there is nothing to undo, but for a selector, which is not such.
+/// Unpins a group that selects by itself, as Mihomo does; nothing to undo
+/// for one that is not pinned, but for a selector, which is not such.
 pub(super) async fn unfix(
     State(clash): State<Arc<Clash>>,
     Path(name): Path<String>,
 ) -> Result<StatusCode, ApiError> {
-    let outbound = clash
-        .rm
-        .outbound(&name)
-        .await
-        .filter(|o| o.provider.is_none())
-        .ok_or_else(ApiError::not_found)?;
-    if outbound.protocol.as_deref() == Some("selector") {
-        return Err(ApiError::bad_request("Must not be a Selector"));
+    match clash.rm.unfix(&name).await {
+        Ok(()) => Ok(StatusCode::NO_CONTENT),
+        Err(ControlError::NotFound(_)) => Err(ApiError::not_found()),
+        Err(_) => Err(ApiError::bad_request("Must not be a Selector")),
     }
-    Ok(StatusCode::NO_CONTENT)
 }
 
 pub(super) async fn delay(
@@ -221,6 +222,8 @@ pub(super) async fn group_delay(
     Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
     let (url, timeout) = test_params(&params)?;
+    // Mihomo unpins the group it tests (hub/route/groups.go).
+    let _ = clash.rm.unfix(&name).await;
     let delays = clash
         .rm
         .url_test_members(&name, Some(&url), timeout)

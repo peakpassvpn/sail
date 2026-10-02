@@ -123,8 +123,10 @@ Rust: [`FallbackOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/s
 | `exclude_type` | string or array of string | `[]` | sail extension | The types no member may be of, the group's own outbounds too, in Mihomo's names for them, without case: `Shadowsocks`, `Vmess`, `Socks5`, `Direct`, ... |
 | `empty_fallback` | string | unset | sail extension | An outbound, not a group, that is the member while there is none else. Without it such a group has none, and its connections fail. |
 | `url` | string | `default_url()` | sail extension | What is requested through each member to test it. |
+| `expected_status` | string | unset | sail extension | The HTTP statuses a test must be answered with to pass, as Mihomo's `expected-status`: codes and ranges, `200/204/401-429`; any when unset. |
 | `interval` | duration | unset | sail extension | — |
-| `timeout` | duration | unset | sail extension | How long a test, or a connection attempt that has a member left to fall back to, may take before its member counts as failed. |
+| `timeout` | duration | unset | sail extension | How long a test, or a connection attempt that has a member left to fall back to, may take before its member counts as failed; 5s. Also how close together `max_failed_times` failures must come. |
+| `max_failed_times` | number | unset | sail extension | How many failed connections, within `timeout` of the first, have the members tested again; 5, as Mihomo's `max-failed-times`. Only failures that may be the destination's count: one that says the member's server cannot be reached marks the member down at once. |
 | `lazy` | bool | `true` | sail extension | Tests only while the group is in use: not when it was not used since the last ones. |
 | `interrupt_exist_connections` | bool | `false` | sail extension | Ends the connections through the member left once the group switches. |
 
@@ -797,6 +799,10 @@ Rust: [`UrlTestOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sa
 | `exclude_filter` | string or array of string | `[]` | sail extension | Regular expressions no member's name may match, the group's own outbounds' too. |
 | `exclude_type` | string or array of string | `[]` | sail extension | The types no member may be of, the group's own outbounds too, in Mihomo's names for them, without case: `Shadowsocks`, `Vmess`, `Socks5`, `Direct`, ... |
 | `empty_fallback` | string | unset | sail extension | An outbound, not a group, that is the member while there is none else. Without it such a group has none, and its connections fail. |
+| `timeout` | duration | unset | sail extension | How long a test may take before its member counts as failed; 5s. Also how close together `max_failed_times` failures must come; Mihomo's `timeout`. |
+| `max_failed_times` | number | unset | sail extension | How many failed connections, within `timeout` of the first, have the members tested again; 5, as Mihomo's `max-failed-times`. One whose member's server cannot be reached has them tested at once. |
+| `expected_status` | string | unset | sail extension | The HTTP statuses a test must be answered with to pass, as Mihomo's `expected-status`: codes and ranges, `200/204/401-429`; any when unset. |
+| `lazy` | bool | `true` | sail extension | `false`: tests never pause, used or not, as Mihomo's `lazy: false`; `idle_timeout` is then a mistake. |
 
 <a id="outbounds-vless"></a>
 

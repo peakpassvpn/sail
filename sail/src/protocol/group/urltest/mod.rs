@@ -3,6 +3,10 @@
 //! tested every `interval`; the group moves to a faster one only when it
 //! is faster by more than `tolerance`, so that close latencies do not
 //! make it switch back and forth.
+//!
+//! A connection that fails has the members tested again: at once when the
+//! member's server cannot be reached, else once `max_failed_times` failed,
+//! as Mihomo's url-test does.
 
 use std::collections::HashMap;
 use std::io;
@@ -15,6 +19,7 @@ use serde_derive::Deserialize;
 use tokio::sync::{watch, RwLock};
 use tracing::debug;
 
+use super::attempt::{member_unreachable, Progress};
 use super::health::{self, Checker};
 use super::members::{Member, MemberKey, Members, Snapshot};
 use super::merge;
@@ -23,7 +28,7 @@ use crate::adapter::registry::{
     parse_options, Options, OutboundContext, OutboundFactory, OutboundRegistry,
 };
 use crate::adapter::*;
-use crate::app::healthcheck::HttpProbe;
+use crate::app::healthcheck::{HttpProbe, StatusRanges};
 use crate::app::outbound::selector::{OutboundSelector, SelectedBy, Selection};
 use crate::app::SyncDnsClient;
 use crate::config::model::GroupProviders;
@@ -46,14 +51,33 @@ struct UrlTestOutboundOptions {
     /// What is requested through each member; sing-box's default.
     #[serde(default = "default_url")]
     url: String,
+    /// The HTTP statuses a test must be answered with to pass, as
+    /// Mihomo's `expected-status`: codes and ranges, `200/204/401-429`;
+    /// any when unset.
+    #[serde(default)]
+    expected_status: Option<String>,
     #[serde(default, with = "crate::config::model::duration")]
     interval: Option<Duration>,
+    /// How long a test may take before its member counts as failed; 5s.
+    /// Also how close together `max_failed_times` failures must come;
+    /// Mihomo's `timeout`.
+    #[serde(default, with = "crate::config::model::duration")]
+    timeout: Option<Duration>,
+    /// How many failed connections, within `timeout` of the first, have
+    /// the members tested again; 5, as Mihomo's `max-failed-times`. One
+    /// whose member's server cannot be reached has them tested at once.
+    #[serde(default)]
+    max_failed_times: Option<u32>,
     /// Milliseconds.
     #[serde(default = "default_tolerance")]
     tolerance: u16,
     /// Tests pause once the group has not been used for this long.
     #[serde(default, with = "crate::config::model::duration")]
     idle_timeout: Option<Duration>,
+    /// `false`: tests never pause, used or not, as Mihomo's `lazy: false`;
+    /// `idle_timeout` is then a mistake.
+    #[serde(default = "default_lazy")]
+    lazy: bool,
     /// Ends the connections through the member left once the group
     /// switches.
     #[serde(default)]
@@ -62,6 +86,10 @@ struct UrlTestOutboundOptions {
 
 fn default_url() -> String {
     health::DEFAULT_URL.to_string()
+}
+
+fn default_lazy() -> bool {
+    true
 }
 
 fn default_tolerance() -> u16 {
@@ -121,6 +149,25 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
     let members = merged.members.clone();
     let interval = options.interval.unwrap_or(health::DEFAULT_INTERVAL);
     let idle_timeout = options.idle_timeout.unwrap_or(DEFAULT_IDLE_TIMEOUT);
+    let timeout = options.timeout.unwrap_or(health::DEFAULT_TIMEOUT);
+    let max_failed_times = options
+        .max_failed_times
+        .unwrap_or(health::DEFAULT_MAX_FAILED_TIMES);
+    if !options.lazy && options.idle_timeout.is_some() {
+        return Err(anyhow!(
+            "[{}] outbound: idle_timeout: has no use with lazy: false",
+            ctx.tag
+        ));
+    }
+    if timeout.is_zero() {
+        return Err(anyhow!("[{}] outbound: timeout: must not be zero", ctx.tag));
+    }
+    if max_failed_times == 0 {
+        return Err(anyhow!(
+            "[{}] outbound: max_failed_times: must not be zero",
+            ctx.tag
+        ));
+    }
     if interval.is_zero() {
         return Err(anyhow!(
             "[{}] outbound: interval: must not be zero",
@@ -133,8 +180,11 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
             ctx.tag
         ));
     }
+    let expected = StatusRanges::parse(options.expected_status.as_deref().unwrap_or_default())
+        .map_err(|e| anyhow!("[{}] outbound: expected_status: {}", ctx.tag, e))?;
     let probe = HttpProbe::new(&options.url, ctx.dns_client.clone(), ctx.env)
-        .map_err(|e| anyhow!("[{}] outbound: url: {}", ctx.tag, e))?;
+        .map_err(|e| anyhow!("[{}] outbound: url: {}", ctx.tag, e))?
+        .expecting(expected);
 
     // The first member until the first tests are done.
     let first = members
@@ -170,8 +220,9 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         ctx.dns_client.clone(),
         ctx.env.network.clone(),
         interval,
-        health::DEFAULT_TIMEOUT,
-        Some(idle_timeout),
+        timeout,
+        max_failed_times,
+        options.lazy.then_some(idle_timeout),
         on_tested,
     );
     ctx.abort_handles.push(abort_handle);
@@ -252,11 +303,16 @@ impl Group {
         Ok((&snapshot.members[i], by))
     }
 
-    /// A connection through the selected member that failed is reason to
-    /// test again rather than wait out the interval.
-    fn failed<T>(&self, result: io::Result<T>) -> io::Result<T> {
-        if result.is_err() {
-            self.checker.retest();
+    /// A connection through the selected member that failed, at the
+    /// stage `progress` tells, is reason to test again rather than wait
+    /// out the interval: at once if the member's server cannot be
+    /// reached, as Mihomo tests at once after a refusal; else once enough
+    /// failed, see `Checker::failed`.
+    fn failed<T>(&self, result: io::Result<T>, progress: &Progress) -> io::Result<T> {
+        match &result {
+            Ok(_) => self.checker.succeeded(),
+            Err(e) if member_unreachable(progress.get(), e.kind()) => self.checker.retest(),
+            Err(_) => self.checker.failed(),
         }
         result
     }
@@ -286,14 +342,18 @@ impl OutboundStreamHandler for Group {
         let (member, by) = self.pick(&snapshot)?;
         let a = &member.handler;
         debug!("urltest handles [{}] to [{}]", sess.destination, a.tag());
+        let progress = Progress::default();
         let stream = self.failed(
             async {
+                progress.dialing(&a.stream()?.connect_addr());
                 let stream = connect_stream_outbound(sess, self.dns_client.clone(), a).await?;
+                progress.dialled();
                 let stream = a.stream()?.handle(sess, None, stream).await?;
                 sess.chain.push(&member.key.name);
                 Ok(stream)
             }
             .await,
+            &progress,
         )?;
         Ok(match (&self.interrupt, by) {
             (Some(selection), Some(by)) => super::interrupt::stream(stream, selection, by),
@@ -321,14 +381,18 @@ impl OutboundDatagramHandler for Group {
         let (member, by) = self.pick(&snapshot)?;
         let a = &member.handler;
         debug!("urltest handles [{}] to [{}]", sess.destination, a.tag());
+        let progress = Progress::default();
         let datagram = self.failed(
             async {
+                progress.dialing(&a.datagram()?.connect_addr());
                 let transport = connect_datagram_outbound(sess, self.dns_client.clone(), a).await?;
+                progress.dialled();
                 let datagram = a.datagram()?.handle(sess, transport).await?;
                 sess.chain.push(&member.key.name);
                 Ok(datagram)
             }
             .await,
+            &progress,
         )?;
         Ok(match (&self.interrupt, by) {
             (Some(selection), Some(by)) => super::interrupt::datagram(datagram, selection, by),

@@ -72,10 +72,73 @@ pub async fn udp(
 /// sing-box's.
 pub const DEFAULT_URL: &str = "https://www.gstatic.com/generate_204";
 
+/// The HTTP statuses a test expects, as Mihomo's `expected-status` gives
+/// them (common/utils/ranges.go, `NewUnsignedRanges`): codes and ranges
+/// of codes, `200/204/401-429`, `,` as good as `/`, at most 28; empty or
+/// `*` for any.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct StatusRanges(Vec<(u16, u16)>);
+
+impl StatusRanges {
+    pub fn parse(expected: &str) -> anyhow::Result<Self> {
+        let expected = expected.trim();
+        if expected.is_empty() || expected == "*" {
+            return Ok(Self::default());
+        }
+        let expected = expected.replace(',', "/");
+        let list: Vec<&str> = expected.split('/').collect();
+        if list.len() > 28 {
+            return Err(anyhow!("{} ranges; 28 at most", list.len()));
+        }
+        let code = |s: &str| {
+            s.trim_matches(|c| c == '[' || c == ']' || c == ' ')
+                .parse::<u16>()
+                .map_err(|_| anyhow!("invalid range: {}", s))
+        };
+        let mut ranges = Vec::new();
+        for item in list.into_iter().filter(|s| !s.is_empty()) {
+            let item = item.trim();
+            let range = match item.split('-').collect::<Vec<_>>()[..] {
+                [one] => (code(one)?, code(one)?),
+                [start, end] => (code(start)?, code(end)?),
+                _ => return Err(anyhow!("invalid range: {}", item)),
+            };
+            ranges.push(range);
+        }
+        Ok(Self(ranges))
+    }
+
+    /// Whether `status` is one expected.
+    pub fn check(&self, status: u16) -> bool {
+        self.0.is_empty() || self.0.iter().any(|(s, e)| (*s..=*e).contains(&status))
+    }
+}
+
+impl std::fmt::Display for StatusRanges {
+    /// As Mihomo shows them: `*` for any.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.0.is_empty() {
+            return f.write_str("*");
+        }
+        let terms: Vec<String> = self
+            .0
+            .iter()
+            .map(|(s, e)| match s == e {
+                true => s.to_string(),
+                false => format!("{}-{}", s, e),
+            })
+            .collect();
+        f.write_str(&terms.join("/"))
+    }
+}
+
 /// An HTTP request made through an outbound to measure it, as sing-box's
 /// URL tests do: the latency is the time to the response's status line,
 /// connecting and any TLS handshake included.
 pub struct HttpProbe {
+    url: String,
+    /// The statuses that pass; any by default.
+    expected: StatusRanges,
     destination: SocksAddr,
     /// The `Host` header: the URL's authority.
     host: String,
@@ -164,6 +227,8 @@ impl HttpProbe {
             }
         }
         Ok(Self {
+            url: url.to_string(),
+            expected: StatusRanges::default(),
             destination,
             host: authority.to_string(),
             path,
@@ -172,7 +237,23 @@ impl HttpProbe {
         })
     }
 
-    /// The time the request through `handler` took to be answered.
+    /// The probe, passing only the statuses `expected`.
+    pub fn expecting(mut self, expected: StatusRanges) -> Self {
+        self.expected = expected;
+        self
+    }
+
+    pub fn url(&self) -> &str {
+        &self.url
+    }
+
+    /// The statuses that pass, as Mihomo shows them.
+    pub fn expected_status(&self) -> String {
+        self.expected.to_string()
+    }
+
+    /// The time the request through `handler` took to be answered with a
+    /// status expected.
     pub async fn run(
         &self,
         dns_client: SyncDnsClient,
@@ -225,12 +306,23 @@ impl HttpProbe {
         let status = buf
             .strip_prefix(b"HTTP/1.")
             .and_then(|rest| rest.get(1..5))
-            .filter(|code| code[0] == b' ' && code[1..].iter().all(u8::is_ascii_digit));
-        if status.is_none() {
+            .filter(|code| code[0] == b' ' && code[1..].iter().all(u8::is_ascii_digit))
+            .and_then(|code| std::str::from_utf8(&code[1..]).ok()?.parse::<u16>().ok());
+        let Some(status) = status else {
             return Err(anyhow!(
                 "not an HTTP response through [{}]: {}",
                 handler.tag(),
                 String::from_utf8_lossy(&buf[..buf.len().min(32)])
+            ));
+        };
+        // A status not expected fails the test, as in Mihomo
+        // (adapter/adapter.go, `URLTest`).
+        if !self.expected.check(status) {
+            return Err(anyhow!(
+                "status {} through [{}] is not one expected ({})",
+                status,
+                handler.tag(),
+                self.expected
             ));
         }
         Ok(elapsed)
@@ -275,6 +367,26 @@ mod tests {
         let p = HttpProbe::new("http://[::1]:81?x=1", dns(), &Default::default()).unwrap();
         assert_eq!(p.destination, SocksAddr::Ip("[::1]:81".parse().unwrap()));
         assert_eq!(p.path, "/?x=1");
+    }
+
+    #[test]
+    fn expected_statuses_are_read_as_mihomo_reads_them() {
+        let any = StatusRanges::parse(" * ").unwrap();
+        assert!(any.check(500));
+        assert_eq!(any.to_string(), "*");
+        assert_eq!(StatusRanges::parse("").unwrap(), any);
+
+        let r = StatusRanges::parse("200/204, 401-429/").unwrap();
+        assert!(r.check(200) && r.check(204) && r.check(401) && r.check(429));
+        assert!(!r.check(201) && !r.check(430) && !r.check(302));
+        assert_eq!(r.to_string(), "200/204/401-429");
+        assert!(StatusRanges::parse("[200]").unwrap().check(200));
+
+        for bad in ["2xx", "200-", "1-2-3", "70000"] {
+            assert!(StatusRanges::parse(bad).is_err(), "{}", bad);
+        }
+        let many = vec!["200"; 29].join("/");
+        assert!(StatusRanges::parse(&many).is_err());
     }
 
     #[test]

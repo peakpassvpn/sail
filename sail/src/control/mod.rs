@@ -99,6 +99,13 @@ pub struct GroupInfo {
     pub members: Vec<String>,
     /// Whether a member is selected by hand; else the group picks itself.
     pub selectable: bool,
+    /// For a group that picks itself and can be pinned to a member by hand
+    /// (`select`), as a fallback can: the member pinned, `""` for none.
+    pub fixed: Option<String>,
+    /// For a group that tests its members: what it requests through them,
+    /// and the HTTP statuses that pass, as Mihomo shows them (`*`, any).
+    pub test_url: Option<String>,
+    pub expected_status: Option<String>,
 }
 
 /// The mode rules match, and the modes they name.
@@ -605,7 +612,9 @@ impl RuntimeManager {
     }
 
     /// Selects `member` of the selector `group` by hand; the choice is kept
-    /// in the cache file, as sing-box keeps it.
+    /// in the cache file, as sing-box keeps it. A group that picks itself
+    /// and can be pinned, a fallback, is pinned to `member`, as Mihomo
+    /// pins it: see `unfix`.
     pub async fn select(&self, group: &str, member: &str) -> Result<(), ControlError> {
         #[cfg(feature = "outbound-select")]
         {
@@ -617,7 +626,7 @@ impl RuntimeManager {
                 });
             };
             let mut selector = selector.write().await;
-            if !selector.is_selectable() {
+            if !selector.is_selectable() && !selector.is_pinnable() {
                 return Err(ControlError::NotSelector(group.to_string()));
             }
             selector
@@ -632,6 +641,29 @@ impl RuntimeManager {
                 None => ControlError::NotFound(group.to_string()),
             })
         }
+    }
+
+    /// Unpins the group `group`, which goes back to its own choice, as
+    /// Mihomo's `DELETE /proxies/{name}` does; nothing for an outbound that
+    /// is not pinned or cannot be. A selector, selected by hand, is not
+    /// such an outbound.
+    pub async fn unfix(&self, group: &str) -> Result<(), ControlError> {
+        let om = self.outbound_manager.load_full();
+        if om.get(group).is_none() {
+            return Err(ControlError::NotFound(group.to_string()));
+        }
+        #[cfg(feature = "outbound-select")]
+        if let Some(selector) = om.get_selector(group) {
+            let selector = selector.read().await;
+            if selector.is_selectable() {
+                return Err(ControlError::Rejected(format!(
+                    "[{}] is a selector, selected by hand: nothing pins it",
+                    group
+                )));
+            }
+            selector.unfix();
+        }
+        Ok(())
     }
 
     /// Measures the delay of the outbound `tag` with an HTTP request to
@@ -856,10 +888,16 @@ impl RuntimeManager {
             .flatten()
         {
             let selector = selector.read().await;
+            let checks = selector.checks();
             group = Some(GroupInfo {
                 selected: selector.get_selected_tag(),
                 members: selector.get_available_tags(),
                 selectable: selector.is_selectable(),
+                fixed: selector
+                    .is_pinnable()
+                    .then(|| selector.fixed().unwrap_or_default()),
+                test_url: checks.as_ref().map(|c| c.url()),
+                expected_status: checks.as_ref().map(|c| c.expected_status()),
             });
         }
         OutboundInfo {

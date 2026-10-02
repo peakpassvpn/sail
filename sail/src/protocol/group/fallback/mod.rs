@@ -1,28 +1,34 @@
 //! `fallback`: sends every connection to the first member, in the order
 //! configured, that passed its last URL test, as Mihomo's fallback group
 //! does. Members are tested every `interval`, through them, as `urltest`
-//! tests them.
+//! tests them. When every member failed, the first takes the connections,
+//! as in Mihomo.
 //!
 //! A connection that fails through the member selected is tried again
 //! through the next members that are up, in order, a few times at most,
 //! before it fails: a member can die between two tests. A failure that
 //! says the member itself cannot be reached marks it down at once, see
-//! `member_unreachable`, so that the next connection goes to the next
-//! member without waiting for the tests, which run again to bring it
-//! back up.
+//! `attempt::member_unreachable`, so that the next connection goes to the
+//! next member without waiting for the tests, which run again to bring it
+//! back up. Other failures are counted, and the members tested again after
+//! `max_failed_times` of them, as Mihomo does.
+//!
+//! It can be pinned to a member by hand, through the API, as Mihomo's
+//! can: it goes there while that member is up, and is unpinned once it is
+//! down; the pin is kept across restarts in the cache file.
 
 use std::future::Future;
 use std::io;
-use std::sync::atomic::{AtomicU8, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use serde_derive::Deserialize;
 use tokio::sync::{watch, RwLock};
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
+use super::attempt::{member_unreachable, Progress};
 use super::health::{self, Checker};
 use super::members::{MemberKey, Members, Snapshot};
 use super::merge;
@@ -31,11 +37,12 @@ use crate::adapter::registry::{
     parse_options, Options, OutboundContext, OutboundFactory, OutboundRegistry,
 };
 use crate::adapter::*;
-use crate::app::healthcheck::HttpProbe;
-use crate::app::outbound::selector::{OutboundSelector, SelectedBy, Selection};
+use crate::app::healthcheck::{HttpProbe, StatusRanges};
+use crate::app::outbound::selector::{GroupPin, OutboundSelector, SelectedBy, Selection};
 use crate::app::SyncDnsClient;
 use crate::config::model::GroupProviders;
 use crate::net::{connect_datagram_outbound, connect_stream_outbound};
+use crate::runtime::cache_file::CacheFile;
 use crate::session::Session;
 
 pub(crate) fn register(registry: &mut OutboundRegistry) {
@@ -55,12 +62,24 @@ struct FallbackOutboundOptions {
     /// What is requested through each member to test it.
     #[serde(default = "default_url")]
     url: String,
+    /// The HTTP statuses a test must be answered with to pass, as
+    /// Mihomo's `expected-status`: codes and ranges, `200/204/401-429`;
+    /// any when unset.
+    #[serde(default)]
+    expected_status: Option<String>,
     #[serde(default, with = "crate::config::model::duration")]
     interval: Option<Duration>,
     /// How long a test, or a connection attempt that has a member left to
-    /// fall back to, may take before its member counts as failed.
+    /// fall back to, may take before its member counts as failed; 5s.
+    /// Also how close together `max_failed_times` failures must come.
     #[serde(default, with = "crate::config::model::duration")]
     timeout: Option<Duration>,
+    /// How many failed connections, within `timeout` of the first, have
+    /// the members tested again; 5, as Mihomo's `max-failed-times`. Only
+    /// failures that may be the destination's count: one that says the
+    /// member's server cannot be reached marks the member down at once.
+    #[serde(default)]
+    max_failed_times: Option<u32>,
     /// Tests only while the group is in use: not when it was not used
     /// since the last ones.
     #[serde(default = "default_lazy")]
@@ -87,111 +106,203 @@ fn dependencies(tag: &str, options: &Options) -> Result<Vec<String>> {
     Ok(options.providers.dependencies(options.outbounds))
 }
 
-/// The member to select after a round of tests: the first that passed.
-/// `None` keeps the selection, when every member failed.
-pub(crate) fn choose(latencies: &[Option<Duration>]) -> Option<usize> {
-    latencies.iter().position(Option::is_some)
+/// The member the group goes to, of members `up` or not: the one
+/// `pinned`, while it is up; else the first up, in order; else, every
+/// member down, `first`, as Mihomo's fallback takes its first
+/// (adapter/outboundgroup/fallback.go, `findAliveProxy`).
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct Choice {
+    pub member: usize,
+    /// The pinned member is down: the pin goes.
+    pub unpin: bool,
 }
 
-/// How far an attempt through a member got when it failed, which tells
-/// what the failure says of the member.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[repr(u8)]
-pub(crate) enum Stage {
-    /// Dialling something else than the member's own server: the
-    /// destination (a direct member), or nothing (a member that dials by
-    /// itself, a group, a QUIC protocol), whose failures cannot be told
-    /// from the destination's.
-    Elsewhere = 0,
-    /// Dialling the member's server.
-    DialingServer = 1,
-    /// Its server dialled, the member's handshake over it.
-    Handshake = 2,
+pub(crate) fn choose(up: &[bool], pinned: Option<usize>, first: usize) -> Choice {
+    let unpin = pinned.is_some_and(|p| !up[p]);
+    let member = pinned
+        .filter(|&p| up[p])
+        .or_else(|| up.iter().position(|&u| u))
+        .unwrap_or(first);
+    Choice { member, unpin }
 }
 
-/// The stage an attempt is at, as it moves on.
-#[derive(Default)]
-struct Progress(AtomicU8);
+/// What has the group choose again.
+enum Cause<'a> {
+    /// A round of tests, with the latencies of `Snapshot`'s members.
+    Round(&'a [Option<Duration>]),
+    /// A connection found a member down; why.
+    Failed(String),
+    /// Its members changed.
+    Merged,
+    /// It was pinned or unpinned by hand.
+    Hand,
+}
 
-impl Progress {
-    fn set(&self, stage: Stage) {
-        self.0.store(stage as u8, Ordering::Relaxed);
+/// How the group chooses its member, shared by its tests, its connections
+/// and its selector.
+struct Choosing {
+    tag: String,
+    selected: Arc<Selection>,
+    /// The member pinned by hand, by name, as Mihomo pins it.
+    pinned: Mutex<Option<Arc<str>>>,
+    /// Where the pin is kept across restarts.
+    cache_file: Option<Arc<CacheFile>>,
+}
+
+impl Choosing {
+    fn pinned(&self) -> Option<Arc<str>> {
+        self.pinned
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
-    fn get(&self) -> Stage {
-        match self.0.load(Ordering::Relaxed) {
-            1 => Stage::DialingServer,
-            2 => Stage::Handshake,
-            _ => Stage::Elsewhere,
+    /// Sets the pin, and keeps it.
+    fn set_pin(&self, name: Option<&str>) -> Option<Arc<str>> {
+        let previous = std::mem::replace(
+            &mut *self.pinned.lock().unwrap_or_else(|e| e.into_inner()),
+            name.map(Into::into),
+        );
+        if let Some(cache_file) = &self.cache_file {
+            if let Err(e) = cache_file.store_selected(&self.tag, name.unwrap_or_default()) {
+                warn!("[{}] pin will not be kept: {}", self.tag, e);
+            }
         }
+        previous
     }
 
-    /// Before the member dials `connect`.
-    fn dialing(&self, connect: &OutboundConnect) {
-        self.set(match connect {
-            OutboundConnect::Proxy(..) => Stage::DialingServer,
-            _ => Stage::Elsewhere,
-        });
-    }
-
-    /// The dial done, before the member's handshake.
-    fn dialled(&self) {
-        if self.get() == Stage::DialingServer {
-            self.set(Stage::Handshake);
+    /// Moves the group to the member `choose` names, of the members of
+    /// `snapshot`, `up` or not; drops a pin whose member is down; logs
+    /// why, `cause` telling.
+    fn settle(&self, snapshot: &Snapshot, up: &[bool], cause: Cause) {
+        let Some(first) = snapshot.first_up().and_then(|m| snapshot.position(&m.key)) else {
+            return;
+        };
+        let pinned_name = self.pinned();
+        let pinned = pinned_name
+            .as_ref()
+            .and_then(|name| snapshot.find(name))
+            .and_then(|m| snapshot.position(&m.key));
+        let choice = choose(up, pinned, first);
+        if choice.unpin {
+            // Mihomo drops it as it finds the member down; the cache keeps
+            // it, as Mihomo's does, until it is unpinned or pinned again.
+            *self.pinned.lock().unwrap_or_else(|e| e.into_inner()) = None;
+            if let Some(name) = &pinned_name {
+                info!(
+                    "[{}] is no longer pinned to [{}]: it is down",
+                    self.tag, name
+                );
+            }
         }
-    }
-}
-
-/// Whether a connection through a member that failed at `stage` with
-/// `kind` says the member itself cannot be reached, which marks it down
-/// at once rather than at the next round of tests.
-///
-/// Conservatively: only what can only be the member's server's doing.
-/// Its server refusing the dial, not answering it in time, or being out
-/// of reach; then, the dial done, the server ending or garbling the
-/// handshake (a TLS failure is `InvalidData`). Not what the destination
-/// causes through a working server: a refusal the protocol reports (a
-/// SOCKS reply, an HTTP proxy's status, a mux stream refused) comes as
-/// another kind, `Other` or `ConnectionRefused` after the dial, and a
-/// handshake that times out may be waiting on the destination, as SOCKS
-/// waits for its connect. Nor anything a member that dials by itself or
-/// dials the destination meets, which cannot be told apart. Those only
-/// ask for the tests to run again.
-pub(crate) fn member_unreachable(stage: Stage, kind: io::ErrorKind) -> bool {
-    use io::ErrorKind::*;
-    match stage {
-        Stage::DialingServer => matches!(
-            kind,
-            ConnectionRefused
-                | TimedOut
-                | HostUnreachable
-                | NetworkUnreachable
-                | ConnectionReset
-                | ConnectionAborted
-        ),
-        Stage::Handshake => matches!(kind, InvalidData | UnexpectedEof | ConnectionReset),
-        Stage::Elsewhere => false,
-    }
-}
-
-/// Moves the group to the first member up, in the order configured,
-/// members not tested yet taken to be up, unless it is there already or
-/// none is; logs why.
-fn reselect(tag: &str, selected: &Selection, checker: &Checker, snapshot: &Snapshot, why: &str) {
-    let current = selected.get();
-    let Some(next) = snapshot
-        .members
-        .iter()
-        .find(|m| !m.handler.is_pass() && checker.is_up(&m.key))
-    else {
-        return;
-    };
-    if next.key != *current {
+        let current = self.selected.get();
+        let next = &snapshot.members[choice.member].key;
+        if *next == *current {
+            return;
+        }
+        let why = if choice.unpin {
+            "the member pinned is down".to_string()
+        } else if pinned == Some(choice.member) {
+            format!("it is pinned to [{}]", next.name)
+        } else if !up.iter().any(|&u| u) {
+            "no member is up: the first takes the connections".to_string()
+        } else {
+            match cause {
+                Cause::Round(latencies) => {
+                    let failed = snapshot
+                        .position(&current)
+                        .is_some_and(|i| latencies[i].is_none());
+                    match failed {
+                        true => format!("[{}] failed its test", current.name),
+                        false => format!("[{}] passed its test and comes first", next.name),
+                    }
+                }
+                Cause::Failed(why) => why,
+                Cause::Merged => "its members changed".to_string(),
+                Cause::Hand => "it was unpinned".to_string(),
+            }
+        };
         info!(
             "[{}] switches from [{}] to [{}]: {}",
-            tag, current.name, next.key.name, why
+            self.tag, current.name, next.name, why
         );
-        selected.set(next.key.clone());
+        self.selected.set(next.clone());
+    }
+
+    /// As `settle`, the members up as the checks have them now, those not
+    /// tested yet taken to be up.
+    fn settle_now(&self, checker: &Checker, snapshot: &Snapshot, cause: Cause) {
+        self.settle(snapshot, &up(checker, snapshot), cause);
+    }
+}
+
+/// Whether each member of `snapshot` is up, as `checker` has them; a
+/// `pass` outbound never is.
+fn up(checker: &Checker, snapshot: &Snapshot) -> Vec<bool> {
+    snapshot
+        .members
+        .iter()
+        .map(|m| !m.handler.is_pass() && checker.is_up(&m.key))
+        .collect()
+}
+
+/// The group's pin, for its selector, which the API pins and unpins it
+/// through.
+struct Pin {
+    choosing: Arc<Choosing>,
+    checker: Arc<Checker>,
+    members: Arc<Members>,
+}
+
+impl GroupPin for Pin {
+    /// Pins the group there: it goes there at once if the member is up;
+    /// else it is tested again at once, as Mihomo tests it, and the group
+    /// goes there if it passes, or drops the pin if not.
+    fn pin(&self, name: &str) -> Result<()> {
+        let snapshot = self.members.load();
+        let Some(member) = snapshot.find(name) else {
+            return Err(anyhow!(
+                "[{}] has no outbound [{}]",
+                self.choosing.tag,
+                name
+            ));
+        };
+        let i = snapshot.position(&member.key).unwrap_or_default();
+        self.choosing.set_pin(Some(name));
+        info!("[{}] is pinned to [{}]", self.choosing.tag, name);
+        let up = up(&self.checker, &snapshot);
+        if up[i] {
+            self.choosing.settle(&snapshot, &up, Cause::Hand);
+        } else {
+            self.checker.retest();
+        }
+        Ok(())
+    }
+
+    fn unpin(&self) {
+        if let Some(name) = self.choosing.set_pin(None) {
+            info!("[{}] is no longer pinned to [{}]", self.choosing.tag, name);
+            self.choosing
+                .settle_now(&self.checker, &self.members.load(), Cause::Hand);
+        }
+    }
+
+    fn pinned(&self) -> Option<String> {
+        self.choosing.pinned().map(|name| name.to_string())
+    }
+}
+
+/// A pin kept across a restart in `cache_file`, if any.
+fn kept_pin(tag: &str, cache_file: Option<&CacheFile>) -> Option<Arc<str>> {
+    match cache_file?.load_selected(tag) {
+        Ok(name) => name.filter(|n| !n.is_empty()).map(Into::into),
+        Err(e) => {
+            warn!(
+                "[{}] outbound: pin kept in the cache file not read: {}",
+                tag, e
+            );
+            None
+        }
     }
 }
 
@@ -216,6 +327,9 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
     let members = merged.members.clone();
     let interval = options.interval.unwrap_or(health::DEFAULT_INTERVAL);
     let timeout = options.timeout.unwrap_or(health::DEFAULT_TIMEOUT);
+    let max_failed_times = options
+        .max_failed_times
+        .unwrap_or(health::DEFAULT_MAX_FAILED_TIMES);
     if interval.is_zero() {
         return Err(anyhow!(
             "[{}] outbound: interval: must not be zero",
@@ -225,38 +339,42 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
     if timeout.is_zero() {
         return Err(anyhow!("[{}] outbound: timeout: must not be zero", ctx.tag));
     }
+    if max_failed_times == 0 {
+        return Err(anyhow!(
+            "[{}] outbound: max_failed_times: must not be zero",
+            ctx.tag
+        ));
+    }
+    let expected = StatusRanges::parse(options.expected_status.as_deref().unwrap_or_default())
+        .map_err(|e| anyhow!("[{}] outbound: expected_status: {}", ctx.tag, e))?;
     let probe = HttpProbe::new(&options.url, ctx.dns_client.clone(), ctx.env)
-        .map_err(|e| anyhow!("[{}] outbound: url: {}", ctx.tag, e))?;
+        .map_err(|e| anyhow!("[{}] outbound: url: {}", ctx.tag, e))?
+        .expecting(expected);
 
-    // The first member until the first tests are done.
-    let first = members
-        .load()
-        .first_up()
+    // The member pinned before the restart, if any, else the first, until
+    // the first tests are done.
+    let cache_file = ctx.env.cache_file.get();
+    let pinned = kept_pin(ctx.tag, cache_file.as_deref());
+    let snapshot = members.load();
+    let first = pinned
+        .as_ref()
+        .and_then(|name| snapshot.find(name))
+        .filter(|m| !m.handler.is_pass())
+        .or_else(|| snapshot.first_up())
         .map(|m| m.key.clone())
         .unwrap_or_else(|| MemberKey::outbound(""));
     let selected = Arc::new(Selection::new(&first.name, first.clone()));
+    let choosing = Arc::new(Choosing {
+        tag: ctx.tag.to_owned(),
+        selected: selected.clone(),
+        pinned: Mutex::new(pinned),
+        cache_file,
+    });
     let on_tested = {
-        let selected = selected.clone();
-        let tag = ctx.tag.to_owned();
+        let choosing = choosing.clone();
         Box::new(move |snapshot: &Snapshot, latencies: &[Option<Duration>]| {
-            let current = selected.get();
-            if let Some(next) = choose(latencies) {
-                let next = &snapshot.members[next].key;
-                if *next != *current {
-                    let failed = snapshot
-                        .position(&current)
-                        .is_some_and(|i| latencies[i].is_none());
-                    let why = match failed {
-                        true => format!("[{}] failed its test", current.name),
-                        false => format!("[{}] passed its test and comes first", next.name),
-                    };
-                    info!(
-                        "[{}] switches from [{}] to [{}]: {}",
-                        tag, current.name, next.name, why
-                    );
-                    selected.set(next.clone());
-                }
-            }
+            let up: Vec<bool> = latencies.iter().map(Option::is_some).collect();
+            choosing.settle(snapshot, &up, Cause::Round(latencies));
         })
     };
     let (checker, abort_handle) = Checker::new(
@@ -267,18 +385,18 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         ctx.env.network.clone(),
         interval,
         timeout,
+        max_failed_times,
         options.lazy.then_some(interval),
         on_tested,
     );
     ctx.abort_handles.push(abort_handle);
     merged.on_merged({
-        let selected = selected.clone();
+        let choosing = choosing.clone();
         let checker = checker.clone();
-        let tag = ctx.tag.to_owned();
         Box::new(move |snapshot, added| {
             // The first member up in the new order, new ones untested and
             // so taken to be up.
-            reselect(&tag, &selected, &checker, snapshot, "its members changed");
+            choosing.settle_now(&checker, snapshot, Cause::Merged);
             if added {
                 checker.retest();
             }
@@ -292,7 +410,12 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         SelectedBy::Checks,
         Some(checker.latencies()),
     )
-    .with_checks(checker.clone());
+    .with_checks(checker.clone())
+    .with_pin(Arc::new(Pin {
+        choosing: choosing.clone(),
+        checker: checker.clone(),
+        members: members.clone(),
+    }));
     ctx.selectors
         .insert(ctx.tag.to_owned(), Arc::new(RwLock::new(outbound_selector)));
 
@@ -303,6 +426,7 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
             .interrupt_exist_connections
             .then(|| selected.subscribe()),
         selected,
+        choosing,
         checker,
         timeout,
         dns_client: ctx.dns_client.clone(),
@@ -318,6 +442,7 @@ struct Group {
     tag: String,
     members: Arc<Members>,
     selected: Arc<Selection>,
+    choosing: Arc<Choosing>,
     checker: Arc<Checker>,
     timeout: Duration,
     dns_client: SyncDnsClient,
@@ -366,7 +491,10 @@ impl Group {
                 connect(a, progress.clone()).await
             };
             match result {
-                Ok(v) => return Ok((&snapshot.members[i].key, v)),
+                Ok(v) => {
+                    self.checker.succeeded();
+                    return Ok((&snapshot.members[i].key, v));
+                }
                 Err(e) => {
                     debug!(
                         "[{}] failed to handle [{}:{}] through [{}]: {}",
@@ -376,17 +504,20 @@ impl Group {
                         a.tag(),
                         e
                     );
-                    // A member failed between tests: test again rather
-                    // than wait out the interval; and if it cannot be
-                    // reached, the next connection goes elsewhere now.
+                    // A member that cannot be reached is down now, and the
+                    // next connection goes elsewhere, the tests asked to
+                    // bring it back; other failures, which may be the
+                    // destination's, are counted, and enough have the
+                    // members tested.
                     let key = &snapshot.members[i].key;
                     if member_unreachable(progress.get(), e.kind()) {
                         if self.checker.mark_down(key) {
                             let why = format!("a connection through [{}] failed: {}", key.name, e);
-                            reselect(&self.tag, &self.selected, &self.checker, snapshot, &why);
+                            self.choosing
+                                .settle_now(&self.checker, snapshot, Cause::Failed(why));
                         }
                     } else {
-                        self.checker.retest();
+                        self.checker.failed();
                     }
                     last_error = Some(e);
                 }
@@ -480,19 +611,47 @@ impl OutboundDatagramHandler for Group {
 mod tests {
     use super::*;
 
-    fn ms(v: u64) -> Option<Duration> {
-        Some(Duration::from_millis(v))
-    }
-
     #[test]
     fn the_first_member_up_is_chosen_whatever_its_latency() {
-        assert_eq!(choose(&[ms(900), ms(10)]), Some(0));
-        assert_eq!(choose(&[None, ms(900), ms(10)]), Some(1));
+        let c = |up: &[bool]| choose(up, None, 0).member;
+        assert_eq!(c(&[true, true]), 0);
+        assert_eq!(c(&[false, true, true]), 1);
     }
 
     #[test]
-    fn nothing_changes_when_every_member_failed() {
-        assert_eq!(choose(&[None, None]), None);
+    fn when_every_member_is_down_the_first_is_chosen() {
+        assert_eq!(choose(&[false, false], None, 0).member, 0);
+        // The first that is not a pass outbound.
+        assert_eq!(choose(&[false, false, false], None, 1).member, 1);
+    }
+
+    #[test]
+    fn a_pin_holds_while_its_member_is_up() {
+        let pinned = choose(&[true, true, true], Some(2), 0);
+        assert_eq!(
+            pinned,
+            Choice {
+                member: 2,
+                unpin: false
+            }
+        );
+        // Down: unpinned, and the group goes by itself.
+        let gone = choose(&[true, true, false], Some(2), 0);
+        assert_eq!(
+            gone,
+            Choice {
+                member: 0,
+                unpin: true
+            }
+        );
+        let all_down = choose(&[false, false], Some(1), 0);
+        assert_eq!(
+            all_down,
+            Choice {
+                member: 0,
+                unpin: true
+            }
+        );
     }
 
     #[test]
@@ -503,30 +662,6 @@ mod tests {
         // The selected member is tried first even if a test since failed
         // it: the selection moves after the round, or a failure.
         assert_eq!(candidates(0, 3, |i| i == 2), [0, 2]);
-    }
-
-    #[test]
-    fn only_failures_of_the_members_server_mark_it_down() {
-        use io::ErrorKind::*;
-        for kind in [
-            ConnectionRefused,
-            TimedOut,
-            HostUnreachable,
-            ConnectionReset,
-        ] {
-            assert!(member_unreachable(Stage::DialingServer, kind), "{:?}", kind);
-        }
-        assert!(member_unreachable(Stage::Handshake, InvalidData));
-        assert!(member_unreachable(Stage::Handshake, UnexpectedEof));
-        // A refusal the protocol reports, a handshake waiting on the
-        // destination, a DNS failure: not the server's.
-        assert!(!member_unreachable(Stage::Handshake, Other));
-        assert!(!member_unreachable(Stage::Handshake, ConnectionRefused));
-        assert!(!member_unreachable(Stage::Handshake, TimedOut));
-        assert!(!member_unreachable(Stage::DialingServer, Other));
-        // The destination's, or what cannot be told from it.
-        assert!(!member_unreachable(Stage::Elsewhere, ConnectionRefused));
-        assert!(!member_unreachable(Stage::Elsewhere, TimedOut));
     }
 
     #[test]

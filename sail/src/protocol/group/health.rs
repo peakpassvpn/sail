@@ -27,6 +27,49 @@ pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
 /// more often than this.
 const MIN_RETEST: Duration = Duration::from_secs(2);
 
+/// How many failed connections that do not tell the member is down, within
+/// a test's timeout of the first, have the members tested again: Mihomo's
+/// `max-failed-times` default (adapter/outboundgroup/groupbase.go).
+pub const DEFAULT_MAX_FAILED_TIMES: u32 = 5;
+
+/// The failed connections counted since the last round of tests, as
+/// Mihomo's groups count them (adapter/outboundgroup/groupbase.go,
+/// `onDialFailed`): within `window` of the first.
+#[derive(Default)]
+#[cfg_attr(
+    not(any(feature = "outbound-urltest", feature = "outbound-fallback")),
+    allow(dead_code)
+)]
+struct Failures {
+    count: u32,
+    first: Option<Instant>,
+}
+
+impl Failures {
+    /// Counts one at `now`; whether `max` were counted within `window` of
+    /// the first. A failure past the window counts as the first of a new
+    /// one, where Mihomo drops it with the count: one it would miss.
+    #[cfg_attr(
+        not(any(feature = "outbound-urltest", feature = "outbound-fallback")),
+        allow(dead_code)
+    )]
+    fn failed(&mut self, now: Instant, window: Duration, max: u32) -> bool {
+        match self.first {
+            Some(first) if now.duration_since(first) <= window => {}
+            _ => {
+                self.count = 0;
+                self.first = Some(now);
+            }
+        }
+        self.count += 1;
+        self.count >= max
+    }
+
+    fn reset(&mut self) {
+        *self = Self::default();
+    }
+}
+
 pub use crate::app::healthcheck::DEFAULT_URL;
 pub const DEFAULT_INTERVAL: Duration = Duration::from_secs(3 * 60);
 
@@ -42,8 +85,17 @@ pub struct Checker {
     /// Tests pause while it is down: the members are not failed for it.
     network: Network,
     interval: Duration,
-    /// How long one test may take before its member counts as failed.
+    /// How long one test may take before its member counts as failed;
+    /// also the window failed connections are counted in.
     timeout: Duration,
+    /// How many failed connections within `timeout` have the members
+    /// tested, see `failed`.
+    #[cfg_attr(
+        not(any(feature = "outbound-urltest", feature = "outbound-fallback")),
+        allow(dead_code)
+    )]
+    max_failed_times: u32,
+    failures: Mutex<Failures>,
     /// Tests pause once the group has not been used for this long, and
     /// resume, at once, when it is used again.
     idle: Option<Duration>,
@@ -73,6 +125,7 @@ impl Checker {
         network: Network,
         interval: Duration,
         timeout: Duration,
+        max_failed_times: u32,
         idle: Option<Duration>,
         on_tested: OnTested,
     ) -> (Arc<Self>, AbortHandle) {
@@ -84,6 +137,8 @@ impl Checker {
             network,
             interval,
             timeout,
+            max_failed_times,
+            failures: Default::default(),
             idle,
             latencies: Default::default(),
             round: Default::default(),
@@ -224,6 +279,40 @@ impl Checker {
         self.wake.notify_one();
     }
 
+    /// A connection through a member failed in a way that does not tell
+    /// the member is down (see `attempt::member_unreachable`): the members
+    /// are tested again once `max_failed_times` such failures were counted
+    /// within a test's timeout of the first, as Mihomo's groups do, not at
+    /// each, so that a destination that fails every connection does not
+    /// keep the tests running.
+    #[cfg(any(feature = "outbound-urltest", feature = "outbound-fallback"))]
+    pub fn failed(&self) {
+        let enough = self
+            .failures
+            .lock()
+            .map(|mut f| f.failed(Instant::now(), self.timeout, self.max_failed_times))
+            .unwrap_or(true);
+        if enough {
+            debug!(
+                "[{}] {} connections failed, tests again",
+                self.tag, self.max_failed_times
+            );
+            self.retest();
+        }
+    }
+
+    /// A connection through a member succeeded: the failures counted are
+    /// forgotten, unless a round of tests is under way, which forgets them
+    /// as it ends; as Mihomo's `onDialSuccess`.
+    #[cfg(any(feature = "outbound-urltest", feature = "outbound-fallback"))]
+    pub fn succeeded(&self) {
+        if self.round.try_lock().is_ok() {
+            if let Ok(mut f) = self.failures.lock() {
+                f.reset();
+            }
+        }
+    }
+
     /// The network changed: the members are tested again at once, idle
     /// as the group may be, unless it is down, when the change that ends
     /// that tests them. The latencies known are kept until then, as
@@ -310,6 +399,10 @@ impl Checker {
                 .join(" ")
         );
         self.latencies.replace(measured(&snapshot, &latencies, at));
+        // The failures counted asked for this round, or come before it.
+        if let Ok(mut f) = self.failures.lock() {
+            f.reset();
+        }
         (self.on_tested)(&snapshot, &latencies);
         (snapshot, latencies)
     }
@@ -331,6 +424,14 @@ impl crate::app::outbound::selector::GroupChecks for Checker {
 
     fn record(&self, member: &MemberKey, latency: Option<Duration>, at: SystemTime) {
         Checker::record(self, member, latency, at)
+    }
+
+    fn url(&self) -> String {
+        self.probe.url().to_string()
+    }
+
+    fn expected_status(&self) -> String {
+        self.probe.expected_status()
     }
 }
 
@@ -422,6 +523,31 @@ mod tests {
         assert!(is_up(&latencies, &MemberKey::outbound("c")));
     }
 
+    #[test]
+    fn failures_count_within_the_window_of_the_first() {
+        let window = Duration::from_secs(5);
+        let t0 = Instant::now();
+        let at = |ms: u64| t0 + Duration::from_millis(ms);
+        let mut f = Failures::default();
+        assert!(!f.failed(at(0), window, 3));
+        assert!(!f.failed(at(1000), window, 3));
+        assert!(f.failed(at(4000), window, 3));
+        // Each further one too, until the round they asked for.
+        assert!(f.failed(at(4500), window, 3));
+        f.reset();
+        assert!(!f.failed(at(4600), window, 3));
+
+        // Spread wider than the window: never enough.
+        let mut f = Failures::default();
+        assert!(!f.failed(at(0), window, 2));
+        assert!(!f.failed(at(5001), window, 2));
+        assert!(f.failed(at(6000), window, 2));
+        assert!(!f.failed(at(11002), window, 2));
+
+        // One is enough when one is the most.
+        assert!(Failures::default().failed(at(0), window, 1));
+    }
+
     /// A checker of no members, which counts its rounds, on `network`.
     fn counting(network: &Network, idle: Option<Duration>) -> (Arc<Checker>, Arc<AtomicUsize>) {
         let dns_client = crate::app::dns::DnsClient::new(
@@ -446,6 +572,7 @@ mod tests {
             network.clone(),
             DEFAULT_INTERVAL,
             DEFAULT_TIMEOUT,
+            DEFAULT_MAX_FAILED_TIMES,
             idle,
             Box::new({
                 let rounds = rounds.clone();

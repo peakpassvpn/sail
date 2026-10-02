@@ -29,7 +29,9 @@ impl Policies {
     }
 }
 
-/// The fields every group takes that sail does not implement yet.
+/// The fields every group takes that sail does not implement yet: those of
+/// how members are tested, which `url-test` and `fallback` take, see
+/// `checks`, and `smart` its `timeout`.
 const COMMON: &[(&str, Tier)] = &[
     // How members are tested, not which carries what.
     ("timeout", Ignored),
@@ -340,6 +342,7 @@ fn group(f: &mut Fields, cx: &Context, warnings: &mut Vec<String>) -> Result<Val
         "url-test" => {
             o.insert("type".into(), json!("urltest"));
             health(&mut o);
+            checks(f, &mut o)?;
             if let Some(ms) = f.int::<u16>("tolerance")? {
                 o.insert("tolerance".into(), json!(ms));
             }
@@ -347,6 +350,7 @@ fn group(f: &mut Fields, cx: &Context, warnings: &mut Vec<String>) -> Result<Val
         "fallback" => {
             o.insert("type".into(), json!("fallback"));
             health(&mut o);
+            checks(f, &mut o)?;
         }
         "load-balance" => {
             o.insert("type".into(), json!("load-balance"));
@@ -413,6 +417,29 @@ fn group(f: &mut Fields, cx: &Context, warnings: &mut Vec<String>) -> Result<Val
         }
     }
     Ok(Value::Object(o))
+}
+
+/// How a `url-test` or `fallback` group tests its members, as sail's
+/// fields of the same names: Mihomo's `timeout` (milliseconds, 0 the
+/// default), `max-failed-times` (0 the default), `expected-status` (`*`
+/// any) and `lazy` (true the default).
+fn checks(f: &mut Fields, o: &mut Map<String, Value>) -> Result<()> {
+    if let Some(ms) = f.int::<u64>("timeout")?.filter(|ms| *ms > 0) {
+        o.insert("timeout".into(), json!(format!("{}ms", ms)));
+    }
+    if let Some(n) = f.int::<u32>("max-failed-times")?.filter(|n| *n > 0) {
+        o.insert("max_failed_times".into(), json!(n));
+    }
+    if let Some(expected) = f.string("expected-status")? {
+        let expected = expected.trim();
+        if !expected.is_empty() && expected != "*" {
+            o.insert("expected_status".into(), json!(expected));
+        }
+    }
+    if f.bool("lazy")? == Some(false) {
+        o.insert("lazy".into(), json!(false));
+    }
+    Ok(())
 }
 
 /// The names `filters` pick of `names`, in order: any matching one, or

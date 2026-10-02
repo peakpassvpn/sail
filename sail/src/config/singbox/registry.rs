@@ -1354,6 +1354,26 @@ const EXTENSIONS: &[(&str, &str, &str)] = &[
         "The outbound, not a group, that is the member while there is none else",
     ),
     (
+        "outbounds[urltest].timeout",
+        r#""3s""#,
+        "How long a test may take before its member counts as failed (Mihomo's timeout)",
+    ),
+    (
+        "outbounds[urltest].max_failed_times",
+        "3",
+        "How many failed connections within the timeout have the members tested again (Mihomo's max-failed-times)",
+    ),
+    (
+        "outbounds[urltest].expected_status",
+        r#""200/204""#,
+        "The HTTP statuses a test must get to pass (Mihomo's expected-status)",
+    ),
+    (
+        "outbounds[urltest].lazy",
+        "false",
+        "`false`: the members are tested whether the group is used or not (Mihomo's lazy)",
+    ),
+    (
         "outbounds[fallback].outbounds",
         r#"["direct"]"#,
         "A group: the first member that works",

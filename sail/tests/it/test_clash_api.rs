@@ -384,6 +384,83 @@ fn a_dashboard_controls_the_instance_through_the_clash_api() -> anyhow::Result<(
     }
 }
 
+// dashboard -> (clash api)sail: a fallback is pinned to a member and
+// unpinned, as Mihomo's, and shows what it tests with.
+#[cfg(all(
+    feature = "clash-api",
+    feature = "outbound-select",
+    feature = "outbound-direct",
+    feature = "outbound-fallback",
+    feature = "inbound-socks",
+    feature = "tokio-tungstenite"
+))]
+#[test]
+fn a_dashboard_pins_a_fallback() -> anyhow::Result<()> {
+    let secret = sail::generate::secret();
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()?;
+    // What the members are tested with: both pass.
+    let (_server, served) = rt.block_on(crate::test_group_common::serve(
+        "probe",
+        std::time::Duration::ZERO,
+    ));
+    let url = format!("http://127.0.0.1:{}/generate_204", served);
+    let (ids, port) = common::retry_port_clash(|| {
+        let [port] = common::free_ports();
+        let config = serde_json::json!({
+            "clash_api": {
+                "external_controller": format!("127.0.0.1:{}", port),
+                "secret": secret,
+            },
+            "outbounds": [
+                { "type": "fallback", "tag": "fb", "outbounds": ["a", "b"], "url": url,
+                  "expected_status": "204" },
+                { "type": "direct", "tag": "a" },
+                { "type": "direct", "tag": "b" },
+            ],
+        });
+        Ok((
+            common::run_sail_instances(&rt, vec![config.to_string()])?,
+            port,
+        ))
+    })?;
+    let s = Some(secret.as_str());
+    let checked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        rt.block_on(async {
+            let get = || async {
+                let (_, _, body) = call(port, "GET", "/proxies/fb", s, &[], "").await?;
+                anyhow::Ok(json(&body))
+            };
+            let fb = get().await?;
+            assert_eq!(fb["now"], "a", "{}", fb);
+            assert_eq!(fb["fixed"], "");
+            assert_eq!(fb["testUrl"], url);
+            assert_eq!(fb["expectedStatus"], "204");
+
+            let (status, _, body) =
+                call(port, "PUT", "/proxies/fb", s, &[], r#"{"name":"b"}"#).await?;
+            assert_eq!(status, 204, "{}", body);
+            let fb = get().await?;
+            assert_eq!((&fb["now"], &fb["fixed"]), (&"b".into(), &"b".into()));
+            let (status, ..) = call(port, "PUT", "/proxies/fb", s, &[], r#"{"name":"c"}"#).await?;
+            assert_eq!(status, 400);
+
+            let (status, ..) = call(port, "DELETE", "/proxies/fb", s, &[], "").await?;
+            assert_eq!(status, 204);
+            let fb = get().await?;
+            assert_eq!((&fb["now"], &fb["fixed"]), (&"a".into(), &"".into()));
+            anyhow::Ok(())
+        })
+    }));
+    common::shutdown_instances(&rt, ids);
+    match checked {
+        Ok(checked) => checked,
+        Err(panic) => std::panic::resume_unwind(panic),
+    }
+}
+
 // dashboard -> (clash api)sail: a PASS outbound is listed, a selector
 // picks it, and GLOBAL leaves it out as it does DIRECT.
 #[cfg(all(
