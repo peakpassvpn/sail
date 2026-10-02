@@ -215,12 +215,17 @@ jobs:
           name: aar
           path: out/
 
-  # Apple's: sail for macOS (both architectures in one file) and the
-  # XCFramework, one job, as they build the same crates. Standard runner.
-  apple:
+  # Apple's, one job per target side by side (each a full LTO build, which
+  # took over an hour in turn on one runner): sail for macOS for the two
+  # darwin targets, and each target's slice of sail-ffi. Standard runners.
+  apple-slice:
     if: ${{ inputs.apple }}
     needs: check
     runs-on: macos-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        target: [aarch64-apple-darwin, x86_64-apple-darwin, aarch64-apple-ios, aarch64-apple-ios-sim, x86_64-apple-ios]
     env:
       SOURCE_DATE_EPOCH: ${{ needs.check.outputs.epoch }}
     steps:
@@ -229,13 +234,45 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ env.TOOLCHAIN }}
-          targets: aarch64-apple-darwin,x86_64-apple-darwin,aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
+          targets: ${{ matrix.target }}
 
       - name: GNU tar
         run: command -v gtar || brew install gnu-tar
 
       - name: build
-        run: scripts/release/build-apple.sh "${{ inputs.version }}" out
+        run: scripts/release/build-apple.sh "${{ inputs.version }}" out --slice ${{ matrix.target }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apple-slice-${{ matrix.target }}
+          path: out/
+
+  # The slices gathered into the XCFramework, and everything Apple's into one
+  # artifact, as before.
+  apple:
+    if: ${{ inputs.apple }}
+    needs: [check, apple-slice]
+    runs-on: macos-latest
+    env:
+      SOURCE_DATE_EPOCH: ${{ needs.check.outputs.epoch }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: apple-slice-*
+          path: slices
+
+      - name: XCFramework
+        run: |
+          mkdir -p out/ship out/symbols all/lib
+          for d in slices/*/; do
+            cp -R "$d"lib/* all/lib/
+            cp -R "$d"symbols/. out/symbols/
+            [ -d "$d"ship ] && cp "$d"ship/* out/ship/
+            [ -f "$d"ids.txt ] && cat "$d"ids.txt >> out/ids.txt
+          done
+          scripts/release/build-apple.sh "${{ inputs.version }}" out --xcframework all
 
       - uses: actions/upload-artifact@v4
         with:
