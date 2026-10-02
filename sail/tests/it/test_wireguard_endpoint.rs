@@ -316,7 +316,9 @@ fn test_wireguard_endpoint_detour() -> anyhow::Result<()> {
 }
 
 /// Throughput of one TCP connection through the tunnel, both instances in
-/// this process, 256 MiB up and echoed back down at once.
+/// this process, 256 MiB up and echoed back down at once. Unix only, for
+/// the process's CPU time.
+#[cfg(unix)]
 #[test]
 #[ignore]
 fn test_wireguard_endpoint_throughput() -> anyhow::Result<()> {
@@ -344,6 +346,7 @@ fn test_wireguard_endpoint_throughput() -> anyhow::Result<()> {
 }
 
 /// User and system CPU time of this process.
+#[cfg(unix)]
 fn cpu_seconds() -> f64 {
     let mut usage = std::mem::MaybeUninit::<libc_rusage>::zeroed();
     // SAFETY: getrusage fills the struct it is given.
@@ -356,6 +359,7 @@ fn cpu_seconds() -> f64 {
 /// The start of `struct rusage`: two `struct timeval`s, which are two
 /// 64-bit fields on the 64-bit targets tests run on (`suseconds_t` is 32
 /// bits on macOS, but padded to 64).
+#[cfg(unix)]
 #[repr(C)]
 struct libc_rusage {
     utime: [i64; 2],
@@ -363,6 +367,7 @@ struct libc_rusage {
     rest: [i64; 14],
 }
 
+#[cfg(unix)]
 extern "C" {
     fn getrusage(who: i32, usage: *mut libc_rusage) -> i32;
 }
