@@ -54,7 +54,10 @@ fn the_api_lists_and_updates_assets() -> anyhow::Result<()> {
     let api_port = common::retry_port_clash(|| {
         let [api_port] = common::free_ports();
         let config = serde_json::json!({
-            "api": { "listen": format!("127.0.0.1:{}", api_port) },
+            "api": {
+                "listen": format!("127.0.0.1:{}", api_port),
+                "secret": "Zq3Lp8Rk1Vn6Xc2Bm7Ws4Ty9Hd5Gf0Ja",
+            },
             "outbounds": [{ "type": "direct" }],
             "route": { "rules": [{ "geosite": "cn", "outbound": "direct" }] },
         });
@@ -93,6 +96,7 @@ fn the_api_lists_and_updates_assets() -> anyhow::Result<()> {
             let mut s = tokio::net::TcpStream::connect(("127.0.0.1", api_port)).await?;
             let request = format!(
                 "{} {} HTTP/1.1\r\nHost: sail\r\nContent-Type: application/json\r\n\
+                 Authorization: Bearer Zq3Lp8Rk1Vn6Xc2Bm7Ws4Ty9Hd5Gf0Ja\r\n\
                  Content-Length: {}\r\nConnection: close\r\n\r\n{}",
                 method,
                 path,

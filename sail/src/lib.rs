@@ -1595,14 +1595,12 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
     #[cfg(feature = "clash-api")]
     let clash_api = app::clash_api::bind(config.clash_api.as_ref()).map_err(Error::Config)?;
     #[cfg(feature = "api")]
-    let api_listener = config
+    let api_listeners = config
         .api
-        .listen
-        .map(|addr| {
-            std::net::TcpListener::bind(addr)
-                .map_err(|e| Error::Config(anyhow!("api.listen: {}: {}", addr, e)))
-        })
-        .transpose()?;
+        .as_ref()
+        .map(|api| app::api::api_server::bind(api, &env))
+        .transpose()
+        .map_err(Error::Config)?;
     // The rules cannot match a rule-set not downloaded yet: before any
     // connection comes in.
     let fetched = rt.block_on(async {
@@ -1657,9 +1655,9 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
 
     runtime_manager.set_assets(&config);
     #[cfg(feature = "api")]
-    if let Some(listener) = api_listener {
+    if let Some((listeners, secret)) = api_listeners {
         let api_server = ApiServer::new(runtime_manager.clone());
-        runners.push(api_server.serve(listener)?);
+        runners.push(api_server.serve(listeners, secret));
     }
     runtime_manager.set_views(&config);
     #[cfg(feature = "clash-api")]

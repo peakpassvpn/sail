@@ -200,7 +200,7 @@ wireguard = ["netstack", "btls", "btls-sys", "blake2", "base64"]
 mux = ["h2", "http"]
 
 plugin = ["async-ffi", "libloading"]
-api = ["axum"]
+api = ["axum", "hyper-util"]
 # The Clash API, which dashboards (yacd, metacubexd) control an instance through.
 clash-api = ["axum", "axum/ws", "axum/query", "miniz_oxide"]
 auto-reload = ["notify"]
@@ -328,6 +328,9 @@ quinn-proto = { version = "0.11", default-features = false, optional = true }
 
 # API
 axum = { version = "0.7", default-features = false, features = ["http1", "tokio", "json"], optional = true }
+# The management API serves its router on a unix socket too, which axum 0.7
+# does not: the connection server axum serves with, the same version.
+hyper-util = { version = "0.1.20", default-features = false, features = ["tokio", "server", "service", "http1"], optional = true }
 
 # Auto reload
 notify = { version = "6", optional = true }

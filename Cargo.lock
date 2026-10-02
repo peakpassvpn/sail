@@ -2669,6 +2669,7 @@ dependencies = [
  "hmac",
  "http",
  "httparse",
+ "hyper-util",
  "indexmap",
  "lazy_static",
  "libc",

@@ -140,7 +140,7 @@ impl InboundManager {
         }
 
         let mut network_listeners: HashMap<String, NetworkInboundListener> = HashMap::new();
-        for (inbound, address) in plan_listeners(inbounds, &handlers)? {
+        for (inbound, address) in plan_listeners(inbounds, &handlers, &dependencies)? {
             let listener = NetworkInboundListener {
                 address,
                 keepalive: inbound.tcp_keep_alive(),
@@ -426,7 +426,7 @@ impl InboundManager {
         } else {
             None
         };
-        let planned = plan_listeners(std::slice::from_ref(inbound), &handlers)?;
+        let planned = plan_listeners(std::slice::from_ref(inbound), &handlers, &dependencies)?;
         if let Some((_, address)) = planned.first() {
             let listener = NetworkInboundListener {
                 address: *address,
@@ -497,12 +497,14 @@ impl InboundManager {
 /// The inbounds that listen on a port, with the address each listens on.
 ///
 /// Fails when two of them would bind the same port on the same network --
-/// the second bind would fail, and only at startup -- and when an inbound
+/// the second bind would fail, and only at startup -- when an inbound
 /// served by a listener of its own (tun, cat) is misconfigured: given an
-/// address, or given twice.
+/// address, or given twice; and when an inbound has no port and no other
+/// inbound in `dependencies` leads to it, which nothing would ever reach.
 pub(crate) fn plan_listeners<'a>(
     inbounds: &'a [config::Inbound],
     handlers: &HashMap<String, AnyInboundHandler>,
+    dependencies: &HashMap<String, Vec<String>>,
 ) -> Result<Vec<(&'a config::Inbound, SocketAddr)>> {
     let mut planned: Vec<(&config::Inbound, SocketAddr, bool, bool)> = Vec::new();
     let mut own_listeners: Vec<&config::Inbound> = Vec::new();
@@ -548,9 +550,17 @@ pub(crate) fn plan_listeners<'a>(
             own_listeners.push(inbound);
             continue;
         }
-        // Without a port an inbound does not listen.
+        // Without a port an inbound does not listen: only one that another
+        // leads to (a detour's) is reached at all.
         let Some(port) = inbound.listen_port else {
-            continue;
+            if dependencies.values().any(|deps| deps.contains(tag)) {
+                continue;
+            }
+            return Err(anyhow!(
+                "[{}] inbound: listen_port: missing; without it the inbound listens on nothing \
+                 (only one another inbound leads to may leave it out)",
+                tag
+            ));
         };
         let listen = inbound.listen.as_deref().unwrap_or("127.0.0.1");
         let ip: IpAddr = listen
@@ -725,7 +735,7 @@ mod tests {
         let uuid = uuid::Uuid::from_bytes([42; 16]);
         let config = config::Config::from_json(
             &json!({
-                "inbounds":[{"type":"vmess", "tag":"v", "users":[{"uuid":uuid.to_string()}]}],
+                "inbounds":[{"type":"vmess", "tag":"v", "listen_port":0, "users":[{"uuid":uuid.to_string()}]}],
                 "outbounds":[{"type":"direct"}]
             })
             .to_string(),
@@ -779,6 +789,7 @@ mod tests {
     fn plan(json: &str) -> Result<Vec<(String, SocketAddr)>> {
         let config = config::Config::from_json(json)?;
         let mut handlers = HashMap::new();
+        let mut dependencies = HashMap::new();
         registry::build_inbounds(
             &include::INBOUNDS,
             &config.inbounds,
@@ -786,10 +797,10 @@ mod tests {
             &crate::runtime::RuntimeEnv::default(),
             &Default::default(),
             &mut handlers,
-            &mut HashMap::new(),
+            &mut dependencies,
             &mut HashMap::new(),
         )?;
-        Ok(plan_listeners(&config.inbounds, &handlers)?
+        Ok(plan_listeners(&config.inbounds, &handlers, &dependencies)?
             .into_iter()
             .map(|(inbound, address)| (inbound.tag.clone(), address))
             .collect())
@@ -919,15 +930,44 @@ mod tests {
             r#"{ "inbounds": [
                 { "type": "socks", "tag": "a", "listen_port": 1080 },
                 { "type": "http", "tag": "b", "listen_port": 8080 },
-                { "type": "http", "tag": "c", "listen": "127.0.0.2", "listen_port": 1080 },
-                { "type": "http", "tag": "d" }
+                { "type": "http", "tag": "c", "listen": "127.0.0.2", "listen_port": 1080 }
             ] }"#,
         )
         .unwrap();
         let tags: Vec<_> = planned.iter().map(|(t, _)| t.as_str()).collect();
-        // d has no port and does not listen.
         assert_eq!(tags, ["a", "b", "c"]);
         assert_eq!(planned[0].1, "127.0.0.1:1080".parse().unwrap());
+        // One with no port would listen on nothing, and nothing leads to it.
+        let err = plan(
+            r#"{ "inbounds": [
+                { "type": "socks", "tag": "a", "listen_port": 1080 },
+                { "type": "http", "tag": "d" }
+            ] }"#,
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string()
+                .starts_with("[d] inbound: listen_port: missing"),
+            "{}",
+            err
+        );
+    }
+
+    #[cfg(all(feature = "inbound-shadowtls", feature = "inbound-shadowsocks"))]
+    #[test]
+    fn an_inbound_another_leads_to_takes_no_port() {
+        let planned = plan(
+            r#"{ "inbounds": [
+                { "type": "shadowtls", "tag": "stls", "listen_port": 443, "version": 3,
+                  "users": [{ "password": "p" }],
+                  "handshake": { "server": "example.com", "server_port": 443 },
+                  "detour": "ss" },
+                { "type": "shadowsocks", "tag": "ss", "method": "aes-128-gcm", "password": "p" }
+            ] }"#,
+        )
+        .unwrap();
+        let tags: Vec<_> = planned.iter().map(|(t, _)| t.as_str()).collect();
+        assert_eq!(tags, ["stls"]);
     }
 
     #[test]

@@ -35,7 +35,7 @@ Rust 定义：[`Config`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/c
 | `route` | object → [对象](/sail/zh/reference/route/#route) | 各字段取默认值 | 支持 | — |
 | `services` | array → [[]](#services), [[api]](#services-missing), [[ccm]](#services-missing), [[derp]](#services-missing), [[hysteria-realm]](#services-missing), [[ocm]](#services-missing), [[oom-killer]](#services-missing), [[resolved]](#services-missing), [[ssm-api]](#services-missing), [[usbip-client]](#services-missing), [[usbip-server]](#services-missing) | — | 支持 | — |
 | `experimental` | object → [对象](#experimental) | 各字段取默认值 | 支持 | — |
-| `api` | 对象 → [对象](#api) | 各字段取默认值 | sail 扩展 | The control API |
+| `api` | 对象 → [对象](#api) | 未设置 | sail 扩展 | The control API |
 | `clash_api` | 对象 → [对象](#clash-api) | 未设置 | sail 扩展 | The Clash API, which dashboards (yacd, metacubexd) and clients control the instance through. sing-box has it under `experimental`, which is read too, as the same. |
 | `outbound_providers` | 数组，元素为 对象 → [[]](#outbound-providers) | `[]` | sail 扩展 | A sail extension: outbounds given together, downloaded, read from a file or written in place, that groups take as members, as Mihomo's proxy groups take a proxy-provider's proxies. |
 | `user_limits` | 对象，值为 对象 → [对象](#user-limits) | `{}` | sail 扩展 | A sail extension: what each user, by name, may do across every inbound it is in. |
@@ -262,7 +262,9 @@ Rust 定义：[`Api`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/conf
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
-| `listen` | string | 未设置 | sail 扩展 | Where the API listens; it is not served when unset. |
+| `path` | string | 未设置 | sail 扩展 | The unix socket the API is served on, in the data directory unless absolute; `api.sock` there when neither it nor `listen` is set. |
+| `listen` | string | 未设置 | sail 扩展 | A loopback address the API is served on too, as `127.0.0.1:9091`; it takes `secret`. |
+| `secret` | string | 未设置 | sail 扩展 | What every call carries, as `Authorization: Bearer <secret>`: one `sail generate secret` makes. Needed with `listen`; on the unix socket, checked when set. |
 
 <a id="clash-api"></a>
 

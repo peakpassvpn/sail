@@ -830,9 +830,17 @@
   "api": {
    "type": "object",
    "properties": {
+    "path": {
+     "type": "string",
+     "description": "The unix socket the API is served on, in the data directory unless absolute; `api.sock` there when neither it nor `listen` is set."
+    },
     "listen": {
      "type": "string",
-     "description": "Where the API listens; it is not served when unset."
+     "description": "A loopback address the API is served on too, as `127.0.0.1:9091`; it takes `secret`."
+    },
+    "secret": {
+     "type": "string",
+     "description": "What every call carries, as `Authorization: Bearer <secret>`: one `sail generate secret` makes. Needed with `listen`; on the unix socket, checked when set."
     }
    },
    "additionalProperties": false

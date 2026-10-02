@@ -123,8 +123,8 @@ fn samples_of(kind: &str) -> Vec<Value> {
 /// name.
 fn base() -> Value {
     json!({
-        "inbounds": [{ "type": "shadowsocks", "tag": "ss", "method": "aes-128-gcm",
-            "password": "p" }],
+        "inbounds": [{ "type": "shadowsocks", "tag": "ss", "listen_port": 10801,
+            "method": "aes-128-gcm", "password": "p" }],
         "outbounds": [{ "type": "direct", "tag": "direct" }],
         "dns": { "servers": [{ "type": "local", "tag": "local" }] },
     })

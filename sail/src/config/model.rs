@@ -66,6 +66,16 @@ impl std::fmt::Debug for ClashApi {
     }
 }
 
+impl std::fmt::Debug for Api {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        redacted_json(f, "Api", self, |json| {
+            if let Some(secret) = json.get_mut("secret") {
+                *secret = "<redacted>".into();
+            }
+        })
+    }
+}
+
 impl std::fmt::Debug for DnsServer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("DnsServer")
@@ -143,8 +153,8 @@ pub struct Config {
     pub endpoints: Vec<Endpoint>,
     #[serde(default)]
     pub route: Route,
-    #[serde(default, skip_serializing_if = "Api::is_default")]
-    pub api: Api,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api: Option<Api>,
     /// The Clash API, which dashboards (yacd, metacubexd) and clients
     /// control the instance through. sing-box has it under `experimental`,
     /// which is read too, as the same.
@@ -514,18 +524,65 @@ pub struct ClashApi {
     pub default_mode: Option<String>,
 }
 
-/// The control API; a sail extension.
-#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
+/// The control API; a sail extension. Served on a unix socket, made the
+/// user's only, and on loopback TCP when `listen` is set; not served when
+/// `api` is left out.
+#[derive(Serialize, Deserialize, Clone, Default, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Api {
-    /// Where the API listens; it is not served when unset.
+    /// The unix socket the API is served on, in the data directory unless
+    /// absolute; `api.sock` there when neither it nor `listen` is set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<std::path::PathBuf>,
+    /// A loopback address the API is served on too, as `127.0.0.1:9091`;
+    /// it takes `secret`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub listen: Option<std::net::SocketAddr>,
+    /// What every call carries, as `Authorization: Bearer <secret>`: one
+    /// `sail generate secret` makes. Needed with `listen`; on the unix
+    /// socket, checked when set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secret: Option<String>,
 }
 
 impl Api {
-    fn is_default(&self) -> bool {
-        *self == Api::default()
+    /// The socket is the default: any process on the host reaches a
+    /// loopback port, so the port is only served behind a strong secret,
+    /// and on no other address, which would carry the secret in the clear.
+    fn check(&self) -> Result<()> {
+        if let Some(listen) = self.listen {
+            if !listen.ip().is_loopback() {
+                return Err(anyhow!(
+                    "api.listen: {} is not a loopback address; the API is served on loopback \
+                     only (reach it from elsewhere through an SSH tunnel or a reverse proxy)",
+                    listen
+                ));
+            }
+            if self.secret.is_none() {
+                return Err(anyhow!(
+                    "api.secret: missing; api.listen needs one (`sail generate secret`)"
+                ));
+            }
+        }
+        if let Some(secret) = &self.secret {
+            if let Some(why) = crate::generate::weak_secret(secret) {
+                return Err(anyhow!(
+                    "api.secret: too weak ({}); use what `sail generate secret` makes",
+                    why
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// The unix socket, when one is served: `path`, or the default when
+    /// `listen` is not set either.
+    pub fn socket(&self) -> Option<std::path::PathBuf> {
+        match (&self.path, self.listen) {
+            (Some(path), _) => Some(path.clone()),
+            (None, None) => Some("api.sock".into()),
+            (None, Some(_)) => None,
+        }
     }
 }
 
@@ -3152,6 +3209,9 @@ impl Config {
             }
         }
         self.check_user_limits()?;
+        if let Some(api) = &self.api {
+            api.check()?;
+        }
         self.dns.validate()?;
         if self.dns.timeout == Some(std::time::Duration::ZERO) {
             return Err(anyhow!("dns.timeout: must be more than 0"));
@@ -4189,7 +4249,7 @@ mod tests {
         let config = Config::from_json(
             r#"{
                 "dns": { "strategy": "prefer_ipv6", "cache_capacity": 8, "timeout": "2s" },
-                "api": { "listen": "127.0.0.1:9090" },
+                "api": { "listen": "127.0.0.1:9090", "secret": "Zq3Lp8Rk1Vn6Xc2Bm7Ws4Ty9Hd5Gf0Ja" },
                 "inbounds": [{ "type": "socks", "listen_port": 1080, "udp_timeout": "1m" }]
             }"#,
         )
@@ -4199,7 +4259,9 @@ mod tests {
         // Less than sing-box's least, 1024, is taken as that.
         assert_eq!(config.dns.cache_capacity(), 1024);
         assert_eq!(config.dns.timeout(), std::time::Duration::from_secs(2));
-        assert_eq!(config.api.listen, Some("127.0.0.1:9090".parse().unwrap()));
+        let api = config.api.as_ref().unwrap();
+        assert_eq!(api.listen, Some("127.0.0.1:9090".parse().unwrap()));
+        assert_eq!(api.socket(), None);
         assert_eq!(
             config.inbounds[0].udp_timeout(),
             std::time::Duration::from_secs(60)
@@ -4231,7 +4293,60 @@ mod tests {
         let defaults = Config::from_json("{}").unwrap();
         assert_eq!(defaults.dns.strategy, DnsStrategy::PreferIpv4);
         assert_eq!(defaults.dns.timeout(), std::time::Duration::from_secs(10));
-        assert_eq!(defaults.api.listen, None);
+        assert_eq!(defaults.api, None);
+    }
+
+    #[test]
+    fn the_api_is_on_a_socket_or_loopback_with_a_strong_secret() {
+        let api = |json: &str| Config::from_json(&format!(r#"{{ "api": {} }}"#, json));
+        // Present, it is served on the socket by default.
+        let config = api("{}").unwrap();
+        assert_eq!(config.api.unwrap().socket(), Some("api.sock".into()));
+        let config = api(r#"{ "path": "/run/sail/api.sock" }"#).unwrap();
+        assert_eq!(
+            config.api.unwrap().socket(),
+            Some("/run/sail/api.sock".into())
+        );
+        let strong = "Zq3Lp8Rk1Vn6Xc2Bm7Ws4Ty9Hd5Gf0Ja";
+        for (json, error) in [
+            (
+                r#"{ "listen": "127.0.0.1:9091" }"#.to_string(),
+                "api.secret: missing; api.listen needs one",
+            ),
+            (
+                format!(r#"{{ "listen": "0.0.0.0:9091", "secret": "{}" }}"#, strong),
+                "api.listen: 0.0.0.0:9091 is not a loopback address",
+            ),
+            (
+                format!(
+                    r#"{{ "listen": "192.168.1.2:9091", "secret": "{}" }}"#,
+                    strong
+                ),
+                "api.listen: 192.168.1.2:9091 is not a loopback address",
+            ),
+            (
+                r#"{ "listen": "127.0.0.1:9091", "secret": "s3cret" }"#.to_string(),
+                "api.secret: too weak (6 characters, fewer than 32)",
+            ),
+            // A secret set for the socket is checked as well.
+            (
+                r#"{ "secret": "s3cret" }"#.to_string(),
+                "api.secret: too weak",
+            ),
+        ] {
+            let err = api(&json).unwrap_err().to_string();
+            assert!(err.starts_with(error), "{}: {}", json, err);
+        }
+        let json = format!(r#"{{ "listen": "[::1]:9091", "secret": "{}" }}"#, strong);
+        let config = api(&json).unwrap();
+        assert_eq!(config.api.as_ref().unwrap().socket(), None);
+        // What prints of a configuration does not give the secret away.
+        let printed = format!("{:?}", config);
+        assert!(
+            printed.contains("<redacted>") && !printed.contains(strong),
+            "{}",
+            printed
+        );
     }
 
     #[cfg(all(feature = "inbound-reality", feature = "outbound-reality"))]

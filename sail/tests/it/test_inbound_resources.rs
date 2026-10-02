@@ -120,7 +120,8 @@ fn exercise(port: u16) -> Result<()> {
                  "users":[{"name":password,"password":password},
                           {"name":"keeper","password":"keeper"}],
                  "tls":{"enabled":true,"certificate_path":cert_path,"key_path":key_path}},
-                {"type":"vless", "tag":"guard", "users":[{"name":"guard","uuid":UUID}]}
+                {"type":"vless", "tag":"guard", "listen":"127.0.0.1", "listen_port":0,
+                 "users":[{"name":"guard","uuid":UUID}]}
             ],
         "outbounds":[{"type":"direct"}],
         "experimental":{"clash_api":{"default_mode":"Rule"}},

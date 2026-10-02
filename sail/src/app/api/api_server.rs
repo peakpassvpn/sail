@@ -6,14 +6,18 @@ use std::sync::Arc;
 
 use chrono::{Local, TimeZone};
 
+use anyhow::{anyhow, bail};
 use axum::{
-    extract::{Path, State},
-    http::StatusCode,
-    response::{Html, Json},
+    extract::{Path, Request, State},
+    http::{header, StatusCode},
+    middleware::{self, Next},
+    response::{Html, IntoResponse, Json, Response},
     routing::{delete, get, post},
     Router,
 };
-use tracing::info;
+use tracing::{info, warn};
+
+use crate::control::listen::{self, Listener};
 
 #[cfg(feature = "outbound-select")]
 use axum::extract::Query;
@@ -143,41 +147,43 @@ mod handlers {
         Ok(Json(Vec::new()))
     }
 
-    pub async fn runtime_reload(
-        State(rm): State<Arc<RuntimeManager>>,
-    ) -> Result<StatusCode, Infallible> {
-        if rm.reload().await.is_ok() {
-            Ok(StatusCode::OK)
-        } else {
-            Ok(StatusCode::ACCEPTED)
+    /// Reloads from the configuration file: 200 once the new one runs;
+    /// otherwise the old one runs on, and the error tells why.
+    pub async fn runtime_reload(State(rm): State<Arc<RuntimeManager>>) -> Response {
+        match rm.reload().await {
+            Ok(()) => StatusCode::OK.into_response(),
+            Err(e) => {
+                warn!("reload failed, the configuration running is kept: {:#}", e);
+                failed(e)
+            }
         }
     }
 
     pub async fn outbound_add(
         State(rm): State<Arc<RuntimeManager>>,
         Json(outbound): Json<crate::config::Outbound>,
-    ) -> (StatusCode, String) {
+    ) -> Response {
         changed(rm.add_outbound(outbound).await)
     }
 
     pub async fn outbound_remove(
         State(rm): State<Arc<RuntimeManager>>,
         Path(tag): Path<String>,
-    ) -> (StatusCode, String) {
+    ) -> Response {
         changed(rm.remove_outbound(&tag).await)
     }
 
     pub async fn inbound_add(
         State(rm): State<Arc<RuntimeManager>>,
         Json(inbound): Json<crate::config::Inbound>,
-    ) -> (StatusCode, String) {
+    ) -> Response {
         changed(rm.add_inbound(inbound).await)
     }
 
     pub async fn inbound_remove(
         State(rm): State<Arc<RuntimeManager>>,
         Path(tag): Path<String>,
-    ) -> (StatusCode, String) {
+    ) -> Response {
         changed(rm.remove_inbound(&tag).await)
     }
 
@@ -186,10 +192,26 @@ mod handlers {
     }
 
     /// A change made, or why it was not.
-    fn changed(result: Result<(), crate::Error>) -> (StatusCode, String) {
+    fn changed(result: Result<(), crate::Error>) -> Response {
         match result {
-            Ok(()) => (StatusCode::OK, String::new()),
-            Err(e) => (StatusCode::BAD_REQUEST, e.to_string()),
+            Ok(()) => StatusCode::OK.into_response(),
+            Err(e) => failed(e),
+        }
+    }
+
+    /// Why a change was not made: what the configuration or the request
+    /// got wrong, or what failed in sail.
+    fn failed(e: crate::Error) -> Response {
+        match e {
+            crate::Error::Config(e) => {
+                error(StatusCode::BAD_REQUEST, "invalid", format!("{:#}", e))
+            }
+            crate::Error::NoConfigFile => error(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "unsupported",
+                "the instance was started from no file to reload",
+            ),
+            e => error(StatusCode::INTERNAL_SERVER_ERROR, "internal", e),
         }
     }
 
@@ -488,17 +510,144 @@ pub struct ApiServer {
     runtime_manager: Arc<RuntimeManager>,
 }
 
+/// The listeners for `api`, and the secret calls carry: bound at start,
+/// so that an address in use fails the start rather than the API alone,
+/// later. From within the runtime.
+pub fn bind(
+    api: &crate::config::model::Api,
+    env: &crate::runtime::RuntimeEnv,
+) -> anyhow::Result<(Vec<Listener>, Option<String>)> {
+    let mut listeners = Vec::new();
+    #[cfg(not(unix))]
+    if api.path.is_none() && api.listen.is_none() {
+        bail!("api: unix sockets are not served here; set api.listen and api.secret");
+    }
+    if let Some(path) = api.socket() {
+        let path = std::path::PathBuf::from(env.data_path(&path.to_string_lossy()));
+        let len = path.as_os_str().len();
+        if len > listen::SOCKET_PATH_MAX {
+            bail!(
+                "api.path: {} is {} bytes, more than a unix socket's {}",
+                path.display(),
+                len,
+                listen::SOCKET_PATH_MAX
+            );
+        }
+        listeners.push(
+            listen::bind(&listen::Address::Unix(path.clone()))
+                .map_err(|e| anyhow!("api.path: {}", e))?,
+        );
+        info!("api server listening on {}", path.display());
+    }
+    if let Some(addr) = api.listen {
+        let listener = std::net::TcpListener::bind(addr)
+            .and_then(|l| l.set_nonblocking(true).map(|()| l))
+            .and_then(tokio::net::TcpListener::from_std)
+            .map_err(|e| anyhow!("api.listen: {}: {}", addr, e))?;
+        listeners.push(Listener::Tcp(listener));
+        info!("api server listening tcp {}", addr);
+    }
+    Ok((listeners, api.secret.clone()))
+}
+
+/// An error as the API tells it: a stable `code` a client acts on, and
+/// what went wrong, with what a URL in it carries left out.
+fn error(status: StatusCode, code: &'static str, message: impl std::fmt::Display) -> Response {
+    let message = without_url_secrets(&message.to_string());
+    (
+        status,
+        Json(serde_json::json!({ "error": { "code": code, "message": message } })),
+    )
+        .into_response()
+}
+
+/// `text` with each URL in it as [`crate::common::redact::url`] tells it:
+/// a subscription's token is in its path or query as often as not.
+fn without_url_secrets(text: &str) -> String {
+    let mut out = String::new();
+    let mut rest = text;
+    while let Some(at) = rest.find("://") {
+        let start = rest[..at]
+            .rfind(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.')))
+            .map_or(0, |i| i + 1);
+        let end = rest[at..]
+            .find(|c: char| c.is_whitespace() || matches!(c, '"' | '\'' | '`' | '<' | '>'))
+            .map_or(rest.len(), |i| at + i);
+        out.push_str(&rest[..start]);
+        out.push_str(&crate::common::redact::url(&rest[start..end]));
+        rest = &rest[end..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Lets a call through only with the secret, as `Authorization: Bearer`.
+async fn authorize(State(secret): State<Arc<str>>, request: Request, next: Next) -> Response {
+    let given = request
+        .headers()
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "));
+    match given {
+        Some(given) if listen::same_secret(given.as_bytes(), secret.as_bytes()) => {
+            next.run(request).await
+        }
+        _ => {
+            let mut response = error(
+                StatusCode::UNAUTHORIZED,
+                "unauthenticated",
+                "the API's secret is needed, as Authorization: Bearer <secret>",
+            );
+            response
+                .headers_mut()
+                .insert(header::WWW_AUTHENTICATE, "Bearer".parse().unwrap());
+            response
+        }
+    }
+}
+
+/// Serves `app` on what `listener` accepts, a connection at a time on a
+/// task of its own, as axum does.
+async fn accept(listener: Listener, app: Router) {
+    loop {
+        let accepted = match &listener {
+            #[cfg(unix)]
+            Listener::Unix(l) => l.accept().await.map(|(s, _)| connection(s, app.clone())),
+            Listener::Tcp(l) => l.accept().await.map(|(s, _)| connection(s, app.clone())),
+        };
+        if let Err(e) = accepted {
+            // Out of descriptors, mostly: a moment for some to free up.
+            warn!("api server: accept: {}", e);
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+    }
+}
+
+fn connection<S>(stream: S, app: Router)
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
+    use hyper_util::{
+        rt::{TokioExecutor, TokioIo},
+        server::conn::auto::Builder,
+        service::TowerToHyperService,
+    };
+    tokio::spawn(async move {
+        let _ = Builder::new(TokioExecutor::new())
+            .http1_only()
+            .serve_connection(TokioIo::new(stream), TowerToHyperService::new(app))
+            .await;
+    });
+}
+
 impl ApiServer {
     pub fn new(runtime_manager: Arc<RuntimeManager>) -> Self {
         Self { runtime_manager }
     }
 
-    /// Serves on `listener`, bound at start so that an address in use
-    /// fails the start rather than the API alone, later.
-    pub fn serve(&self, listener: std::net::TcpListener) -> std::io::Result<crate::Runner> {
-        let listen_addr = listener.local_addr()?;
-        listener.set_nonblocking(true)?;
-        let listener = tokio::net::TcpListener::from_std(listener)?;
+    /// Serves on `listeners`, which [`bind`] made; with `secret`, a call
+    /// without it is refused.
+    pub fn serve(&self, listeners: Vec<Listener>, secret: Option<String>) -> crate::Runner {
         let mut app = Router::new()
             .route("/api/v1/runtime/reload", post(handlers::runtime_reload))
             .route("/api/v1/runtime/shutdown", post(handlers::runtime_shutdown))
@@ -575,15 +724,16 @@ impl ApiServer {
                 get(handlers::outbound_health),
             );
 
-        let app = app.with_state(self.runtime_manager.clone());
-
-        info!("api server listening tcp {}", &listen_addr);
-
-        Ok(Box::pin(async move {
-            if let Err(e) = axum::serve(listener, app).await {
-                tracing::error!("api server failed: {}", e);
-            }
-        }))
+        let mut app = app.with_state(self.runtime_manager.clone());
+        if let Some(secret) = secret {
+            app = app.layer(middleware::from_fn_with_state(
+                Arc::<str>::from(secret),
+                authorize,
+            ));
+        }
+        Box::pin(async move {
+            futures::future::join_all(listeners.into_iter().map(|l| accept(l, app.clone()))).await;
+        })
     }
 }
 
@@ -594,4 +744,24 @@ fn clock_time(secs: u32) -> String {
         .timestamp_opt(i64::from(secs), 0)
         .single()
         .map_or_else(|| "-".to_string(), |t| t.format("%H:%M:%S").to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_error_tells_no_more_of_a_url_than_its_host() {
+        assert_eq!(
+            without_url_secrets(
+                "[p] provider: \"https://user:pw@sub.example:8443/link?token=abc\": 403, \
+                 and http://h/x too"
+            ),
+            "[p] provider: \"https://sub.example:8443/…\": 403, and http://h/… too"
+        );
+        assert_eq!(
+            without_url_secrets("outbounds[0].type: unknown \"nope\""),
+            "outbounds[0].type: unknown \"nope\""
+        );
+    }
 }

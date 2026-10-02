@@ -22,7 +22,7 @@ For individual fields, see the generated reference: [top level and common](/sail
 | `certificate` | Root certificates servers are checked against | The system's |
 | `http_clients` | How Sail downloads rule-sets and providers, by tag | Through the default outbound |
 | `experimental` | `cache_file` and the Clash API | Disabled |
-| `api` | Sail's control API listener (extension) | Disabled |
+| `api` | Sail's control API, on a unix socket or loopback (extension) | Disabled |
 | `clash_api` | The Clash API, also accepted under `experimental` (extension) | Disabled |
 | `outbound_providers` | Outbounds downloaded or given together, for groups (extension) | Empty |
 | `user_limits` | Per-user limits across inbounds (extension) | Empty |
@@ -132,15 +132,13 @@ Unlike sing-box, sail's queries ask for a unicast reply (the QU bit of RFC 6762)
     "format": "compact",
     "output": "sail.log"
   },
-  "api": {
-    "listen": "127.0.0.1:9090"
-  }
+  "api": {}
 }
 ```
 
 Log levels are `trace`, `debug`, `info`, `warn` (or `warning`) and `error`; `fatal` and `panic` are accepted and act as `error`. Set `disabled` to log nothing and `timestamp` to start each line with the time. `format: compact`, a Sail extension, writes the message alone. Leave `output` unset to log to the console.
 
-The API is not served unless `api.listen` is set; keep it on a trusted interface unless a host application provides its own access controls. The Clash API, which dashboards use, is configured in `clash_api` or in sing-box's `experimental.clash_api`, not both.
+The API is served when `api` is set. By default it is on a unix socket, `api.sock` in the data directory (`path` sets another), which only the user Sail runs as can open. `listen` serves it on a loopback address too, such as `127.0.0.1:9091`, and needs `secret`: one `sail generate secret` makes, which every call sends as `Authorization: Bearer <secret>`; a call without it gets 401. Any process on the host can reach a loopback port, and a secret sent over a network travels in the clear, so `listen` takes loopback addresses only; reach the API from elsewhere through an SSH tunnel or a reverse proxy. A `secret` set for the socket is checked there too. Errors are JSON, `{"error": {"code": "invalid", "message": "..."}}`; a reload that fails answers so, with why, and the configuration that ran runs on. The Clash API, which dashboards use, is configured in `clash_api` or in sing-box's `experimental.clash_api`, not both.
 
 ## Sail extensions
 

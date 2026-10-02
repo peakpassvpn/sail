@@ -35,7 +35,7 @@ Rust: [`Config`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/mo
 | `route` | object → [object](/sail/reference/route/#route) | each field's default | Supported | — |
 | `services` | array → [[]](#services), [[api]](#services-missing), [[ccm]](#services-missing), [[derp]](#services-missing), [[hysteria-realm]](#services-missing), [[ocm]](#services-missing), [[oom-killer]](#services-missing), [[resolved]](#services-missing), [[ssm-api]](#services-missing), [[usbip-client]](#services-missing), [[usbip-server]](#services-missing) | — | Supported | — |
 | `experimental` | object → [object](#experimental) | each field's default | Supported | — |
-| `api` | object → [object](#api) | each field's default | sail extension | The control API |
+| `api` | object → [object](#api) | unset | sail extension | The control API |
 | `clash_api` | object → [object](#clash-api) | unset | sail extension | The Clash API, which dashboards (yacd, metacubexd) and clients control the instance through. sing-box has it under `experimental`, which is read too, as the same. |
 | `outbound_providers` | array of object → [[]](#outbound-providers) | `[]` | sail extension | A sail extension: outbounds given together, downloaded, read from a file or written in place, that groups take as members, as Mihomo's proxy groups take a proxy-provider's proxies. |
 | `user_limits` | object of object → [object](#user-limits) | `{}` | sail extension | A sail extension: what each user, by name, may do across every inbound it is in. |
@@ -262,7 +262,9 @@ Rust: [`Api`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
-| `listen` | string | unset | sail extension | Where the API listens; it is not served when unset. |
+| `path` | string | unset | sail extension | The unix socket the API is served on, in the data directory unless absolute; `api.sock` there when neither it nor `listen` is set. |
+| `listen` | string | unset | sail extension | A loopback address the API is served on too, as `127.0.0.1:9091`; it takes `secret`. |
+| `secret` | string | unset | sail extension | What every call carries, as `Authorization: Bearer <secret>`: one `sail generate secret` makes. Needed with `listen`; on the unix socket, checked when set. |
 
 <a id="clash-api"></a>
 
