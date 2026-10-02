@@ -181,11 +181,14 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         let tag = ctx.tag.to_owned();
         Box::new(move |snapshot, added| {
             let current = selected.get();
-            let latencies = checker.latencies();
-            let next = latencies
-                .read()
-                .ok()
-                .and_then(|latencies| repick(snapshot, &current, &latencies));
+            let latencies: HashMap<MemberKey, Option<Duration>> =
+                checker.latencies().read(|tested| {
+                    tested
+                        .iter()
+                        .map(|(key, t)| (key.clone(), t.latency))
+                        .collect()
+                });
+            let next = repick(snapshot, &current, &latencies);
             if let Some(next) = next {
                 debug!(
                     "[{}] switches from [{}] to [{}], as its members changed",
@@ -206,7 +209,8 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         selected.clone(),
         SelectedBy::Checks,
         Some(checker.latencies()),
-    );
+    )
+    .with_checks(checker.clone());
     ctx.selectors
         .insert(ctx.tag.to_owned(), Arc::new(RwLock::new(outbound_selector)));
 

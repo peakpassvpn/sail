@@ -547,7 +547,8 @@ pub(crate) async fn follow_status(
     }
 }
 
-/// The outbounds (or the groups only), when they change, looked at each
+/// The outbounds (or the groups only), when they change: at once when a
+/// group's selection or a member's checks do, else as looked at each
 /// `every`, while the instance runs.
 pub(crate) async fn follow_outbounds(
     mut out: impl Emit<json::Outbounds>,
@@ -557,14 +558,25 @@ pub(crate) async fn follow_outbounds(
 ) {
     let mut ticker = ticker(every);
     let mut last: Option<String> = None;
+    let mut changes: Option<sail::control::GroupChanges> = None;
     while out.open() {
-        let Some(manager) = tick(&mut ticker, &instance).await else {
+        if let Some(changes) = changes.take() {
+            tokio::select! {
+                _ = ticker.tick() => {}
+                _ = changes.changed() => {}
+            }
+        } else {
+            ticker.tick().await;
+        }
+        let Some(manager) = instance.upgrade().map(|i| i.manager()) else {
             return;
         };
-        let Some(manager) = manager else {
+        let Ok(manager) = manager else {
             last = None;
             continue;
         };
+        // Before the groups are read: a change after is not missed.
+        changes = Some(manager.group_changes().await);
         let list = if groups {
             manager.groups().await
         } else {

@@ -135,6 +135,39 @@ fn a_connection_that_fails_is_tried_through_the_next_member() {
 }
 
 #[test]
+fn a_member_whose_server_refuses_is_left_at_once() {
+    rt().block_on(async {
+        let (a, p_a) = serve("a", Duration::ZERO).await;
+        let (_b, _, p_b, b_requests) = serve_counted("b", Duration::ZERO).await;
+        // Tested once, at the start, and not again for a long while.
+        let m = manager(
+            fallback(&[("a", p_a), ("b", p_b)], json!({ "interval": "1h" })),
+            &env("fallback-at-once"),
+        )
+        .unwrap();
+        assert!(eventually(Duration::from_secs(5), || tested(&m)).await);
+        assert_eq!(selected(&m, "fb"), "a");
+        let mut changes = m.get_selector("fb").unwrap().read().await.changes();
+
+        a.stop().await;
+        let requests = b_requests.load(Ordering::Relaxed);
+        let sess = session("10.0.0.1", "example.com");
+        // Refused by [a]'s server, the connection goes through [b]; and
+        // [a] is down at once, the group on [b], before any test: [b] was
+        // asked nothing but what the connection asked.
+        assert_eq!(reached(&m, "fb", &sess).await.unwrap(), "b");
+        assert_eq!(selected(&m, "fb"), "b");
+        assert_eq!(latencies(&m, "fb")[0].1, None);
+        assert_eq!(b_requests.load(Ordering::Relaxed), requests + 1);
+        // Those who watch the group heard of it.
+        let heard = tokio::time::timeout(Duration::from_millis(10), changes.changed()).await;
+        assert!(heard.is_ok());
+        // The next connection goes to [b] first.
+        assert_eq!(reached(&m, "fb", &sess).await.unwrap(), "b");
+    });
+}
+
+#[test]
 fn a_connection_is_tried_through_a_few_members_at_most() {
     rt().block_on(async {
         let (a, p_a) = serve("a", Duration::ZERO).await;

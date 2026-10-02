@@ -5,10 +5,15 @@
 //!
 //! A connection that fails through the member selected is tried again
 //! through the next members that are up, in order, a few times at most,
-//! before it fails: a member can die between two tests.
+//! before it fails: a member can die between two tests. A failure that
+//! says the member itself cannot be reached marks it down at once, see
+//! `member_unreachable`, so that the next connection goes to the next
+//! member without waiting for the tests, which run again to bring it
+//! back up.
 
 use std::future::Future;
 use std::io;
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -16,7 +21,7 @@ use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use serde_derive::Deserialize;
 use tokio::sync::{watch, RwLock};
-use tracing::debug;
+use tracing::{debug, info};
 
 use super::health::{self, Checker};
 use super::members::{MemberKey, Members, Snapshot};
@@ -88,6 +93,108 @@ pub(crate) fn choose(latencies: &[Option<Duration>]) -> Option<usize> {
     latencies.iter().position(Option::is_some)
 }
 
+/// How far an attempt through a member got when it failed, which tells
+/// what the failure says of the member.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub(crate) enum Stage {
+    /// Dialling something else than the member's own server: the
+    /// destination (a direct member), or nothing (a member that dials by
+    /// itself, a group, a QUIC protocol), whose failures cannot be told
+    /// from the destination's.
+    Elsewhere = 0,
+    /// Dialling the member's server.
+    DialingServer = 1,
+    /// Its server dialled, the member's handshake over it.
+    Handshake = 2,
+}
+
+/// The stage an attempt is at, as it moves on.
+#[derive(Default)]
+struct Progress(AtomicU8);
+
+impl Progress {
+    fn set(&self, stage: Stage) {
+        self.0.store(stage as u8, Ordering::Relaxed);
+    }
+
+    fn get(&self) -> Stage {
+        match self.0.load(Ordering::Relaxed) {
+            1 => Stage::DialingServer,
+            2 => Stage::Handshake,
+            _ => Stage::Elsewhere,
+        }
+    }
+
+    /// Before the member dials `connect`.
+    fn dialing(&self, connect: &OutboundConnect) {
+        self.set(match connect {
+            OutboundConnect::Proxy(..) => Stage::DialingServer,
+            _ => Stage::Elsewhere,
+        });
+    }
+
+    /// The dial done, before the member's handshake.
+    fn dialled(&self) {
+        if self.get() == Stage::DialingServer {
+            self.set(Stage::Handshake);
+        }
+    }
+}
+
+/// Whether a connection through a member that failed at `stage` with
+/// `kind` says the member itself cannot be reached, which marks it down
+/// at once rather than at the next round of tests.
+///
+/// Conservatively: only what can only be the member's server's doing.
+/// Its server refusing the dial, not answering it in time, or being out
+/// of reach; then, the dial done, the server ending or garbling the
+/// handshake (a TLS failure is `InvalidData`). Not what the destination
+/// causes through a working server: a refusal the protocol reports (a
+/// SOCKS reply, an HTTP proxy's status, a mux stream refused) comes as
+/// another kind, `Other` or `ConnectionRefused` after the dial, and a
+/// handshake that times out may be waiting on the destination, as SOCKS
+/// waits for its connect. Nor anything a member that dials by itself or
+/// dials the destination meets, which cannot be told apart. Those only
+/// ask for the tests to run again.
+pub(crate) fn member_unreachable(stage: Stage, kind: io::ErrorKind) -> bool {
+    use io::ErrorKind::*;
+    match stage {
+        Stage::DialingServer => matches!(
+            kind,
+            ConnectionRefused
+                | TimedOut
+                | HostUnreachable
+                | NetworkUnreachable
+                | ConnectionReset
+                | ConnectionAborted
+        ),
+        Stage::Handshake => matches!(kind, InvalidData | UnexpectedEof | ConnectionReset),
+        Stage::Elsewhere => false,
+    }
+}
+
+/// Moves the group to the first member up, in the order configured,
+/// members not tested yet taken to be up, unless it is there already or
+/// none is; logs why.
+fn reselect(tag: &str, selected: &Selection, checker: &Checker, snapshot: &Snapshot, why: &str) {
+    let current = selected.get();
+    let Some(next) = snapshot
+        .members
+        .iter()
+        .find(|m| !m.handler.is_pass() && checker.is_up(&m.key))
+    else {
+        return;
+    };
+    if next.key != *current {
+        info!(
+            "[{}] switches from [{}] to [{}]: {}",
+            tag, current.name, next.key.name, why
+        );
+        selected.set(next.key.clone());
+    }
+}
+
 /// The members a connection is tried through, in turn: the one selected,
 /// then the others that are up in the order configured, or, when none is,
 /// all of them, since a test can be wrong and trying beats refusing.
@@ -136,9 +243,16 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
             if let Some(next) = choose(latencies) {
                 let next = &snapshot.members[next].key;
                 if *next != *current {
-                    debug!(
-                        "[{}] switches from [{}] to [{}]",
-                        tag, current.name, next.name
+                    let failed = snapshot
+                        .position(&current)
+                        .is_some_and(|i| latencies[i].is_none());
+                    let why = match failed {
+                        true => format!("[{}] failed its test", current.name),
+                        false => format!("[{}] passed its test and comes first", next.name),
+                    };
+                    info!(
+                        "[{}] switches from [{}] to [{}]: {}",
+                        tag, current.name, next.name, why
                     );
                     selected.set(next.clone());
                 }
@@ -164,20 +278,7 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         Box::new(move |snapshot, added| {
             // The first member up in the new order, new ones untested and
             // so taken to be up.
-            let current = selected.get();
-            if let Some(next) = snapshot
-                .members
-                .iter()
-                .find(|m| !m.handler.is_pass() && checker.is_up(&m.key))
-            {
-                if next.key != *current {
-                    debug!(
-                        "[{}] switches from [{}] to [{}], as its members changed",
-                        tag, current.name, next.key.name
-                    );
-                    selected.set(next.key.clone());
-                }
-            }
+            reselect(&tag, &selected, &checker, snapshot, "its members changed");
             if added {
                 checker.retest();
             }
@@ -190,7 +291,8 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         selected.clone(),
         SelectedBy::Checks,
         Some(checker.latencies()),
-    );
+    )
+    .with_checks(checker.clone());
     ctx.selectors
         .insert(ctx.tag.to_owned(), Arc::new(RwLock::new(outbound_selector)));
 
@@ -226,7 +328,7 @@ impl Group {
     /// Connects through the members of `snapshot` in turn, see
     /// `candidates`, until one connects; returns which, and what it
     /// connected. Every member but the last one tried has `timeout` to
-    /// connect.
+    /// connect. `connect` tells how far it got, see `Progress`.
     async fn connect<'a, T, F, Fut>(
         &'a self,
         sess: &'a Session,
@@ -234,7 +336,7 @@ impl Group {
         connect: F,
     ) -> io::Result<(&'a MemberKey, T)>
     where
-        F: Fn(&'a AnyOutboundHandler) -> Fut,
+        F: Fn(&'a AnyOutboundHandler, Arc<Progress>) -> Fut,
         Fut: Future<Output = io::Result<T>>,
     {
         self.checker.used();
@@ -255,12 +357,13 @@ impl Group {
                 sess.destination,
                 a.tag()
             );
+            let progress = Arc::new(Progress::default());
             let result = if n + 1 < order.len() {
-                tokio::time::timeout(self.timeout, connect(a))
+                tokio::time::timeout(self.timeout, connect(a, progress.clone()))
                     .await
                     .unwrap_or_else(|_| Err(io::Error::new(io::ErrorKind::TimedOut, "timed out")))
             } else {
-                connect(a).await
+                connect(a, progress.clone()).await
             };
             match result {
                 Ok(v) => return Ok((&snapshot.members[i].key, v)),
@@ -274,8 +377,17 @@ impl Group {
                         e
                     );
                     // A member failed between tests: test again rather
-                    // than wait out the interval.
-                    self.checker.retest();
+                    // than wait out the interval; and if it cannot be
+                    // reached, the next connection goes elsewhere now.
+                    let key = &snapshot.members[i].key;
+                    if member_unreachable(progress.get(), e.kind()) {
+                        if self.checker.mark_down(key) {
+                            let why = format!("a connection through [{}] failed: {}", key.name, e);
+                            reselect(&self.tag, &self.selected, &self.checker, snapshot, &why);
+                        }
+                    } else {
+                        self.checker.retest();
+                    }
                     last_error = Some(e);
                 }
             }
@@ -315,8 +427,10 @@ impl OutboundStreamHandler for Group {
     ) -> io::Result<AnyStream> {
         let snapshot = self.members.load();
         let (member, stream) = self
-            .connect(sess, &snapshot, |a| async move {
+            .connect(sess, &snapshot, |a, progress| async move {
+                progress.dialing(&a.stream()?.connect_addr());
                 let stream = connect_stream_outbound(sess, self.dns_client.clone(), a).await?;
+                progress.dialled();
                 let stream = a.stream()?.handle(sess, None, stream).await?;
                 Ok(stream)
             })
@@ -346,8 +460,10 @@ impl OutboundDatagramHandler for Group {
     ) -> io::Result<AnyOutboundDatagram> {
         let snapshot = self.members.load();
         let (member, datagram) = self
-            .connect(sess, &snapshot, |a| async move {
+            .connect(sess, &snapshot, |a, progress| async move {
+                progress.dialing(&a.datagram()?.connect_addr());
                 let transport = connect_datagram_outbound(sess, self.dns_client.clone(), a).await?;
+                progress.dialled();
                 let datagram = a.datagram()?.handle(sess, transport).await?;
                 Ok(datagram)
             })
@@ -385,8 +501,32 @@ mod tests {
         assert_eq!(candidates(1, 4, |i| i != 0), [1, 2, 3]);
         assert_eq!(candidates(1, 4, |i| i == 1 || i == 3), [1, 3]);
         // The selected member is tried first even if a test since failed
-        // it: the selection moves only on a round of tests.
+        // it: the selection moves after the round, or a failure.
         assert_eq!(candidates(0, 3, |i| i == 2), [0, 2]);
+    }
+
+    #[test]
+    fn only_failures_of_the_members_server_mark_it_down() {
+        use io::ErrorKind::*;
+        for kind in [
+            ConnectionRefused,
+            TimedOut,
+            HostUnreachable,
+            ConnectionReset,
+        ] {
+            assert!(member_unreachable(Stage::DialingServer, kind), "{:?}", kind);
+        }
+        assert!(member_unreachable(Stage::Handshake, InvalidData));
+        assert!(member_unreachable(Stage::Handshake, UnexpectedEof));
+        // A refusal the protocol reports, a handshake waiting on the
+        // destination, a DNS failure: not the server's.
+        assert!(!member_unreachable(Stage::Handshake, Other));
+        assert!(!member_unreachable(Stage::Handshake, ConnectionRefused));
+        assert!(!member_unreachable(Stage::Handshake, TimedOut));
+        assert!(!member_unreachable(Stage::DialingServer, Other));
+        // The destination's, or what cannot be told from it.
+        assert!(!member_unreachable(Stage::Elsewhere, ConnectionRefused));
+        assert!(!member_unreachable(Stage::Elsewhere, TimedOut));
     }
 
     #[test]

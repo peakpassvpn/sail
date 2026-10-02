@@ -89,7 +89,7 @@ use tracing::debug;
 use self::score::MemberStats;
 use self::site::{Rank, Site, Tolerance};
 use super::interrupt::Until;
-use super::members::{MemberKey, MemberLatencies, Members, Snapshot};
+use super::members::{MemberKey, MemberLatencies, Members, Snapshot, Tested};
 use super::merge;
 use crate::adapter::outbound::HandlerBuilder;
 use crate::adapter::registry::{
@@ -654,9 +654,23 @@ impl Group {
                 self.selected.set(key);
             }
         }
-        if let Ok(mut l) = self.latencies.write() {
-            *l = latencies;
-        }
+        // A latency is as old as its last change: one that did not change
+        // keeps its time, so the history shown does not move.
+        let at = std::time::SystemTime::now();
+        self.latencies.update(|tested| {
+            let before = std::mem::take(tested);
+            *tested = latencies
+                .into_iter()
+                .map(|(key, latency)| {
+                    let t = match before.get(&key) {
+                        Some(t) if t.latency == latency => *t,
+                        _ => Tested { latency, at },
+                    };
+                    (key, t)
+                })
+                .collect();
+            *tested != before
+        });
     }
 
     /// The members changed: those gone are forgotten, and new ones probed

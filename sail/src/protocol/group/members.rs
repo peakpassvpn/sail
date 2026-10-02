@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use arc_swap::ArcSwap;
 use tokio::sync::watch;
@@ -69,9 +69,70 @@ impl Snapshot {
     }
 }
 
-/// The latency of each member, as the last check measured it; `None`
-/// for a member that failed it. A member missing was not checked yet.
-pub type MemberLatencies = Arc<RwLock<HashMap<MemberKey, Option<Duration>>>>;
+/// A member's last check: its latency, `None` when it failed, and when
+/// it ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Tested {
+    pub latency: Option<Duration>,
+    pub at: SystemTime,
+}
+
+/// The members' last checks, by member, as a group measures them; a
+/// member missing was not checked yet. Those who show them watch it
+/// change, see `subscribe`.
+pub struct Health {
+    tested: RwLock<HashMap<MemberKey, Tested>>,
+    /// Counts the changes.
+    changed: watch::Sender<u64>,
+}
+
+impl Default for Health {
+    fn default() -> Self {
+        Self {
+            tested: Default::default(),
+            changed: watch::Sender::new(0),
+        }
+    }
+}
+
+impl Health {
+    /// Reads the checks.
+    pub fn read<R>(&self, f: impl FnOnce(&HashMap<MemberKey, Tested>) -> R) -> R {
+        f(&self.tested.read().unwrap_or_else(|e| e.into_inner()))
+    }
+
+    /// `member`'s last check, if it was checked.
+    pub fn get(&self, member: &MemberKey) -> Option<Tested> {
+        self.read(|tested| tested.get(member).copied())
+    }
+
+    /// Changes the checks with `f`, which says whether it changed them;
+    /// those who watch hear of it if it did.
+    pub fn update(&self, f: impl FnOnce(&mut HashMap<MemberKey, Tested>) -> bool) -> bool {
+        let changed = f(&mut self.tested.write().unwrap_or_else(|e| e.into_inner()));
+        if changed {
+            self.changed.send_modify(|n| *n = n.wrapping_add(1));
+        }
+        changed
+    }
+
+    /// Replaces the checks with `tested`.
+    pub fn replace(&self, tested: HashMap<MemberKey, Tested>) {
+        self.update(|current| {
+            let changed = *current != tested;
+            *current = tested;
+            changed
+        });
+    }
+
+    /// Each change of the checks.
+    pub fn subscribe(&self) -> watch::Receiver<u64> {
+        self.changed.subscribe()
+    }
+}
+
+/// A group's `Health`, shared by the group and its selector.
+pub type MemberLatencies = Arc<Health>;
 
 /// The members of a group, which may change while it runs: its handlers
 /// take the current snapshot per connection.

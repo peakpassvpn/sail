@@ -429,9 +429,9 @@ async fn the_member_shown_is_the_one_used_most() {
     f.known("a", 10);
     f.group.report_now(now);
     assert_eq!(f.group.selected.get().name.as_ref(), "b");
-    let latencies = f.group.latencies.read().unwrap().clone();
+    let latencies = f.group.latencies.read(|l| l.clone());
     assert_eq!(
-        latencies[&MemberKey::outbound("a")],
+        latencies[&MemberKey::outbound("a")].latency,
         Some(Duration::from_millis(10))
     );
     assert!(!latencies.contains_key(&MemberKey::outbound("c")));

@@ -148,16 +148,16 @@ const HISTORY: usize = 10;
 pub(crate) struct Delays(Mutex<HashMap<String, VecDeque<Delay>>>);
 
 impl Delays {
-    fn record(&self, tag: &str, delay: Option<Duration>) {
+    /// Keeps `delay` as measured now, which it returns.
+    fn record(&self, tag: &str, delay: Option<Duration>) -> SystemTime {
+        let time = SystemTime::now();
         let mut all = self.0.lock().unwrap_or_else(|e| e.into_inner());
         let entries = all.entry(tag.to_string()).or_default();
-        entries.push_back(Delay {
-            time: SystemTime::now(),
-            delay,
-        });
+        entries.push_back(Delay { time, delay });
         while entries.len() > HISTORY {
             entries.pop_front();
         }
+        time
     }
 
     fn of(&self, tag: &str) -> Vec<Delay> {
@@ -428,6 +428,40 @@ pub fn features() -> Vec<&'static str> {
 /// How many members of a group are measured at a time: Mihomo's.
 const MEMBER_TESTS: usize = 10;
 
+/// A member's last check by a group that checks its members.
+#[cfg(feature = "outbound-select")]
+type Tested = crate::protocol::group::members::Tested;
+#[cfg(not(feature = "outbound-select"))]
+#[derive(Clone, Copy)]
+#[allow(dead_code)]
+struct Tested {
+    latency: Option<Duration>,
+    at: SystemTime,
+}
+
+/// The groups' changes from when it was made: of a selection, or of a
+/// member's checks. See `RuntimeManager::group_changes`.
+pub struct GroupChanges(
+    #[cfg(feature = "outbound-select")] Vec<crate::app::outbound::selector::GroupChanges>,
+);
+
+impl GroupChanges {
+    /// Returns at the first change, or once a group is gone, as a reload
+    /// replaces them; never when there is no group.
+    pub async fn changed(self) {
+        #[cfg(feature = "outbound-select")]
+        {
+            let mut changes = self.0;
+            if !changes.is_empty() {
+                let changed = changes.iter_mut().map(|c| Box::pin(c.changed()));
+                futures::future::select_all(changed).await;
+                return;
+            }
+        }
+        std::future::pending::<()>().await
+    }
+}
+
 impl RuntimeManager {
     /// What the instance sent and received.
     pub async fn traffic(&self) -> Traffic {
@@ -617,7 +651,10 @@ impl RuntimeManager {
     }
 
     /// Measures each member of the group `group`, ten at a time, as
-    /// Mihomo does; each kept among its delays.
+    /// Mihomo does; each kept among its delays. A group that checks its
+    /// members runs its own check instead, as sing-box's API has its
+    /// urltest do: with its own URL and its own timeout for each, within
+    /// `timeout` in all; the group chooses from it as from any other.
     pub async fn url_test_members(
         &self,
         group: &str,
@@ -625,6 +662,21 @@ impl RuntimeManager {
         timeout: Duration,
     ) -> Result<Vec<(String, Result<Duration, ControlError>)>, ControlError> {
         use futures::StreamExt;
+        #[cfg(feature = "outbound-select")]
+        if let Some(checks) = self.group_checks(group).await {
+            let checked = tokio::time::timeout(timeout, checks.check())
+                .await
+                .map_err(|_| ControlError::Timeout)?;
+            return Ok(checked
+                .into_iter()
+                .map(|(member, latency)| {
+                    let latency = latency
+                        .map(|l| l.max(Duration::from_millis(1)))
+                        .ok_or_else(|| ControlError::Failed("the group's test failed".into()));
+                    (member.name.to_string(), latency)
+                })
+                .collect());
+        }
         let members = self
             .outbound(group)
             .await
@@ -775,16 +827,21 @@ impl RuntimeManager {
         kind: &'static str,
         protocol: Option<String>,
         provider: Option<String>,
-        latencies: &HashMap<String, Duration>,
+        latencies: &HashMap<String, Tested>,
     ) -> OutboundInfo {
         let mut history = self.delays.of(tag);
-        // A group's own checks, where nothing was measured here.
-        if history.is_empty() {
-            if let Some(latency) = latencies.get(tag) {
+        // A group's own last check, failed or not, at the time it ended,
+        // where nothing was measured here since: the state the group
+        // goes by, as Mihomo shows it.
+        if let Some(tested) = latencies.get(tag) {
+            if history.last().is_none_or(|d| d.time < tested.at) {
                 history.push(Delay {
-                    time: SystemTime::now(),
-                    delay: Some(*latency),
+                    time: tested.at,
+                    delay: tested.latency,
                 });
+                if history.len() > HISTORY {
+                    history.remove(0);
+                }
             }
         }
         #[cfg_attr(not(feature = "outbound-select"), allow(unused_mut))]
@@ -813,25 +870,77 @@ impl RuntimeManager {
         }
     }
 
-    /// The latest latencies the groups measured of their members.
-    async fn latencies(&self) -> HashMap<String, Duration> {
+    /// The last check the groups made of each of their members, failed
+    /// or not; the latest, of a member of several.
+    async fn latencies(&self) -> HashMap<String, Tested> {
         #[cfg_attr(not(feature = "outbound-select"), allow(unused_mut))]
-        let mut out = HashMap::new();
+        let mut out: HashMap<String, Tested> = HashMap::new();
         #[cfg(feature = "outbound-select")]
         {
             let om = self.outbound_manager.load_full();
             for handler in om.handlers() {
                 if let Some(selector) = om.get_selector(handler.tag()) {
-                    for (tag, latency) in selector.read().await.get_latencies().unwrap_or_default()
-                    {
-                        if let Some(latency) = latency {
-                            out.insert(tag, latency);
+                    let tested = selector.read().await.get_tested().unwrap_or_default();
+                    for (tag, tested) in tested {
+                        let Some(tested) = tested else { continue };
+                        if out.get(&tag).is_none_or(|t| t.at < tested.at) {
+                            out.insert(tag, tested);
                         }
                     }
                 }
             }
         }
         out
+    }
+
+    /// The changes of the groups from now on: of the member one selects,
+    /// or of a member's checks. Made before the groups are read, it
+    /// misses none after.
+    pub async fn group_changes(&self) -> GroupChanges {
+        #[cfg(feature = "outbound-select")]
+        {
+            let om = self.outbound_manager.load_full();
+            let mut changes = Vec::new();
+            for handler in om.handlers() {
+                if let Some(selector) = om.get_selector(handler.tag()) {
+                    changes.push(selector.read().await.changes());
+                }
+            }
+            GroupChanges(changes)
+        }
+        #[cfg(not(feature = "outbound-select"))]
+        GroupChanges()
+    }
+
+    /// The checks of the group `group`, if it checks its members.
+    #[cfg(feature = "outbound-select")]
+    async fn group_checks(
+        &self,
+        group: &str,
+    ) -> Option<std::sync::Arc<dyn crate::app::outbound::selector::GroupChecks>> {
+        let selector = self.outbound_manager.load().get_selector(group)?;
+        let checks = selector.read().await.checks();
+        checks
+    }
+
+    /// Gives a delay of `tag` measured here at `at` to the groups that
+    /// check it among their members, as sing-box's API has its urltest
+    /// groups check again after one.
+    #[cfg_attr(not(feature = "outbound-select"), allow(unused_variables))]
+    async fn feed_groups(&self, tag: &str, delay: Option<Duration>, at: SystemTime) {
+        #[cfg(feature = "outbound-select")]
+        {
+            let om = self.outbound_manager.load_full();
+            for handler in om.handlers() {
+                if let Some(selector) = om.get_selector(handler.tag()) {
+                    let selector = selector.read().await;
+                    if let (Some(checks), Some(member)) = (selector.checks(), selector.member(tag))
+                    {
+                        checks.record(&member, delay, at);
+                    }
+                }
+            }
+        }
     }
 
     /// Measures the delay of `handler`, keeping it as `tag`'s.
@@ -850,7 +959,9 @@ impl RuntimeManager {
             Ok(Err(e)) => Err(ControlError::Failed(e.to_string())),
             Err(_) => Err(ControlError::Timeout),
         };
-        self.delays.record(tag, measured.as_ref().ok().copied());
+        let delay = measured.as_ref().ok().copied();
+        let at = self.delays.record(tag, delay);
+        self.feed_groups(tag, delay, at).await;
         measured
     }
 }

@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use futures::future::{abortable, AbortHandle, BoxFuture};
 use futures::FutureExt;
@@ -14,7 +14,7 @@ use tokio::sync::Notify;
 use tokio::time::Instant;
 use tracing::debug;
 
-use super::members::{MemberKey, MemberLatencies, Members, Snapshot};
+use super::members::{MemberKey, MemberLatencies, Members, Snapshot, Tested};
 use crate::app::healthcheck::HttpProbe;
 use crate::app::SyncDnsClient;
 use crate::net::network::Network;
@@ -49,6 +49,9 @@ pub struct Checker {
     idle: Option<Duration>,
     /// A member is taken to be up until it is tested.
     latencies: MemberLatencies,
+    /// Held through a round: one asked for through the API waits for the
+    /// one under way, rather than running beside it.
+    round: tokio::sync::Mutex<()>,
     last_used: Mutex<Instant>,
     wake: Notify,
     /// Whether the next round runs even though the group is idle: the
@@ -83,6 +86,7 @@ impl Checker {
             timeout,
             idle,
             latencies: Default::default(),
+            round: Default::default(),
             last_used: Mutex::new(Instant::now()),
             wake: Notify::new(),
             forced: AtomicBool::new(false),
@@ -122,10 +126,65 @@ impl Checker {
     /// the tests only.
     #[cfg(any(feature = "outbound-load-balance", feature = "outbound-fallback"))]
     pub fn is_up(&self, member: &MemberKey) -> bool {
-        self.latencies
-            .read()
-            .map(|l| is_up(&l, member))
-            .unwrap_or(true)
+        self.latencies.read(|l| is_up(l, member))
+    }
+
+    /// A connection through `member` failed in a way that says the member
+    /// itself cannot be reached: it is down from now until a round of
+    /// tests that begins after this passes it, which is asked for. True
+    /// if it was up.
+    #[cfg(feature = "outbound-fallback")]
+    pub fn mark_down(&self, member: &MemberKey) -> bool {
+        let at = SystemTime::now();
+        let was_up = self.latencies.update(|tested| {
+            if tested.get(member).is_some_and(|t| t.latency.is_none()) {
+                return false;
+            }
+            tested.insert(member.clone(), Tested { latency: None, at });
+            true
+        });
+        if was_up {
+            debug!(
+                "[{}] [{}] is down until tested again",
+                self.tag, member.name
+            );
+        }
+        self.retest();
+        was_up
+    }
+
+    /// A test of `member` made elsewhere, through the API, ended at `at`:
+    /// it counts as the member's last check, and, once every member was
+    /// checked, the group chooses again, as after a round.
+    #[cfg(any(feature = "outbound-urltest", feature = "outbound-fallback"))]
+    pub fn record(&self, member: &MemberKey, latency: Option<Duration>, at: SystemTime) {
+        let snapshot = self.members.load();
+        if snapshot.position(member).is_none() {
+            return;
+        }
+        self.latencies.update(|tested| {
+            let new = Tested { latency, at };
+            tested.insert(member.clone(), new) != Some(new)
+        });
+        let latencies: Option<Vec<Option<Duration>>> = self.latencies.read(|tested| {
+            snapshot
+                .members
+                .iter()
+                .map(|m| tested.get(&m.key).map(|t| t.latency))
+                .collect()
+        });
+        if let Some(latencies) = latencies {
+            (self.on_tested)(&snapshot, &latencies);
+        }
+    }
+
+    /// Tests every member now, after the round under way if there is one,
+    /// and returns the members tested with their latencies, as the round
+    /// leaves them.
+    #[cfg(any(feature = "outbound-urltest", feature = "outbound-fallback"))]
+    pub async fn check(&self) -> (Arc<Snapshot>, Vec<Option<Duration>>) {
+        self.start();
+        self.test_all().await
     }
 
     /// Notes that the group is being used, which resumes paused tests.
@@ -176,7 +235,9 @@ impl Checker {
             .unwrap_or(false)
     }
 
-    async fn test_all(&self) {
+    async fn test_all(&self) -> (Arc<Snapshot>, Vec<Option<Duration>>) {
+        let _round = self.round.lock().await;
+        let started = SystemTime::now();
         let snapshot = self.members.load();
         let tests = snapshot
             .members
@@ -206,6 +267,22 @@ impl Checker {
                 }
             });
         let latencies = futures::future::join_all(tests).await;
+        // The round's time is when it ended, as Mihomo's and sing-box's
+        // histories have it, the same for every member.
+        let at = SystemTime::now();
+        // A member a connection found down since the round began stays
+        // down: its test may have passed before.
+        let latencies: Vec<Option<Duration>> = self.latencies.read(|tested| {
+            snapshot
+                .members
+                .iter()
+                .zip(latencies)
+                .map(|(m, l)| match tested.get(&m.key) {
+                    Some(t) if t.latency.is_none() && t.at >= started => None,
+                    _ => l,
+                })
+                .collect()
+        });
         debug!(
             "[{}] tested: {}",
             self.tag,
@@ -220,30 +297,49 @@ impl Checker {
                 .collect::<Vec<_>>()
                 .join(" ")
         );
-        if let Ok(mut current) = self.latencies.write() {
-            *current = measured(&snapshot, &latencies);
-        }
+        self.latencies.replace(measured(&snapshot, &latencies, at));
         (self.on_tested)(&snapshot, &latencies);
+        (snapshot, latencies)
     }
 }
 
-/// The latencies of a round of tests of `snapshot`, by member: those of
-/// members since gone are dropped.
+/// What the API runs and feeds: the group's own checks.
+#[cfg(any(feature = "outbound-urltest", feature = "outbound-fallback"))]
+#[async_trait::async_trait]
+impl crate::app::outbound::selector::GroupChecks for Checker {
+    async fn check(&self) -> Vec<(MemberKey, Option<Duration>)> {
+        let (snapshot, latencies) = Checker::check(self).await;
+        snapshot
+            .members
+            .iter()
+            .map(|m| m.key.clone())
+            .zip(latencies)
+            .collect()
+    }
+
+    fn record(&self, member: &MemberKey, latency: Option<Duration>, at: SystemTime) {
+        Checker::record(self, member, latency, at)
+    }
+}
+
+/// The latencies of a round of tests of `snapshot`, ended at `at`, by
+/// member: those of members since gone are dropped.
 fn measured(
     snapshot: &Snapshot,
     latencies: &[Option<Duration>],
-) -> HashMap<MemberKey, Option<Duration>> {
+    at: SystemTime,
+) -> HashMap<MemberKey, Tested> {
     snapshot
         .members
         .iter()
         .zip(latencies)
-        .map(|(m, l)| (m.key.clone(), *l))
+        .map(|(m, l)| (m.key.clone(), Tested { latency: *l, at }))
         .collect()
 }
 
 #[cfg(any(feature = "outbound-load-balance", feature = "outbound-fallback"))]
-fn is_up(latencies: &HashMap<MemberKey, Option<Duration>>, member: &MemberKey) -> bool {
-    latencies.get(member).is_none_or(Option::is_some)
+fn is_up(tested: &HashMap<MemberKey, Tested>, member: &MemberKey) -> bool {
+    tested.get(member).is_none_or(|t| t.latency.is_some())
 }
 
 async fn test_loop(checker: Weak<Checker>) {
@@ -285,23 +381,29 @@ mod tests {
     fn a_round_keeps_the_members_tested_and_only_them() {
         let ms = |v| Some(Duration::from_millis(v));
         let members = outbounds(&["a", "b", "c"]);
-        let before = measured(&members.load(), &[ms(10), None, ms(30)]);
+        let at = SystemTime::now();
+        let before = measured(&members.load(), &[ms(10), None, ms(30)], at);
         assert_eq!(before.len(), 3);
 
         members.publish(vec![member(None, "c"), member(Some("p"), "d")]);
         let snapshot = members.load();
-        let after = measured(&snapshot, &[None, ms(40)]);
+        let after = measured(&snapshot, &[None, ms(40)], at);
         assert_eq!(after.len(), 2);
         assert!(!after.contains_key(&MemberKey::outbound("a")));
-        assert_eq!(after[&snapshot.members[0].key], None);
-        assert_eq!(after[&snapshot.members[1].key], ms(40));
+        assert_eq!(after[&snapshot.members[0].key].latency, None);
+        assert_eq!(after[&snapshot.members[1].key].latency, ms(40));
+        assert_eq!(after[&snapshot.members[1].key].at, at);
     }
 
     #[cfg(any(feature = "outbound-load-balance", feature = "outbound-fallback"))]
     #[test]
     fn a_member_is_up_until_it_fails_a_test() {
         let members = outbounds(&["a", "b"]);
-        let latencies = measured(&members.load(), &[Some(Duration::from_millis(10)), None]);
+        let latencies = measured(
+            &members.load(),
+            &[Some(Duration::from_millis(10)), None],
+            SystemTime::now(),
+        );
         assert!(is_up(&latencies, &MemberKey::outbound("a")));
         assert!(!is_up(&latencies, &MemberKey::outbound("b")));
         // One new since the round is not tested yet.

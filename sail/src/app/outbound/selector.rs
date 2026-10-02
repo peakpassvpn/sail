@@ -1,6 +1,6 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use arc_swap::{ArcSwap, Guard};
 use tokio::sync::watch;
@@ -8,7 +8,9 @@ use tracing::warn;
 
 use anyhow::{anyhow, Result};
 
-use crate::protocol::group::members::{Member, MemberKey, MemberLatencies, Members, Snapshot};
+use crate::protocol::group::members::{
+    Member, MemberKey, MemberLatencies, Members, Snapshot, Tested,
+};
 use crate::runtime::cache_file::CacheFile;
 
 /// Which member a group sends its connections to, shared by the group's
@@ -127,6 +129,45 @@ pub enum SelectedBy {
     State(Box<dyn Fn() -> String + Send + Sync>),
 }
 
+/// The checks of a group that tests its members, which the API runs and
+/// feeds, as sing-box's API has its urltest groups check.
+#[async_trait::async_trait]
+pub trait GroupChecks: Send + Sync {
+    /// Tests every member now, as the group does, and returns their
+    /// latencies, `None` for those that failed.
+    async fn check(&self) -> Vec<(MemberKey, Option<Duration>)>;
+
+    /// A test of `member` made through the API, ended at `at`, counts as
+    /// its last check.
+    fn record(&self, member: &MemberKey, latency: Option<Duration>, at: SystemTime);
+}
+
+/// What changes as a group's state shown does: the member it selects,
+/// and its members' checks. A change is a reason to look again.
+pub struct GroupChanges {
+    selection: watch::Receiver<MemberKey>,
+    health: Option<watch::Receiver<u64>>,
+}
+
+impl GroupChanges {
+    /// Returns at the next change after this was made; at once once the
+    /// group is gone.
+    pub async fn changed(&mut self) {
+        let health = async {
+            match &mut self.health {
+                Some(health) => {
+                    let _ = health.changed().await;
+                }
+                None => std::future::pending().await,
+            }
+        };
+        tokio::select! {
+            _ = self.selection.changed() => {}
+            _ = health => {}
+        }
+    }
+}
+
 /// The state of a group that sends its connections to one member at a
 /// time, `selector` or `urltest`: its members, the one selected, and
 /// their latencies where the group measures them.
@@ -136,6 +177,7 @@ pub struct OutboundSelector {
     selected: Arc<Selection>,
     selected_by: SelectedBy,
     latencies: Option<MemberLatencies>,
+    checks: Option<Arc<dyn GroupChecks>>,
 }
 
 impl OutboundSelector {
@@ -152,7 +194,32 @@ impl OutboundSelector {
             selected,
             selected_by,
             latencies,
+            checks: None,
         }
+    }
+
+    /// With the group's own checks, for the API to run and feed.
+    pub fn with_checks(mut self, checks: Arc<dyn GroupChecks>) -> Self {
+        self.checks = Some(checks);
+        self
+    }
+
+    /// The group's own checks, for a group that tests its members.
+    pub fn checks(&self) -> Option<Arc<dyn GroupChecks>> {
+        self.checks.clone()
+    }
+
+    /// The changes of what the group shows from now on.
+    pub fn changes(&self) -> GroupChanges {
+        GroupChanges {
+            selection: self.selected.subscribe(),
+            health: self.latencies.as_ref().map(|l| l.subscribe()),
+        }
+    }
+
+    /// The member of the group named `name`, as the group knows it.
+    pub fn member(&self, name: &str) -> Option<MemberKey> {
+        self.members.load().find(name).map(|m| m.key.clone())
     }
 
     pub fn get_available_tags(&self) -> Vec<String> {
@@ -191,19 +258,26 @@ impl OutboundSelector {
 
     /// Each member with its latency, for a group that measures them.
     pub fn get_latencies(&self) -> Option<Vec<(String, Option<Duration>)>> {
-        let latencies = self.latencies.as_ref()?;
-        let latencies = latencies.read().ok()?;
-        let snapshot = self.members.load();
         Some(
+            self.get_tested()?
+                .into_iter()
+                .map(|(name, tested)| (name, tested.and_then(|t| t.latency)))
+                .collect(),
+        )
+    }
+
+    /// Each member with its last check, failed or not, for a group that
+    /// checks them; `None` for one not checked yet.
+    pub fn get_tested(&self) -> Option<Vec<(String, Option<Tested>)>> {
+        let latencies = self.latencies.as_ref()?;
+        let snapshot = self.members.load();
+        Some(latencies.read(|tested| {
             snapshot
                 .members
                 .iter()
-                .map(|m| {
-                    let latency = latencies.get(&m.key).copied().flatten();
-                    (m.key.name.to_string(), latency)
-                })
-                .collect(),
-        )
+                .map(|m| (m.key.name.to_string(), tested.get(&m.key).copied()))
+                .collect()
+        }))
     }
 
     /// Takes over what `previous`, the selector this one replaces, has
@@ -303,10 +377,16 @@ mod tests {
         let members = outbounds(&["a", "b"]);
         let selection = Arc::new(Selection::new("a", key("a")));
         let latencies = MemberLatencies::default();
-        latencies
-            .write()
-            .unwrap()
-            .insert(key("b"), Some(Duration::from_millis(20)));
+        latencies.update(|tested| {
+            tested.insert(
+                key("b"),
+                Tested {
+                    latency: Some(Duration::from_millis(20)),
+                    at: SystemTime::now(),
+                },
+            );
+            true
+        });
         let mut selector = OutboundSelector::new(
             "g".to_string(),
             members.clone(),

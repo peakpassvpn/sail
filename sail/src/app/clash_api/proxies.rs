@@ -225,7 +225,7 @@ pub(super) async fn group_delay(
         .rm
         .url_test_members(&name, Some(&url), timeout)
         .await
-        .map_err(|_| ApiError::not_found())?;
+        .map_err(delay_error)?;
     let map: Map<String, Value> = delays
         .into_iter()
         .filter_map(|(m, d)| d.ok().map(|d| (m, json!(millis(d)))))

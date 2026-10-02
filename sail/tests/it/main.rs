@@ -29,6 +29,7 @@ mod test_domain_resolver;
 mod test_examples;
 mod test_fakeip;
 mod test_fallback;
+mod test_group_checks;
 mod test_group_fallback;
 mod test_group_load_balance;
 mod test_group_selector;
