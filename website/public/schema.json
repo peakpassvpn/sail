@@ -967,11 +967,12 @@
          "mdns",
          "quic",
          "race",
+         "sequential",
          "tcp",
          "tls",
          "udp"
         ],
-        "description": "`udp`, `tcp`, `tls`, `https`, `quic`, `h3`, `local`, `hosts`, or sail's `race`."
+        "description": "`udp`, `tcp`, `tls`, `https`, `quic`, `h3`, `local`, `hosts`, or sail's `race` and `sequential`."
        }
       },
       "allOf": [
@@ -1093,6 +1094,21 @@
         },
         "then": {
          "$ref": "#/$defs/dns.servers%5Brace%5D"
+        }
+       },
+       {
+        "if": {
+         "properties": {
+          "type": {
+           "const": "sequential"
+          }
+         },
+         "required": [
+          "type"
+         ]
+        },
+        "then": {
+         "$ref": "#/$defs/dns.servers%5Bsequential%5D"
         }
        },
        {
@@ -4810,6 +4826,45 @@
     },
     "type": {
      "const": "race"
+    }
+   },
+   "additionalProperties": false
+  },
+  "dns.servers[sequential]": {
+   "type": "object",
+   "properties": {
+    "tag": {
+     "type": "string",
+     "description": "Defaults to the type."
+    },
+    "servers": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      }
+     ],
+     "description": "The servers, by tag, in the order they are asked; two or more, none a `race` or `sequential` server. The next is asked only when one gives no answer at all (a timeout, a connection that fails); any answer, SERVFAIL and REFUSED too, ends the query, unlike `race`, which takes those for failures: asked in order, a server's plain answer is not to be passed on to the next. Each goes out as its own `detour` says."
+    },
+    "attempt_timeout": {
+     "type": "string",
+     "description": "How long each server has to answer; the last has what the budget leaves. A kept connection that does not answer in half of it is left for a new one to the same server, with the whole time again, once a query. 3s when unset."
+    },
+    "budget": {
+     "type": "string",
+     "description": "How long a whole query may take, under `dns.timeout`; once it is spent the query fails, and a client is answered SERVFAIL. 8s when unset."
+    },
+    "prefer_for": {
+     "type": "string",
+     "description": "How long a server that answered, not being the first, is asked first (the next ones after it in turn); `0s` keeps the order. 10m when unset."
+    },
+    "type": {
+     "const": "sequential"
     }
    },
    "additionalProperties": false

@@ -3103,6 +3103,10 @@ Fields and types sail accepts that sing-box does not.
 | `log.redact` | What lines at INFO, WARN and ERROR leave out: `destination` (the host or address a connection goes to; the port is kept), `source` (the client's address, and the LAN devices learned of) and `process`; DEBUG and TRACE lines are not redacted |
 | `dns.client_strategy` | The address families of the answers to clients' queries |
 | `dns.servers[race].servers` | A server that asks its members at once and takes the first good answer |
+| `dns.servers[sequential].servers` | A server that asks its members one after another, the next only when one does not answer, within a budget |
+| `dns.servers[sequential].attempt_timeout` | How long each member of a sequential server has to answer |
+| `dns.servers[sequential].budget` | How long a whole query to a sequential server may take, under dns.timeout |
+| `dns.servers[sequential].prefer_for` | How long a member that answered in place of the first is asked first |
 | `dns.servers[udp|tcp|tls|quic|https|h3].respect_rules` | Queries go through the outbound the routing rules pick (Mihomo's respect-rules) |
 | `dns.servers[udp|tcp|tls|quic|https|h3].client_subnet` | The EDNS Client Subnet its queries carry (Mihomo's ecs) |
 | `dns.servers[tls|quic|https|h3].tls.certificate_sha256` | As an outbound's `tls.certificate_sha256` |

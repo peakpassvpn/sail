@@ -35,6 +35,40 @@ mod quic;
 #[cfg(any(feature = "quic", feature = "dns-doh"))]
 const MAX_MESSAGE_LEN: usize = u16::MAX as usize;
 
+tokio::task_local! {
+    /// What an attempt of a `sequential` server allows a kept connection,
+    /// within it: see `kept_wait` and `kept_timed_out`.
+    pub(super) static ATTEMPT: Attempt;
+}
+
+/// An attempt of a `sequential` server on one member.
+pub(super) struct Attempt {
+    /// How long a kept connection may take to answer; `None` takes none,
+    /// and a new connection is opened.
+    pub reuse: Option<std::time::Duration>,
+    /// Set when a kept connection timed out, which ends the attempt: the
+    /// server is asked again on a new connection, with a whole attempt's
+    /// time, rather than with what the kept one left.
+    pub kept_timed_out: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+/// How long a kept connection may take to answer, `default` outside a
+/// sequential attempt; `None` when none is to be taken.
+pub(super) fn kept_wait(default: std::time::Duration) -> Option<std::time::Duration> {
+    ATTEMPT.try_with(|a| a.reuse).unwrap_or(Some(default))
+}
+
+/// Says that a kept connection timed out; whether the query is to end
+/// there, as in a sequential attempt, rather than go on to a new one.
+pub(super) fn kept_timed_out() -> bool {
+    ATTEMPT
+        .try_with(|a| {
+            a.kept_timed_out
+                .store(true, std::sync::atomic::Ordering::Relaxed)
+        })
+        .is_ok()
+}
+
 /// Idle connections kept per server: as many as queries that ran at once,
 /// up to this.
 const MAX_IDLE: usize = 4;

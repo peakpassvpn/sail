@@ -21,7 +21,7 @@ Rust: [`Dns`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
-| `servers` | array → [[]](#dns-servers), [[dhcp]](#dns-servers-missing), [[fakeip]](#dns-servers-fakeip), [[h3]](#dns-servers-h3), [[hosts]](#dns-servers-hosts), [[https]](#dns-servers-https), [[local]](#dns-servers-local), [[mdns]](#dns-servers-mdns), [[openconnect]](#dns-servers-missing), [[openvpn]](#dns-servers-missing), [[quic]](#dns-servers-quic), [[race]](#dns-servers-race), [[resolved]](#dns-servers-missing), [[tailscale]](#dns-servers-missing), [[tcp]](#dns-servers-tcp), [[tls]](#dns-servers-tls), [[udp]](#dns-servers-udp) | `[]` | Supported | The servers, each by its tag. None is the system's resolver alone. |
+| `servers` | array → [[]](#dns-servers), [[dhcp]](#dns-servers-missing), [[fakeip]](#dns-servers-fakeip), [[h3]](#dns-servers-h3), [[hosts]](#dns-servers-hosts), [[https]](#dns-servers-https), [[local]](#dns-servers-local), [[mdns]](#dns-servers-mdns), [[openconnect]](#dns-servers-missing), [[openvpn]](#dns-servers-missing), [[quic]](#dns-servers-quic), [[race]](#dns-servers-race), [[resolved]](#dns-servers-missing), [[sequential]](#dns-servers-sequential), [[tailscale]](#dns-servers-missing), [[tcp]](#dns-servers-tcp), [[tls]](#dns-servers-tls), [[udp]](#dns-servers-udp) | `[]` | Supported | The servers, each by its tag. None is the system's resolver alone. |
 | `rules` | array → [[]](#dns-rules), [[action=evaluate]](#dns-rules-action-evaluate), [[action=predefined]](#dns-rules-action-predefined), [[action=reject]](#dns-rules-action-reject), [[action=respond]](#dns-rules-action-respond), [[action=route]](#dns-rules-action-route), [[action=route-options]](#dns-rules-action-route-options), [[logical]](#dns-rules-logical) | `[]` | Supported | Which server a query goes to, matched in order. |
 | `final` | string | unset | Supported | The server of the queries no rule matches; the first one when unset. |
 | `reverse_mapping` | bool | `false` | Supported | Remembers the domain of each address the DNS answers that pass through carry, so that connections to the address are routed by the domain. |
@@ -54,7 +54,7 @@ Rust: [`DnsServer`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
-| `type` | string, one of `dhcp`, `fakeip`, `h3`, `hosts`, `https`, `local`, `mdns`, `openconnect`, `openvpn`, `quic`, `resolved`, `tailscale`, `tcp`, `tls`, `udp` | required | Supported | `udp`, `tcp`, `tls`, `https`, `quic`, `h3`, `local`, `hosts`, or sail's `race`. |
+| `type` | string, one of `dhcp`, `fakeip`, `h3`, `hosts`, `https`, `local`, `mdns`, `openconnect`, `openvpn`, `quic`, `resolved`, `tailscale`, `tcp`, `tls`, `udp` | required | Supported | `udp`, `tcp`, `tls`, `https`, `quic`, `h3`, `local`, `hosts`, or sail's `race` and `sequential`. |
 
 <a id="dns-servers-fakeip"></a>
 
@@ -442,6 +442,20 @@ Rust: [`RaceOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/app/
 | --- | --- | --- | --- | --- |
 | `tag` | string | `""` | sail extension | Defaults to the type. |
 | `servers` | string or array of string | required | sail extension | A server that asks its members at once and takes the first good answer |
+
+<a id="dns-servers-sequential"></a>
+
+## `dns.servers[sequential]`
+
+Rust: [`SequentialOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/app/dns/client/server.rs) · **sail extension**
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | sail extension | Defaults to the type. |
+| `servers` | string or array of string | required | sail extension | The servers, by tag, in the order they are asked; two or more, none a `race` or `sequential` server. The next is asked only when one gives no answer at all (a timeout, a connection that fails); any answer, SERVFAIL and REFUSED too, ends the query, unlike `race`, which takes those for failures: asked in order, a server's plain answer is not to be passed on to the next. Each goes out as its own `detour` says. |
+| `attempt_timeout` | duration | unset | sail extension | How long each server has to answer; the last has what the budget leaves. A kept connection that does not answer in half of it is left for a new one to the same server, with the whole time again, once a query. 3s when unset. |
+| `budget` | duration | unset | sail extension | How long a whole query may take, under `dns.timeout`; once it is spent the query fails, and a client is answered SERVFAIL. 8s when unset. |
+| `prefer_for` | duration | unset | sail extension | How long a server that answered, not being the first, is asked first (the next ones after it in turn); `0s` keeps the order. 10m when unset. |
 
 <a id="dns-servers-tcp"></a>
 

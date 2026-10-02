@@ -7,7 +7,7 @@ use anyhow::{anyhow, Result};
 use tokio::time::timeout;
 use tracing::debug;
 
-use super::{exchange_framed, StreamPool, Upstream};
+use super::{exchange_framed, kept_timed_out, kept_wait, StreamPool, Upstream};
 use crate::adapter::AnyStream;
 use crate::app::dns::DnsClient;
 
@@ -19,19 +19,21 @@ impl DnsClient {
         addr: SocketAddr,
         request: &[u8],
     ) -> Result<Vec<u8>> {
-        if let Some(mut stream) = pool.take() {
-            match timeout(
-                self.reused_connection_timeout(),
-                exchange_framed(&mut stream, request),
-            )
-            .await
-            {
+        let kept =
+            kept_wait(self.reused_connection_timeout()).and_then(|wait| Some((wait, pool.take()?)));
+        if let Some((wait, mut stream)) = kept {
+            match timeout(wait, exchange_framed(&mut stream, request)).await {
                 Ok(Ok(response)) => {
                     pool.put(stream);
                     return Ok(response);
                 }
                 Ok(Err(e)) => debug!("{}: kept connection failed: {}", upstream, e),
-                Err(_) => debug!("{}: kept connection timed out", upstream),
+                Err(_) => {
+                    debug!("{}: kept connection timed out", upstream);
+                    if kept_timed_out() {
+                        return Err(anyhow!("{}: kept connection timed out", upstream));
+                    }
+                }
             }
         }
         let stream = self.dial_stream(&upstream.dialer, addr).await?;

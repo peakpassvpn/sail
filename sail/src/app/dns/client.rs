@@ -119,6 +119,19 @@ impl DnsClient {
             servers.insert(config.tag.clone(), Arc::new(server));
         }
         server::check(&servers)?;
+        // A sequential server fails in its budget, before the query does.
+        for server in servers.values() {
+            if let Kind::Sequential(s) = &server.kind {
+                if s.budget >= dns.timeout() {
+                    return Err(anyhow!(
+                        "dns.servers[{}].budget: {:?} must be less than dns.timeout, {:?}",
+                        server.tag,
+                        s.budget,
+                        dns.timeout()
+                    ));
+                }
+            }
+        }
         let final_server = dns
             .final_server
             .clone()
@@ -555,6 +568,9 @@ impl DnsClient {
         if let Kind::Race { members } = &server.kind {
             return self.race(members, request, time).await;
         }
+        if let Kind::Sequential(sequential) = &server.kind {
+            return self.sequential(&server.tag, sequential, request).await;
+        }
         match timeout(time, self.ask(server, request, time)).await {
             Ok(res) => res,
             Err(_) => Err(anyhow!("{} {}: timeout", server, Self::question(request))),
@@ -603,6 +619,121 @@ impl DnsClient {
                 e
             )),
         }
+    }
+
+    /// Asks a sequential server's members one after another, from the one
+    /// it prefers, each for its attempt's time and the last for what the
+    /// budget leaves, until one answers: any answer, SERVFAIL and REFUSED
+    /// too, is its member's. One that does not answer passes the query on.
+    /// A kept connection that times out does not: the member is asked once
+    /// more on a new connection, with a whole attempt's time, as a NAT that
+    /// forgot the connection leaves it silent rather than closed. When no
+    /// member answers within the budget, the query fails, which a client is
+    /// answered SERVFAIL for.
+    async fn sequential(
+        &self,
+        tag: &str,
+        sequential: &server::Sequential,
+        request: &Message,
+    ) -> Result<Answer> {
+        let started = tokio::time::Instant::now();
+        let deadline = started + sequential.budget;
+        let n = sequential.members.len();
+        let first = {
+            let mut preferred = sequential
+                .preferred
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            match *preferred {
+                Some((i, since)) if since.elapsed() < sequential.prefer_for => i,
+                _ => {
+                    *preferred = None;
+                    0
+                }
+            }
+        };
+        let (name, ty) = request
+            .queries()
+            .first()
+            .map(|q| (q.name().to_utf8(), q.query_type().to_string()))
+            .unwrap_or_default();
+        let mut slot = 0;
+        let mut attempt = 0;
+        let mut fresh = false;
+        let mut retried = false;
+        let mut failed = anyhow!("no member was asked");
+        while slot < n {
+            let now = tokio::time::Instant::now();
+            let left = deadline.saturating_duration_since(now);
+            if left.is_zero() {
+                break;
+            }
+            let i = (first + slot) % n;
+            let member = &sequential.members[i];
+            let limit = if slot == n - 1 {
+                left
+            } else {
+                sequential.attempt.min(left)
+            };
+            let kept_timed_out = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let scope = upstream::Attempt {
+                reuse: (!fresh).then_some(sequential.attempt / 2),
+                kept_timed_out: kept_timed_out.clone(),
+            };
+            attempt += 1;
+            let server = self.server(member)?;
+            let answered = upstream::ATTEMPT
+                .scope(scope, timeout(limit, self.ask(server, request, limit)))
+                .await;
+            let ms = now.elapsed().as_millis();
+            match answered {
+                Ok(Ok(answer)) => {
+                    let (rcode, answers) = match &answer {
+                        Answer::Message(m) => (m.response_code().to_string(), m.answers().len()),
+                        _ => ("NoError".into(), 0),
+                    };
+                    debug!(
+                        name = %name, r#type = %ty, server = %member, attempt, rcode = %rcode,
+                        answers, ms, "dns: [{}] answered", tag
+                    );
+                    if i != first && !sequential.prefer_for.is_zero() {
+                        *sequential
+                            .preferred
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner()) = Some((i, now));
+                    }
+                    return Ok(answer);
+                }
+                Ok(Err(e)) => {
+                    debug!(
+                        name = %name, r#type = %ty, server = %member, attempt, error = %e,
+                        ms, "dns: [{}] member failed", tag
+                    );
+                    if kept_timed_out.load(std::sync::atomic::Ordering::Relaxed) && !retried {
+                        retried = true;
+                        fresh = true;
+                        continue;
+                    }
+                    failed = e;
+                }
+                Err(_) => {
+                    debug!(
+                        name = %name, r#type = %ty, server = %member, attempt, error = "timeout",
+                        ms, "dns: [{}] member failed", tag
+                    );
+                    failed = anyhow!("[{}]: timeout", member);
+                }
+            }
+            fresh = false;
+            slot += 1;
+        }
+        Err(anyhow!(
+            "{}: [{}] had no answer within {:?}: {}",
+            Self::question(request),
+            tag,
+            sequential.budget,
+            failed
+        ))
     }
 
     /// Asks one server that is not a race, within `time`.
@@ -751,15 +882,26 @@ impl DnsClient {
             } => {
                 let request = Self::wire(server, request)?;
                 let addr = self.server_addr(address).await?;
-                let response = match pool.take() {
-                    Some(mut stream) => {
-                        match upstream::exchange_framed(&mut stream, &request).await {
-                            Ok(response) => {
+                // Outside a sequential attempt, a kept connection has the
+                // query's whole time, as before.
+                let kept = upstream::kept_wait(time).and_then(|wait| Some((wait, pool.take()?)));
+                let response = match kept {
+                    Some((wait, mut stream)) => {
+                        match timeout(wait, upstream::exchange_framed(&mut stream, &request)).await
+                        {
+                            Ok(Ok(response)) => {
                                 pool.put(stream);
                                 response
                             }
-                            Err(e) => {
+                            Ok(Err(e)) => {
                                 debug!("{}: kept connection failed: {}", server, e);
+                                self.exchange_tcp(dialer, addr, pool, &request).await?
+                            }
+                            Err(_) => {
+                                debug!("{}: kept connection timed out", server);
+                                if upstream::kept_timed_out() {
+                                    return Err(anyhow!("{}: kept connection timed out", server));
+                                }
                                 self.exchange_tcp(dialer, addr, pool, &request).await?
                             }
                         }
@@ -785,6 +927,7 @@ impl DnsClient {
                 Err(last_err.unwrap_or_else(|| anyhow!("no answer")))
             }
             Kind::Race { .. } => unreachable!("query() takes a race"),
+            Kind::Sequential(_) => unreachable!("query() takes a sequential server"),
         }
     }
 

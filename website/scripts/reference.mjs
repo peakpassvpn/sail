@@ -146,6 +146,7 @@ export const DNS_SERVER_OPTIONS = {
   udp: 'RemoteOptions', tcp: 'RemoteOptions', tls: 'RemoteOptions', https: 'RemoteOptions',
   quic: 'RemoteOptions', h3: 'RemoteOptions', local: 'LocalOptions', mdns: 'MdnsOptions',
   hosts: 'HostsOptions', fakeip: 'FakeIpOptions', race: 'RaceOptions',
+  sequential: 'SequentialOptions',
 };
 export const DNS_SERVER_SOURCE = 'sail/src/app/dns/client/server.rs';
 // Inbounds the inbound manager builds itself, not through the registry.

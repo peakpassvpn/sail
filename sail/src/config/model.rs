@@ -741,7 +741,7 @@ impl<'de> serde::Deserialize<'de> for Optimistic {
 #[derive(Serialize, Deserialize, Clone, PartialEq)]
 pub struct DnsServer {
     /// `udp`, `tcp`, `tls`, `https`, `quic`, `h3`, `local`, `hosts`, or
-    /// sail's `race`.
+    /// sail's `race` and `sequential`.
     #[serde(rename = "type")]
     pub kind: String,
     /// Defaults to the type.

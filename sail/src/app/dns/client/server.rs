@@ -5,6 +5,7 @@
 use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::{anyhow, Result};
 use serde_derive::Deserialize;
@@ -51,7 +52,31 @@ pub(super) enum Kind {
     /// Asks its members all at once, and takes the first to answer well,
     /// as Mihomo and Surge ask a list of servers; a sail extension.
     Race { members: Vec<String> },
+    /// Asks its members one after another, the next only when one fails to
+    /// answer at all, within a budget; a sail extension (see `Sequential`).
+    Sequential(Sequential),
 }
+
+/// A `sequential` server: its members in order, how long each is asked, the
+/// budget of a whole query, and the member that answered last when it was
+/// not the first, which is asked first for `prefer_for`. As the order a DNS
+/// guard asks its servers in: any answer is a member's, SERVFAIL and REFUSED
+/// too, and only a member that does not answer passes the query on.
+pub(super) struct Sequential {
+    pub members: Vec<String>,
+    pub attempt: Duration,
+    pub budget: Duration,
+    pub prefer_for: Duration,
+    /// The member asked first, and since when; `None` is the first.
+    pub preferred: std::sync::Mutex<Option<(usize, tokio::time::Instant)>>,
+}
+
+/// `attempt_timeout`'s default: each member's time to answer.
+const SEQUENTIAL_ATTEMPT: Duration = Duration::from_secs(3);
+/// `budget`'s default: a whole query's time, under `dns.timeout`'s 10 s.
+const SEQUENTIAL_BUDGET: Duration = Duration::from_secs(8);
+/// `prefer_for`'s default.
+const SEQUENTIAL_PREFER_FOR: Duration = Duration::from_secs(600);
 
 /// Where a server is: an address, or a domain its resolver resolves.
 #[derive(Debug, Clone)]
@@ -192,6 +217,41 @@ struct FakeIpOptions {
 struct RaceOptions {
     #[serde(with = "listable")]
     servers: Vec<String>,
+}
+
+/// A sail extension: asks its servers one after another, the next only
+/// when one gives no answer at all (a timeout, or a connection that fails),
+/// within a budget. Any answer is its server's and ends the query, SERVFAIL
+/// and REFUSED too, unlike `race`, which takes them for failures: asked in
+/// order, a server's plain answer is not to be passed on to the next. Each
+/// server goes out as its own `detour` says; this one has none of its own.
+#[derive(Deserialize, Debug)]
+#[serde(deny_unknown_fields)]
+struct SequentialOptions {
+    /// The servers, by tag, in the order they are asked; two or more, none a
+    /// `race` or `sequential` server. The next is asked only when one gives
+    /// no answer at all (a timeout, a connection that fails); any answer,
+    /// SERVFAIL and REFUSED too, ends the query, unlike `race`, which takes
+    /// those for failures: asked in order, a server's plain answer is not to
+    /// be passed on to the next. Each goes out as its own `detour` says.
+    #[serde(with = "listable")]
+    servers: Vec<String>,
+    /// How long each server has to answer; the last has what the budget
+    /// leaves. A kept connection that does not answer in half of it is left
+    /// for a new one to the same server, with the whole time again, once a
+    /// query. 3s when unset.
+    #[serde(default, with = "crate::config::model::duration")]
+    attempt_timeout: Option<Duration>,
+    /// How long a whole query may take, under `dns.timeout`; once it is
+    /// spent the query fails, and a client is answered SERVFAIL. 8s when
+    /// unset.
+    #[serde(default, with = "crate::config::model::duration")]
+    budget: Option<Duration>,
+    /// How long a server that answered, not being the first, is asked first
+    /// (the next ones after it in turn); `0s` keeps the order. 10m when
+    /// unset.
+    #[serde(default, with = "crate::config::model::duration")]
+    prefer_for: Option<Duration>,
 }
 
 #[derive(Deserialize, Debug, Default)]
@@ -433,6 +493,28 @@ impl Server {
                 }
                 Kind::Race { members: o.servers }
             }
+            "sequential" => {
+                let o: SequentialOptions = parse_options("dns server", tag, &config.options)?;
+                if o.servers.len() < 2 {
+                    return Err(err(anyhow!(
+                        "servers: a sequential server takes two or more"
+                    )));
+                }
+                let attempt = o.attempt_timeout.unwrap_or(SEQUENTIAL_ATTEMPT);
+                let budget = o.budget.unwrap_or(SEQUENTIAL_BUDGET);
+                if attempt.is_zero() || budget.is_zero() {
+                    return Err(err(anyhow!(
+                        "attempt_timeout and budget: must be more than 0"
+                    )));
+                }
+                Kind::Sequential(Sequential {
+                    members: o.servers,
+                    attempt,
+                    budget,
+                    prefer_for: o.prefer_for.unwrap_or(SEQUENTIAL_PREFER_FOR),
+                    preferred: Default::default(),
+                })
+            }
             other => {
                 return Err(anyhow!(
                     "dns.servers[{}]: unknown server type \"{}\"",
@@ -462,6 +544,7 @@ impl Server {
                 .map(|r| r.server.as_str())
                 .collect(),
             Kind::Race { members } => members.iter().map(String::as_str).collect(),
+            Kind::Sequential(s) => s.members.iter().map(String::as_str).collect(),
             Kind::Local(_) | Kind::Mdns(_) | Kind::Hosts(_) | Kind::FakeIp(_) => vec![],
         }
     }
@@ -484,7 +567,8 @@ impl Server {
             | Kind::Tcp { .. }
             | Kind::Upstream(_)
             | Kind::FakeIp(_)
-            | Kind::Race { .. } => false,
+            | Kind::Race { .. }
+            | Kind::Sequential(_) => false,
         }
     }
 }
@@ -508,9 +592,10 @@ pub(super) fn check(servers: &HashMap<String, Arc<Server>>) -> Result<()> {
                     needed
                 ));
             };
-            if matches!(server.kind, Kind::Race { .. }) && matches!(other.kind, Kind::Race { .. }) {
+            let combines = |kind: &Kind| matches!(kind, Kind::Race { .. } | Kind::Sequential(_));
+            if combines(&server.kind) && combines(&other.kind) {
                 return Err(anyhow!(
-                    "dns.servers[{}]: [{}] is a race too, and cannot be a member",
+                    "dns.servers[{}]: [{}] is a race or sequential server too, and cannot be a member",
                     server.tag,
                     needed
                 ));

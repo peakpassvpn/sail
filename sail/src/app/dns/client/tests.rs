@@ -128,7 +128,7 @@ mod tests {
                     { "type": "race", "tag": "s1", "servers": ["l", "s2"] },
                     { "type": "race", "tag": "s2", "servers": ["l", "l"] }
                 ]),
-                "[s2] is a race too",
+                "[s2] is a race or sequential server too",
             ),
             (
                 serde_json::json!([{ "type": "race", "tag": "s", "servers": ["x"] }]),
@@ -2383,5 +2383,280 @@ mod tests {
         assert!(!simple(query_with("a.example", 1, Some(|e| e.options_mut().insert(EdnsOption::Unknown(12, vec![0; 4]))))));
         assert!(!simple(query_with("a.example", 1, Some(|e| { e.set_dnssec_ok(true); }))));
         assert!(!simple(query_with("a.example", 1, Some(|e| { e.set_version(1); }))));
+    }
+
+    // -- sequential ------------------------------------------------------
+
+    /// When each datagram of a query reached a UDP server, by the query's
+    /// ID: a query is sent again within its time when no answer comes
+    /// (`max_retries`), so one ID may come more than once.
+    type Arrivals = std::sync::Arc<std::sync::Mutex<Vec<(u16, std::time::Instant)>>>;
+
+    /// How many queries came, each counted once.
+    fn queries(arrivals: &Arrivals) -> usize {
+        let ids: std::collections::HashSet<u16> =
+            arrivals.lock().unwrap().iter().map(|(id, _)| *id).collect();
+        ids.len()
+    }
+
+    /// When query `id` first and last came.
+    fn span(arrivals: &Arrivals, id: u16) -> (std::time::Instant, std::time::Instant) {
+        let times: Vec<_> = arrivals.lock().unwrap().iter().filter(|(i, _)| *i == id).map(|(_, t)| *t).collect();
+        (*times.iter().min().expect("asked"), *times.iter().max().unwrap())
+    }
+
+    /// A UDP server that answers every query with `code` (and 10.0.0.9 for
+    /// NOERROR), or never with `None`, noting when each came.
+    async fn noting_server(code: Option<ResponseCode>) -> (u16, Arrivals) {
+        let socket = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let port = socket.local_addr().unwrap().port();
+        let arrivals = Arrivals::default();
+        let noted = arrivals.clone();
+        tokio::spawn(async move {
+            let mut buf = [0u8; 1500];
+            while let Ok((n, peer)) = socket.recv_from(&mut buf).await {
+                let request = Message::from_vec(&buf[..n]).unwrap();
+                noted.lock().unwrap().push((request.id(), std::time::Instant::now()));
+                let Some(code) = code else { continue };
+                let ips = if code == ResponseCode::NoError { ips(&["10.0.0.9"]) } else { vec![] };
+                let mut reply = DnsClient::reply(&request, &ips, 60);
+                reply.set_response_code(code);
+                let _ = socket.send_to(&reply.to_vec().unwrap(), peer).await;
+            }
+        });
+        (port, arrivals)
+    }
+
+    fn sequential_client(
+        options: serde_json::Value,
+        members: &[(&str, u16)],
+    ) -> anyhow::Result<DnsClient> {
+        let mut servers = vec![{
+            let mut s = options;
+            s["type"] = "sequential".into();
+            s["tag"] = "seq".into();
+            s["servers"] = members.iter().map(|(tag, _)| *tag).collect();
+            s
+        }];
+        for (tag, port) in members {
+            servers.push(serde_json::json!({
+                "type": "udp", "tag": tag, "server": "127.0.0.1", "server_port": port
+            }));
+        }
+        let config = crate::config::Config::from_json(
+            &serde_json::json!({ "dns": { "timeout": "2s", "servers": servers, "final": "seq" } })
+                .to_string(),
+        )?;
+        DnsClient::new(&config.dns, Default::default(), &Default::default())
+    }
+
+    /// A member that does not answer passes the query on, once its attempt
+    /// is up, and only then: the next is never asked at the same time. One
+    /// that answers anything, SERVFAIL too, ends the query.
+    #[tokio::test]
+    async fn a_sequential_server_asks_the_next_member_only_when_one_is_silent() {
+        let (silent, silent_at) = noting_server(None).await;
+        let (good, good_at) = noting_server(Some(ResponseCode::NoError)).await;
+        let (third, third_at) = noting_server(Some(ResponseCode::NoError)).await;
+        let client = sequential_client(
+            serde_json::json!({ "attempt_timeout": "300ms", "budget": "1500ms" }),
+            &[("silent", silent), ("good", good), ("third", third)],
+        )
+        .unwrap();
+        let started = std::time::Instant::now();
+        let answer = exchange(&client, "a.example", RecordType::A).await;
+        assert_eq!(answer_ips(&answer), ips(&["10.0.0.9"]));
+        let took = started.elapsed();
+        assert!(took >= Duration::from_millis(300) && took < Duration::from_millis(800), "{:?}", took);
+        let id = silent_at.lock().unwrap()[0].0;
+        let (asked, last_sent) = span(&silent_at, id);
+        let (next_asked, _) = span(&good_at, id);
+        // The next only once the first's attempt is up, after all it was sent.
+        assert!(next_asked >= last_sent, "asked at once");
+        assert!(next_asked - asked >= Duration::from_millis(280), "{:?}", next_asked - asked);
+        assert_eq!(queries(&third_at), 0);
+
+        let (servfail, _) = noting_server(Some(ResponseCode::ServFail)).await;
+        let (after, after_at) = noting_server(Some(ResponseCode::NoError)).await;
+        let client = sequential_client(
+            serde_json::json!({ "budget": "1500ms" }),
+            &[("servfail", servfail), ("after", after)],
+        )
+        .unwrap();
+        let answer = exchange(&client, "a.example", RecordType::A).await;
+        assert_eq!(answer.response_code(), ResponseCode::ServFail);
+        assert_eq!(queries(&after_at), 0, "SERVFAIL is the member's answer");
+    }
+
+    /// Queries at once each go to one member at a time.
+    #[tokio::test]
+    async fn concurrent_queries_each_ask_one_member_at_a_time() {
+        let (silent, silent_at) = noting_server(None).await;
+        let (good, good_at) = noting_server(Some(ResponseCode::NoError)).await;
+        let client = std::sync::Arc::new(
+            sequential_client(
+                serde_json::json!({ "attempt_timeout": "300ms", "budget": "1500ms" }),
+                &[("silent", silent), ("good", good)],
+            )
+            .unwrap(),
+        );
+        let asking = (0..8).map(|i| {
+            let client = client.clone();
+            tokio::spawn(async move {
+                exchange(&client, &format!("q{}.example", i), RecordType::A).await
+            })
+        });
+        for answer in futures::future::join_all(asking).await {
+            assert_eq!(answer_ips(&answer.unwrap()), ips(&["10.0.0.9"]));
+        }
+        assert_eq!((queries(&silent_at), queries(&good_at)), (8, 8));
+        let ids: Vec<u16> = good_at.lock().unwrap().iter().map(|(id, _)| *id).collect();
+        for id in ids {
+            let (asked, last_sent) = span(&silent_at, id);
+            let (next_asked, _) = span(&good_at, id);
+            assert!(next_asked >= last_sent, "query {}: both members at once", id);
+            assert!(next_asked - asked >= Duration::from_millis(280), "query {}", id);
+        }
+    }
+
+    /// The budget bounds a query; the last member has what it leaves, not
+    /// an attempt's time; then the client is answered SERVFAIL.
+    #[tokio::test]
+    async fn a_sequential_server_fails_in_its_budget() {
+        let (a, _) = noting_server(None).await;
+        let (b, b_at) = noting_server(None).await;
+        let client = sequential_client(
+            serde_json::json!({ "attempt_timeout": "200ms", "budget": "900ms" }),
+            &[("a", a), ("b", b)],
+        )
+        .unwrap();
+        let started = std::time::Instant::now();
+        let answer = exchange(&client, "a.example", RecordType::A).await;
+        let took = started.elapsed();
+        assert_eq!(answer.response_code(), ResponseCode::ServFail);
+        assert!(took >= Duration::from_millis(880) && took < Duration::from_millis(1300), "{:?}", took);
+        assert_eq!(queries(&b_at), 1);
+    }
+
+    /// The member that answered, not being the first, is asked first for
+    /// `prefer_for`, counted from when it took over: answering again does
+    /// not stretch it.
+    #[tokio::test]
+    async fn the_member_that_answered_is_asked_first_for_a_while() {
+        let (flaky, flaky_at) = noting_server(None).await;
+        let (good, _) = noting_server(Some(ResponseCode::NoError)).await;
+        let client = sequential_client(
+            serde_json::json!({ "attempt_timeout": "200ms", "budget": "1500ms", "prefer_for": "1s" }),
+            &[("flaky", flaky), ("good", good)],
+        )
+        .unwrap();
+        exchange(&client, "a.example", RecordType::A).await;
+        assert_eq!(queries(&flaky_at), 1);
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        let started = std::time::Instant::now();
+        exchange(&client, "b.example", RecordType::A).await;
+        assert!(started.elapsed() < Duration::from_millis(150), "the preferred one first");
+        assert_eq!(queries(&flaky_at), 1);
+        tokio::time::sleep(Duration::from_millis(600)).await;
+        exchange(&client, "c.example", RecordType::A).await;
+        assert_eq!(queries(&flaky_at), 2, "the first again, a second on");
+    }
+
+    #[test]
+    fn a_sequential_server_is_checked() {
+        for (options, members, message) in [
+            (serde_json::json!({ "budget": "2s" }), 2, "must be less than dns.timeout"),
+            (serde_json::json!({}), 1, "takes two or more"),
+            (serde_json::json!({ "attempt_timeout": "0s" }), 2, "must be more than 0"),
+        ] {
+            let members: Vec<(&str, u16)> = [("a", 53), ("b", 53)][..members].to_vec();
+            let err = sequential_client(options.clone(), &members).err().unwrap().to_string();
+            assert!(err.contains(message), "{}: {}", options, err);
+        }
+        let config = crate::config::Config::from_json(
+            &serde_json::json!({ "dns": { "servers": [
+                { "type": "sequential", "tag": "s", "servers": ["r", "u"] },
+                { "type": "race", "tag": "r", "servers": ["u", "u"] },
+                { "type": "udp", "tag": "u", "server": "127.0.0.1" }
+            ] } })
+            .to_string(),
+        )
+        .unwrap();
+        let err = DnsClient::new(&config.dns, Default::default(), &Default::default())
+            .err()
+            .unwrap()
+            .to_string();
+        assert!(err.contains("cannot be a member"), "{}", err);
+    }
+
+    /// A TCP DNS server on which a connection answers its first query and
+    /// then nothing, as one a NAT forgot: a kept connection is silent, a
+    /// new one answers, after `handshake` (a slow new connection's cost).
+    async fn forgetting_server(handshake: Duration) -> (u16, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let connections = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counted = connections.clone();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                tokio::spawn(async move {
+                    tokio::time::sleep(handshake).await;
+                    let mut first = true;
+                    loop {
+                        let mut len = [0u8; 2];
+                        if stream.read_exact(&mut len).await.is_err() {
+                            return;
+                        }
+                        let mut buf = vec![0u8; u16::from_be_bytes(len) as usize];
+                        if stream.read_exact(&mut buf).await.is_err() {
+                            return;
+                        }
+                        if !first {
+                            continue;
+                        }
+                        first = false;
+                        let request = Message::from_vec(&buf).unwrap();
+                        let reply = DnsClient::reply(&request, &ips(&["10.0.0.7"]), 60).to_vec().unwrap();
+                        let _ = stream.write_all(&(reply.len() as u16).to_be_bytes()).await;
+                        let _ = stream.write_all(&reply).await;
+                    }
+                });
+            }
+        });
+        (port, connections)
+    }
+
+    /// A kept connection that has gone silent takes half an attempt; the
+    /// member is then asked again on a new connection with a whole
+    /// attempt's time, which a slow handshake needs, and answers: the next
+    /// member is not asked.
+    #[tokio::test]
+    async fn a_silent_kept_connection_is_retried_on_a_new_one_before_the_next_member() {
+        let (forgetful, connections) = forgetting_server(Duration::from_millis(300)).await;
+        let (next, next_at) = noting_server(Some(ResponseCode::NoError)).await;
+        let config = crate::config::Config::from_json(
+            &serde_json::json!({ "dns": { "timeout": "3s", "final": "seq", "servers": [
+                { "type": "sequential", "tag": "seq", "servers": ["tcp", "next"],
+                  "attempt_timeout": "400ms", "budget": "2s" },
+                { "type": "tcp", "tag": "tcp", "server": "127.0.0.1", "server_port": forgetful },
+                { "type": "udp", "tag": "next", "server": "127.0.0.1", "server_port": next }
+            ] } })
+            .to_string(),
+        )
+        .unwrap();
+        let client = DnsClient::new(&config.dns, Default::default(), &Default::default()).unwrap();
+        let first = exchange(&client, "a.example", RecordType::A).await;
+        assert_eq!(answer_ips(&first), ips(&["10.0.0.7"]));
+        // The kept connection is silent now: 200 ms on it, then a new one
+        // that takes 300 ms to answer, within its own 400.
+        let started = std::time::Instant::now();
+        let second = exchange(&client, "b.example", RecordType::A).await;
+        assert_eq!(answer_ips(&second), ips(&["10.0.0.7"]));
+        let took = started.elapsed();
+        assert!(took >= Duration::from_millis(450) && took < Duration::from_millis(900), "{:?}", took);
+        assert_eq!(connections.load(std::sync::atomic::Ordering::SeqCst), 2);
+        assert_eq!(queries(&next_at), 0, "the next member is not asked");
     }
 }

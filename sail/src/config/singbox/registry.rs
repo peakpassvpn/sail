@@ -286,6 +286,26 @@ const CONTEXT: &[(&str, &str, &str)] = &[
         r#"[{ "type": "local", "tag": "other" }]"#,
     ),
     (
+        "dns.servers[sequential].servers",
+        "{}",
+        r#"[{ "type": "local", "tag": "other" }]"#,
+    ),
+    (
+        "dns.servers[sequential].attempt_timeout",
+        r#"{ "servers": ["local", "other"] }"#,
+        r#"[{ "type": "local", "tag": "other" }]"#,
+    ),
+    (
+        "dns.servers[sequential].budget",
+        r#"{ "servers": ["local", "other"] }"#,
+        r#"[{ "type": "local", "tag": "other" }]"#,
+    ),
+    (
+        "dns.servers[sequential].prefer_for",
+        r#"{ "servers": ["local", "other"] }"#,
+        r#"[{ "type": "local", "tag": "other" }]"#,
+    ),
+    (
         "dns.rules[].ip_match_all",
         r#"{ "match_response": true, "ip_cidr": ["10.0.0.0/8"] }"#,
         r#"[{ "domain": "a", "action": "evaluate", "server": "local" }]"#,
@@ -1049,6 +1069,26 @@ const EXTENSIONS: &[(&str, &str, &str)] = &[
         "dns.servers[race].servers",
         r#"["local", "other"]"#,
         "A server that asks its members at once and takes the first good answer",
+    ),
+    (
+        "dns.servers[sequential].servers",
+        r#"["local", "other"]"#,
+        "A server that asks its members one after another, the next only when one does not answer, within a budget",
+    ),
+    (
+        "dns.servers[sequential].attempt_timeout",
+        r#""3s""#,
+        "How long each member of a sequential server has to answer",
+    ),
+    (
+        "dns.servers[sequential].budget",
+        r#""8s""#,
+        "How long a whole query to a sequential server may take, under dns.timeout",
+    ),
+    (
+        "dns.servers[sequential].prefer_for",
+        r#""10m""#,
+        "How long a member that answered in place of the first is asked first",
     ),
     (
         "dns.servers[udp|tcp|tls|quic|https|h3].respect_rules",
