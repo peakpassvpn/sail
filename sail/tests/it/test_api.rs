@@ -306,8 +306,9 @@ fn the_api_reads_and_changes_users_and_connections() -> anyhow::Result<()> {
         let (status, _, body) = get("/api/v1")?;
         anyhow::ensure!(
             status == 200
-                && body["api_version"] == 1
-                && body["json_version"] == sail::control::json::VERSION,
+                && body["version"] == env!("CARGO_PKG_VERSION")
+                && body["features"].is_array()
+                && body.get("api_version").is_none(),
             "{} {}",
             status,
             body

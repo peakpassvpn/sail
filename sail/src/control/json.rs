@@ -1,12 +1,14 @@
 //! The JSON hosts are answered with, the C ABI and the management API
 //! alike: sail's own shape, the control types serialized in snake_case
 //! with typed fields (the Clash API renders Mihomo's from the same types).
-//! It is a public contract, so the snapshot test below fails on any change
-//! to it: change the snapshot and `VERSION` on purpose, and with them the
-//! version of each API that answers with it.
-
-/// The version of the shape, raised with any change to it.
-pub const VERSION: u32 = 5;
+//!
+//! It carries no version number. It only grows: a field, a type or a
+//! string value may be added, and a host ignores what it does not know
+//! (the Swift and Kotlin bindings do). Taking a field away, renaming it, or
+//! changing its type or meaning breaks hosts: it follows the sail release
+//! and goes in the release notes; the management API takes it to a new
+//! path (/api/v2). The snapshot test below, which the bindings' tests read
+//! too, catches a change made by accident.
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -23,16 +25,21 @@ fn millis(delay: Duration) -> u64 {
 
 #[derive(Serialize)]
 pub struct Capabilities {
-    pub api_version: u32,
-    /// `VERSION`: the shape of this JSON.
-    pub json_version: u32,
+    /// The sail release.
     pub version: &'static str,
+    /// The modules compiled in (`inbound-tun`, `outbound-vless`…): what was
+    /// built, not which calls or fields there are. A call a sail lacks
+    /// answers that it is unsupported; a field it lacks is absent.
     pub features: Vec<&'static str>,
 }
 
 /// What an instance can do, as it runs.
 #[derive(Serialize)]
 pub struct InstanceCapabilities {
+    /// The sail release the instance runs: through a command service
+    /// client, the tunnel process's, which may differ from the app's after
+    /// an update (an old system extension still running).
+    pub version: String,
     pub has_tun: bool,
     pub opens_tun: bool,
     pub protects_sockets: bool,
@@ -590,8 +597,10 @@ mod tests {
                 .unwrap(),
             },
             "capabilities": InstanceCapabilities {
-                has_tun: true, opens_tun: false, protects_sockets: true, needs_network: false, has_modes: true,
+                version: "0.15.0".into(), has_tun: true, opens_tun: false, protects_sockets: true,
+                needs_network: false, has_modes: true,
             },
+            "sail_capabilities": Capabilities { version: "0.15.0", features: vec!["inbound-socks"] },
             "providers": Providers { providers: vec![Provider {
                 tag: "sub".into(), source: "remote".into(), members: 3,
                 updated_ms: Some(millis_since_epoch(at)), next_update_ms: None,
@@ -623,41 +632,51 @@ mod tests {
                 behavior: Some("domain".into()), rules: 9, updated_ms: None, next_update_ms: None, failure: None,
             }] },
         });
-        let published = r#"{
-  "capabilities": {"has_modes": true, "has_tun": true, "needs_network": false, "opens_tun": false, "protects_sockets": true},
-  "inbound_users": {"users": ["alice"]},
-  "user_event": {"event": "removed", "expired": false, "inbound": "t", "over_quota": false, "user": "alice"},
-  "inbounds": {"inbounds": [{"listen": "::", "listen_port": 443, "protocol": "trojan", "reloadable": true,
-                             "tag": "t"}]},
-  "connection": {"chains": ["b", "sel"], "destination": "example.com:443", "dial_domain_source": "sniff",
-                 "download": 5, "host": "example.com", "id": 12, "sniff_host": "sni.example.com",
-                 "inbound_tag": "in", "inbound_type": "socks", "network": "tcp", "packages": ["com.example"],
-                 "process": null, "rule": null, "source": "127.0.0.1:5000", "start": 1759300000,
-                 "uid": 10123, "upload": 4, "user": "alice"},
-  "log": {"dropped": 2, "lines": [{"level": "info", "message": "m", "time_ms": 1}], "reset": true},
-  "mode": {"mode": "Rule", "modes": ["Rule", "Global"]},
-  "providers": {"providers": [{"failure": {"at_ms": 1, "error": "http status 503"}, "members": 3,
-                 "next_update_ms": null, "source": "remote",
-                 "subscription": {"download": 2, "expire_ms": null, "total": 3, "upload": 1},
-                 "tag": "sub", "updated_ms": 1759300000123}]},
-  "rule_sets": {"rule_sets": [{"behavior": "domain", "failure": null, "format": "clash-yaml", "next_update_ms": null,
-                 "rules": 9, "source": "local", "tag": "ads", "updated_ms": null}]},
-  "network": {"generation": 2, "new": {"interface": "wlan0", "ssid": "home", "type": "wifi"}, "old": {},
-              "reason": "host"},
-  "outbound": {"group": {"members": ["a", "b"], "selectable": true, "selected": "b"},
-               "history": [{"delay_ms": 1, "time_ms": 1759300000123}, {"delay_ms": null, "time_ms": 0}],
-               "kind": "Selector", "protocol": "selector", "provider": null, "tag": "sel", "udp": true},
-  "state": {"error": "x", "started_at_ms": null, "state": "failed"},
-  "stats": {"inbounds": {}, "outbounds": {}, "users": {"alice": {"down": 2, "tcp": 3, "udp": 0, "up": 1}}},
-  "status": {"connections": 5, "down": 2, "down_total": 4, "memory": 6, "up": 1, "up_total": 3},
-  "traffic": {"connections": 3, "down_total": 2, "memory": 4, "up_total": 1},
-  "users": {"users": [{"active": false, "expired": false, "inbounds": ["t"],
-             "limits": {"down_mbps": 5, "expire_at_ms": 1759300000123, "max_connections": 2, "quota_bytes": 10,
-                        "up_mbps": null},
-             "live": 1, "name": "alice", "over_quota": true, "quota_used": 12,
-             "traffic": {"down": 2, "tcp": 3, "udp": 4, "up": 1}}]}
-}"#;
+        // The published shape: the bindings' tests read it too.
+        let published = include_str!("json_snapshot.json");
         let published: serde_json::Value = serde_json::from_str(published).unwrap();
-        assert_eq!(snapshot, published, "{:#}", snapshot);
+        let mut gone = Vec::new();
+        missing("", &published, &snapshot, &mut gone);
+        assert!(
+            snapshot == published,
+            "the JSON hosts read changed. {}Now:\n{:#}",
+            if gone.is_empty() {
+                "Something was added or a value changed: update json_snapshot.json.\n".to_string()
+            } else {
+                format!(
+                    "Gone or renamed: {}. That breaks hosts: it follows the sail \
+                     release and needs a release note.\n",
+                    gone.join(", ")
+                )
+            },
+            snapshot
+        );
+    }
+
+    /// The keys of `published`, as paths, that `now` has no more.
+    fn missing(
+        at: &str,
+        published: &serde_json::Value,
+        now: &serde_json::Value,
+        gone: &mut Vec<String>,
+    ) {
+        use serde_json::Value;
+        match (published, now) {
+            (Value::Object(was), Value::Object(is)) => {
+                for (key, value) in was {
+                    let path = format!("{}/{}", at, key);
+                    match is.get(key) {
+                        Some(now) => missing(&path, value, now, gone),
+                        None => gone.push(path),
+                    }
+                }
+            }
+            (Value::Array(was), Value::Array(is)) => {
+                for (n, (value, now)) in was.iter().zip(is).enumerate() {
+                    missing(&format!("{}/{}", at, n), value, now, gone);
+                }
+            }
+            _ => {}
+        }
     }
 }

@@ -1285,6 +1285,51 @@ mod command {
         });
     }
 
+    /// A service of another release lacks a call: it fails as unsupported,
+    /// and the client goes on, as a host needs when an app is updated
+    /// while its old system extension still runs.
+    #[test]
+    fn a_call_the_service_lacks_is_unsupported_and_the_client_goes_on() {
+        let _serial = serial();
+        within(Duration::from_secs(60), || {
+            let path = socket("lacks");
+            let instance = new_instance(None, None);
+            let options = serde_json::json!({ "path": path }).to_string();
+            assert_eq!(serve(instance, &options), SAIL_OK);
+            let handle = connect(&options).unwrap();
+            start(instance, &config(free_port()));
+            let client = crate::command::client::client(handle).unwrap();
+            let mut grpc = tonic::client::Grpc::new(client.raw.clone());
+            let failed = client
+                .block(async move {
+                    grpc.ready()
+                        .await
+                        .map_err(|e| tonic::Status::unknown(e.to_string()))?;
+                    grpc.unary::<crate::command::proto::Empty, crate::command::proto::Empty, _>(
+                        tonic::Request::new(crate::command::proto::Empty {}),
+                        http::uri::PathAndQuery::from_static(
+                            "/sail.command.v1.Started/AFutureCall",
+                        ),
+                        tonic_prost::ProstCodec::default(),
+                    )
+                    .await
+                })
+                .unwrap()
+                .unwrap_err();
+            assert_eq!(
+                crate::command::failure_of(failed).code,
+                SAIL_ERR_UNSUPPORTED
+            );
+            // The same client still answers.
+            assert_eq!(state(handle), "running");
+            let capabilities = json_of(|o, e| unsafe { sail_instance_capabilities(handle, o, e) });
+            assert_eq!(capabilities["version"], env!("CARGO_PKG_VERSION"));
+            stop(instance);
+            sail_instance_free(handle);
+            sail_instance_free(instance);
+        });
+    }
+
     #[test]
     fn a_client_cannot_dial() {
         let _serial = serial();

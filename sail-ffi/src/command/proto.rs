@@ -7,8 +7,7 @@
 pub struct Empty {}
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct Version {
-    #[prost(uint32, tag = "1")]
-    pub api_version: u32,
+    /// The sail release the service runs.
     #[prost(string, tag = "2")]
     pub version: ::prost::alloc::string::String,
     #[prost(string, repeated, tag = "3")]

@@ -237,12 +237,11 @@ pub unsafe extern "C" fn sail_free_string(s: *mut c_char) {
     }
 }
 
-/// The version of this C ABI: raised when a function changes.
-pub const SAIL_API_VERSION: u32 = 4;
-
-/// What this build of sail has, as JSON: `{"api_version", "json_version"
-/// (the shape of the JSON sail answers with), "version", "features":
-/// ["inbound-tun", "outbound-vless", …]}`.
+/// What this build of sail is, as JSON: `{"version", "features":
+/// ["inbound-tun", "outbound-vless", …]}`, the release and the modules
+/// compiled in. The features say what was built, not which functions or
+/// fields there are: there is no version number to compare (see the
+/// header's contract).
 ///
 /// @param out Takes the JSON, the host's to free.
 /// @param err Takes the message of a failure, or null.
@@ -252,8 +251,6 @@ pub unsafe extern "C" fn sail_capabilities(out: *mut *mut c_char, err: *mut *mut
         out_json(
             out,
             &json::Capabilities {
-                api_version: SAIL_API_VERSION,
-                json_version: json::VERSION,
                 version: env!("CARGO_PKG_VERSION"),
                 features: sail::control::features(),
             },
@@ -281,7 +278,7 @@ mod tests {
     }
 
     #[test]
-    fn the_capabilities_name_the_api_and_the_features() {
+    fn the_capabilities_name_the_release_and_the_features() {
         let mut out = std::ptr::null_mut();
         assert_eq!(
             unsafe { sail_capabilities(&mut out, std::ptr::null_mut()) },
@@ -290,7 +287,8 @@ mod tests {
         let json: serde_json::Value =
             serde_json::from_str(unsafe { CStr::from_ptr(out) }.to_str().unwrap()).unwrap();
         unsafe { sail_free_string(out) };
-        assert_eq!(json["api_version"], SAIL_API_VERSION);
+        assert_eq!(json["version"], env!("CARGO_PKG_VERSION"));
+        assert!(json.get("api_version").is_none() && json.get("json_version").is_none());
         assert!(json["features"].as_array().unwrap().len() > 1);
         assert_eq!(
             unsafe { sail_capabilities(std::ptr::null_mut(), std::ptr::null_mut()) },

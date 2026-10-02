@@ -75,9 +75,37 @@ kept.
 serialized directly, snake_case, typed (ports are numbers, a missing value
 is null). It is not the Clash API's shape, which the Clash API renders from
 the same types. It is core's (`sail::control::json`), which the
-management API answers with too. A snapshot test pins it: a change to it is
-a change of the contract, raising its version (`json_version` in
-`sail_capabilities`) and `SAIL_API_VERSION`.
+management API answers with too. It carries no version number and only
+grows; see **Compatibility** below.
+
+**Compatibility.** There is no version number to compare, neither of the C
+ABI nor of the JSON. Instead:
+
+- **The C ABI only grows.** A function, once in a release, never changes
+  its signature or what it means; a change is a new function
+  (`sail_check_config2`). New constants and callbacks at the end of
+  `SailPlatform` (read by its `struct_size`) are added the same way.
+- **The JSON only grows.** A release may add fields, types and string
+  values; a host ignores what it does not know, and reads a field an older
+  sail lacks as absent (the Swift and Kotlin bindings do both). Taking a
+  field away, renaming it, or changing its type or meaning breaks hosts:
+  it comes with a sail release and its notes say so. A snapshot test,
+  which the bindings' tests read too, catches such a change made by
+  accident.
+- **What a sail has.** `sail_capabilities` gives `version`, the sail
+  release, and `features`, the modules compiled in (`inbound-tun`,
+  `outbound-vless`…): what was built, not which functions or fields there
+  are. A call a sail lacks fails with `SAIL_ERR_UNSUPPORTED`; a field it
+  lacks is absent.
+- **Two releases on one device.** A command service client works with a
+  service of another release: it warns, and goes on. The tunnel process's
+  release is `version` in `sail_instance_capabilities` through the client,
+  which a host compares with its own `sail_capabilities` to offer to
+  restart a system extension left from before an update. A call the
+  service lacks fails with `SAIL_ERR_UNSUPPORTED`, and the client stays
+  usable.
+- **The management API** keeps `/api/v1`: under it, routes and fields are
+  only added; a change that takes one away goes under `/api/v2`.
 
 **Threads.**
 
@@ -173,8 +201,7 @@ it.
 
 ## Android: per-app proxying
 
-**For hosts**: since API and JSON version 2, with no compatibility with
-version 1 (version 3 adds the providers and rule-sets). The TUN request no longer carries `include_android_user`;
+**For hosts**: since sail 0.15.0, the TUN request no longer carries `include_android_user`;
 `SailPlatform` gains `find_connection_owner`; a connection's JSON gains
 `uid` and `packages`. Matching rules by app needs Android API 29 or later
 (`getConnectionOwnerUid`).

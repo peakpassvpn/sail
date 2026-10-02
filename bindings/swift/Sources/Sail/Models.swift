@@ -184,6 +184,10 @@ public struct Log: Decodable, Equatable, Sendable {
 }
 
 public struct InstanceCapabilities: Decodable, Equatable, Sendable {
+    /// The sail release the instance runs: through a client, the tunnel
+    /// process's, which may differ from `Sail.capabilities()`' after an
+    /// update. Nil from an older sail.
+    public let version: String?
     public let hasTun: Bool
     public let opensTun: Bool
     public let protectsSockets: Bool
@@ -191,10 +195,13 @@ public struct InstanceCapabilities: Decodable, Equatable, Sendable {
     public let hasModes: Bool
 }
 
+/// sail's JSON carries no version: it only grows. Decoding ignores what a
+/// newer sail adds, and every field added from now on is optional, so that
+/// an older sail's JSON, without it, decodes too.
 public struct Capabilities: Decodable, Equatable, Sendable {
-    public let apiVersion: UInt32
-    public let jsonVersion: UInt32
+    /// The sail release.
     public let version: String
+    /// The modules compiled in: what was built, not which calls there are.
     public let features: [String]
 }
 

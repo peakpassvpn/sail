@@ -140,7 +140,7 @@ sing-box 的 `ntp` 段会被丢弃并给出警告；其 `services`、`certificat
 
 设置了 `api` 才会提供 API。默认在 Unix socket 上，即数据目录下的 `api.sock`（用 `path` 指定别处），只有运行 Sail 的用户能打开。`listen` 让它同时在回环地址上提供，例如 `127.0.0.1:9091`，此时必须设置 `secret`：用 `sail generate secret` 生成，每次调用以 `Authorization: Bearer <secret>` 携带，缺少或错误时返回 401。本机任何进程都能连上回环端口，而经网络发送的密钥是明文，所以 `listen` 只接受回环地址；要从别处访问，请用 SSH 隧道或反向代理。Unix socket 上设置了 `secret` 时也会校验。错误以 JSON 返回，形如 `{"error": {"code": "invalid", "message": "..."}}`；重载失败时也这样返回原因，原来的配置继续运行。
 
-管理 API 当前为第 1 版（`GET /api/v1` 返回它、JSON 的版本和本构建的特性）。第 1 版之内只新增路由和字段，客户端应忽略不认识的字段。以下路由都在 `/api/v1/runtime` 之下：
+管理 API：`GET /api/v1` 返回本构建的版本和特性。`/api/v1` 之内只增不减，客户端应忽略不认识的路由和字段；去掉或改动它们的改动放到 `/api/v2` 下。以下路由都在 `/api/v1/runtime` 之下：
 
 | 路由 | 作用 |
 | --- | --- |

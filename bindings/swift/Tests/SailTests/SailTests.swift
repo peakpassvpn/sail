@@ -140,9 +140,59 @@ final class Tracked: @unchecked Sendable {
 final class SailTests: XCTestCase {
     func testCapabilities() throws {
         let capabilities = try Sail.capabilities()
-        XCTAssertEqual(capabilities.apiVersion, 4)
-        XCTAssertEqual(capabilities.jsonVersion, 5)
+        XCTAssertFalse(capabilities.version.isEmpty)
         XCTAssertTrue(capabilities.features.contains("inbound-socks"))
+    }
+
+    /// The models read every field of the JSON sail publishes
+    /// (sail/src/control/json_snapshot.json, which sail's own test pins):
+    /// each key of it is a property of the model it decodes into, so a field
+    /// sail adds or renames that a model does not follow fails here.
+    func testTheModelsReadEveryFieldSailPublishes() throws {
+        let file = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().appendingPathComponent("../../../../sail/src/control/json_snapshot.json")
+        let snapshot = try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as! [String: Any]
+        func check<T: Decodable>(_ type: T.Type, _ key: String) throws {
+            let data = try JSONSerialization.data(withJSONObject: snapshot[key]!)
+            let value = try decoder.decode(type, from: data)
+            everyKey(snapshot[key]!, isIn: value, at: key)
+        }
+        let models: [String: () throws -> Void] = [
+            "capabilities": { try check(InstanceCapabilities.self, "capabilities") },
+            "sail_capabilities": { try check(Capabilities.self, "sail_capabilities") },
+            "connection": { try check(Connection.self, "connection") },
+            "log": { try check(Log.self, "log") },
+            "mode": { try check(Mode.self, "mode") },
+            "outbound": { try check(Outbound.self, "outbound") },
+            "providers": { try check(Providers.self, "providers") },
+            "rule_sets": { try check(RuleSets.self, "rule_sets") },
+            "state": { try check(State.self, "state") },
+            "status": { try check(Status.self, "status") },
+            "traffic": { try check(Traffic.self, "traffic") },
+        ]
+        // What the management API answers with, or an event read as text.
+        let notModelled: Set<String> = ["network", "users", "stats", "inbounds", "inbound_users", "user_event"]
+        for key in snapshot.keys where !notModelled.contains(key) {
+            guard let model = models[key] else {
+                XCTFail("the snapshot's \(key) has no model here: add one, or say why not")
+                continue
+            }
+            try model()
+        }
+    }
+
+    /// What a newer sail adds, a field or a string value, does not fail.
+    func testANewerSailsJsonStillReads() throws {
+        let connection = try decode(Connection.self, """
+        {"id": 1, "network": "sctp", "inbound_type": "a-new-kind", "inbound_tag": "in",
+         "source": "127.0.0.1:1", "destination": "example.com:443", "upload": 0, "download": 0,
+         "start": 0, "chains": [], "packages": [], "a_field_from_later": {"nested": [1, 2]}}
+        """)
+        XCTAssertEqual(connection.network, "sctp")
+        let capabilities = try decode(InstanceCapabilities.self, """
+        {"has_tun": false, "opens_tun": false, "protects_sockets": false, "needs_network": false, "has_modes": false}
+        """)
+        XCTAssertNil(capabilities.version, "a field an older sail lacks is nil")
     }
 
     func testAnInstanceIsDrivenFromSwift() async throws {
@@ -326,5 +376,38 @@ final class SailTests: XCTestCase {
         }
         XCTAssertEqual(try sail.state().state, "failed")
         XCTAssertThrowsError(try Sail(settings: "{\"nothing\": 1}"))
+    }
+}
+
+/// Each key of `json` (snake_case) is a property of `value`, and so for
+/// the objects within.
+func everyKey(_ json: Any, isIn value: Any, at path: String) {
+    func camel(_ key: String) -> String {
+        let parts = key.split(separator: "_")
+        return parts.enumerated().map { $0.offset == 0 ? String($0.element) : $0.element.capitalized }.joined()
+    }
+    func unwrapped(_ any: Any) -> Any? {
+        let mirror = Mirror(reflecting: any)
+        guard mirror.displayStyle == .optional else { return any }
+        return mirror.children.first.map { unwrapped($0.value) } ?? nil
+    }
+    guard let value = unwrapped(value) else { return }
+    if let object = json as? [String: Any] {
+        let mirror = Mirror(reflecting: value)
+        // A dictionary model (keyed by name) is not a struct to look into.
+        guard mirror.displayStyle == .struct else { return }
+        let properties = Dictionary(mirror.children.compactMap { child in child.label.map { ($0, child.value) } },
+                                    uniquingKeysWith: { a, _ in a })
+        for (key, inner) in object {
+            guard let property = properties[camel(key)] else {
+                XCTFail("\(path)/\(key): no property \(camel(key)) in \(type(of: value))")
+                continue
+            }
+            everyKey(inner, isIn: property, at: "\(path)/\(key)")
+        }
+    } else if let array = json as? [Any], let values = value as? [Any] {
+        for (n, (inner, element)) in zip(array, values).enumerated() {
+            everyKey(inner, isIn: element, at: "\(path)/\(n)")
+        }
     }
 }

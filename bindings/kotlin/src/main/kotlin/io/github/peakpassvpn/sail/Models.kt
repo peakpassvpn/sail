@@ -21,7 +21,13 @@ class SailException(val code: Int, message: String) : Exception(message) {
     }
 }
 
-internal val json = Json { ignoreUnknownKeys = false }
+/**
+ * sail's JSON carries no version: it only grows, and what this binding does
+ * not know of a newer sail (a field, a string value) is ignored. Every field
+ * added from now on has a default, so that an older sail's JSON, without
+ * it, decodes too.
+ */
+internal val json = Json { ignoreUnknownKeys = true }
 
 @Serializable
 data class State(
@@ -120,6 +126,11 @@ data class Log(val reset: Boolean, val lines: List<LogLine>, val dropped: Long)
 
 @Serializable
 data class InstanceCapabilities(
+    /**
+     * The sail release the instance runs: through a client, the tunnel
+     * process's, which may differ from [Sail.capabilities]' after an update.
+     */
+    val version: String? = null,
     @SerialName("has_tun") val hasTun: Boolean,
     @SerialName("opens_tun") val opensTun: Boolean,
     @SerialName("protects_sockets") val protectsSockets: Boolean,
@@ -129,9 +140,9 @@ data class InstanceCapabilities(
 
 @Serializable
 data class Capabilities(
-    @SerialName("api_version") val apiVersion: Int,
-    @SerialName("json_version") val jsonVersion: Int,
+    /** The sail release. */
     val version: String,
+    /** The modules compiled in: what was built, not which calls there are. */
     val features: List<String>,
 )
 

@@ -15,6 +15,9 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
 
 /** A free loopback port. */
 fun freePort(): Int = ServerSocket(0, 1, InetAddress.getLoopbackAddress()).use { it.localPort }
@@ -72,11 +75,62 @@ fun config(port: Int) = """
 
 class SailTest {
     @Test
-    fun theCapabilitiesNameTheApi() {
+    fun theCapabilitiesNameTheBuild() {
         val capabilities = Sail.capabilities()
-        assertEquals(4, capabilities.apiVersion)
-        assertEquals(5, capabilities.jsonVersion)
+        assertTrue(capabilities.version.isNotEmpty())
         assertTrue("inbound-socks" in capabilities.features)
+    }
+
+    /**
+     * The models read every field of the JSON sail publishes
+     * (sail/src/control/json_snapshot.json, which sail's own test pins), and
+     * decoded strictly: a field sail adds or renames that a model does not
+     * follow fails here, not in a host.
+     */
+    @Test
+    fun theModelsReadEveryFieldSailPublishes() {
+        val strict = Json { ignoreUnknownKeys = false }
+        val snapshot = strict.parseToJsonElement(
+            java.io.File("../../sail/src/control/json_snapshot.json").readText()
+        ).jsonObject
+        val models: Map<String, kotlinx.serialization.KSerializer<*>> = mapOf(
+            "capabilities" to InstanceCapabilities.serializer(),
+            "sail_capabilities" to Capabilities.serializer(),
+            "connection" to Connection.serializer(),
+            "log" to Log.serializer(),
+            "mode" to Mode.serializer(),
+            "outbound" to Outbound.serializer(),
+            "providers" to Providers.serializer(),
+            "rule_sets" to RuleSets.serializer(),
+            "state" to State.serializer(),
+            "status" to Status.serializer(),
+            "traffic" to Traffic.serializer(),
+        )
+        // What the management API answers with, or an event read as text.
+        val notModelled = setOf("network", "users", "stats", "inbounds", "inbound_users", "user_event")
+        for ((key, value) in snapshot) {
+            if (key in notModelled) continue
+            val model = assertNotNull(models[key], "the snapshot's $key has no model here: add one, or say why not")
+            strict.decodeFromJsonElement(model, value)
+        }
+    }
+
+    /** What a newer sail adds, a field or a string value, does not fail. */
+    @Test
+    fun aNewerSailsJsonStillReads() {
+        val connection = json.decodeFromString<Connection>(
+            """
+            {"id": 1, "network": "sctp", "inbound_type": "a-new-kind", "inbound_tag": "in",
+             "source": "127.0.0.1:1", "destination": "example.com:443", "upload": 0, "download": 0,
+             "start": 0, "chains": [], "a_field_from_later": {"nested": [1, 2]}}
+            """.trimIndent()
+        )
+        assertEquals("sctp", connection.network)
+        val capabilities = json.decodeFromString<InstanceCapabilities>(
+            """{"has_tun": false, "opens_tun": false, "protects_sockets": false, "needs_network": false,
+                "has_modes": false}"""
+        )
+        assertEquals(null, capabilities.version, "a field an older sail lacks takes its default")
     }
 
     @Test

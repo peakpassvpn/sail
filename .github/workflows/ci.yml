@@ -81,6 +81,11 @@ jobs:
             exit 1
           fi
 
+      # The C ABI only grows: each function of the latest release's header
+      # keeps its signature, and SailPlatform grows only at its end.
+      - name: the C ABI only grows
+        run: tools/ffi-abi-check.py
+
   # test: the tests of sail, sail-netstack and sail-ffi.
   test:
     runs-on: ubuntu-latest

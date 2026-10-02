@@ -1,3 +1,12 @@
+/*
+ * sail's C ABI. It only grows: a function, once in a release, never changes
+ * its signature or what it means, and a change is a new function
+ * (sail_check_config2). There is no version number to compare:
+ * sail_capabilities gives the sail release and the modules compiled in, and
+ * a call a sail lacks fails with SAIL_ERR_UNSUPPORTED. docs/ffi.md is the
+ * contract.
+ */
+
 #ifndef SAIL_H
 #define SAIL_H
 
@@ -71,11 +80,6 @@
  sail failed where it should not have; the message says how.
  */
 #define SAIL_ERR_INTERNAL 11
-
-/*
- The version of this C ABI: raised when a function changes.
- */
-#define SAIL_API_VERSION 4
 
 /*
  The instance's state, as `sail_instance_state` gives it: now, then on
@@ -231,9 +235,11 @@ extern "C" {
 void sail_free_string(char *s);
 
 /*
- What this build of sail has, as JSON: `{"api_version", "json_version"
- (the shape of the JSON sail answers with), "version", "features":
- ["inbound-tun", "outbound-vless", …]}`.
+ What this build of sail is, as JSON: `{"version", "features":
+ ["inbound-tun", "outbound-vless", …]}`, the release and the modules
+ compiled in. The features say what was built, not which functions or
+ fields there are: there is no version number to compare (see the
+ header's contract).
 
  @param out Takes the JSON, the host's to free.
  @param err Takes the message of a failure, or null.

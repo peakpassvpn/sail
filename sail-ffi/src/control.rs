@@ -715,6 +715,7 @@ pub unsafe extern "C" fn sail_instance_capabilities(
                 let manager = i.manager()?;
                 let (opens_tun, protects_sockets) = i.host_callbacks();
                 json::InstanceCapabilities {
+                    version: env!("CARGO_PKG_VERSION").to_string(),
                     has_tun: manager.has_tun(),
                     opens_tun: opens_tun && manager.has_tun(),
                     protects_sockets,
@@ -731,6 +732,7 @@ pub unsafe extern "C" fn sail_instance_capabilities(
                 }
                 let v = c.unary(|mut s| async move { s.get_version(proto::Empty {}).await })?;
                 json::InstanceCapabilities {
+                    version: v.version,
                     has_tun: v.has_tun,
                     opens_tun: v.opens_tun,
                     protects_sockets: v.protects_sockets,

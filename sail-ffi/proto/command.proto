@@ -67,7 +67,10 @@ service Managed {
 }
 
 message Version {
-  uint32 api_version = 1;
+  // The C ABI's version, gone: there is no version number to compare.
+  reserved 1;
+  reserved "api_version";
+  // The sail release the service runs.
   string version = 2;
   repeated string features = 3;
   // Of the instance, while it runs.

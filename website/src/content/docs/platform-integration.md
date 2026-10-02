@@ -23,7 +23,7 @@ This boundary keeps platform code from leaking into protocol handlers.
 
 - An instance is a 64-bit handle; 0 is never one. A freed or unknown handle fails with `SAIL_ERR_NO_INSTANCE`, never undefined behaviour. Any number of instances run in one process, each with its own log and events.
 - Every call returns a stable `SAIL_*` code and, through `char **err`, a message the host frees with `sail_free_string`.
-- Structured data is JSON: Sail's control types, snake_case and typed. It is the same JSON the management API answers with, not the Clash API's shape. `sail_capabilities` gives `api_version` (`SAIL_API_VERSION`, now 2), `json_version` (now 2), the version and the compiled features. Version 2 has no compatibility with version 1.
+- Structured data is JSON: Sail's control types, snake_case and typed. It is the same JSON the management API answers with, not the Clash API's shape. It carries no version number: it only grows, and a host ignores what it does not know. `sail_capabilities` gives the sail release and the modules compiled in. The C ABI only grows too: a released function never changes, and a change is a new function. Breaking changes come with a sail release and its notes.
 
 ## Lifecycle
 

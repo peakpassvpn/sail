@@ -15,11 +15,6 @@ use tracing::{info, warn};
 use crate::control::json;
 use crate::control::listen::{self, Listener};
 
-/// The version of the management API: its routes and what they mean.
-/// Within it routes and fields are only added; a client ignores those it
-/// does not know.
-pub const API_VERSION: u32 = 1;
-
 #[cfg(feature = "outbound-select")]
 use axum::extract::Query;
 
@@ -238,11 +233,9 @@ mod handlers {
         }
     }
 
-    /// The API's version and what this build of sail has.
+    /// This build of sail: its release, and the modules compiled in.
     pub async fn capabilities() -> Json<json::Capabilities> {
         Json(json::Capabilities {
-            api_version: API_VERSION,
-            json_version: json::VERSION,
             version: env!("CARGO_PKG_VERSION"),
             features: crate::control::features(),
         })
@@ -814,6 +807,9 @@ impl ApiServer {
     /// Serves on `listeners`, which [`bind`] made; with `secret`, a call
     /// without it is refused.
     pub fn serve(&self, listeners: Vec<Listener>, secret: Option<String>) -> crate::Runner {
+        // Under /api/v1 routes and fields are only added, and a client
+        // ignores what it does not know; a change that takes one away or
+        // changes what it means goes under /api/v2.
         let mut app = Router::new()
             .route("/api/v1/runtime/reload", post(handlers::runtime_reload))
             .route("/api/v1/runtime/shutdown", post(handlers::runtime_shutdown))

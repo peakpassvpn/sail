@@ -57,6 +57,9 @@ type Service = InterceptedService<Channel, WithSecret>;
 pub(crate) struct Client {
     pub started: StartedClient<Service>,
     pub managed: ManagedClient<Service>,
+    /// The channel itself, for a test to call what no client here has.
+    #[cfg(test)]
+    pub raw: Service,
     pub events: Events,
 }
 
@@ -116,6 +119,8 @@ impl Client {
         let interceptor = WithSecret(secret);
         let client = Arc::new(Client {
             started: StartedClient::with_interceptor(channel.clone(), interceptor.clone()),
+            #[cfg(test)]
+            raw: InterceptedService::new(channel.clone(), interceptor.clone()),
             managed: ManagedClient::with_interceptor(channel, interceptor),
             events,
         });
@@ -124,7 +129,10 @@ impl Client {
     }
 
     /// Asks the service its version until it answers, as libbox's client
-    /// does.
+    /// does. Another release than this one is no refusal: a call it lacks
+    /// answers SAIL_ERR_UNSUPPORTED, a field it lacks is absent. It is
+    /// warned of, and the host reads it in the instance's capabilities (an
+    /// app updated while its old system extension still runs).
     fn probe(&self) -> Result<(), Failure> {
         let mut started = self.started.clone();
         self.block(async move {
@@ -132,7 +140,18 @@ impl Client {
             for n in 0..PROBES {
                 let wait = PROBE_FIRST + PROBE_MORE * n;
                 match tokio::time::timeout(wait, started.get_version(proto::Empty {})).await {
-                    Ok(Ok(_)) => return Ok(()),
+                    Ok(Ok(answer)) => {
+                        let theirs = answer.into_inner().version;
+                        if theirs != env!("CARGO_PKG_VERSION") {
+                            tracing::warn!(
+                                "the command service runs sail {}, this is {}: calls one lacks \
+                                 answer that they are unsupported",
+                                theirs,
+                                env!("CARGO_PKG_VERSION")
+                            );
+                        }
+                        return Ok(());
+                    }
                     Ok(Err(status)) if status.code() == tonic::Code::Unauthenticated => {
                         return Err(failure_of(status))
                     }

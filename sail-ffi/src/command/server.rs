@@ -206,7 +206,6 @@ impl Started for StartedService {
     ) -> Result<Response<proto::Version>, Status> {
         let instance = self.instance()?;
         let mut version = proto::Version {
-            api_version: crate::SAIL_API_VERSION,
             version: env!("CARGO_PKG_VERSION").into(),
             features: sail::control::features()
                 .into_iter()

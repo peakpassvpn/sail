@@ -23,7 +23,7 @@ Sail 将代理行为保留在 Rust 核心，把宿主特有能力注入边界。
 
 - 实例是一个 64 位句柄，0 永远不是有效句柄。已释放或未知的句柄返回 `SAIL_ERR_NO_INSTANCE`，不会产生未定义行为。一个进程可同时运行任意多个实例，各有自己的日志和事件。
 - 每个调用都返回稳定的 `SAIL_*` 错误码，并通过 `char **err` 给出错误信息，由宿主用 `sail_free_string` 释放。
-- 结构化数据为 JSON：直接序列化 Sail 的控制类型，snake_case，带类型。管理 API 返回同一种 JSON，它不是 Clash API 的格式。`sail_capabilities` 给出 `api_version`（即 `SAIL_API_VERSION`，当前为 2）、`json_version`（当前为 2）、版本号和编译进来的 feature。版本 2 与版本 1 不兼容。
+- 结构化数据为 JSON：直接序列化 Sail 的控制类型，snake_case，带类型。管理 API 返回同一种 JSON，它不是 Clash API 的格式。它不带版本号：只增不减，宿主忽略不认识的内容。`sail_capabilities` 给出 sail 的发布版本和编译进来的模块。C ABI 也只增不减：已发布的函数不再改动，要改就新增一个函数。破坏性改动随 sail 的发布一起，并写进发布说明。
 
 ## 生命周期
 

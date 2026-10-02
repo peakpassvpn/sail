@@ -1,0 +1,211 @@
+{
+  "capabilities": {
+    "has_modes": true,
+    "has_tun": true,
+    "needs_network": false,
+    "opens_tun": false,
+    "protects_sockets": true,
+    "version": "0.15.0"
+  },
+  "connection": {
+    "chains": [
+      "b",
+      "sel"
+    ],
+    "destination": "example.com:443",
+    "dial_domain_source": "sniff",
+    "download": 5,
+    "host": "example.com",
+    "id": 12,
+    "inbound_tag": "in",
+    "inbound_type": "socks",
+    "network": "tcp",
+    "packages": [
+      "com.example"
+    ],
+    "process": null,
+    "rule": null,
+    "sniff_host": "sni.example.com",
+    "source": "127.0.0.1:5000",
+    "start": 1759300000,
+    "uid": 10123,
+    "upload": 4,
+    "user": "alice"
+  },
+  "inbound_users": {
+    "users": [
+      "alice"
+    ]
+  },
+  "inbounds": {
+    "inbounds": [
+      {
+        "listen": "::",
+        "listen_port": 443,
+        "protocol": "trojan",
+        "reloadable": true,
+        "tag": "t"
+      }
+    ]
+  },
+  "log": {
+    "dropped": 2,
+    "lines": [
+      {
+        "level": "info",
+        "message": "m",
+        "time_ms": 1
+      }
+    ],
+    "reset": true
+  },
+  "mode": {
+    "mode": "Rule",
+    "modes": [
+      "Rule",
+      "Global"
+    ]
+  },
+  "network": {
+    "generation": 2,
+    "new": {
+      "interface": "wlan0",
+      "ssid": "home",
+      "type": "wifi"
+    },
+    "old": {},
+    "reason": "host"
+  },
+  "outbound": {
+    "group": {
+      "members": [
+        "a",
+        "b"
+      ],
+      "selectable": true,
+      "selected": "b"
+    },
+    "history": [
+      {
+        "delay_ms": 1,
+        "time_ms": 1759300000123
+      },
+      {
+        "delay_ms": null,
+        "time_ms": 0
+      }
+    ],
+    "kind": "Selector",
+    "protocol": "selector",
+    "provider": null,
+    "tag": "sel",
+    "udp": true
+  },
+  "providers": {
+    "providers": [
+      {
+        "failure": {
+          "at_ms": 1,
+          "error": "http status 503"
+        },
+        "members": 3,
+        "next_update_ms": null,
+        "source": "remote",
+        "subscription": {
+          "download": 2,
+          "expire_ms": null,
+          "total": 3,
+          "upload": 1
+        },
+        "tag": "sub",
+        "updated_ms": 1759300000123
+      }
+    ]
+  },
+  "rule_sets": {
+    "rule_sets": [
+      {
+        "behavior": "domain",
+        "failure": null,
+        "format": "clash-yaml",
+        "next_update_ms": null,
+        "rules": 9,
+        "source": "local",
+        "tag": "ads",
+        "updated_ms": null
+      }
+    ]
+  },
+  "sail_capabilities": {
+    "features": [
+      "inbound-socks"
+    ],
+    "version": "0.15.0"
+  },
+  "state": {
+    "error": "x",
+    "started_at_ms": null,
+    "state": "failed"
+  },
+  "stats": {
+    "inbounds": {},
+    "outbounds": {},
+    "users": {
+      "alice": {
+        "down": 2,
+        "tcp": 3,
+        "udp": 0,
+        "up": 1
+      }
+    }
+  },
+  "status": {
+    "connections": 5,
+    "down": 2,
+    "down_total": 4,
+    "memory": 6,
+    "up": 1,
+    "up_total": 3
+  },
+  "traffic": {
+    "connections": 3,
+    "down_total": 2,
+    "memory": 4,
+    "up_total": 1
+  },
+  "user_event": {
+    "event": "removed",
+    "expired": false,
+    "inbound": "t",
+    "over_quota": false,
+    "user": "alice"
+  },
+  "users": {
+    "users": [
+      {
+        "active": false,
+        "expired": false,
+        "inbounds": [
+          "t"
+        ],
+        "limits": {
+          "down_mbps": 5,
+          "expire_at_ms": 1759300000123,
+          "max_connections": 2,
+          "quota_bytes": 10,
+          "up_mbps": null
+        },
+        "live": 1,
+        "name": "alice",
+        "over_quota": true,
+        "quota_used": 12,
+        "traffic": {
+          "down": 2,
+          "tcp": 3,
+          "udp": 4,
+          "up": 1
+        }
+      }
+    ]
+  }
+}

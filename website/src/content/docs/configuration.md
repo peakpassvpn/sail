@@ -140,7 +140,7 @@ Log levels are `trace`, `debug`, `info`, `warn` (or `warning`) and `error`; `fat
 
 The API is served when `api` is set. By default it is on a unix socket, `api.sock` in the data directory (`path` sets another), which only the user Sail runs as can open. `listen` serves it on a loopback address too, such as `127.0.0.1:9091`, and needs `secret`: one `sail generate secret` makes, which every call sends as `Authorization: Bearer <secret>`; a call without it gets 401. Any process on the host can reach a loopback port, and a secret sent over a network travels in the clear, so `listen` takes loopback addresses only; reach the API from elsewhere through an SSH tunnel or a reverse proxy. A `secret` set for the socket is checked there too. Errors are JSON, `{"error": {"code": "invalid", "message": "..."}}`; a reload that fails answers so, with why, and the configuration that ran runs on.
 
-The management API, version 1 (`GET /api/v1` gives it, the JSON's version and the build's features). Within version 1, routes and fields are only added; a client ignores those it does not know. Under `/api/v1/runtime`:
+The management API: `GET /api/v1` gives this build's version and features. Under `/api/v1`, routes and fields are only added, and a client ignores those it does not know; a change that takes one away or changes what it means goes under `/api/v2`. Under `/api/v1/runtime`:
 
 | Route | What it does |
 | --- | --- |
