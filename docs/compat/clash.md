@@ -11,6 +11,8 @@ Every field Mihomo v1.19.31 takes, and how sail reads it: measured by reading a 
 
 As in Mihomo, a rule on addresses (`IP-CIDR`, `GEOIP` and the like, without `no-resolve`) resolves a domain only to match it: a direct outbound dials the address it resolved to, while a proxy's server is still sent the domain.
 
+`timeout`, `max-failed-times`, `expected-status` and `lazy` are read for `url-test` and `fallback` groups, and warned of for the others, which the table measures. A lazy `url-test` group pauses its tests once unused for its `interval`, as Mihomo's; a urltest of sail's own configuration pauses after its `idle_timeout`, 30 minutes by default.
+
 | Section | Fields | Supported | Warned | Error |
 |---|--:|--:|--:|--:|
 | `clash-for-android` | 3 | 0 | 3 | 0 |

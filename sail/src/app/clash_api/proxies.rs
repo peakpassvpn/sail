@@ -58,9 +58,12 @@ pub(super) fn proxy(outbound: &OutboundInfo) -> Value {
             "testUrl".into(),
             json!(group.test_url.as_deref().unwrap_or("")),
         );
-        if let Some(expected) = &group.expected_status {
-            proxy.insert("expectedStatus".into(), json!(expected));
-        }
+        // As Mihomo's groups that test, `*` for any (adapter/outboundgroup/
+        // fallback.go, parser.go); "" for one that does not.
+        proxy.insert(
+            "expectedStatus".into(),
+            json!(group.expected_status.as_deref().unwrap_or("")),
+        );
         if !group.selectable {
             proxy.insert("fixed".into(), json!(group.fixed.as_deref().unwrap_or("")));
         }

@@ -262,7 +262,8 @@ fn how_groups_test_their_members_is_lowered() {
          proxy-groups:\n\
          \x20 - { name: F, type: fallback, proxies: [a, b], timeout: 2000, max-failed-times: 3, expected-status: '200/204', lazy: false }\n\
          \x20 - { name: U, type: url-test, proxies: [a, b], timeout: 0, max-failed-times: 0, expected-status: '*', lazy: true }\n\
-         \x20 - { name: S, type: select, proxies: [F, U], timeout: 2000 }\n",
+         \x20 - { name: S, type: select, proxies: [F, U, E], timeout: 2000 }\n\
+         \x20 - { name: E, type: url-test, proxies: [a], interval: 60, lazy: false }\n",
     );
     let f = &outbound(&config, "F").options;
     assert_eq!(f["timeout"], "2000ms");
@@ -274,9 +275,40 @@ fn how_groups_test_their_members_is_lowered() {
     for key in ["timeout", "max_failed_times", "expected_status", "lazy"] {
         assert!(u.get(key).is_none(), "{}: {:?}", key, u);
     }
+    // Lazy, it pauses after an interval unused, as Mihomo's; not lazy,
+    // never.
+    assert_eq!(u["idle_timeout"], "300s");
+    assert!(f.get("idle_timeout").is_none());
+    let e = &outbound(&config, "E").options;
+    assert_eq!(e["lazy"], false);
+    assert!(e.get("idle_timeout").is_none());
     // Only a select group's are passed over.
     assert_eq!(config.warnings.len(), 1, "{:?}", config.warnings);
     assert!(config.warnings[0].contains("proxy-groups[2].timeout"));
+}
+
+/// A Clash group that leaves `timeout` and `max-failed-times` unset gets
+/// sail's defaults, which must stay Mihomo's: 5000 ms and 5 failures
+/// (adapter/outboundgroup/groupbase.go, `NewGroupBase`).
+#[cfg(all(feature = "outbound-urltest", feature = "outbound-fallback"))]
+#[test]
+fn unset_test_fields_are_mihomo_s_defaults_in_sail() {
+    use crate::protocol::group::health;
+    let config = load(
+        "proxies: [{ name: a, type: direct }]\n\
+         proxy-groups:\n\
+         \x20 - { name: F, type: fallback, proxies: [a] }\n\
+         \x20 - { name: U, type: url-test, proxies: [a] }\n",
+    );
+    for tag in ["F", "U"] {
+        let o = &outbound(&config, tag).options;
+        assert!(o.get("timeout").is_none() && o.get("max_failed_times").is_none());
+    }
+    assert_eq!(
+        health::DEFAULT_TIMEOUT,
+        std::time::Duration::from_millis(5000)
+    );
+    assert_eq!(health::DEFAULT_MAX_FAILED_TIMES, 5);
 }
 
 #[test]

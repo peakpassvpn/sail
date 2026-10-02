@@ -407,58 +407,89 @@ fn a_dashboard_pins_a_fallback() -> anyhow::Result<()> {
         std::time::Duration::ZERO,
     ));
     let url = format!("http://127.0.0.1:{}/generate_204", served);
-    let (ids, port) = common::retry_port_clash(|| {
-        let [port] = common::free_ports();
-        let config = serde_json::json!({
-            "clash_api": {
-                "external_controller": format!("127.0.0.1:{}", port),
-                "secret": secret,
-            },
-            "outbounds": [
-                { "type": "fallback", "tag": "fb", "outbounds": ["a", "b"], "url": url,
-                  "expected_status": "204" },
-                { "type": "direct", "tag": "a" },
-                { "type": "direct", "tag": "b" },
-            ],
-        });
-        Ok((
-            common::run_sail_instances(&rt, vec![config.to_string()])?,
-            port,
-        ))
-    })?;
+    let dir = common::TempDir::new("clash-api-pin")?;
+    let cache = dir.join("cache.db");
+    let start = || {
+        common::retry_port_clash(|| {
+            let [port] = common::free_ports();
+            let config = serde_json::json!({
+                "clash_api": {
+                    "external_controller": format!("127.0.0.1:{}", port),
+                    "secret": secret,
+                },
+                "experimental": { "cache_file": {
+                    "enabled": true,
+                    "path": cache.to_str().unwrap(),
+                } },
+                "outbounds": [
+                    { "type": "fallback", "tag": "fb", "outbounds": ["a", "b"], "url": url,
+                      "expected_status": "204" },
+                    { "type": "selector", "tag": "s", "outbounds": ["a"] },
+                    { "type": "direct", "tag": "a" },
+                    { "type": "direct", "tag": "b" },
+                ],
+            });
+            Ok((
+                common::run_sail_instances(&rt, vec![config.to_string()])?,
+                port,
+            ))
+        })
+    };
     let s = Some(secret.as_str());
+    let get = |port: u16, name: &'static str| async move {
+        let (_, _, body) = call(port, "GET", &format!("/proxies/{}", name), s, &[], "").await?;
+        anyhow::Ok(json(&body))
+    };
+    let (ids, port) = start()?;
     let checked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         rt.block_on(async {
-            let get = || async {
-                let (_, _, body) = call(port, "GET", "/proxies/fb", s, &[], "").await?;
-                anyhow::Ok(json(&body))
-            };
-            let fb = get().await?;
+            let fb = get(port, "fb").await?;
             assert_eq!(fb["now"], "a", "{}", fb);
             assert_eq!(fb["fixed"], "");
             assert_eq!(fb["testUrl"], url);
             assert_eq!(fb["expectedStatus"], "204");
+            // A group that does not test has the key too, empty.
+            assert_eq!(get(port, "s").await?["expectedStatus"], "");
 
             let (status, _, body) =
                 call(port, "PUT", "/proxies/fb", s, &[], r#"{"name":"b"}"#).await?;
             assert_eq!(status, 204, "{}", body);
-            let fb = get().await?;
+            let fb = get(port, "fb").await?;
             assert_eq!((&fb["now"], &fb["fixed"]), (&"b".into(), &"b".into()));
             let (status, ..) = call(port, "PUT", "/proxies/fb", s, &[], r#"{"name":"c"}"#).await?;
             assert_eq!(status, 400);
+            anyhow::Ok(())
+        })
+    }));
+    common::shutdown_instances(&rt, ids);
+    checked.unwrap_or_else(|panic| std::panic::resume_unwind(panic))?;
 
+    // The pin outlives a restart; unpinned, it does not.
+    let (ids, port) = start()?;
+    let checked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        rt.block_on(async {
+            let fb = get(port, "fb").await?;
+            assert_eq!((&fb["now"], &fb["fixed"]), (&"b".into(), &"b".into()));
             let (status, ..) = call(port, "DELETE", "/proxies/fb", s, &[], "").await?;
             assert_eq!(status, 204);
-            let fb = get().await?;
+            let fb = get(port, "fb").await?;
             assert_eq!((&fb["now"], &fb["fixed"]), (&"a".into(), &"".into()));
             anyhow::Ok(())
         })
     }));
     common::shutdown_instances(&rt, ids);
-    match checked {
-        Ok(checked) => checked,
-        Err(panic) => std::panic::resume_unwind(panic),
-    }
+    checked.unwrap_or_else(|panic| std::panic::resume_unwind(panic))?;
+
+    let (ids, port) = start()?;
+    let checked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        rt.block_on(async {
+            let fb = get(port, "fb").await?;
+            assert_eq!((&fb["now"], &fb["fixed"]), (&"a".into(), &"".into()));
+            anyhow::Ok(())
+        })
+    }));
+    common::shutdown_instances(&rt, ids);
+    checked.unwrap_or_else(|panic| std::panic::resume_unwind(panic))
 }
 
 // dashboard -> (clash api)sail: a PASS outbound is listed, a selector

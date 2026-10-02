@@ -11,6 +11,8 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 
 与 Mihomo 一致，地址规则（`IP-CIDR`、`GEOIP` 等，未加 `no-resolve`）解析域名只为匹配：直连出站连接解析出的地址，代理服务器收到的仍是域名。
 
+`timeout`、`max-failed-times`、`expected-status` 和 `lazy` 对 `url-test` 与 `fallback` 组生效，对其他组（即表中实测的组）警告并忽略。lazy 的 `url-test` 组在闲置一个 `interval` 后暂停测试，与 Mihomo 一致；sail 自身配置中的 urltest 在 `idle_timeout`（默认 30 分钟）后暂停。
+
 | 部分 | 字段 | 支持 | 警告 | 报错 |
 |---|--:|--:|--:|--:|
 | `clash-for-android` | 3 | 0 | 3 | 0 |

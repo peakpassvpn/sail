@@ -31,7 +31,10 @@ impl Policies {
 
 /// The fields every group takes that sail does not implement yet: those of
 /// how members are tested, which `url-test` and `fallback` take, see
-/// `checks`, and `smart` its `timeout`.
+/// `checks`, and `smart` its `timeout`. `load-balance` is not lowered yet:
+/// Mihomo gives every group with a `url` these health-check fields, and
+/// `max-failed-times` to all in its group base, but a Clash load-balance
+/// group's are still warned of.
 const COMMON: &[(&str, Tier)] = &[
     // How members are tested, not which carries what.
     ("timeout", Ignored),
@@ -343,6 +346,12 @@ fn group(f: &mut Fields, cx: &Context, warnings: &mut Vec<String>) -> Result<Val
             o.insert("type".into(), json!("urltest"));
             health(&mut o);
             checks(f, &mut o)?;
+            // Lazy, Mihomo's tests pause once the group was not used for an
+            // interval (adapter/provider/healthcheck.go:50-56); sail's
+            // urltest, for its own 30 minutes, unless told.
+            if o.get("lazy").is_none() && interval > 0 {
+                o.insert("idle_timeout".into(), json!(format!("{}s", interval)));
+            }
             if let Some(ms) = f.int::<u16>("tolerance")? {
                 o.insert("tolerance".into(), json!(ms));
             }
@@ -420,9 +429,10 @@ fn group(f: &mut Fields, cx: &Context, warnings: &mut Vec<String>) -> Result<Val
 }
 
 /// How a `url-test` or `fallback` group tests its members, as sail's
-/// fields of the same names: Mihomo's `timeout` (milliseconds, 0 the
-/// default), `max-failed-times` (0 the default), `expected-status` (`*`
-/// any) and `lazy` (true the default).
+/// fields of the same names. `timeout` and `max-failed-times`, 0 or unset:
+/// Mihomo's 5000 ms and 5 failures, which are also sail's defaults, so
+/// they are left unset. `expected-status`: `*` or unset is any. `lazy`:
+/// true by default.
 fn checks(f: &mut Fields, o: &mut Map<String, Value>) -> Result<()> {
     if let Some(ms) = f.int::<u64>("timeout")?.filter(|ms| *ms > 0) {
         o.insert("timeout".into(), json!(format!("{}ms", ms)));

@@ -19682,7 +19682,7 @@
     },
     "idle_timeout": {
      "type": "string",
-     "description": "Tests pause once the group has not been used for this long."
+     "description": "Tests pause once the group has not been used for this long; 30m, sing-box's. A Clash `url-test` group, lazy, has it equal to its `interval`, as Mihomo's."
     },
     "interrupt_exist_connections": {
      "type": "boolean",

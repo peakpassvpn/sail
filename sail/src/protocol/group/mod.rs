@@ -12,7 +12,7 @@ pub mod fallback;
     feature = "outbound-load-balance",
     feature = "outbound-fallback"
 ))]
-mod health;
+pub(crate) mod health;
 #[cfg(feature = "outbound-select")]
 mod interrupt;
 #[cfg(feature = "outbound-load-balance")]

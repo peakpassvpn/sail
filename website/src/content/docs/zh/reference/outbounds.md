@@ -792,7 +792,7 @@ Rust 定义：[`UrlTestOutboundOptions`](https://github.com/peakpassvpn/sail/blo
 | `url` | string | `default_url()` | 支持 | What is requested through each member; sing-box's default. |
 | `interval` | duration | 未设置 | 支持 | — |
 | `tolerance` | number | `50` | 支持 | Milliseconds. |
-| `idle_timeout` | duration | 未设置 | 支持 | Tests pause once the group has not been used for this long. |
+| `idle_timeout` | duration | 未设置 | 支持 | Tests pause once the group has not been used for this long; 30m, sing-box's. A Clash `url-test` group, lazy, has it equal to its `interval`, as Mihomo's. |
 | `interrupt_exist_connections` | bool | `false` | 支持 | Ends the connections through the member left once the group switches. |
 | `providers` | string 或 数组，元素为 string | `[]` | sail 扩展 | The outbound providers, by tag, whose outbounds join the group's own, in this order. |
 | `filter` | string 或 数组，元素为 string | `[]` | sail 扩展 | Regular expressions, as Mihomo's `filter`: of the providers' outbounds, only those whose names match one are members, those of the first first. The group's own outbounds are not filtered. |

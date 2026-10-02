@@ -71,7 +71,9 @@ struct UrlTestOutboundOptions {
     /// Milliseconds.
     #[serde(default = "default_tolerance")]
     tolerance: u16,
-    /// Tests pause once the group has not been used for this long.
+    /// Tests pause once the group has not been used for this long; 30m,
+    /// sing-box's. A Clash `url-test` group, lazy, has it equal to its
+    /// `interval`, as Mihomo's.
     #[serde(default, with = "crate::config::model::duration")]
     idle_timeout: Option<Duration>,
     /// `false`: tests never pause, used or not, as Mihomo's `lazy: false`;
