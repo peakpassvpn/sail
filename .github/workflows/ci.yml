@@ -344,6 +344,16 @@ jobs:
       - name: build sail-ffi
         run: cargo build --locked -p sail-ffi --target x86_64-pc-windows-msvc
 
+      # BoringSSL without its assembly (OPENSSL_NO_ASM, or no NASM found)
+      # would be several times slower at AES-GCM and ChaCha20.
+      - name: BoringSSL has its assembly
+        run: |
+          where nasm || true
+          cache=$(find target/x86_64-pc-windows-msvc/debug/build -path '*btls-sys-*/out/build/CMakeCache.txt' | head -1)
+          grep -E '^(OPENSSL_NO_ASM|CMAKE_ASM_NASM_COMPILER|CMAKE_GENERATOR)[:=]' "$cache" || true
+          if grep -qE '^OPENSSL_NO_ASM:[A-Z]+=(1|ON|YES|TRUE)' "$cache"; then exit 1; fi
+          grep -qE '^CMAKE_ASM_NASM_COMPILER:[A-Z]+=.+' "$cache"
+
       - name: smoke
         run: |
           ls -l target/x86_64-pc-windows-msvc/debug/sail.{exe,dll,lib,dll.lib}
