@@ -216,29 +216,38 @@ fn a_file_and_its_text_read_alike() {
         Err(e) => format!("{:#}", e),
     };
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/corpus");
-    let mut differ = Vec::new();
+    let mut paths = Vec::new();
     for dir in ["sing-box", "clash", "surge"] {
         for entry in std::fs::read_dir(root.join(dir)).unwrap() {
-            let path = entry.unwrap().path();
-            let text = std::fs::read_to_string(&path).unwrap();
-            if text
-                .lines()
-                .any(|l| l.trim_start().starts_with("#!include"))
-            {
-                continue;
-            }
-            let file = said(sail::config::from_file_for(path.to_str().unwrap(), &host));
-            let given = said(sail::config::from_string_for(&text, &host));
-            if file != given {
-                differ.push(format!(
-                    "{}: as a file {}; as text {}",
-                    path.display(),
-                    file,
-                    given
-                ));
-            }
+            paths.push(entry.unwrap().path());
         }
     }
+    // Each file on its own, so on as many threads as there are cores.
+    let compare = |path: &std::path::PathBuf| -> Option<String> {
+        let text = std::fs::read_to_string(path).unwrap();
+        if text
+            .lines()
+            .any(|l| l.trim_start().starts_with("#!include"))
+        {
+            return None;
+        }
+        let file = said(sail::config::from_file_for(path.to_str().unwrap(), &host));
+        let given = said(sail::config::from_string_for(&text, &host));
+        (file != given)
+            .then(|| format!("{}: as a file {}; as text {}", path.display(), file, given))
+    };
+    let threads = std::thread::available_parallelism().map_or(4, |n| n.get());
+    let chunk = paths.len().div_ceil(threads).max(1);
+    let differ: Vec<String> = std::thread::scope(|scope| {
+        let handles: Vec<_> = paths
+            .chunks(chunk)
+            .map(|part| scope.spawn(|| part.iter().filter_map(compare).collect::<Vec<_>>()))
+            .collect();
+        handles
+            .into_iter()
+            .flat_map(|h| h.join().unwrap())
+            .collect()
+    });
     assert!(differ.is_empty(), "{}", differ.join("\n"));
 }
 

@@ -202,8 +202,9 @@ fn no_secret_reaches_what_an_instance_tells() {
         // To the API, which answers: every handshake and authentication
         // runs to its end, or to its refusal.
         let target = format!("http://127.0.0.1:{}/version", api);
-        let mut measured = Vec::new();
-        for tag in [
+        // All at once: those that cannot get through wait their time out
+        // together, not one after another.
+        let tags = [
             "trojan",
             "trojan-bad",
             "vless",
@@ -214,12 +215,18 @@ fn no_secret_reaches_what_an_instance_tells() {
             "hy2",
             "tuic",
             "wg",
-        ] {
-            let r = manager
-                .url_test(tag, Some(&target), Duration::from_secs(3))
-                .await;
-            measured.push((tag, r.is_ok()));
-        }
+        ];
+        let tests = tags.map(|tag| {
+            let manager = manager.clone();
+            let target = target.clone();
+            async move {
+                let r = manager
+                    .url_test(tag, Some(&target), Duration::from_secs(3))
+                    .await;
+                (tag, r.is_ok())
+            }
+        });
+        let measured = futures::future::join_all(tests).await;
         // The ones through the instance's own inbounds got through.
         for (tag, ok) in &measured {
             let through = matches!(*tag, "trojan" | "vless" | "ss" | "socks" | "http");

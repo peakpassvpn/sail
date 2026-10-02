@@ -1240,7 +1240,34 @@ pub fn test_configs_with_auth(
     username: Option<String>,
     password: Option<String>,
 ) -> anyhow::Result<()> {
-    test_configs_full(configs, socks_addr, socks_port, username, password, None)
+    test_configs_full(
+        configs,
+        socks_addr,
+        socks_port,
+        username,
+        password,
+        None,
+        Duration::from_secs(10),
+    )
+}
+
+/// `test_configs` where the configuration is to refuse the connection or
+/// its datagrams, each step waiting `wait` before it counts as failed: a
+/// dropped connection fails only by its wait running out.
+pub fn test_configs_refused(
+    configs: Vec<String>,
+    socks_addr: &str,
+    socks_port: u16,
+    wait: Duration,
+) -> anyhow::Result<()> {
+    test_configs_full(configs, socks_addr, socks_port, None, None, None, wait)
+}
+
+/// How long a step meant to be refused waits: ten times the slowest that
+/// passed in the same test, half a second at least, so that the wait
+/// follows the machine rather than a guess.
+pub fn refusal_wait(passed: &[Duration]) -> Duration {
+    (passed.iter().max().copied().unwrap_or_default() * 10).max(Duration::from_millis(500))
 }
 
 /// `test_configs`, with `data_dir` the instances' data directory.
@@ -1250,7 +1277,15 @@ pub fn test_configs_in(
     socks_port: u16,
     data_dir: &std::path::Path,
 ) -> anyhow::Result<()> {
-    test_configs_full(configs, socks_addr, socks_port, None, None, Some(data_dir))
+    test_configs_full(
+        configs,
+        socks_addr,
+        socks_port,
+        None,
+        None,
+        Some(data_dir),
+        Duration::from_secs(10),
+    )
 }
 
 fn test_configs_full(
@@ -1260,6 +1295,7 @@ fn test_configs_full(
     username: Option<String>,
     password: Option<String>,
     data_dir: Option<&std::path::Path>,
+    wait: Duration,
 ) -> anyhow::Result<()> {
     info!("testing configs");
     let rt = tokio::runtime::Builder::new_current_thread()
@@ -1287,7 +1323,7 @@ fn test_configs_full(
             ..Default::default()
         };
         let mut s = timeout(
-            Duration::from_secs(10),
+            wait,
             new_socks_stream(
                 &socks_addr,
                 socks_port,
@@ -1300,13 +1336,13 @@ fn test_configs_full(
         .map_err(|e| anyhow::anyhow!("connect socks stream timeout: {}", e))?
         .map_err(|e| anyhow::anyhow!("connect socks stream failed: {}", e))?;
 
-        timeout(Duration::from_secs(10), s.write_all(b"abc"))
+        timeout(wait, s.write_all(b"abc"))
             .await
             .map_err(|e| anyhow::anyhow!("write to stream timeout: {}", e))?
             .map_err(|e| anyhow::anyhow!("write to stream failed: {}", e))?;
 
         let mut buf = Vec::new();
-        let n = timeout(Duration::from_secs(10), s.read_buf(&mut buf))
+        let n = timeout(wait, s.read_buf(&mut buf))
             .await
             .map_err(|e| anyhow::anyhow!("read from stream timeout: {}", e))?
             .map_err(|e| anyhow::anyhow!("read from stream failed: {}", e))?;
@@ -1321,7 +1357,7 @@ fn test_configs_full(
         // Test UDP
         sess.destination = sail::session::SocksAddr::Ip(udp_addr);
         let dgram = timeout(
-            Duration::from_secs(10),
+            wait,
             new_socks_datagram(
                 &socks_addr,
                 socks_port,
@@ -1336,13 +1372,10 @@ fn test_configs_full(
 
         let (mut r, mut s) = dgram.split();
         let msg = b"def";
-        let n = timeout(
-            Duration::from_secs(10),
-            s.send_to(msg.as_ref(), &sess.destination),
-        )
-        .await
-        .map_err(|e| anyhow::anyhow!("send datagram timeout: {}", e))?
-        .map_err(|e| anyhow::anyhow!("send datagram failed: {}", e))?;
+        let n = timeout(wait, s.send_to(msg.as_ref(), &sess.destination))
+            .await
+            .map_err(|e| anyhow::anyhow!("send datagram timeout: {}", e))?
+            .map_err(|e| anyhow::anyhow!("send datagram failed: {}", e))?;
 
         if msg.len() != n {
             return Err(anyhow::anyhow!(
@@ -1353,7 +1386,7 @@ fn test_configs_full(
         }
 
         let mut buf = vec![0u8; 2 * 1024];
-        let (n, raddr) = timeout(Duration::from_secs(10), r.recv_from(&mut buf))
+        let (n, raddr) = timeout(wait, r.recv_from(&mut buf))
             .await
             .map_err(|e| anyhow::anyhow!("recv datagram timeout: {}", e))?
             .map_err(|e| anyhow::anyhow!("recv datagram failed: {}", e))?;
@@ -1376,7 +1409,7 @@ fn test_configs_full(
         // Test if we can handle a second UDP session. This can fail in stream
         // transports if the stream ID has not been correctly set.
         let dgram2 = timeout(
-            Duration::from_secs(10),
+            wait,
             new_socks_datagram(
                 &socks_addr,
                 socks_port,
@@ -1391,13 +1424,10 @@ fn test_configs_full(
 
         let (mut r, mut s) = dgram2.split();
         let msg = b"ghi";
-        let n = timeout(
-            Duration::from_secs(10),
-            s.send_to(msg.as_ref(), &sess.destination),
-        )
-        .await
-        .map_err(|e| anyhow::anyhow!("send second datagram timeout: {}", e))?
-        .map_err(|e| anyhow::anyhow!("send second datagram failed: {}", e))?;
+        let n = timeout(wait, s.send_to(msg.as_ref(), &sess.destination))
+            .await
+            .map_err(|e| anyhow::anyhow!("send second datagram timeout: {}", e))?
+            .map_err(|e| anyhow::anyhow!("send second datagram failed: {}", e))?;
 
         if msg.len() != n {
             return Err(anyhow::anyhow!(
@@ -1408,7 +1438,7 @@ fn test_configs_full(
         }
 
         let mut buf = vec![0u8; 2 * 1024];
-        let (n, raddr) = timeout(Duration::from_secs(10), r.recv_from(&mut buf))
+        let (n, raddr) = timeout(wait, r.recv_from(&mut buf))
             .await
             .map_err(|e| anyhow::anyhow!("recv second datagram timeout: {}", e))?
             .map_err(|e| anyhow::anyhow!("recv second datagram failed: {}", e))?;

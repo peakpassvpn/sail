@@ -14,7 +14,8 @@ use crate::common;
 ))]
 #[test]
 fn a_clash_configuration_routes() -> anyhow::Result<()> {
-    for (rules, rejected) in [
+    // Those that pass first: the refusals wait by them.
+    let mut cases = [
         ("  - MATCH,Proxy\n", false),
         (
             "  - IP-CIDR,127.0.0.0/8,REJECT,no-resolve\n  - MATCH,Proxy\n",
@@ -22,7 +23,10 @@ fn a_clash_configuration_routes() -> anyhow::Result<()> {
         ),
         ("  - DST-PORT,1-65535,REJECT-DROP\n  - MATCH,Proxy\n", true),
         ("  - NETWORK,tcp,PASS\n  - MATCH,Proxy\n", false),
-    ] {
+    ];
+    cases.sort_by_key(|(_, rejected)| *rejected);
+    let mut passed = Vec::new();
+    for (rules, rejected) in cases {
         let result = common::retry_port_clash(|| {
             let [port] = common::free_ports();
             let yaml = format!(
@@ -32,7 +36,21 @@ fn a_clash_configuration_routes() -> anyhow::Result<()> {
                  rules:\n{}",
                 port, rules
             );
-            common::test_configs(vec![yaml], "127.0.0.1", port)
+            // A refusal fails by a wait running out where it drops: ten
+            // times the slowest of those that pass, which run first.
+            if rejected {
+                common::test_configs_refused(
+                    vec![yaml],
+                    "127.0.0.1",
+                    port,
+                    common::refusal_wait(&passed),
+                )
+            } else {
+                let started = std::time::Instant::now();
+                let result = common::test_configs(vec![yaml], "127.0.0.1", port);
+                passed.push(started.elapsed());
+                result
+            }
         });
         assert_eq!(result.is_err(), rejected, "{}: {:?}", rules, result);
     }
