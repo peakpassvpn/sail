@@ -125,7 +125,8 @@ Rust: [`FallbackOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/s
 | `url` | string | `default_url()` | sail extension | What is requested through each member to test it. |
 | `expected_status` | string | unset | sail extension | The HTTP statuses a test must be answered with to pass, as Mihomo's `expected-status`: codes and ranges, `200/204/401-429`; any when unset. |
 | `interval` | duration | unset | sail extension | — |
-| `timeout` | duration | unset | sail extension | How long a test, or a connection attempt that has a member left to fall back to, may take before its member counts as failed; 5s. Also how close together `max_failed_times` failures must come. |
+| `timeout` | duration | unset | sail extension | How long a test may take before its member counts as failed; 5s, as Mihomo's `timeout`. Also how close together `max_failed_times` failures must come, and `dial_timeout` when that is unset. |
+| `dial_timeout` | duration | unset | sail extension | How long a connection attempt through a member, with a member left to fall back to, may take before the group moves on to the next; a sail extension, 1s at least, `timeout` when unset. One still dialling the member's server then marks it down at once; one in the member's handshake is counted toward `max_failed_times`. |
 | `max_failed_times` | number | unset | sail extension | How many failed connections, within `timeout` of the first, have the members tested again; 5, as Mihomo's `max-failed-times`. Only failures that may be the destination's count: one that says the member's server cannot be reached marks the member down at once. |
 | `lazy` | bool | `true` | sail extension | Tests only while the group is in use: not when it was not used since the last ones. |
 | `interrupt_exist_connections` | bool | `false` | sail extension | Ends the connections through the member left once the group switches. |

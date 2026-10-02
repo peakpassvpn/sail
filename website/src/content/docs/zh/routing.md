@@ -241,6 +241,19 @@ sing-box 没有这个选项：它的 sniff `override_destination` 已废弃，�
 
 默认值与不写 `debounce` 时的行为完全相同。连接发现成员的服务器不可达（拨号时被拒绝、超时或不可达）时，组仍然立即离开它，不受 `fail_after` 和 `min_dwell` 影响；之后该成员要连续通过 `recover_after` 轮测试才会再被使用。计入 `max_failed_times` 的失败连接只会让下一轮测试提前，不计入上面两个计数。通过 API 手动固定的成员，只要可用或最近一次测试通过，就会被使用，不受 debounce 影响。设置 `recover_after: 3` 和 `min_dwell: "30s"` 后，第一个成员连续通过三轮测试后，组会在离开它至少 30 秒后的第一轮测试时切回。
 
+还有可回退成员时，经 fallback 组的连接会等成员 `timeout` 这么久，再换下一个成员。Sail 扩展字段 `dial_timeout` 把这段等待与 `timeout` 分开：`timeout` 仍是一次测试的时限，也是 `max_failed_times` 计数的时间窗，与 Mihomo 相同。不设置时等于 `timeout`。拨号到成员服务器超过这个时间，成员会像被拒绝时一样立即标记为不可用；握手超过这个时间则可能是目标的原因，只计入 `max_failed_times`。`dial_timeout` 越短切换越快，但也越容易把慢链路当成断线，所以至少要 1s（TCP 重发丢失的 SYN 前就要等这么久）；建议同时把 `debounce.recover_after` 设为大于 1：
+
+```json
+{
+  "type": "fallback",
+  "tag": "auto",
+  "outbounds": ["primary", "backup"],
+  "timeout": "5s",
+  "dial_timeout": "2s",
+  "debounce": { "recover_after": 3 }
+}
+```
+
 ## 防止 TUN 回环
 
 开了 `auto_route` 的 TUN 入站会接管系统流量，Sail 自己的出站套接字本会绕回 TUN。Sail 把它们绑定到物理网卡：目标所在网段的那块网卡，否则是默认网卡。网络变化时 Sail 会跟着切换，默认网卡变了就重置 TUN 上的连接。开了 `auto_route` 时，即使没写 `route.auto_detect_interface`，这个机制也会自动开启；出口必须固定时改用 `route.default_interface`。

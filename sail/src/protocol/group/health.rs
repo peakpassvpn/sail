@@ -739,6 +739,17 @@ pub(crate) mod tests {
         (checker, rounds)
     }
 
+    /// A DNS client of defaults, which nothing here asks.
+    pub(crate) fn dns() -> SyncDnsClient {
+        crate::app::dns::DnsClient::new(
+            &Default::default(),
+            Arc::new(crate::net::DialDefaults::default()),
+            &Default::default(),
+        )
+        .unwrap()
+        .into_shared()
+    }
+
     fn with(
         members: Arc<Members>,
         network: &Network,
@@ -746,13 +757,7 @@ pub(crate) mod tests {
         debounce: Debounce,
         on_tested: OnTested,
     ) -> (Arc<Checker>, AbortHandle) {
-        let dns_client = crate::app::dns::DnsClient::new(
-            &Default::default(),
-            Arc::new(crate::net::DialDefaults::default()),
-            &Default::default(),
-        )
-        .unwrap()
-        .into_shared();
+        let dns_client = dns();
         let probe = HttpProbe::new(
             "http://example.com/",
             dns_client.clone(),

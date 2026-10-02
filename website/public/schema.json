@@ -14807,7 +14807,11 @@
     },
     "timeout": {
      "type": "string",
-     "description": "How long a test, or a connection attempt that has a member left to fall back to, may take before its member counts as failed; 5s. Also how close together `max_failed_times` failures must come."
+     "description": "How long a test may take before its member counts as failed; 5s, as Mihomo's `timeout`. Also how close together `max_failed_times` failures must come, and `dial_timeout` when that is unset."
+    },
+    "dial_timeout": {
+     "type": "string",
+     "description": "How long a connection attempt through a member, with a member left to fall back to, may take before the group moves on to the next; a sail extension, 1s at least, `timeout` when unset. One still dialling the member's server then marks it down at once; one in the member's handshake is counted toward `max_failed_times`."
     },
     "max_failed_times": {
      "type": "number",

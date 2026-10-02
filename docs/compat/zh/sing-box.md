@@ -3170,6 +3170,7 @@ sail 接受而 sing-box 没有的字段和类型。
 | `outbounds[urltest].lazy` | `false`: the members are tested whether the group is used or not (Mihomo's lazy) |
 | `outbounds[fallback].outbounds` | A group: the first member that works |
 | `outbounds[fallback].debounce` | Failed rounds in a row before a member is left, passed ones before an earlier member is taken back, and the least time on a member before going back |
+| `outbounds[fallback].dial_timeout` | How long a connection attempt through a member may take before the group moves on, apart from the tests' `timeout`; 1s at least |
 | `outbounds[load-balance].outbounds` | A group spreading connections over its members |
 | `outbounds[smart].outbounds` | A group scoring its members by the connections through them |
 | `outbounds[network].default` | A group picking its member by the network the host is on |

@@ -1394,6 +1394,11 @@ const EXTENSIONS: &[(&str, &str, &str)] = &[
         "Failed rounds in a row before a member is left, passed ones before an earlier member is taken back, and the least time on a member before going back",
     ),
     (
+        "outbounds[fallback].dial_timeout",
+        r#""2s""#,
+        "How long a connection attempt through a member may take before the group moves on, apart from the tests' `timeout`; 1s at least",
+    ),
+    (
         "outbounds[load-balance].outbounds",
         r#"["direct"]"#,
         "A group spreading connections over its members",

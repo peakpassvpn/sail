@@ -250,6 +250,19 @@ A `fallback` group switches on the first failed test and switches back on the fi
 
 The defaults keep the behaviour without `debounce`. A connection that finds a member's server unreachable (refused, timed out or unreachable at dial) still has the group leave it at once, whatever `fail_after` and `min_dwell` say. The member then needs `recover_after` passed rounds before it is used again. Failed connections counted toward `max_failed_times` only bring the next round forward: they count toward neither. A member pinned by hand through the API is used while it is up or passed its last test, whatever the debounce. With `recover_after: 3` and `min_dwell: "30s"`, the group goes back to its first member at the first round at least 30 seconds after leaving it, once that member has passed three rounds in a row.
 
+A connection through a fallback that has a member left to fall back to waits `timeout` for the member before it moves on. `dial_timeout`, a Sail extension, sets that wait apart from `timeout`, which stays the time a test may take and the window `max_failed_times` counts in, as in Mihomo. Unset, it is `timeout`. A dial to the member's server that runs past it marks the member down at once, as a refused one does; a handshake that runs past it may be the destination's doing, and only counts toward `max_failed_times`. A short `dial_timeout` moves on sooner, at the cost of taking slow links for dead ones, so it must be 1s at least (TCP waits that long before it sends a lost SYN again); pair it with `debounce.recover_after` above 1:
+
+```json
+{
+  "type": "fallback",
+  "tag": "auto",
+  "outbounds": ["primary", "backup"],
+  "timeout": "5s",
+  "dial_timeout": "2s",
+  "debounce": { "recover_after": 3 }
+}
+```
+
 ## TUN loop prevention
 
 A TUN inbound with `auto_route` takes the system's traffic, and Sail's own outbound sockets would go back into it. Sail binds them to the physical interface: the one the destination's network is on, or the default one. It follows that interface as the network changes, and resets the TUN's connections when it moves. With `auto_route`, this is on even without `route.auto_detect_interface`; set `route.default_interface` instead when the egress interface must be fixed.

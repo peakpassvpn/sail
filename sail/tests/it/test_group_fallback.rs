@@ -518,6 +518,9 @@ fn configuration_mistakes_are_errors() {
             json!({ "debounce": { "recover_rounds": 3 } }),
             "recover_rounds",
         ),
+        (json!({ "dial_timeout": "500ms" }), "dial_timeout"),
+        (json!({ "dial_timeout": "0s" }), "dial_timeout"),
+        (json!({ "dial_timeout": "soon" }), "dial_timeout"),
     ] {
         let msg = error(fallback(a, extra.clone()));
         assert!(msg.contains(field), "{}: {}", extra, msg);

@@ -23,6 +23,11 @@
 //! passed ones, and not left for an earlier one before the group has been
 //! on it for `min_dwell`. A member marked down is left at once all the
 //! same, and a pin goes by the member's last test.
+//!
+//! Its `dial_timeout`, a sail extension, is how long a connection attempt
+//! through a member may take before the group moves on to the next, apart
+//! from `timeout`, which its tests take: a member whose server does not
+//! answer the dial in time is marked down.
 
 use std::future::Future;
 use std::io;
@@ -77,11 +82,18 @@ struct FallbackOutboundOptions {
     expected_status: Option<String>,
     #[serde(default, with = "crate::config::model::duration")]
     interval: Option<Duration>,
-    /// How long a test, or a connection attempt that has a member left to
-    /// fall back to, may take before its member counts as failed; 5s.
-    /// Also how close together `max_failed_times` failures must come.
+    /// How long a test may take before its member counts as failed; 5s,
+    /// as Mihomo's `timeout`. Also how close together `max_failed_times`
+    /// failures must come, and `dial_timeout` when that is unset.
     #[serde(default, with = "crate::config::model::duration")]
     timeout: Option<Duration>,
+    /// How long a connection attempt through a member, with a member left
+    /// to fall back to, may take before the group moves on to the next; a
+    /// sail extension, 1s at least, `timeout` when unset. One still
+    /// dialling the member's server then marks it down at once; one in
+    /// the member's handshake is counted toward `max_failed_times`.
+    #[serde(default, with = "crate::config::model::duration")]
+    dial_timeout: Option<Duration>,
     /// How many failed connections, within `timeout` of the first, have
     /// the members tested again; 5, as Mihomo's `max-failed-times`. Only
     /// failures that may be the destination's count: one that says the
@@ -148,6 +160,11 @@ fn default_lazy() -> bool {
 
 /// How many members one connection is tried through at most.
 const MAX_ATTEMPTS: usize = 3;
+
+/// The least `dial_timeout`: TCP waits 1s before it sends a lost SYN again
+/// (RFC 6298's initial RTO), so a shorter one marks a member down for a
+/// single lost packet.
+const MIN_DIAL_TIMEOUT: Duration = Duration::from_secs(1);
 
 fn dependencies(tag: &str, options: &Options) -> Result<Vec<String>> {
     let options: FallbackOutboundOptions = parse_options("outbound", tag, options)?;
@@ -482,6 +499,19 @@ pub(crate) fn candidates(
         .collect()
 }
 
+/// The time a member but the last one tried has to connect: the
+/// `dial_timeout` configured, 1s at least, or `timeout`.
+fn dial_timeout(configured: Option<Duration>, timeout: Duration) -> Result<Duration> {
+    match configured {
+        Some(d) if d < MIN_DIAL_TIMEOUT => Err(anyhow!(
+            "must be {:?} at least: a shorter one takes a lost packet for a member down",
+            MIN_DIAL_TIMEOUT
+        )),
+        Some(d) => Ok(d),
+        None => Ok(timeout),
+    }
+}
+
 /// What the group does after each round of tests: it chooses again.
 fn on_tested(choosing: Arc<Choosing>) -> health::OnTested {
     Box::new(
@@ -515,6 +545,8 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
             ctx.tag
         ));
     }
+    let dial_timeout = dial_timeout(options.dial_timeout, timeout)
+        .map_err(|e| anyhow!("[{}] outbound: dial_timeout: {}", ctx.tag, e))?;
     let debounce = Debounce {
         fail_after: options.debounce.fail_after,
         recover_after: options.debounce.recover_after,
@@ -611,7 +643,7 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         selected,
         choosing,
         checker,
-        timeout,
+        dial_timeout,
         dns_client: ctx.dns_client.clone(),
     });
     Ok(HandlerBuilder::default()
@@ -628,7 +660,8 @@ struct Group {
     selected: Arc<Selection>,
     choosing: Arc<Choosing>,
     checker: Arc<Checker>,
-    timeout: Duration,
+    /// How long a member but the last one tried has to connect.
+    dial_timeout: Duration,
     dns_client: SyncDnsClient,
     interrupt: Option<watch::Receiver<MemberKey>>,
 }
@@ -636,8 +669,8 @@ struct Group {
 impl Group {
     /// Connects through the members of `snapshot` in turn, see
     /// `candidates`, until one connects; returns which, and what it
-    /// connected. Every member but the last one tried has `timeout` to
-    /// connect. `connect` tells how far it got, see `Progress`.
+    /// connected. Every member but the last one tried has `dial_timeout`
+    /// to connect. `connect` tells how far it got, see `Progress`.
     async fn connect<'a, T, F, Fut>(
         &'a self,
         sess: &'a Session,
@@ -668,7 +701,7 @@ impl Group {
             );
             let progress = Arc::new(Progress::default());
             let result = if n + 1 < order.len() {
-                tokio::time::timeout(self.timeout, connect(a, progress.clone()))
+                tokio::time::timeout(self.dial_timeout, connect(a, progress.clone()))
                     .await
                     .unwrap_or_else(|_| Err(io::Error::new(io::ErrorKind::TimedOut, "timed out")))
             } else {
@@ -930,6 +963,21 @@ mod tests {
             self.selected.get().name.to_string()
         }
 
+        /// The group, whose members but the last one tried have
+        /// `dial_timeout` to connect.
+        fn group(&self, dial_timeout: Duration) -> Group {
+            Group {
+                tag: "fb".into(),
+                members: self.members.clone(),
+                selected: self.selected.clone(),
+                choosing: self.choosing.clone(),
+                checker: self.checker.clone(),
+                dial_timeout,
+                dns_client: health::tests::dns(),
+                interrupt: None,
+            }
+        }
+
         fn pin(&self) -> Pin {
             Pin {
                 choosing: self.choosing.clone(),
@@ -1038,5 +1086,88 @@ mod tests {
         assert_eq!(h.pin().pinned().as_deref(), Some("c"));
         assert_eq!(h.unreachable("c"), "b");
         assert_eq!(h.pin().pinned(), None);
+    }
+
+    /// A connection through the group on [a], whose server never answers
+    /// the dial, or, `handshake`, answers it and never the handshake,
+    /// while [b] connects at once: how long it took, and what it reached.
+    async fn past_a_silent_server(group: &Group, handshake: bool) -> (Duration, String) {
+        let dialer = crate::net::DialDefaults::default()
+            .dialer(&Default::default(), None)
+            .unwrap();
+        let server = OutboundConnect::Proxy(
+            crate::session::Network::Tcp,
+            "server.test".into(),
+            443,
+            dialer,
+        );
+        let sess = Session::default();
+        let snapshot = group.members.load();
+        let start = Instant::now();
+        let (member, reached) = group
+            .connect(&sess, &snapshot, |a, progress| {
+                let server = server.clone();
+                async move {
+                    progress.dialing(&server);
+                    if a.tag() == "a" {
+                        if handshake {
+                            progress.dialled();
+                        }
+                        std::future::pending::<()>().await;
+                    }
+                    Ok(a.tag().to_string())
+                }
+            })
+            .await
+            .unwrap();
+        assert_eq!(member.name.as_ref(), reached);
+        (start.elapsed(), reached)
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_member_whose_server_does_not_answer_the_dial_is_left_after_dial_timeout() {
+        let timeout = health::DEFAULT_TIMEOUT;
+        let dial = Duration::from_secs(1);
+        let h = Harness::new(1, 1, Duration::ZERO);
+        let group = h.group(dial_timeout(Some(dial), timeout).unwrap());
+        assert_eq!(
+            past_a_silent_server(&group, false).await,
+            (dial, "b".into())
+        );
+        // Timed out at the dial: [a] is down, and the group on [b].
+        assert!(!h.checker.is_up(&MemberKey::outbound("a")));
+        assert_eq!(h.on(), "b");
+
+        // Unset, it is `timeout`, as before it was.
+        let h = Harness::new(1, 1, Duration::ZERO);
+        let group = h.group(dial_timeout(None, timeout).unwrap());
+        assert_eq!(
+            past_a_silent_server(&group, false).await,
+            (timeout, "b".into())
+        );
+        assert_eq!(h.on(), "b");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_handshake_past_dial_timeout_is_counted_not_marked_down() {
+        let dial = Duration::from_secs(2);
+        let h = Harness::new(1, 1, Duration::ZERO);
+        let group = h.group(dial_timeout(Some(dial), health::DEFAULT_TIMEOUT).unwrap());
+        assert_eq!(past_a_silent_server(&group, true).await, (dial, "b".into()));
+        // It may be the destination's doing: [a] stays up, and chosen.
+        assert!(h.checker.is_up(&MemberKey::outbound("a")));
+        assert_eq!(h.on(), "a");
+    }
+
+    #[test]
+    fn a_dial_timeout_below_a_second_is_an_error() {
+        let timeout = Duration::from_millis(500);
+        assert_eq!(dial_timeout(None, timeout).unwrap(), timeout);
+        assert_eq!(
+            dial_timeout(Some(Duration::from_secs(1)), timeout).unwrap(),
+            Duration::from_secs(1)
+        );
+        let e = dial_timeout(Some(Duration::from_millis(999)), timeout).unwrap_err();
+        assert!(e.to_string().contains("1s at least"), "{}", e);
     }
 }
