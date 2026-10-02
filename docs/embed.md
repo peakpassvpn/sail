@@ -113,9 +113,10 @@ nothing.
 
 So a reload that changes only `dns.servers` swaps the servers and does not
 interrupt established connections. New queries go to the new servers, with
-an empty cache. Not yet verified: whether a connection carried over a
-multiplexed session (AnyTLS, mux) survives a reload that rebuilds that
-outbound. Treat that as open until a test says so.
+an empty cache. That holds for connections carried over multiplexed
+sessions too: an AnyTLS outbound's, and a sing-mux (smux) one's, are
+tested. The rebuilt outbound opens new sessions for new connections, and
+the old sessions carry theirs until they close.
 
 ## A snapshot, then what follows
 
