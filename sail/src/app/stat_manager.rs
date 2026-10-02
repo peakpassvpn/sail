@@ -680,6 +680,8 @@ pub struct StatManager {
     users: UserRegistry,
     /// Where the next `read_traffic` counts from, by kind and name.
     read: Mutex<HashMap<(u8, String), Counts>>,
+    /// One write to the cache file at a time, its counts read under it.
+    stores: Mutex<()>,
 }
 
 impl Default for StatManager {
@@ -703,6 +705,7 @@ impl StatManager {
             outbounds: Tags::default(),
             users,
             read: Mutex::default(),
+            stores: Mutex::default(),
         }
     }
 
@@ -929,8 +932,12 @@ impl StatManager {
             .map(|ts| get_unix_timestamp().saturating_sub(ts))
     }
 
-    /// Writes the counts to the cache file, if there is one.
+    /// Writes the counts to the cache file, if there is one. The counts
+    /// are read once the writes before are done, so the last written are
+    /// the latest: a periodic write still going when the instance stops
+    /// cannot put older counts over those the stop wrote.
     pub fn store(&self, cache_file: &crate::runtime::cache_file::CacheFileSlot) {
+        let _one = self.stores.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(cache) = cache_file.get() {
             if let Err(e) = cache.store_traffic(&self.traffic()) {
                 warn!("cache_file: traffic not written: {:#}", e);

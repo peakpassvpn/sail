@@ -6,7 +6,7 @@
 //! version of each API that answers with it.
 
 /// The version of the shape, raised with any change to it.
-pub const VERSION: u32 = 3;
+pub const VERSION: u32 = 4;
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -127,6 +127,113 @@ impl Connection {
             start: c.start,
             chains: c.chains.clone(),
             rule: c.rule.clone(),
+        }
+    }
+}
+
+/// A user's limits: what `user_limits` sets, or the management API set
+/// since. A field that is `null` limits nothing.
+#[derive(Serialize)]
+pub struct Limits {
+    pub max_connections: Option<u32>,
+    pub quota_bytes: Option<u64>,
+    /// When it may no longer connect, in milliseconds since the epoch.
+    pub expire_at_ms: Option<u64>,
+    pub up_mbps: Option<u64>,
+    pub down_mbps: Option<u64>,
+}
+
+impl Limits {
+    pub fn of(l: &crate::user::Limits) -> Self {
+        Self {
+            max_connections: l.max_connections,
+            quota_bytes: l.quota_bytes,
+            expire_at_ms: l.expire_at.map(millis_since_epoch),
+            up_mbps: l.up_mbps,
+            down_mbps: l.down_mbps,
+        }
+    }
+}
+
+/// Bytes up and down, and the TCP connections and UDP sessions there were.
+#[derive(Serialize)]
+pub struct Counts {
+    pub up: u64,
+    pub down: u64,
+    pub tcp: u64,
+    pub udp: u64,
+}
+
+impl Counts {
+    pub fn of(c: &crate::app::stat_manager::Counts) -> Self {
+        Self {
+            up: c.up,
+            down: c.down,
+            tcp: c.tcp,
+            udp: c.udp,
+        }
+    }
+}
+
+/// A user, by name, across the inbounds it is in.
+#[derive(Serialize)]
+pub struct User {
+    pub name: String,
+    /// The inbounds whose configuration has it.
+    pub inbounds: Vec<String>,
+    /// Neither over its quota nor expired: it may connect.
+    pub active: bool,
+    pub over_quota: bool,
+    pub expired: bool,
+    pub limits: Limits,
+    /// Since it was first counted, across restarts with the cache file.
+    pub traffic: Counts,
+    /// Its live connections.
+    pub live: u64,
+    /// Up and down together since its quota was last reset.
+    pub quota_used: u64,
+}
+
+impl User {
+    pub fn of(u: &crate::user::UserSnapshot) -> Self {
+        Self {
+            name: u.name.clone(),
+            inbounds: u.inbounds.clone(),
+            active: u.status.active(),
+            over_quota: u.status.exhausted(),
+            expired: u.status.expired(),
+            limits: Limits::of(&u.limits),
+            traffic: Counts::of(&u.traffic),
+            live: u.live as u64,
+            quota_used: u.quota_used,
+        }
+    }
+}
+
+#[derive(Serialize)]
+pub struct Users {
+    pub users: Vec<User>,
+}
+
+/// The traffic of each user, inbound and outbound, by name or tag.
+#[derive(Serialize)]
+pub struct Stats {
+    pub users: std::collections::BTreeMap<String, Counts>,
+    pub inbounds: std::collections::BTreeMap<String, Counts>,
+    pub outbounds: std::collections::BTreeMap<String, Counts>,
+}
+
+impl Stats {
+    pub fn of(r: &crate::app::stat_manager::TrafficReport) -> Self {
+        let by = |list: &[(String, crate::app::stat_manager::Counts)]| {
+            list.iter()
+                .map(|(k, c)| (k.clone(), Counts::of(c)))
+                .collect()
+        };
+        Self {
+            users: by(&r.users),
+            inbounds: by(&r.inbounds),
+            outbounds: by(&r.outbounds),
         }
     }
 }
@@ -410,6 +517,17 @@ mod tests {
                 failure: Some(Failure { at_ms: 1, error: "http status 503".into() }),
                 subscription: Some(Subscription { upload: 1, download: 2, total: 3, expire_ms: None }),
             }] },
+            "users": Users { users: vec![User {
+                name: "alice".into(), inbounds: vec!["t".into()], active: false, over_quota: true,
+                expired: false,
+                limits: Limits { max_connections: Some(2), quota_bytes: Some(10), expire_at_ms: Some(millis_since_epoch(at)),
+                                 up_mbps: None, down_mbps: Some(5) },
+                traffic: Counts { up: 1, down: 2, tcp: 3, udp: 4 }, live: 1, quota_used: 12,
+            }] },
+            "stats": Stats {
+                users: [("alice".to_string(), Counts { up: 1, down: 2, tcp: 3, udp: 0 })].into(),
+                inbounds: Default::default(), outbounds: Default::default(),
+            },
             "rule_sets": RuleSets { rule_sets: vec![RuleSet {
                 tag: "ads".into(), source: "local".into(), format: Some("clash-yaml".into()),
                 behavior: Some("domain".into()), rules: 9, updated_ms: None, next_update_ms: None, failure: None,
@@ -435,8 +553,14 @@ mod tests {
                "history": [{"delay_ms": 1, "time_ms": 1759300000123}, {"delay_ms": null, "time_ms": 0}],
                "kind": "Selector", "protocol": "selector", "provider": null, "tag": "sel", "udp": true},
   "state": {"error": "x", "started_at_ms": null, "state": "failed"},
+  "stats": {"inbounds": {}, "outbounds": {}, "users": {"alice": {"down": 2, "tcp": 3, "udp": 0, "up": 1}}},
   "status": {"connections": 5, "down": 2, "down_total": 4, "memory": 6, "up": 1, "up_total": 3},
-  "traffic": {"connections": 3, "down_total": 2, "memory": 4, "up_total": 1}
+  "traffic": {"connections": 3, "down_total": 2, "memory": 4, "up_total": 1},
+  "users": {"users": [{"active": false, "expired": false, "inbounds": ["t"],
+             "limits": {"down_mbps": 5, "expire_at_ms": 1759300000123, "max_connections": 2, "quota_bytes": 10,
+                        "up_mbps": null},
+             "live": 1, "name": "alice", "over_quota": true, "quota_used": 12,
+             "traffic": {"down": 2, "tcp": 3, "udp": 4, "up": 1}}]}
 }"#;
         let published: serde_json::Value = serde_json::from_str(published).unwrap();
         assert_eq!(snapshot, published, "{:#}", snapshot);

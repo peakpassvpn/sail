@@ -382,7 +382,7 @@ impl UserLimits {
             .map(|at| at.with_timezone(&chrono::Utc))
     }
 
-    fn check(&self, name: &str) -> Result<()> {
+    pub(crate) fn check(&self, name: &str) -> Result<()> {
         let field = |f: &str| format!("user_limits.{}.{}", name, f);
         if self.max_connections == Some(0) {
             return Err(anyhow!(

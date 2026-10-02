@@ -75,7 +75,7 @@ class SailTest {
     fun theCapabilitiesNameTheApi() {
         val capabilities = Sail.capabilities()
         assertEquals(3, capabilities.apiVersion)
-        assertEquals(3, capabilities.jsonVersion)
+        assertEquals(4, capabilities.jsonVersion)
         assertTrue("inbound-socks" in capabilities.features)
     }
 

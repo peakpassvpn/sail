@@ -141,7 +141,7 @@ final class SailTests: XCTestCase {
     func testCapabilities() throws {
         let capabilities = try Sail.capabilities()
         XCTAssertEqual(capabilities.apiVersion, 3)
-        XCTAssertEqual(capabilities.jsonVersion, 3)
+        XCTAssertEqual(capabilities.jsonVersion, 4)
         XCTAssertTrue(capabilities.features.contains("inbound-socks"))
     }
 

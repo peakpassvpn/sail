@@ -138,7 +138,25 @@ Unlike sing-box, sail's queries ask for a unicast reply (the QU bit of RFC 6762)
 
 Log levels are `trace`, `debug`, `info`, `warn` (or `warning`) and `error`; `fatal` and `panic` are accepted and act as `error`. Set `disabled` to log nothing and `timestamp` to start each line with the time. `format: compact`, a Sail extension, writes the message alone. Leave `output` unset to log to the console.
 
-The API is served when `api` is set. By default it is on a unix socket, `api.sock` in the data directory (`path` sets another), which only the user Sail runs as can open. `listen` serves it on a loopback address too, such as `127.0.0.1:9091`, and needs `secret`: one `sail generate secret` makes, which every call sends as `Authorization: Bearer <secret>`; a call without it gets 401. Any process on the host can reach a loopback port, and a secret sent over a network travels in the clear, so `listen` takes loopback addresses only; reach the API from elsewhere through an SSH tunnel or a reverse proxy. A `secret` set for the socket is checked there too. Errors are JSON, `{"error": {"code": "invalid", "message": "..."}}`; a reload that fails answers so, with why, and the configuration that ran runs on. The Clash API, which dashboards use, is configured in `clash_api` or in sing-box's `experimental.clash_api`, not both.
+The API is served when `api` is set. By default it is on a unix socket, `api.sock` in the data directory (`path` sets another), which only the user Sail runs as can open. `listen` serves it on a loopback address too, such as `127.0.0.1:9091`, and needs `secret`: one `sail generate secret` makes, which every call sends as `Authorization: Bearer <secret>`; a call without it gets 401. Any process on the host can reach a loopback port, and a secret sent over a network travels in the clear, so `listen` takes loopback addresses only; reach the API from elsewhere through an SSH tunnel or a reverse proxy. A `secret` set for the socket is checked there too. Errors are JSON, `{"error": {"code": "invalid", "message": "..."}}`; a reload that fails answers so, with why, and the configuration that ran runs on.
+
+The management API, version 1 (`GET /api/v1` gives it, the JSON's version and the build's features). Within version 1, routes and fields are only added; a client ignores those it does not know. Under `/api/v1/runtime`:
+
+| Route | What it does |
+| --- | --- |
+| `GET /users`, `GET /users/{name}` | Users by name: the inbounds they are in, whether they may connect (`active`, `over_quota`, `expired`), their limits, traffic, live connections and quota used |
+| `PUT /users/{name}/limits` | Limits the user by the body until the next reload: the `limits` a GET gives, so it goes back as it came (times in `expire_at_ms`, milliseconds since the epoch), or one user's in `user_limits` (`expire_at` in RFC 3339); 204 |
+| `DELETE /users/{name}/limits` | Back to the limits the configuration sets; 204 |
+| `POST /users/{name}/quota/reset` | What the user used no longer counts; 204 |
+| `POST /users/{name}/disconnect` | Closes its connections, `{"closed": n}`; it may connect again |
+| `GET /stats` | Traffic by user, inbound and outbound; `?clear=true` counts from the last such read, which quotas do not |
+| `GET /status` | Traffic in total, connections and memory |
+| `GET /connections`, `DELETE /connections`, `DELETE /connections/{id}` | The connections open, closing them all, or one |
+| `POST /reload`, `POST /shutdown` | Reloads the configuration file, or stops |
+| `POST /inbounds`, `DELETE /inbounds/{tag}`, `POST /outbounds`, `DELETE /outbounds/{tag}` | Adds or removes one, as the configuration has them |
+
+What the API changes is not written to the configuration: a reload or a restart goes by the file. A user is 404 when no inbound has it.
+ The Clash API, which dashboards use, is configured in `clash_api` or in sing-box's `experimental.clash_api`, not both.
 
 ## Sail extensions
 

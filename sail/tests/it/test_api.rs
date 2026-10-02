@@ -278,3 +278,214 @@ fn a_reload_that_fails_says_why_and_keeps_what_runs() -> anyhow::Result<()> {
     sail::shutdown(id);
     result
 }
+
+#[cfg(feature = "inbound-trojan")]
+#[test]
+fn the_api_reads_and_changes_users_and_connections() -> anyhow::Result<()> {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    let (ids, api_port) = common::retry_port_clash(|| {
+        let [api_port, trojan_port] = common::free_ports();
+        let config = serde_json::json!({
+            "api": { "listen": format!("127.0.0.1:{}", api_port), "secret": SECRET },
+            "inbounds": [{ "type": "trojan", "tag": "t", "listen": "127.0.0.1",
+                           "listen_port": trojan_port,
+                           "users": [{ "name": "alice", "password": "a" }] }],
+            "outbounds": [{ "type": "direct" }],
+            "user_limits": { "alice": { "max_connections": 2 } },
+        });
+        Ok((
+            common::run_sail_instances(&rt, vec![config.to_string()])?,
+            api_port,
+        ))
+    })?;
+    let at = At::Port(api_port);
+    let get = |path: &str| call(&rt, &at, Some(SECRET), "GET", path, "");
+    let result = (|| {
+        let (status, _, body) = get("/api/v1")?;
+        anyhow::ensure!(
+            status == 200 && body["api_version"] == 1 && body["json_version"] == 4,
+            "{} {}",
+            status,
+            body
+        );
+
+        let (status, _, body) = get("/api/v1/runtime/users")?;
+        anyhow::ensure!(status == 200, "{} {}", status, body);
+        let alice = &body["users"][0];
+        anyhow::ensure!(
+            alice["name"] == "alice"
+                && alice["inbounds"] == serde_json::json!(["t"])
+                && alice["active"] == true
+                && alice["limits"]["max_connections"] == 2,
+            "{}",
+            body
+        );
+        let (status, _, body) = get("/api/v1/runtime/users/bob")?;
+        anyhow::ensure!(
+            status == 404 && error(&body).0 == "not_found",
+            "{} {}",
+            status,
+            body
+        );
+
+        let limits = "/api/v1/runtime/users/alice/limits";
+        let (status, _, body) = call(
+            &rt,
+            &at,
+            Some(SECRET),
+            "PUT",
+            limits,
+            r#"{ "max_connections": 0 }"#,
+        )?;
+        anyhow::ensure!(
+            status == 400 && error(&body).0 == "invalid",
+            "{} {}",
+            status,
+            body
+        );
+        let (status, _, body) = call(
+            &rt,
+            &at,
+            Some(SECRET),
+            "PUT",
+            limits,
+            r#"{ "max_connections": 5, "up_mbps": 10 }"#,
+        )?;
+        anyhow::ensure!(status == 204, "{} {}", status, body);
+        let (_, _, body) = get("/api/v1/runtime/users/alice")?;
+        anyhow::ensure!(
+            body["limits"]["max_connections"] == 5 && body["limits"]["up_mbps"] == 10,
+            "{}",
+            body
+        );
+        // Back to what the configuration sets.
+        let (status, _, body) = call(&rt, &at, Some(SECRET), "DELETE", limits, "")?;
+        anyhow::ensure!(status == 204, "{} {}", status, body);
+        let (_, _, body) = get("/api/v1/runtime/users/alice")?;
+        anyhow::ensure!(
+            body["limits"]["max_connections"] == 2 && body["limits"]["up_mbps"].is_null(),
+            "{}",
+            body
+        );
+        // A time in milliseconds goes back as it came; one in RFC 3339 is
+        // taken as user_limits has it; both at once is a mistake.
+        let expire_at_ms = 4_102_444_800_123u64;
+        let put = |body: &str| call(&rt, &at, Some(SECRET), "PUT", limits, body);
+        let (status, _, body) = put(&format!(r#"{{ "expire_at_ms": {} }}"#, expire_at_ms))?;
+        anyhow::ensure!(status == 204, "{} {}", status, body);
+        let (_, _, got) = get("/api/v1/runtime/users/alice")?;
+        anyhow::ensure!(got["limits"]["expire_at_ms"] == expire_at_ms, "{}", got);
+        let (status, _, body) = put(&got["limits"].to_string())?;
+        anyhow::ensure!(status == 204, "{} {}", status, body);
+        let (_, _, again) = get("/api/v1/runtime/users/alice")?;
+        anyhow::ensure!(again["limits"] == got["limits"], "{} {}", got, again);
+        let (status, _, body) = put(r#"{ "expire_at": "2100-01-01T00:00:00Z" }"#)?;
+        anyhow::ensure!(status == 204, "{} {}", status, body);
+        let (_, _, got) = get("/api/v1/runtime/users/alice")?;
+        anyhow::ensure!(
+            got["limits"]["expire_at_ms"] == 4_102_444_800_000u64,
+            "{}",
+            got
+        );
+        let (status, _, body) = put(&format!(
+            r#"{{ "expire_at": "2100-01-01T00:00:00Z", "expire_at_ms": {} }}"#,
+            expire_at_ms
+        ))?;
+        anyhow::ensure!(
+            status == 400 && error(&body).0 == "invalid",
+            "{} {}",
+            status,
+            body
+        );
+        let (status, _, _) = call(&rt, &at, Some(SECRET), "DELETE", limits, "")?;
+        anyhow::ensure!(status == 204);
+
+        let (status, _, body) = call(
+            &rt,
+            &at,
+            Some(SECRET),
+            "PUT",
+            "/api/v1/runtime/users/bob/limits",
+            r#"{ "max_connections": 5 }"#,
+        )?;
+        anyhow::ensure!(status == 404, "{} {}", status, body);
+
+        let (status, _, body) = call(
+            &rt,
+            &at,
+            Some(SECRET),
+            "POST",
+            "/api/v1/runtime/users/alice/quota/reset",
+            "",
+        )?;
+        anyhow::ensure!(status == 204, "{} {}", status, body);
+        let (status, _, body) = call(
+            &rt,
+            &at,
+            Some(SECRET),
+            "POST",
+            "/api/v1/runtime/users/alice/disconnect",
+            "",
+        )?;
+        anyhow::ensure!(status == 200 && body["closed"] == 0, "{} {}", status, body);
+
+        for path in ["/api/v1/runtime/stats", "/api/v1/runtime/stats?clear=true"] {
+            let (status, _, body) = get(path)?;
+            anyhow::ensure!(
+                status == 200 && body["users"].is_object() && body["inbounds"].is_object(),
+                "{}: {} {}",
+                path,
+                status,
+                body
+            );
+        }
+        let (status, _, body) = get("/api/v1/runtime/status")?;
+        anyhow::ensure!(
+            status == 200 && body["connections"].is_number() && body["memory"].is_number(),
+            "{} {}",
+            status,
+            body
+        );
+        let (status, _, body) = get("/api/v1/runtime/connections")?;
+        anyhow::ensure!(
+            status == 200 && body["connections"].is_array(),
+            "{} {}",
+            status,
+            body
+        );
+        let (status, _, body) = call(
+            &rt,
+            &at,
+            Some(SECRET),
+            "DELETE",
+            "/api/v1/runtime/connections/999999",
+            "",
+        )?;
+        anyhow::ensure!(status == 404, "{} {}", status, body);
+        let (status, _, body) = call(
+            &rt,
+            &at,
+            Some(SECRET),
+            "DELETE",
+            "/api/v1/runtime/connections",
+            "",
+        )?;
+        anyhow::ensure!(
+            status == 200 && body["closed"].is_number(),
+            "{} {}",
+            status,
+            body
+        );
+
+        // The pages /connections replaced are gone.
+        let (status, _, _) = get("/api/v1/runtime/stat/json")?;
+        anyhow::ensure!(status == 404, "{}", status);
+        Ok(())
+    })();
+    for id in ids {
+        sail::shutdown(id);
+    }
+    result
+}

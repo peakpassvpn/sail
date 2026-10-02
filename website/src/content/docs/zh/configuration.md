@@ -138,7 +138,25 @@ sing-box 的 `ntp` 段会被丢弃并给出警告；其 `services`、`certificat
 
 日志级别有 `trace`、`debug`、`info`、`warn`（或 `warning`）和 `error`；`fatal` 与 `panic` 也接受，效果同 `error`。`disabled` 关闭全部日志，`timestamp` 在每行开头加时间。`format: compact` 是 Sail 扩展，只输出消息本身。不设置 `output` 时输出到控制台。
 
-设置了 `api` 才会提供 API。默认在 Unix socket 上，即数据目录下的 `api.sock`（用 `path` 指定别处），只有运行 Sail 的用户能打开。`listen` 让它同时在回环地址上提供，例如 `127.0.0.1:9091`，此时必须设置 `secret`：用 `sail generate secret` 生成，每次调用以 `Authorization: Bearer <secret>` 携带，缺少或错误时返回 401。本机任何进程都能连上回环端口，而经网络发送的密钥是明文，所以 `listen` 只接受回环地址；要从别处访问，请用 SSH 隧道或反向代理。Unix socket 上设置了 `secret` 时也会校验。错误以 JSON 返回，形如 `{"error": {"code": "invalid", "message": "..."}}`；重载失败时也这样返回原因，原来的配置继续运行。供面板使用的 Clash API 写在 `clash_api` 或 sing-box 的 `experimental.clash_api` 中，二者只能选一。
+设置了 `api` 才会提供 API。默认在 Unix socket 上，即数据目录下的 `api.sock`（用 `path` 指定别处），只有运行 Sail 的用户能打开。`listen` 让它同时在回环地址上提供，例如 `127.0.0.1:9091`，此时必须设置 `secret`：用 `sail generate secret` 生成，每次调用以 `Authorization: Bearer <secret>` 携带，缺少或错误时返回 401。本机任何进程都能连上回环端口，而经网络发送的密钥是明文，所以 `listen` 只接受回环地址；要从别处访问，请用 SSH 隧道或反向代理。Unix socket 上设置了 `secret` 时也会校验。错误以 JSON 返回，形如 `{"error": {"code": "invalid", "message": "..."}}`；重载失败时也这样返回原因，原来的配置继续运行。
+
+管理 API 当前为第 1 版（`GET /api/v1` 返回它、JSON 的版本和本构建的特性）。第 1 版之内只新增路由和字段，客户端应忽略不认识的字段。以下路由都在 `/api/v1/runtime` 之下：
+
+| 路由 | 作用 |
+| --- | --- |
+| `GET /users`、`GET /users/{name}` | 按名字列出用户：所在入站、能否连接（`active`、`over_quota`、`expired`）、限制、流量、活动连接数和已用配额 |
+| `PUT /users/{name}/limits` | 按请求体限制该用户，到下次重载为止。请求体可以是 GET 返回的 `limits`，原样 PUT 回去即可（时间为 `expire_at_ms`，Unix 毫秒）；也可以按 `user_limits` 中一个用户的写法（`expire_at` 为 RFC 3339）。返回 204 |
+| `DELETE /users/{name}/limits` | 恢复为配置文件中的限制；返回 204 |
+| `POST /users/{name}/quota/reset` | 已用流量不再计入配额；返回 204 |
+| `POST /users/{name}/disconnect` | 断开该用户的连接，返回 `{"closed": n}`；之后它仍可重新连接 |
+| `GET /stats` | 按用户、入站、出站给出流量；`?clear=true` 表示自上次这样读取以来的增量，不影响配额 |
+| `GET /status` | 总流量、连接数和内存 |
+| `GET /connections`、`DELETE /connections`、`DELETE /connections/{id}` | 列出进行中的连接，关闭全部或其中一条 |
+| `POST /reload`、`POST /shutdown` | 重载配置文件，或停止 |
+| `POST /inbounds`、`DELETE /inbounds/{tag}`、`POST /outbounds`、`DELETE /outbounds/{tag}` | 增删一个入站或出站，格式同配置文件 |
+
+经 API 做的修改不写回配置文件：重载或重启以文件为准。没有入站包含的用户返回 404。
+供面板使用的 Clash API 写在 `clash_api` 或 sing-box 的 `experimental.clash_api` 中，二者只能选一。
 
 ## Sail 扩展
 

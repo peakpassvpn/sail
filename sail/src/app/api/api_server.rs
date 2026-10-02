@@ -1,23 +1,24 @@
-use std::collections::HashSet;
 use std::convert::Infallible;
-use std::iter::FromIterator;
-use std::net::IpAddr;
 use std::sync::Arc;
-
-use chrono::{Local, TimeZone};
 
 use anyhow::{anyhow, bail};
 use axum::{
     extract::{Path, Request, State},
     http::{header, StatusCode},
     middleware::{self, Next},
-    response::{Html, IntoResponse, Json, Response},
-    routing::{delete, get, post},
+    response::{IntoResponse, Json, Response},
+    routing::{delete, get, post, put},
     Router,
 };
 use tracing::{info, warn};
 
+use crate::control::json;
 use crate::control::listen::{self, Listener};
+
+/// The version of the management API: its routes and what they mean.
+/// Within it routes and fields are only added; a client ignores those it
+/// does not know.
+pub const API_VERSION: u32 = 1;
 
 #[cfg(feature = "outbound-select")]
 use axum::extract::Query;
@@ -38,26 +39,6 @@ mod models {
     #[derive(Debug, Serialize, Deserialize)]
     pub struct SelectReply {
         pub selected: Option<String>,
-    }
-
-    #[derive(Debug, Serialize, Deserialize)]
-    pub struct Stat {
-        pub network: String,
-        pub inbound_tag: String,
-        pub inbound_type: String,
-        pub user: Option<String>,
-        pub forwarded_source: Option<String>,
-        pub source: String,
-        pub destination: String,
-        pub outbound_tag: String,
-        pub bytes_sent: u64,
-        pub bytes_recvd: u64,
-        pub send_completed: bool,
-        pub recv_completed: bool,
-        pub start_time: u32,
-        pub dns_sniffed_domain: Option<String>,
-        pub tls_sniffed_domain: Option<String>,
-        pub http_sniffed_domain: Option<String>,
     }
 
     #[derive(Debug, Serialize, Deserialize)]
@@ -82,6 +63,53 @@ mod models {
         pub detour: Option<String>,
     }
 
+    /// A user's limits, as the management API takes them.
+    #[derive(Debug, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct Limits {
+        #[serde(default)]
+        pub max_connections: Option<u32>,
+        #[serde(default)]
+        pub quota_bytes: Option<u64>,
+        /// Milliseconds since the epoch, as the API answers with it.
+        #[serde(default)]
+        pub expire_at_ms: Option<u64>,
+        /// RFC 3339, as `user_limits` takes it.
+        #[serde(default)]
+        pub expire_at: Option<String>,
+        #[serde(default)]
+        pub up_mbps: Option<u64>,
+        #[serde(default)]
+        pub down_mbps: Option<u64>,
+    }
+
+    impl Limits {
+        /// As `user_limits` has them, which checks them.
+        pub fn configured(self) -> Result<crate::config::UserLimits, String> {
+            let expire_at = match (self.expire_at, self.expire_at_ms) {
+                (Some(_), Some(_)) => {
+                    return Err("expire_at, expire_at_ms: give one of them".into())
+                }
+                (Some(at), None) => Some(at),
+                (None, Some(ms)) => {
+                    let at = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(
+                        i64::try_from(ms).map_err(|_| "expire_at_ms: too far".to_string())?,
+                    )
+                    .ok_or_else(|| "expire_at_ms: too far".to_string())?;
+                    Some(at.to_rfc3339_opts(chrono::SecondsFormat::Millis, true))
+                }
+                (None, None) => None,
+            };
+            Ok(crate::config::UserLimits {
+                max_connections: self.max_connections,
+                quota_bytes: self.quota_bytes,
+                expire_at,
+                up_mbps: self.up_mbps,
+                down_mbps: self.down_mbps,
+            })
+        }
+    }
+
     #[derive(Debug, Serialize, Deserialize)]
     pub struct OutboundHealthCheck {
         pub tag: String,
@@ -92,7 +120,6 @@ mod models {
 
 mod handlers {
     use super::*;
-    use crate::session::SniffedFrom;
 
     #[cfg(feature = "outbound-select")]
     pub async fn select_update(
@@ -187,10 +214,6 @@ mod handlers {
         changed(rm.remove_inbound(&tag).await)
     }
 
-    fn sniffed(sess: &crate::session::Session, from: SniffedFrom) -> Option<String> {
-        sess.sniffed_domain_from(from).map(String::from)
-    }
-
     /// A change made, or why it was not.
     fn changed(result: Result<(), crate::Error>) -> Response {
         match result {
@@ -213,6 +236,175 @@ mod handlers {
             ),
             e => error(StatusCode::INTERNAL_SERVER_ERROR, "internal", e),
         }
+    }
+
+    /// The API's version and what this build of sail has.
+    pub async fn capabilities() -> Json<json::Capabilities> {
+        Json(json::Capabilities {
+            api_version: API_VERSION,
+            json_version: json::VERSION,
+            version: env!("CARGO_PKG_VERSION"),
+            features: crate::control::features(),
+        })
+    }
+
+    fn no_user(name: &str) -> Response {
+        error(
+            StatusCode::NOT_FOUND,
+            "not_found",
+            format!("user [{}]: there is none", name),
+        )
+    }
+
+    /// Every user there is, by name.
+    pub async fn users(State(rm): State<Arc<RuntimeManager>>) -> Response {
+        match rm.users() {
+            Ok(users) => Json(json::Users {
+                users: users.iter().map(json::User::of).collect(),
+            })
+            .into_response(),
+            Err(e) => failed(e),
+        }
+    }
+
+    pub async fn user(State(rm): State<Arc<RuntimeManager>>, Path(name): Path<String>) -> Response {
+        match rm.user(&name) {
+            Ok(Some(user)) => Json(json::User::of(&user)).into_response(),
+            Ok(None) => no_user(&name),
+            Err(e) => failed(e),
+        }
+    }
+
+    /// `action` done to the user `name`, or 404 when there is none.
+    fn on_user<T>(
+        rm: &RuntimeManager,
+        name: &str,
+        action: impl FnOnce() -> Result<T, crate::Error>,
+        done: impl FnOnce(T) -> Response,
+    ) -> Response {
+        match rm.user(name) {
+            Ok(Some(_)) => match action() {
+                Ok(t) => done(t),
+                Err(e) => failed(e),
+            },
+            Ok(None) => no_user(name),
+            Err(e) => failed(e),
+        }
+    }
+
+    /// Limits the user by the body until the next reload or a DELETE: the
+    /// `limits` a GET answers with, so that it goes back as it came, or a
+    /// user's in `user_limits`, its time in RFC 3339.
+    pub async fn user_limits_set(
+        State(rm): State<Arc<RuntimeManager>>,
+        Path(name): Path<String>,
+        body: axum::body::Bytes,
+    ) -> Response {
+        let limits = match serde_json::from_slice::<models::Limits>(&body)
+            .map_err(|e| format!("body: {}", e))
+            .and_then(models::Limits::configured)
+        {
+            Ok(limits) => limits,
+            Err(e) => return error(StatusCode::BAD_REQUEST, "invalid", e),
+        };
+        if let Err(e) = limits.check(&name) {
+            return error(StatusCode::BAD_REQUEST, "invalid", e);
+        }
+        let limits = crate::user::Limits::from_config(&limits);
+        on_user(
+            &rm,
+            &name,
+            || rm.set_user_limits(&name, limits),
+            |()| StatusCode::NO_CONTENT.into_response(),
+        )
+    }
+
+    /// Limits the user by what the configuration sets again.
+    pub async fn user_limits_restore(
+        State(rm): State<Arc<RuntimeManager>>,
+        Path(name): Path<String>,
+    ) -> Response {
+        on_user(
+            &rm,
+            &name,
+            || rm.restore_user_limits(&name),
+            |()| StatusCode::NO_CONTENT.into_response(),
+        )
+    }
+
+    pub async fn user_quota_reset(
+        State(rm): State<Arc<RuntimeManager>>,
+        Path(name): Path<String>,
+    ) -> Response {
+        on_user(
+            &rm,
+            &name,
+            || rm.reset_quota(&name),
+            |()| StatusCode::NO_CONTENT.into_response(),
+        )
+    }
+
+    /// Closes the user's connections; it may connect again.
+    pub async fn user_disconnect(
+        State(rm): State<Arc<RuntimeManager>>,
+        Path(name): Path<String>,
+    ) -> Response {
+        on_user(
+            &rm,
+            &name,
+            || rm.disconnect_user(&name),
+            |closed| Json(serde_json::json!({ "closed": closed })).into_response(),
+        )
+    }
+
+    /// The traffic of each user, inbound and outbound; with `?clear=true`,
+    /// since the last read that cleared it, as ssm-api reads. Quotas do
+    /// not count from it.
+    pub async fn stats(
+        State(rm): State<Arc<RuntimeManager>>,
+        uri: axum::http::Uri,
+    ) -> Json<json::Stats> {
+        let clear = uri
+            .query()
+            .is_some_and(|q| q.split('&').any(|p| p == "clear=true" || p == "clear=1"));
+        Json(json::Stats::of(&rm.read_traffic(clear)))
+    }
+
+    /// What the instance sent and received, its connections and memory.
+    pub async fn status(State(rm): State<Arc<RuntimeManager>>) -> Json<json::Traffic> {
+        Json(json::Traffic::of(&rm.traffic().await))
+    }
+
+    pub async fn connections(State(rm): State<Arc<RuntimeManager>>) -> Json<json::Connections> {
+        Json(json::Connections {
+            connections: rm
+                .connections()
+                .await
+                .iter()
+                .map(json::Connection::of)
+                .collect(),
+        })
+    }
+
+    pub async fn connection_close(
+        State(rm): State<Arc<RuntimeManager>>,
+        Path(id): Path<u64>,
+    ) -> Response {
+        if rm.close_connection(id).await {
+            StatusCode::NO_CONTENT.into_response()
+        } else {
+            error(
+                StatusCode::NOT_FOUND,
+                "not_found",
+                format!("connection {}: there is none", id),
+            )
+        }
+    }
+
+    pub async fn connections_close(
+        State(rm): State<Arc<RuntimeManager>>,
+    ) -> Json<serde_json::Value> {
+        Json(serde_json::json!({ "closed": rm.close_all_connections().await }))
     }
 
     /// The network the host is on, as it told or sail detected it.
@@ -276,33 +468,6 @@ mod handlers {
         }
     }
 
-    pub async fn stat_json(
-        State(rm): State<Arc<RuntimeManager>>,
-    ) -> Result<Json<Vec<models::Stat>>, Infallible> {
-        let mut stats = Vec::new();
-        for c in rm.stat_manager().connections() {
-            stats.push(models::Stat {
-                network: c.sess.network.to_string(),
-                inbound_tag: c.sess.inbound_tag.to_owned(),
-                inbound_type: c.sess.inbound_type.to_owned(),
-                user: c.sess.user.as_ref().map(|u| u.name().to_string()),
-                forwarded_source: c.sess.forwarded_source.map(|x| x.to_string()),
-                source: c.sess.source.to_string(),
-                destination: c.sess.destination.to_string(),
-                outbound_tag: c.sess.outbound_tag.to_owned(),
-                bytes_sent: c.bytes_sent(),
-                bytes_recvd: c.bytes_recvd(),
-                send_completed: c.send_completed(),
-                recv_completed: c.recv_completed(),
-                start_time: c.start_time(),
-                dns_sniffed_domain: sniffed(&c.sess, SniffedFrom::Dns),
-                tls_sniffed_domain: sniffed(&c.sess, SniffedFrom::Tls),
-                http_sniffed_domain: sniffed(&c.sess, SniffedFrom::Http),
-            });
-        }
-        Ok(Json(stats))
-    }
-
     /// What the DNS cache holds and how it served.
     pub async fn dns_cache(
         State(rm): State<Arc<RuntimeManager>>,
@@ -329,141 +494,6 @@ mod handlers {
     ) -> Json<std::collections::BTreeMap<&'static str, crate::transport::muxcore::stats::Snapshot>>
     {
         Json(crate::transport::muxcore::stats::snapshot())
-    }
-
-    pub async fn stat_recent_json(
-        State(rm): State<Arc<RuntimeManager>>,
-    ) -> Result<Json<Vec<models::Stat>>, Infallible> {
-        let mut stats = Vec::new();
-        for c in rm.stat_manager().recent() {
-            stats.push(models::Stat {
-                network: c.sess.network.to_string(),
-                inbound_tag: c.sess.inbound_tag.to_owned(),
-                inbound_type: c.sess.inbound_type.to_owned(),
-                user: c.sess.user.as_ref().map(|u| u.name().to_string()),
-                forwarded_source: c.sess.forwarded_source.map(|x| x.to_string()),
-                source: c.sess.source.to_string(),
-                destination: c.sess.destination.to_string(),
-                outbound_tag: c.sess.outbound_tag.to_owned(),
-                bytes_sent: c.bytes_sent(),
-                bytes_recvd: c.bytes_recvd(),
-                send_completed: c.send_completed(),
-                recv_completed: c.recv_completed(),
-                start_time: c.start_time(),
-                dns_sniffed_domain: sniffed(&c.sess, SniffedFrom::Dns),
-                tls_sniffed_domain: sniffed(&c.sess, SniffedFrom::Tls),
-                http_sniffed_domain: sniffed(&c.sess, SniffedFrom::Http),
-            });
-        }
-        Ok(Json(stats))
-    }
-
-    pub async fn stat_html(
-        State(rm): State<Arc<RuntimeManager>>,
-    ) -> Result<Html<String>, Infallible> {
-        let mut body = String::from(
-            r#"<html>
-<head><style>
-table, th, td {
-  border: 1px solid black;
-  border-collapse: collapse;
-  text-align: right;
-  padding: 4;
-  font-size: small;
-}
-.highlight {
-  font-weight: bold;
-}
-</style></head>
-<table style="border=4px solid">
-        "#,
-        );
-        let counters = rm.stat_manager().connections();
-        let total_counters = counters.len();
-        let active_counters = counters
-            .iter()
-            .filter(|x| !x.send_completed() || !x.recv_completed())
-            .count();
-        let active_sources = HashSet::<IpAddr>::from_iter(
-            counters
-                .iter()
-                .filter(|x| !x.send_completed() || !x.recv_completed())
-                .map(|c| c.sess.source.ip()),
-        )
-        .len();
-        let active_forwarded_source = HashSet::<IpAddr>::from_iter(
-            counters
-                .iter()
-                .filter(|x| !x.send_completed() || !x.recv_completed())
-                .filter_map(|c| c.sess.forwarded_source),
-        )
-        .len();
-        body.push_str(&format!(
-            "Total {}<br>Active {}<br>Active Source {}<br>Active Forwarded Source {}<br><br>",
-            total_counters, active_counters, active_sources, active_forwarded_source,
-        ));
-        body.push_str("<tr><td>Network</td><td>Inbound</td><td>Forwarded</td><td>Source</td><td>Destination</td><td>Outbound</td><td>SentBytes</td><td>RecvdBytes</td><td>SendFin</td><td>RecvFin</td><td>StartTime</td></tr>");
-        for c in &counters {
-            body.push_str(&format!(
-                "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
-                c.sess.network,
-                c.sess.inbound_tag,
-                c.sess.forwarded_source.map(|x|x.to_string()).unwrap_or("None".to_string()),
-                c.sess.source,
-                c.sess.destination,
-                c.sess.outbound_tag,
-                c.bytes_sent(),
-                c.bytes_recvd(),
-                c.send_completed(),
-                c.recv_completed(),
-                clock_time(c.start_time()),
-            ));
-        }
-        body.push_str("</table></html>");
-        Ok(Html(body))
-    }
-
-    pub async fn stat_recent_html(
-        State(rm): State<Arc<RuntimeManager>>,
-    ) -> Result<Html<String>, Infallible> {
-        let mut body = String::from(
-            r#"<html>
-<head><style>
-table, th, td {
-  border: 1px solid black;
-  border-collapse: collapse;
-  text-align: right;
-  padding: 4;
-  font-size: small;
-}
-.highlight {
-  font-weight: bold;
-}
-</style></head>
-<table style="border=4px solid">
-        "#,
-        );
-        let recent = rm.stat_manager().recent();
-        body.push_str(&format!("Recent {}<br><br>", recent.len(),));
-        body.push_str("<tr><td>Network</td><td>Inbound</td><td>Forwarded</td><td>Source</td><td>Destination</td><td>Outbound</td><td>SentBytes</td><td>RecvdBytes</td><td>SendFin</td><td>RecvFin</td><td>StartTime</td></tr>");
-        for c in &recent {
-            body.push_str(&format!(
-                "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
-                c.sess.network,
-                c.sess.inbound_tag,
-                c.sess.forwarded_source.map(|x|x.to_string()).unwrap_or("None".to_string()),
-                c.sess.source,
-                c.sess.destination,
-                c.sess.outbound_tag,
-                c.bytes_sent(),
-                c.bytes_recvd(),
-                c.send_completed(),
-                c.recv_completed(),
-                clock_time(c.start_time()),
-            ));
-        }
-        body.push_str("</table></html>");
-        Ok(Html(body))
     }
 
     pub async fn last_peer_active(
@@ -701,15 +731,30 @@ impl ApiServer {
         }
 
         app = app
-            .route("/api/v1/runtime/stat/html", get(handlers::stat_html))
-            .route("/api/v1/runtime/stat/json", get(handlers::stat_json))
+            .route("/api/v1", get(handlers::capabilities))
+            .route("/api/v1/runtime/users", get(handlers::users))
+            .route("/api/v1/runtime/users/:name", get(handlers::user))
             .route(
-                "/api/v1/runtime/stat/recent/html",
-                get(handlers::stat_recent_html),
+                "/api/v1/runtime/users/:name/limits",
+                put(handlers::user_limits_set).delete(handlers::user_limits_restore),
             )
             .route(
-                "/api/v1/runtime/stat/recent/json",
-                get(handlers::stat_recent_json),
+                "/api/v1/runtime/users/:name/quota/reset",
+                post(handlers::user_quota_reset),
+            )
+            .route(
+                "/api/v1/runtime/users/:name/disconnect",
+                post(handlers::user_disconnect),
+            )
+            .route("/api/v1/runtime/stats", get(handlers::stats))
+            .route("/api/v1/runtime/status", get(handlers::status))
+            .route(
+                "/api/v1/runtime/connections",
+                get(handlers::connections).delete(handlers::connections_close),
+            )
+            .route(
+                "/api/v1/runtime/connections/:id",
+                delete(handlers::connection_close),
             )
             .route(
                 "/api/v1/runtime/outbound/:tag/last_peer_active",
@@ -735,15 +780,6 @@ impl ApiServer {
             futures::future::join_all(listeners.into_iter().map(|l| accept(l, app.clone()))).await;
         })
     }
-}
-
-/// The local wall-clock time of `secs` since the epoch, or "-" if it has
-/// none.
-fn clock_time(secs: u32) -> String {
-    Local
-        .timestamp_opt(i64::from(secs), 0)
-        .single()
-        .map_or_else(|| "-".to_string(), |t| t.format("%H:%M:%S").to_string())
 }
 
 #[cfg(test)]

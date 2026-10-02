@@ -107,6 +107,14 @@ impl RuntimeManager {
         Ok(())
     }
 
+    /// Limits the user `name` by what the configuration sets again,
+    /// undoing `set_user_limits`.
+    pub fn restore_user_limits(&self, name: &str) -> Result<(), Error> {
+        let user = self.user_ref(name)?;
+        self.env.users.restore_limit(&user);
+        Ok(())
+    }
+
     /// Resets the quota of the user `name`: what it used so far no longer
     /// counts. Not kept across a restart.
     pub fn reset_quota(&self, name: &str) -> Result<(), Error> {

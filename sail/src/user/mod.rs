@@ -525,8 +525,11 @@ struct Registry {
     users: HashMap<Arc<str>, Weak<UserState>>,
     /// The counts the cache file kept, for users not made yet.
     kept: HashMap<String, Counts>,
-    /// The limits configured, by name.
+    /// The limits in force, by name: those configured, but where the
+    /// management API set others since.
     limits: HashMap<String, Limits>,
+    /// The limits configured, by name, which a user's go back to.
+    configured: HashMap<String, Limits>,
     /// Wakes what expires users when the limits change.
     changed: Arc<tokio::sync::Notify>,
     /// Where what happens to users is told.
@@ -539,6 +542,7 @@ impl Default for Registry {
             users: HashMap::new(),
             kept: HashMap::new(),
             limits: HashMap::new(),
+            configured: HashMap::new(),
             changed: Arc::default(),
             events: tokio::sync::broadcast::channel(api::EVENTS).0,
         }
@@ -589,6 +593,7 @@ impl UserRegistry {
         let (users, changed) = {
             let mut registry = self.lock();
             registry.limits = limits.clone();
+            registry.configured = limits.clone();
             (
                 registry
                     .users
@@ -649,6 +654,25 @@ impl UserRegistry {
                 .limits
                 .insert(user.name.to_string(), limits.clone());
             registry.changed.clone()
+        };
+        user.apply(limits, SystemTime::now());
+        changed.notify_one();
+    }
+
+    /// Limits `user` by what the configuration sets for it again, undoing
+    /// `set_limit`.
+    pub fn restore_limit(&self, user: &UserRef) {
+        let (limits, changed) = {
+            let mut registry = self.lock();
+            let limits = registry
+                .configured
+                .get(&*user.name)
+                .cloned()
+                .unwrap_or_default();
+            registry
+                .limits
+                .insert(user.name.to_string(), limits.clone());
+            (limits, registry.changed.clone())
         };
         user.apply(limits, SystemTime::now());
         changed.notify_one();
