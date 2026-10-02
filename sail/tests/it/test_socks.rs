@@ -146,8 +146,17 @@ fn test_socks5_replies_once_connected() -> anyhow::Result<()> {
             .build()?;
         let ids = common::run_sail_instances(&rt, vec![config.to_string()])?;
         let checked = rt.block_on(async {
-            // Refused: connection refused (5).
-            let closed = std::net::TcpListener::bind("127.0.0.1:0")?.local_addr()?;
+            // Refused: connection refused (5). On Linux the port is held,
+            // bound but not listening, until the connect, which Linux
+            // refuses: a port freed first could be another test's by then.
+            // macOS drops a connect to such a socket unanswered, and
+            // refuses only a port nothing holds: there it is freed first.
+            let held = tokio::net::TcpSocket::new_v4()?;
+            held.bind("127.0.0.1:0".parse()?)?;
+            let closed = held.local_addr()?;
+            if !cfg!(target_os = "linux") {
+                drop(held);
+            }
             let (rep, _) = socks5_connect(socks_port, closed).await?;
             anyhow::ensure!(rep == 0x05, "a refused connect answered {:#04x}", rep);
             // Reached: success, then the echo.
