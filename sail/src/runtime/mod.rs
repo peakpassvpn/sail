@@ -263,7 +263,7 @@ pub struct StartSettings {
 }
 
 /// `run_dir` as start settings give it: a directory, or `false` for none.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum RunDirSetting {
     Dir(PathBuf),
     Off,
