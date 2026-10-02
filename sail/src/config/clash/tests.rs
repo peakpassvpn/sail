@@ -209,6 +209,22 @@ fn the_controller_is_the_clash_api() {
 
     let err = error("external-ui: ui\nexternal-ui-name: ../x\n");
     assert!(err.contains("external-ui-name"), "{}", err);
+
+    // The dashboard's directory, which a download replaces, stays in the
+    // data directory as a provider's path does.
+    for ui in ["../ui", "/etc", "ui/../.."] {
+        let err = error(&format!("external-ui: {ui}\n"));
+        assert!(
+            err.contains("external-ui: ") && err.contains("is not in the data directory"),
+            "{ui}: {err}"
+        );
+    }
+    #[cfg(unix)]
+    {
+        let home = Some(std::path::Path::new("/srv/sail/data"));
+        assert!(super::parse_in("external-ui: /srv/sail/data/ui\n", home).is_ok());
+        assert!(super::parse_in("external-ui: /srv/sail/other/ui\n", home).is_err());
+    }
 }
 
 #[test]
@@ -2310,13 +2326,17 @@ fn a_provider_s_size_limit_and_path() {
         assert!(err.contains(message), "{}", err);
     }
     // An absolute path in the data directory is taken, as Mihomo takes one
-    // in its home.
-    let yaml = "proxy-providers: { a: { type: file, path: /srv/sail/data/a.yaml } }\n\
-                proxy-groups: [{ name: G, type: select, use: [a] }]\n";
-    let config = super::parse_in(yaml, Some(std::path::Path::new("/srv/sail/data"))).unwrap();
-    assert_eq!(
-        config.outbound_providers[0].path.as_deref(),
-        Some("/srv/sail/data/a.yaml")
-    );
-    assert!(super::parse_in(yaml, Some(std::path::Path::new("/srv/sail/other"))).is_err());
+    // in its home. (A Unix one: on Windows it has a root and no drive, and
+    // is refused; common::path has the Windows forms.)
+    #[cfg(unix)]
+    {
+        let yaml = "proxy-providers: { a: { type: file, path: /srv/sail/data/a.yaml } }\n\
+                    proxy-groups: [{ name: G, type: select, use: [a] }]\n";
+        let config = super::parse_in(yaml, Some(std::path::Path::new("/srv/sail/data"))).unwrap();
+        assert_eq!(
+            config.outbound_providers[0].path.as_deref(),
+            Some("/srv/sail/data/a.yaml")
+        );
+        assert!(super::parse_in(yaml, Some(std::path::Path::new("/srv/sail/other"))).is_err());
+    }
 }

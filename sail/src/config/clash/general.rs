@@ -229,13 +229,21 @@ fn controller(doc: &mut Fields, out: &mut Lowered, warnings: &mut Vec<String>) -
         }
     }
     let ui = doc.string("external-ui")?.filter(|ui| !ui.is_empty());
+    // A downloaded dashboard replaces the directory's files, so it stays in
+    // the data directory, as Mihomo's IsSafePath keeps it.
+    if let Some(ui) = &ui {
+        if !crate::common::path::stays_in(out.home.as_deref(), ui) {
+            return Err(anyhow!(
+                "external-ui: {:?} is not in the data directory, which the dashboard stays in, \
+                 as in Mihomo",
+                ui
+            ));
+        }
+    }
     let name = doc.string("external-ui-name")?.filter(|n| !n.is_empty());
     match (ui, name) {
         (Some(ui), Some(name)) => {
-            if !std::path::Path::new(&name)
-                .components()
-                .all(|c| matches!(c, std::path::Component::Normal(_)))
-            {
+            if crate::common::path::local(std::path::Path::new(&name)).is_none() {
                 return Err(anyhow!(
                     "external-ui-name: {:?} is not a directory within external-ui",
                     name

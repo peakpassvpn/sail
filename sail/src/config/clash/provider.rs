@@ -388,26 +388,10 @@ pub(super) fn home_path(
     key: &str,
     home: Option<&std::path::Path>,
 ) -> Result<Option<String>> {
-    use std::path::{Component, Path, PathBuf};
     let Some(path) = f.string(key)? else {
         return Ok(None);
     };
-    // The path made plain, `.` and `..` taken away, as Go's Clean.
-    let mut plain = PathBuf::new();
-    let mut climbed = false;
-    for part in Path::new(&path).components() {
-        match part {
-            Component::ParentDir => climbed |= !plain.pop() || plain.as_os_str().is_empty(),
-            Component::CurDir => {}
-            other => plain.push(other.as_os_str()),
-        }
-    }
-    let inside = if Path::new(&path).is_absolute() {
-        home.is_some_and(|home| plain.starts_with(home) && plain != home)
-    } else {
-        !climbed && !plain.as_os_str().is_empty()
-    };
-    if !inside {
+    if !crate::common::path::stays_in(home, &path) {
         return Err(anyhow!(
             "{}: {:?} is not in the data directory, which a provider's path stays in, \
              as in Mihomo",
