@@ -17,6 +17,11 @@
 //!   direct again;
 //! - a crash leaves rules that route nothing, and the next start replaces
 //!   them.
+//!
+//! The script also checks, in the host's namespace, that the host's DNS
+//! settings are as they were: resolved is the host's, and sail in a
+//! namespace once set the host's eth0's servers by the namespace's
+//! interface numbers.
 #![cfg(target_os = "linux")]
 
 use std::net::UdpSocket;

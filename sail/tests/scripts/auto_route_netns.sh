@@ -94,5 +94,25 @@ cd "$SAIL_DIR"
 # Built outside the namespaces, where cargo may reach the network.
 cargo build -p sail-cli
 cargo test -p sail --test test_auto_route_linux --no-run
+# The host's own DNS settings, read in the host's namespace: resolved
+# lists the links of the namespace it is asked from, so the test, in its
+# namespace, cannot see the host's. sail in a namespace once set the host's
+# eth0's servers, by the namespace's interface numbers, and a crash left
+# them behind.
+host_dns() { resolvectl dns 2>/dev/null || true; }
+dns_before=$(host_dns)
+status=0
 in_ns "$HOST" env SAIL_BIN="${CARGO_TARGET_DIR:-$SAIL_DIR/../target}/debug/sail" \
-    cargo test --offline -p sail --test test_auto_route_linux "$@" -- --ignored --nocapture
+    cargo test --offline -p sail --test test_auto_route_linux "$@" -- --ignored --nocapture ||
+    status=$?
+dns_after=$(host_dns)
+if [ -z "$dns_before" ]; then
+    echo "no systemd-resolved on the host: its DNS is not checked"
+elif [ "$dns_before" != "$dns_after" ]; then
+    echo "the host's DNS changed:"
+    diff <(echo "$dns_before") <(echo "$dns_after") || true
+    status=1
+else
+    echo "the host's DNS is as it was"
+fi
+exit "$status"
