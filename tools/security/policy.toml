@@ -18,7 +18,7 @@ rev = "3eb203a7ed44fd93d31056156a1ddfab5a6b9338"
 
 [[git]]
 url = "https://github.com/peakpassvpn/quinn.git"
-rev = "29761c5b2d16f3508dcd3f5b525a2dd052810bb0"
+rev = "a0294adec58a09e6d4d1322ed123ff647dfa619b"
 
 [[git]]
 url = "https://github.com/peakpassvpn/quinn-btls.git"
