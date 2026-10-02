@@ -123,6 +123,14 @@ sub=${1:?usage: $0 <target> <cargo subcommand> [args...]}
 shift
 case $target in
 # Tier 3: std built from source by the pinned nightly.
-mipsel-*) exec cargo "+$SAIL_NIGHTLY" "$sub" -Zbuild-std=std,panic_abort --target "$target" "$@" ;;
+# Its static link (+crt-static, as a release asks) takes the C runtime's
+# start files and libunwind from the musl-cross toolchain, since a std
+# built with -Zbuild-std ships none of its own (install_cross_toolchain.sh
+# gives that toolchain a libunwind).
+mipsel-*)
+	flags=CARGO_TARGET_${T}_RUSTFLAGS
+	export "$flags=${!flags:-} -C link-self-contained=no"
+	exec cargo "+$SAIL_NIGHTLY" "$sub" -Zbuild-std=std,panic_abort --target "$target" "$@"
+	;;
 *) exec cargo "$sub" --target "$target" "$@" ;;
 esac

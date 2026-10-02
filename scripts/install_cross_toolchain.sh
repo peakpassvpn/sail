@@ -84,6 +84,18 @@ install_musl() {
 		tar -C "$dir" -xJf "$tarball"
 		rm "$tarball"
 	fi
+	# A statically linked std asks for -lunwind, which a prebuilt std
+	# brings and one built with -Zbuild-std (mipsel's) does not. GCC's
+	# unwinder implements the same _Unwind_* interface: it is linked under
+	# that name.
+	case $target in
+	mipsel-*)
+		local eh
+		eh=$(find "$dir/$tc/lib/gcc/$tc" -name libgcc_eh.a | head -n 1)
+		[ -n "$eh" ] || { echo "no libgcc_eh.a in $dir/$tc" >&2; exit 1; }
+		ln -sf libgcc_eh.a "$(dirname "$eh")/libunwind.a"
+		;;
+	esac
 	if [ "$run" = --run ]; then
 		case $target in
 		x86_64-* | i686-*) ;; # the host runs them
