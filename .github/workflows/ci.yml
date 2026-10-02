@@ -223,6 +223,46 @@ jobs:
   # or wine), which catches a binary that does not load; the Android
   # sail-ffi libraries are built only. On master and by hand only; a ci/*
   # branch skips them.
+  # A 32-bit target on every push: what only a 32-bit or musl target warns
+  # of (libc's time_t on 32-bit musl, usize casts) surfaces before master's
+  # cross builds, which do not deny warnings, or a release build does.
+  # cross.sh sets the target's own RUSTFLAGS, so -D warnings goes through
+  # SAIL_RUSTFLAGS.
+  check-32bit:
+    runs-on: ubuntu-latest
+    env:
+      CARGO_INCREMENTAL: 0
+      SAIL_RUSTFLAGS: -D warnings
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: install rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+          components: clippy
+
+      - name: cache cross toolchain
+        uses: actions/cache@v4
+        with:
+          path: ~/.sail-cross
+          key: sail-cross-armv7-unknown-linux-musleabihf-${{ hashFiles('scripts/install_cross_toolchain.sh') }}
+
+      - name: cache build
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: check-32bit
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+
+      - name: install cross toolchain
+        run: scripts/install_cross_toolchain.sh armv7-unknown-linux-musleabihf
+
+      - name: lint armv7 musl
+        run: scripts/cross.sh armv7-unknown-linux-musleabihf clippy -p sail-cli -p sail-ffi
+
   cross:
     if: github.ref == 'refs/heads/master' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
