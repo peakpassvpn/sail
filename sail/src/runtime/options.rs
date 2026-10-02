@@ -440,12 +440,13 @@ impl RuntimeOptions {
                     // with it, 50 without (measured); twice this, what
                     // Linux keeps, carries 200 Mbit/s at 20 ms.
                     tcp_send_buffer: 256,
-                    // A session is 24 to 39 KiB, trojan's the most. In a
-                    // 64 MiB budget, 2000 trojan connections held and 500
-                    // new ones a second: 1024 was killed in the burst, 768
-                    // and 512 lived through both (measured); the most that
-                    // did.
-                    max_connections: 768,
+                    // A settled session is 24 to 39 KiB, trojan's the
+                    // most (one still connecting likely more; not
+                    // measured). In a 64 MiB budget with 2000
+                    // trojan connections held and bursts of new ones: 1024
+                    // was killed at 500 a second, 768 at 1000, and 512 and
+                    // 384 lived through both (measured); the most that did.
+                    max_connections: 512,
                     ..desktop.inbound
                 },
                 quic: Quic {
