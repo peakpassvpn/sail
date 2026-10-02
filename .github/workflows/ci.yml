@@ -1,9 +1,10 @@
 name: ci
 
-# Day-to-day checks, Linux only. A ci/* branch runs four jobs in parallel
-# (lint, test, features, fuzz); master adds the cross jobs, one per target, and a
-# native aarch64 test run. Apple builds run at release. Public-repository
-# runners are free, so jobs are split for wall time.
+# Day-to-day checks. A ci/* branch runs four jobs in parallel (lint,
+# test, features, fuzz); master adds the cross jobs, one per target, a
+# native aarch64 test run and a native Windows MSVC build and test run.
+# Apple builds run at release. Public-repository runners are free, so jobs
+# are split for wall time.
 on: [push, pull_request, workflow_dispatch]
 
 env:
@@ -302,3 +303,51 @@ jobs:
 
       - name: test sail
         run: cargo test -p sail
+
+  # Windows with the MSVC toolchain, natively: what an MSVC host app links
+  # (sail-ffi's DLL and static library, or sail as a crate). The release's
+  # Windows CLI is still the gnu cross build above.
+  windows-msvc:
+    if: github.ref == 'refs/heads/master' || github.event_name == 'workflow_dispatch'
+    runs-on: windows-latest
+    env:
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
+      CARGO_INCREMENTAL: 0
+      # bindgen's libclang, from the runner's LLVM.
+      LIBCLANG_PATH: C:\Program Files\LLVM\bin
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: install rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+          targets: x86_64-pc-windows-msvc
+
+      - name: cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+
+      - name: tools
+        run: cmake --version | head -1; go version; clang --version | head -1
+
+      - name: build sail-cli
+        run: cargo build --locked -p sail-cli --target x86_64-pc-windows-msvc
+
+      - name: build sail-ffi
+        run: cargo build --locked -p sail-ffi --target x86_64-pc-windows-msvc
+
+      - name: smoke
+        run: |
+          ls -l target/x86_64-pc-windows-msvc/debug/sail.{exe,dll,lib,dll.lib}
+          target/x86_64-pc-windows-msvc/debug/sail.exe --version
+
+      - name: test sail
+        run: cargo test --locked -p sail --target x86_64-pc-windows-msvc
