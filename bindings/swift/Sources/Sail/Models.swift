@@ -53,7 +53,14 @@ public struct Connection: Decodable, Equatable, Sendable {
     public let inboundTag: String
     public let source: String
     public let destination: String
+    /// The domain it goes to: the destination's, else the name it was
+    /// dialled as, else the one sniffed.
     public let host: String?
+    /// The domain a sniff found, from a TLS server name or an HTTP Host.
+    public let sniffHost: String?
+    /// Where the name it was dialled as came from, `sniff` or
+    /// `reverse_mapping`; nil where it was dialled as asked.
+    public let dialDomainSource: String?
     public let process: String?
     public let user: String?
     /// Who opened it, as the host told (Android).

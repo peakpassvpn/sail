@@ -58,7 +58,12 @@ data class Connection(
     @SerialName("inbound_tag") val inboundTag: String,
     val source: String,
     val destination: String,
+    /** The domain it goes to: the destination's, else the name it was dialled as, else the one sniffed. */
     val host: String? = null,
+    /** The domain a sniff found, from a TLS server name or an HTTP Host. */
+    @SerialName("sniff_host") val sniffHost: String? = null,
+    /** Where the name it was dialled as came from, `sniff` or `reverse_mapping`; null where it was dialled as asked. */
+    @SerialName("dial_domain_source") val dialDomainSource: String? = null,
     val process: String? = null,
     val user: String? = null,
     /** Who opened it, as the host told (Android). */

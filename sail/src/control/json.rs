@@ -94,7 +94,14 @@ pub struct Connection {
     pub inbound_tag: String,
     pub source: String,
     pub destination: String,
+    /// The domain it goes to: the destination's, else the name it was
+    /// dialled as (`override_destination`), else the one sniffed.
     pub host: Option<String>,
+    /// The domain a sniff found, from a TLS server name or an HTTP Host.
+    pub sniff_host: Option<String>,
+    /// Where the name it was dialled as came from, `sniff` or
+    /// `reverse_mapping`; none where it was dialled as asked.
+    pub dial_domain_source: Option<String>,
     pub process: Option<String>,
     pub user: Option<String>,
     /// Who opened it, as the host tells it (Android).
@@ -118,6 +125,8 @@ impl Connection {
             source: c.source.to_string(),
             destination: c.destination.to_string(),
             host: c.host.clone(),
+            sniff_host: c.sniff_host.clone(),
+            dial_domain_source: c.dial_domain_source.map(str::to_owned),
             process: c.process.clone(),
             user: c.user.clone(),
             uid: c.uid,
@@ -557,6 +566,7 @@ mod tests {
                 id: 12, network: "tcp".into(), inbound_type: "socks".into(),
                 inbound_tag: "in".into(), source: "127.0.0.1:5000".into(),
                 destination: "example.com:443".into(), host: Some("example.com".into()),
+                sniff_host: Some("sni.example.com".into()), dial_domain_source: Some("sniff".into()),
                 process: None, user: Some("alice".into()), uid: Some(10123),
                 packages: vec!["com.example".into()], upload: 4, download: 5,
                 start: 1_759_300_000, chains: vec!["b".into(), "sel".into()], rule: None,
@@ -619,7 +629,8 @@ mod tests {
   "user_event": {"event": "removed", "expired": false, "inbound": "t", "over_quota": false, "user": "alice"},
   "inbounds": {"inbounds": [{"listen": "::", "listen_port": 443, "protocol": "trojan", "reloadable": true,
                              "tag": "t"}]},
-  "connection": {"chains": ["b", "sel"], "destination": "example.com:443", "download": 5, "host": "example.com", "id": 12,
+  "connection": {"chains": ["b", "sel"], "destination": "example.com:443", "dial_domain_source": "sniff",
+                 "download": 5, "host": "example.com", "id": 12, "sniff_host": "sni.example.com",
                  "inbound_tag": "in", "inbound_type": "socks", "network": "tcp", "packages": ["com.example"],
                  "process": null, "rule": null, "source": "127.0.0.1:5000", "start": 1759300000,
                  "uid": 10123, "upload": 4, "user": "alice"},

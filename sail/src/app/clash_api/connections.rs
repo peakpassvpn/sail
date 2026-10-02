@@ -79,7 +79,7 @@ fn connection(c: &ConnectionInfo) -> Value {
             "host": c.host.clone().unwrap_or_default(),
             "sniffHost": c.sniff_host.clone().unwrap_or_default(),
             "dialDomainSource": c.dial_domain_source.unwrap_or_default(),
-            "dnsMode": "normal",
+            "dnsMode": if c.reverse_mapped { "mapping" } else { "normal" },
             "processPath": c.process.clone().unwrap_or_default(),
             "inboundName": c.inbound_tag,
         },
@@ -120,4 +120,41 @@ pub(super) async fn rules(State(clash): State<Arc<Clash>>) -> Json<Value> {
         })
         .collect();
     Json(json!({ "rules": rules }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// As Mihomo's: `mapping` where the name came from the DNS answers
+    /// given for the address, else `normal`.
+    #[test]
+    fn the_dns_mode_is_mapping_for_a_reverse_mapped_name() {
+        let info = |reverse_mapped: bool| ConnectionInfo {
+            id: 1,
+            network: crate::session::Network::Tcp,
+            inbound_type: "tun".into(),
+            inbound_tag: "tun".into(),
+            source: "127.0.0.1:1".parse().unwrap(),
+            destination: crate::session::SocksAddr::from((
+                "192.0.2.1".parse::<std::net::IpAddr>().unwrap(),
+                443,
+            )),
+            host: Some("mapped.test".into()),
+            sniff_host: None,
+            dial_domain_source: None,
+            reverse_mapped,
+            process: None,
+            user: None,
+            uid: None,
+            packages: Vec::new(),
+            upload: 0,
+            download: 0,
+            start: 0,
+            chains: Vec::new(),
+            rule: None,
+        };
+        assert_eq!(connection(&info(true))["metadata"]["dnsMode"], "mapping");
+        assert_eq!(connection(&info(false))["metadata"]["dnsMode"], "normal");
+    }
 }

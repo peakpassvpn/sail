@@ -129,6 +129,13 @@ pub struct Connection {
     pub uid: ::core::option::Option<u32>,
     #[prost(string, repeated, tag = "16")]
     pub packages: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    /// The domain a sniff found, from a TLS server name or an HTTP Host.
+    #[prost(string, optional, tag = "17")]
+    pub sniff_host: ::core::option::Option<::prost::alloc::string::String>,
+    /// Where the name it was dialled as came from, sniff or reverse_mapping;
+    /// none where it was dialled as asked.
+    #[prost(string, optional, tag = "18")]
+    pub dial_domain_source: ::core::option::Option<::prost::alloc::string::String>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Connections {

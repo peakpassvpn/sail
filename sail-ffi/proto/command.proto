@@ -143,6 +143,11 @@ message Connection {
   // Who opened it, as the host tells it (Android).
   optional uint32 uid = 15;
   repeated string packages = 16;
+  // The domain a sniff found, from a TLS server name or an HTTP Host.
+  optional string sniff_host = 17;
+  // Where the name it was dialled as came from, sniff or reverse_mapping;
+  // none where it was dialled as asked.
+  optional string dial_domain_source = 18;
 }
 
 message Connections {

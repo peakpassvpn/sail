@@ -53,6 +53,10 @@ pub struct ConnectionInfo {
     /// Where the name it was dialled as came from, `sniff` or
     /// `reverse_mapping`; none where it was dialled as asked.
     pub dial_domain_source: Option<&'static str>,
+    /// Whether `host` came from the DNS answers sail gave for the
+    /// address (`dns.reverse_mapping`), found before routing or dialled:
+    /// Mihomo's `mapping` DNS mode.
+    pub reverse_mapped: bool,
     pub process: Option<String>,
     pub user: Option<String>,
     /// Who opened it, as the host tells it (Android): the uid, and the
@@ -477,6 +481,42 @@ impl GroupChanges {
     }
 }
 
+/// The names a connection's list entry shows, and where they came from.
+struct Names {
+    host: Option<String>,
+    sniff_host: Option<String>,
+    dial_domain_source: Option<&'static str>,
+    reverse_mapped: bool,
+}
+
+impl Names {
+    /// Of `sess`: the destination's domain, else the name it was dialled
+    /// as, else the one sniffed or reverse-mapped.
+    fn of(sess: &crate::session::Session) -> Self {
+        use crate::session::DialDomainSource;
+        let dialled = sess.state.get::<crate::session::Dialled>().get();
+        let sniff_host = [SniffedFrom::Tls, SniffedFrom::Http]
+            .into_iter()
+            .find_map(|from| sess.sniffed_domain_from(from))
+            .map(str::to_owned);
+        let (host, reverse_mapped) = match (sess.destination.domain(), &dialled, &sess.sniffed) {
+            (Some(domain), _, _) => (Some(domain.clone()), false),
+            (None, Some((domain, source)), _) => (
+                Some(domain.clone()),
+                *source == DialDomainSource::ReverseMapping,
+            ),
+            (None, None, Some((from, domain))) => (Some(domain.clone()), *from == SniffedFrom::Dns),
+            (None, None, None) => (None, false),
+        };
+        Names {
+            host,
+            sniff_host,
+            dial_domain_source: dialled.map(|(_, source)| source.name()),
+            reverse_mapped,
+        }
+    }
+}
+
 impl RuntimeManager {
     /// What the instance sent and received.
     pub async fn traffic(&self) -> Traffic {
@@ -497,11 +537,7 @@ impl RuntimeManager {
                 let sess = &counter.sess;
                 let mut chains = sess.chain.get();
                 chains.push(sess.outbound_tag.clone());
-                let dialled = sess.state.get::<crate::session::Dialled>().get();
-                let sniff_host = [SniffedFrom::Tls, SniffedFrom::Http]
-                    .into_iter()
-                    .find_map(|from| sess.sniffed_domain_from(from))
-                    .map(str::to_owned);
+                let names = Names::of(sess);
                 ConnectionInfo {
                     id: counter.id,
                     network: sess.network,
@@ -509,14 +545,10 @@ impl RuntimeManager {
                     inbound_tag: sess.inbound_tag.clone(),
                     source: sess.source,
                     destination: sess.destination.clone(),
-                    host: sess
-                        .destination
-                        .domain()
-                        .cloned()
-                        .or_else(|| dialled.as_ref().map(|(domain, _)| domain.clone()))
-                        .or_else(|| sess.sniffed.as_ref().map(|(_, domain)| domain.clone())),
-                    sniff_host,
-                    dial_domain_source: dialled.map(|(_, source)| source.name()),
+                    host: names.host,
+                    sniff_host: names.sniff_host,
+                    dial_domain_source: names.dial_domain_source,
+                    reverse_mapped: names.reverse_mapped,
                     process: sess.process_name.clone(),
                     user: crate::user::name(&sess.user).map(str::to_owned),
                     uid: sess.owner.as_ref().map(|o| o.uid),
@@ -1026,6 +1058,54 @@ impl RuntimeManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The name a connection shows, and whether it came from the DNS
+    /// answers sail gave (Mihomo's `mapping` DNS mode): found before
+    /// routing, or the one dialled.
+    #[test]
+    fn a_name_shows_where_it_came_from() {
+        use crate::session::{DialDomainSource, Dialled, Session, SocksAddr};
+        let to_ip = || Session {
+            destination: SocksAddr::from(("192.0.2.1".parse::<std::net::IpAddr>().unwrap(), 443)),
+            ..Default::default()
+        };
+        let names = |sess: &Session| {
+            let n = Names::of(sess);
+            (n.host, n.sniff_host, n.dial_domain_source, n.reverse_mapped)
+        };
+        let mut sess = to_ip();
+        assert_eq!(names(&sess), (None, None, None, false));
+        sess.set_sniffed_domain(SniffedFrom::Dns, "mapped.test".into());
+        assert_eq!(names(&sess), (Some("mapped.test".into()), None, None, true));
+        sess.set_sniffed_domain(SniffedFrom::Tls, "sni.test".into());
+        assert_eq!(
+            names(&sess),
+            (
+                Some("sni.test".into()),
+                Some("sni.test".into()),
+                None,
+                false
+            )
+        );
+        // Dialled by the reverse-mapped name, which goes before the sniff.
+        sess.state
+            .get::<Dialled>()
+            .set("mapped.test", DialDomainSource::ReverseMapping);
+        assert_eq!(
+            names(&sess),
+            (
+                Some("mapped.test".into()),
+                Some("sni.test".into()),
+                Some("reverse_mapping"),
+                true
+            )
+        );
+        let named = Session {
+            destination: SocksAddr::Domain("a.test".into(), 443),
+            ..Default::default()
+        };
+        assert_eq!(names(&named), (Some("a.test".into()), None, None, false));
+    }
 
     #[test]
     fn delays_keep_the_latest_ten() {
