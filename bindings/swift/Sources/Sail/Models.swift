@@ -152,6 +152,12 @@ public struct RuleSet: Decodable, Equatable, Sendable {
     public let failure: UpdateFailure?
 }
 
+/// What `dial` connects.
+public enum DialNetwork: String, Sendable {
+    case tcp
+    case udp
+}
+
 public struct Mode: Decodable, Equatable, Sendable {
     public let mode: String
     public let modes: [String]

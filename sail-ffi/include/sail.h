@@ -332,6 +332,33 @@ int32_t sail_rule_sets(SailInstance instance, char **out, char **err);
 int32_t sail_update_rule_set(SailInstance instance, const char *tag, char **err);
 
 /*
+ Connects to `host`:`port` through the outbound `outbound` alone,
+ whatever the rules say, and waits until it is connected: the outbound's
+ handshake done. The connection is counted and listed as one of its own,
+ its inbound `control`, until it ends.
+
+ @param network `tcp` or `udp`.
+ @param fd Takes one end of a socket pair that sail relays through the
+     outbound: the host's to own, read, write and close; closing it ends
+     the connection. TCP: a stream. UDP: one message per datagram, both
+     ways, to and from `host`:`port` alone; SOCK_SEQPACKET on Linux and
+     Android, SOCK_DGRAM on Apple's systems, each end's buffers 256 KiB.
+ @return SAIL_ERR_NOT_FOUND with no such outbound; SAIL_ERR_TIMEOUT
+     when `timeout_ms` passed first; SAIL_ERR_IO when the outbound
+     failed to connect; SAIL_ERR_STATE when the instance does not run;
+     SAIL_ERR_UNSUPPORTED through a command service client (a descriptor
+     does not cross processes) and on Windows.
+ */
+int32_t sail_dial(SailInstance instance,
+                  const char *outbound,
+                  const char *network,
+                  const char *host,
+                  uint16_t port,
+                  uint32_t timeout_ms,
+                  int32_t *fd,
+                  char **err);
+
+/*
  Measures the delay of the outbound `tag` now, with an HTTP request to
  `url` (sing-box's default when null), and waits for it; it is kept among
  the outbound's delays, a failure too.

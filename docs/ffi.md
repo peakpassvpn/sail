@@ -129,6 +129,7 @@ and the next start with the same directories runs.
 | Outbounds and groups | `sail_outbounds`, `sail_groups`, `sail_select` | `SAIL_EVENT_OUTBOUNDS` (on change) |
 | Delays | `sail_delay` (waits), `sail_url_test` (does not; a group's members), `sail_cancel` | through `SAIL_EVENT_OUTBOUNDS` |
 | Providers and rule-sets | `sail_providers`, `sail_update_provider`, `sail_rule_sets`, `sail_update_rule_set` (an update waits for it; no URL is told, as a subscription's carries its token) | |
+| Dial through an outbound | `sail_dial` (waits until connected; see below) | |
 | Mode | `sail_mode`, `sail_set_mode` (an instance has modes though its configuration has no Clash API, as libbox's apps do) | |
 | Log | `sail_clear_logs` | `SAIL_EVENT_LOG` |
 | Network | `sail_set_network_state`, `sail_network_changed` | `SAIL_EVENT_NETWORK` (each change the connections do not survive) |
@@ -140,6 +141,34 @@ Without an instance: `sail_check_config`, `sail_import_share_links`,
 The data is what the Clash API reads: the traffic, connections, delays and
 selections are the instance's, whoever asks. An instance keeps the delays
 measured of each outbound (the last ten), with or without a Clash API.
+
+## Dialling through an outbound
+
+`sail_dial` connects to `host`:`port` through the outbound named, whatever
+the rules say, and waits until the outbound's handshake is done: for a
+host that steers an app's flow to a node of its own choosing, or downloads
+past its own TUN through `direct`. The connection is counted and listed
+as one of its own (inbound `control`), and `sail_close_connection` closes
+it.
+
+- **The descriptor is the host's.** It is one end of a socket pair sail
+  relays through the outbound; the host reads, writes and closes it, and
+  closing it ends the connection. On Android, `ParcelFileDescriptor.adoptFd`
+  takes it.
+- **TCP** is a stream. **UDP** is one message per datagram, both ways, to
+  and from `host`:`port` alone; an empty datagram is one too. The socket is
+  `SOCK_SEQPACKET` on Linux and Android, where the closed end of a datagram
+  pair is never seen, and `SOCK_DGRAM` on Apple's systems, which have no
+  `SOCK_SEQPACKET` (there sail looks for a closed end once a second, as no
+  event tells). Each end's buffers are 256 KiB.
+- `SAIL_ERR_NOT_FOUND` for no such outbound, `SAIL_ERR_TIMEOUT` when the
+  timeout passed first, `SAIL_ERR_IO` when the outbound failed to connect,
+  `SAIL_ERR_STATE` when the instance does not run.
+- Through a command service client, `SAIL_ERR_UNSUPPORTED`: a descriptor
+  does not cross processes, so the tunnel process's host dials. On Windows,
+  which has no socket pair, `SAIL_ERR_UNSUPPORTED` too; a host linking the
+  `sail` crate takes the stream itself from `sail::control::dial`.
+- Stopping the instance ends its dialled connections.
 
 ## Android: per-app proxying
 

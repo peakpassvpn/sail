@@ -255,6 +255,23 @@ public final class Sail {
         try check { sail_select(handle, group, member, $0) }
     }
 
+    /// Connects to `host`:`port` through the outbound `outbound` alone,
+    /// whatever the rules say, and waits until it is connected. The handle
+    /// is one end of a socket pair sail relays through the outbound: a
+    /// stream for TCP, one message per datagram for UDP. Closing it ends
+    /// the connection. Through a client, and on Windows, unsupported.
+    public func dial(
+        outbound: String,
+        network: DialNetwork,
+        host: String,
+        port: UInt16,
+        timeoutMs: UInt32 = 5_000
+    ) throws -> FileHandle {
+        var fd: Int32 = -1
+        try check { sail_dial(handle, outbound, network.rawValue, host, port, timeoutMs, &fd, $0) }
+        return FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+    }
+
     /// Measures `tag`'s delay now, and waits; in milliseconds.
     public func delay(tag: String, url: String? = nil, timeoutMs: UInt32 = 5_000) throws -> UInt64 {
         var delay: UInt64 = 0

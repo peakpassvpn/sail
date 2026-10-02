@@ -14,10 +14,12 @@ use crate::app::healthcheck::{HttpProbe, DEFAULT_URL};
 use crate::session::{Network, SocksAddr};
 use crate::RuntimeManager;
 
+mod dial;
 pub mod json;
 pub mod listen;
 mod providers;
 
+pub use dial::{Dialed, DIAL_INBOUND};
 pub use providers::{Failure, ProviderInfo, RuleSetInfo, SourceKind, SubscriptionInfo};
 
 /// What the instance sent and received since it started, those

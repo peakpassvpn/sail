@@ -606,6 +606,81 @@ impl Dispatcher {
         h.datagram()?.handle(&sess, transport).await
     }
 
+    /// A stream to the session's destination through the outbound `tag`
+    /// alone, as the rules never see it, counted and listed as a connection
+    /// of its own until it is dropped: for the host's `dial`. `NotFound`
+    /// when there is no such outbound.
+    pub async fn dial_stream(&self, tag: &str, mut sess: Session) -> io::Result<AnyStream> {
+        let h = self.outbound_manager.load().get(tag).ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("outbound [{}] not found", tag),
+            )
+        })?;
+        sess.outbound_tag = h.tag().clone();
+        sess.chain = Default::default();
+        let handshake_start = tokio::time::Instant::now();
+        let connected = async {
+            let stream =
+                crate::net::connect_stream_routed(&sess, self.dns_client.clone(), &h).await?;
+            // Counted from the first byte on the wire, as a routed
+            // connection is.
+            let (stream, counted) = match stream {
+                Some(s) => (Some(self.stat_manager.stat_stream(s, sess.clone())), true),
+                None => (None, false),
+            };
+            let rhs = h.stream()?.handle(&sess, None, stream).await?;
+            io::Result::Ok((rhs, counted))
+        };
+        // A failed dial is logged as a routed connection's is.
+        let (rhs, counted) = match connected.await {
+            Ok(connected) => connected,
+            Err(e) => {
+                log_request(&sess, h.tag(), None);
+                return Err(e);
+            }
+        };
+        log_request(&sess, h.tag(), Some(handshake_start.elapsed().as_millis()));
+        Ok(if counted {
+            rhs
+        } else {
+            self.stat_manager.stat_stream(rhs, sess)
+        })
+    }
+
+    /// Datagrams to the session's destination through the outbound `tag`
+    /// alone, counted and listed until they are dropped: for the host's
+    /// `dial`. `NotFound` when there is no such outbound.
+    pub async fn dial_datagram(
+        &self,
+        tag: &str,
+        mut sess: Session,
+    ) -> io::Result<Box<dyn OutboundDatagram>> {
+        let h = self.outbound_manager.load().get(tag).ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("outbound [{}] not found", tag),
+            )
+        })?;
+        sess.outbound_tag = h.tag().clone();
+        sess.chain = Default::default();
+        let handshake_start = tokio::time::Instant::now();
+        let connected = async {
+            let transport =
+                crate::net::connect_datagram_outbound(&sess, self.dns_client.clone(), &h).await?;
+            h.datagram()?.handle(&sess, transport).await
+        };
+        let d = match connected.await {
+            Ok(d) => d,
+            Err(e) => {
+                log_request(&sess, h.tag(), None);
+                return Err(e);
+            }
+        };
+        log_request(&sess, h.tag(), Some(handshake_start.elapsed().as_millis()));
+        Ok(self.stat_manager.stat_outbound_datagram(d, sess))
+    }
+
     /// Datagrams to where the rules send the UDP session `sess`, which
     /// `sniffer` reads the first datagrams of for a `sniff` rule, and how
     /// long the session lasts idle when a rule says.

@@ -1286,6 +1286,40 @@ mod command {
     }
 
     #[test]
+    fn a_client_cannot_dial() {
+        let _serial = serial();
+        within(Duration::from_secs(60), || {
+            let path = socket("dial");
+            let instance = new_instance(None, None);
+            let options = serde_json::json!({ "path": path }).to_string();
+            assert_eq!(serve(instance, &options), SAIL_OK);
+            let client = connect(&options).unwrap();
+            start(instance, &config(free_port()));
+            let mut fd = -1;
+            assert_eq!(
+                code(|err| unsafe {
+                    sail_dial(
+                        client,
+                        c"a".as_ptr(),
+                        c"tcp".as_ptr(),
+                        c"127.0.0.1".as_ptr(),
+                        1,
+                        1_000,
+                        &mut fd,
+                        err,
+                    )
+                }),
+                SAIL_ERR_UNSUPPORTED,
+                "a descriptor does not cross processes"
+            );
+            assert_eq!(fd, -1);
+            stop(instance);
+            sail_instance_free(client);
+            sail_instance_free(instance);
+        });
+    }
+
+    #[test]
     fn a_client_answers_as_the_instance_it_reaches() {
         let _serial = serial();
         within(Duration::from_secs(60), || {
@@ -2076,4 +2110,210 @@ fn no_secret_comes_out_through_the_c_abi() {
         assert!(!message.contains(bad), "{}", message);
         sail_instance_free(instance);
     });
+}
+
+/// A connection through a named outbound, handed to the host as one end of
+/// a socket pair (`sail_dial`).
+#[cfg(unix)]
+mod dial {
+    use super::*;
+    use std::os::fd::FromRawFd;
+    use std::os::unix::net::{UnixDatagram, UnixStream};
+
+    /// An instance whose rules reject everything: what is dialled goes
+    /// through the outbound named, never the rules. `stuck` is a SOCKS
+    /// server that takes the connection and never answers.
+    fn start_rejecting(instance: SailInstance, stuck: u16) {
+        start(
+            instance,
+            &serde_json::json!({
+                "inbounds": [{ "type": "socks", "listen": "127.0.0.1", "listen_port": free_port() }],
+                "outbounds": [
+                    { "type": "direct", "tag": "a" },
+                    { "type": "socks", "tag": "stuck", "server": "127.0.0.1", "server_port": stuck },
+                ],
+                "route": { "rules": [{ "network": ["tcp", "udp"], "action": "reject" }] },
+            })
+            .to_string(),
+        );
+    }
+
+    fn dial(
+        instance: SailInstance,
+        outbound: &str,
+        network: &str,
+        port: u16,
+        timeout_ms: u32,
+    ) -> Result<i32, i32> {
+        let (outbound, network) = (
+            CString::new(outbound).unwrap(),
+            CString::new(network).unwrap(),
+        );
+        let mut fd = -1;
+        match code(|err| unsafe {
+            sail_dial(
+                instance,
+                outbound.as_ptr(),
+                network.as_ptr(),
+                c"127.0.0.1".as_ptr(),
+                port,
+                timeout_ms,
+                &mut fd,
+                err,
+            )
+        }) {
+            SAIL_OK => Ok(fd),
+            code => Err(code),
+        }
+    }
+
+    /// The instance's connections dialled by the host.
+    fn dialled(instance: SailInstance) -> Vec<serde_json::Value> {
+        json_of(|out, err| unsafe { sail_connections(instance, out, err) })["connections"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|c| c["inbound_tag"] == "control")
+            .cloned()
+            .collect()
+    }
+
+    fn tcp_echo() -> u16 {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut s) = stream else { break };
+                std::thread::spawn(move || {
+                    let mut buf = [0u8; 4096];
+                    while let Ok(n) = s.read(&mut buf) {
+                        if n == 0 || s.write_all(&buf[..n]).is_err() {
+                            break;
+                        }
+                    }
+                });
+            }
+        });
+        port
+    }
+
+    fn udp_echo() -> u16 {
+        let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let port = socket.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            let mut buf = [0u8; 65536];
+            while let Ok((n, from)) = socket.recv_from(&mut buf) {
+                let _ = socket.send_to(&buf[..n], from);
+            }
+        });
+        port
+    }
+
+    /// A SOCKS server that takes connections and never answers.
+    fn silent() -> (std::net::TcpListener, u16) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        (listener, port)
+    }
+
+    #[test]
+    fn a_stream_through_the_outbound_named_and_gone_when_closed() {
+        let _serial = serial();
+        within(Duration::from_secs(60), || {
+            let (_silent, stuck) = silent();
+            let instance = new_instance(None, None);
+            start_rejecting(instance, stuck);
+            let fd = dial(instance, "a", "tcp", tcp_echo(), 5_000).unwrap();
+            // SAFETY: sail gave the descriptor to the host, which owns it.
+            let mut stream = unsafe { UnixStream::from_raw_fd(fd) };
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            stream
+                .write_all(b"through a, the rules rejecting all")
+                .unwrap();
+            let mut back = [0u8; 34];
+            stream.read_exact(&mut back).unwrap();
+            assert_eq!(&back, b"through a, the rules rejecting all");
+            let listed = dialled(instance);
+            assert_eq!(listed.len(), 1, "{:?}", listed);
+            assert_eq!(listed[0]["network"], "tcp");
+            assert_eq!(listed[0]["inbound_type"], "control");
+            assert_eq!(listed[0]["chains"], serde_json::json!(["a"]));
+            drop(stream);
+            eventually("gone once the host closed it", || {
+                dialled(instance).is_empty()
+            });
+            stop(instance);
+            sail_instance_free(instance);
+        });
+    }
+
+    #[test]
+    fn datagrams_kept_whole_both_ways_and_gone_when_closed() {
+        let _serial = serial();
+        within(Duration::from_secs(60), || {
+            let (_silent, stuck) = silent();
+            let instance = new_instance(None, None);
+            start_rejecting(instance, stuck);
+            let fd = dial(instance, "a", "udp", udp_echo(), 5_000).unwrap();
+            // SAFETY: as above. A SOCK_SEQPACKET end on Linux reads and
+            // writes as a datagram socket does.
+            let socket = unsafe { UnixDatagram::from_raw_fd(fd) };
+            socket
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let mut buf = vec![0u8; 65536];
+            // Larger than any link's MTU, and empty: each whole, as sent.
+            for size in [3000usize, 0, 1] {
+                let sent: Vec<u8> = (0..size).map(|i| i as u8).collect();
+                socket.send(&sent).unwrap();
+                let n = socket.recv(&mut buf).unwrap();
+                assert_eq!(&buf[..n], &sent[..], "a datagram of {} bytes", size);
+            }
+            let listed = dialled(instance);
+            assert_eq!(listed.len(), 1, "{:?}", listed);
+            assert_eq!(listed[0]["network"], "udp");
+            drop(socket);
+            eventually("gone once the host closed it", || {
+                dialled(instance).is_empty()
+            });
+            stop(instance);
+            sail_instance_free(instance);
+        });
+    }
+
+    #[test]
+    fn what_fails_says_why() {
+        let _serial = serial();
+        within(Duration::from_secs(60), || {
+            let (_silent, stuck) = silent();
+            let instance = new_instance(None, None);
+            assert_eq!(
+                dial(instance, "a", "tcp", 1, 1_000),
+                Err(SAIL_ERR_STATE),
+                "not running"
+            );
+            start_rejecting(instance, stuck);
+            assert_eq!(
+                dial(instance, "nope", "tcp", 1, 1_000),
+                Err(SAIL_ERR_NOT_FOUND)
+            );
+            assert_eq!(
+                dial(instance, "a", "sctp", 1, 1_000),
+                Err(SAIL_ERR_INVALID_ARGUMENT)
+            );
+            // Nothing listens there.
+            let closed = free_port();
+            assert_eq!(dial(instance, "a", "tcp", closed, 5_000), Err(SAIL_ERR_IO));
+            // The SOCKS server never answers the handshake.
+            assert_eq!(
+                dial(instance, "stuck", "tcp", 80, 300),
+                Err(SAIL_ERR_TIMEOUT)
+            );
+            assert!(dialled(instance).is_empty(), "a failed dial is not listed");
+            stop(instance);
+            sail_instance_free(instance);
+        });
+    }
 }

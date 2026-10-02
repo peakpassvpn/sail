@@ -335,6 +335,99 @@ pub unsafe extern "C" fn sail_update_rule_set(
     })
 }
 
+/// Connects to `host`:`port` through the outbound `outbound` alone,
+/// whatever the rules say, and waits until it is connected: the outbound's
+/// handshake done. The connection is counted and listed as one of its own,
+/// its inbound `control`, until it ends.
+///
+/// @param network `tcp` or `udp`.
+/// @param fd Takes one end of a socket pair that sail relays through the
+///     outbound: the host's to own, read, write and close; closing it ends
+///     the connection. TCP: a stream. UDP: one message per datagram, both
+///     ways, to and from `host`:`port` alone; SOCK_SEQPACKET on Linux and
+///     Android, SOCK_DGRAM on Apple's systems, each end's buffers 256 KiB.
+/// @return SAIL_ERR_NOT_FOUND with no such outbound; SAIL_ERR_TIMEOUT
+///     when `timeout_ms` passed first; SAIL_ERR_IO when the outbound
+///     failed to connect; SAIL_ERR_STATE when the instance does not run;
+///     SAIL_ERR_UNSUPPORTED through a command service client (a descriptor
+///     does not cross processes) and on Windows.
+#[no_mangle]
+pub unsafe extern "C" fn sail_dial(
+    instance: SailInstance,
+    outbound: *const c_char,
+    network: *const c_char,
+    host: *const c_char,
+    port: u16,
+    timeout_ms: u32,
+    fd: *mut i32,
+    err: *mut *mut c_char,
+) -> i32 {
+    call(err, || {
+        if fd.is_null() {
+            return Err(Failure::invalid("the out pointer is null"));
+        }
+        let outbound = unsafe { str_arg(outbound, "outbound") }?.to_string();
+        let network = match unsafe { str_arg(network, "network") }? {
+            "tcp" => sail::session::Network::Tcp,
+            "udp" => sail::session::Network::Udp,
+            other => {
+                return Err(Failure::invalid(format!(
+                    "network: tcp or udp, not {:?}",
+                    other
+                )))
+            }
+        };
+        let host = unsafe { str_arg(host, "host") }?.to_string();
+        let destination = sail::session::SocksAddr::try_from((host, port))
+            .map_err(|e| Failure::invalid(format!("host: {}", e)))?;
+        let timeout = timeout(timeout_ms)?;
+        // One arm without the command service, two with it.
+        #[allow(clippy::infallible_destructuring_match)]
+        let instance = match target(instance)? {
+            Target::Local(i) => i,
+            #[cfg(feature = "command-server")]
+            Target::Remote(_) => {
+                return Err(Failure::new(
+                    crate::SAIL_ERR_UNSUPPORTED,
+                    "a descriptor does not cross processes: dial in the tunnel process",
+                ))
+            }
+        };
+        dial_fd(instance, outbound, network, destination, timeout, fd)
+    })
+}
+
+#[cfg(unix)]
+fn dial_fd(
+    instance: Arc<crate::instance::Instance>,
+    outbound: String,
+    network: sail::session::Network,
+    destination: sail::session::SocksAddr,
+    timeout: Duration,
+    fd: *mut i32,
+) -> Result<(), Failure> {
+    use std::os::fd::IntoRawFd;
+    let owned = instance.run(move |m| {
+        Box::pin(async move { m.dial_fd(&outbound, network, destination, timeout).await })
+    })??;
+    out_value(fd, owned.into_raw_fd())
+}
+
+#[cfg(not(unix))]
+fn dial_fd(
+    _: Arc<crate::instance::Instance>,
+    _: String,
+    _: sail::session::Network,
+    _: sail::session::SocksAddr,
+    _: Duration,
+    _: *mut i32,
+) -> Result<(), Failure> {
+    Err(Failure::new(
+        crate::SAIL_ERR_UNSUPPORTED,
+        "no socket pair on Windows: use the stream through sail::control::dial",
+    ))
+}
+
 fn timeout(timeout_ms: u32) -> Result<Duration, Failure> {
     match timeout_ms {
         0 => Err(Failure::invalid("the timeout is 0")),

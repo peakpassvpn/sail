@@ -114,6 +114,17 @@ class Sail private constructor(private val handle: Long) : AutoCloseable {
     /** Updates the remote rule-set [tag] now, and waits. */
     fun updateRuleSet(tag: String) = Native.updateRuleSet(handle, tag)
 
+    /**
+     * Connects to [host]:[port] through the outbound [outbound] alone, whatever
+     * the rules say, and waits until it is connected. Returns one end of a
+     * socket pair sail relays through the outbound: a stream for "tcp", one
+     * message per datagram for "udp". The descriptor is the caller's: on
+     * Android, ParcelFileDescriptor.adoptFd takes it; closing it ends the
+     * connection. Through a client, unsupported.
+     */
+    fun dial(outbound: String, network: String, host: String, port: Int, timeoutMs: Int = 5_000): Int =
+        Native.dial(handle, outbound, network, host, port, timeoutMs)
+
     fun select(group: String, member: String) = Native.select(handle, group, member)
     fun delay(tag: String, url: String? = null, timeoutMs: Int = 5_000): Long =
         Native.delay(handle, tag, url, timeoutMs)

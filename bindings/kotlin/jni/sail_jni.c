@@ -315,6 +315,22 @@ JNIEXPORT jlong JNICALL NATIVE(closeAllConnections)(JNIEnv *env, jclass cls, jlo
     return (jlong)count;
 }
 
+JNIEXPORT jint JNICALL NATIVE(dial)(JNIEnv *env, jclass cls, jlong h, jstring outbound, jstring network,
+                                    jstring host, jint port, jint timeout_ms) {
+    (void)cls;
+    const char *o = c_string(env, outbound);
+    const char *n = c_string(env, network);
+    const char *a = c_string(env, host);
+    int32_t fd = -1;
+    char *err = NULL;
+    int32_t code = sail_dial((SailInstance)h, o, n, a, (uint16_t)port, (uint32_t)timeout_ms, &fd, &err);
+    done(env, outbound, o);
+    done(env, network, n);
+    done(env, host, a);
+    failed(env, code, err);
+    return fd;
+}
+
 JNIEXPORT void JNICALL NATIVE(select)(JNIEnv *env, jclass cls, jlong h, jstring group, jstring member) {
     (void)cls;
     const char *g = c_string(env, group);

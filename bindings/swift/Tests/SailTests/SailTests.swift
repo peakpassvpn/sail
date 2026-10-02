@@ -288,6 +288,25 @@ final class SailTests: XCTestCase {
         try sail.stop()
     }
 
+    func testADialGoesThroughTheOutboundNamed() throws {
+        let sail = try Sail()
+        try sail.start(config: config(port: freePort()))
+        let echo = serve()
+        let handle = try sail.dial(outbound: "a", network: .tcp, host: "127.0.0.1", port: echo)
+        try handle.write(contentsOf: Data("ping".utf8))
+        var back = Data()
+        while back.count < 4, let more = try handle.read(upToCount: 4 - back.count), !more.isEmpty {
+            back.append(more)
+        }
+        XCTAssertEqual(String(data: back, encoding: .utf8), "ping")
+        XCTAssertEqual(try sail.connections().filter { $0.inboundTag == "control" }.count, 1)
+        try handle.close()
+        XCTAssertThrowsError(try sail.dial(outbound: "nope", network: .tcp, host: "127.0.0.1", port: echo)) { error in
+            XCTAssertEqual((error as? SailError)?.code, SailError.notFound)
+        }
+        try sail.stop()
+    }
+
     func testStartsAndStopsAgainAndAgain() throws {
         let sail = try Sail()
         let port = freePort()

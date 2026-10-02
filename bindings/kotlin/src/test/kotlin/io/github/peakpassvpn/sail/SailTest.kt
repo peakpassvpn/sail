@@ -214,6 +214,21 @@ class SailTest {
     }
 
     @Test
+    fun aDialGoesThroughTheOutboundNamed() {
+        Sail.create().use { sail ->
+            sail.start(config(freePort()))
+            val echo = ServerSocket(0, 1, InetAddress.getLoopbackAddress())
+            val fd = sail.dial("a", "tcp", "127.0.0.1", echo.localPort)
+            assertTrue(fd >= 0)
+            assertEquals(1, sail.connections().count { it.inboundTag == "control" })
+            val error = assertFailsWith<SailException> { sail.dial("nope", "tcp", "127.0.0.1", echo.localPort) }
+            assertEquals(SailException.NOT_FOUND, error.code)
+            sail.stop()
+            echo.close()
+        }
+    }
+
+    @Test
     fun startsAndStopsAgainAndAgain() {
         Sail.create().use { sail ->
             val port = freePort()
