@@ -521,6 +521,10 @@ fn configuration_mistakes_are_errors() {
         (json!({ "dial_timeout": "500ms" }), "dial_timeout"),
         (json!({ "dial_timeout": "0s" }), "dial_timeout"),
         (json!({ "dial_timeout": "soon" }), "dial_timeout"),
+        (json!({ "url": [] }), "url"),
+        (json!({ "url": [URL, "ftp://x/"] }), "url"),
+        (json!({ "url": [URL, 204] }), "url"),
+        (json!({ "url_policy": "most" }), "url_policy"),
     ] {
         let msg = error(fallback(a, extra.clone()));
         assert!(msg.contains(field), "{}: {}", extra, msg);

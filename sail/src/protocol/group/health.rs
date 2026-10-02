@@ -4,17 +4,20 @@
 //! changes, as sing-box's urltest does.
 
 use std::collections::HashMap;
+use std::future::Future;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, SystemTime};
 
 use futures::future::{abortable, AbortHandle, BoxFuture};
 use futures::FutureExt;
+use serde_derive::Deserialize;
 use tokio::sync::Notify;
 use tokio::time::Instant;
 use tracing::debug;
 
 use super::members::{MemberKey, MemberLatencies, Members, Snapshot, Tested};
+use crate::adapter::AnyOutboundHandler;
 use crate::app::healthcheck::HttpProbe;
 use crate::app::SyncDnsClient;
 use crate::net::network::Network;
@@ -72,6 +75,82 @@ impl Failures {
 
 pub use crate::app::healthcheck::DEFAULT_URL;
 pub const DEFAULT_INTERVAL: Duration = Duration::from_secs(3 * 60);
+
+/// With several check URLs, which a member must answer to pass, a
+/// fallback's `url_policy`.
+#[derive(Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum UrlPolicy {
+    /// One of them: a member passes when one URL answers, which tells a
+    /// dead member from a URL blocked.
+    #[default]
+    Any,
+    /// Every one of them.
+    All,
+}
+
+/// What a checker requests through each member to test it: one URL, or
+/// several, tested at once, and which must answer, see `UrlPolicy`.
+pub struct Probes {
+    probes: Vec<HttpProbe>,
+    policy: UrlPolicy,
+}
+
+impl Probes {
+    /// Of `probes`, one at least, under `policy`.
+    #[cfg(feature = "outbound-fallback")]
+    pub fn new(probes: Vec<HttpProbe>, policy: UrlPolicy) -> Self {
+        assert!(!probes.is_empty(), "one probe at least");
+        Self { probes, policy }
+    }
+
+    /// The first URL's: the one the API shows.
+    #[cfg(any(feature = "outbound-urltest", feature = "outbound-fallback"))]
+    fn first(&self) -> &HttpProbe {
+        &self.probes[0]
+    }
+}
+
+impl From<HttpProbe> for Probes {
+    fn from(probe: HttpProbe) -> Self {
+        Self {
+            probes: vec![probe],
+            policy: UrlPolicy::Any,
+        }
+    }
+}
+
+/// Runs a member's `tests`, one per URL, in order, at once, each for
+/// `timeout` at most: what each gave, and the member's latency under
+/// `policy`, none if it failed. Under `any`, the latency is that of the
+/// first URL that answered; under `all`, the first URL's, once every one
+/// answered. With one URL, both are its own test.
+async fn run_tests<Fut>(
+    policy: UrlPolicy,
+    timeout: Duration,
+    tests: impl IntoIterator<Item = Fut>,
+) -> (Vec<Result<Duration, String>>, Option<Duration>)
+where
+    Fut: Future<Output = anyhow::Result<Duration>>,
+{
+    let results: Vec<Result<Duration, String>> =
+        futures::future::join_all(tests.into_iter().map(|test| async move {
+            match tokio::time::timeout(timeout, test).await {
+                Ok(Ok(latency)) => Ok(latency),
+                Ok(Err(e)) => Err(e.to_string()),
+                Err(_) => Err("timed out".to_string()),
+            }
+        }))
+        .await;
+    let latency = match policy {
+        UrlPolicy::Any => results.iter().find_map(|r| r.as_ref().ok().copied()),
+        UrlPolicy::All => match results.iter().all(Result::is_ok) {
+            true => results.first().and_then(|r| r.as_ref().ok().copied()),
+            false => None,
+        },
+    };
+    (results, latency)
+}
 
 /// How many rounds in a row turn a member's standing, a fallback's
 /// `debounce`: `fail_after` failed rounds take a member that is up down,
@@ -142,13 +221,13 @@ pub type OnTested = Box<dyn Fn(&Checker, &Snapshot, &[Option<Duration>]) + Send 
 pub struct Checker {
     tag: String,
     members: Arc<Members>,
-    probe: HttpProbe,
+    probes: Probes,
     dns_client: SyncDnsClient,
     /// Tests pause while it is down: the members are not failed for it.
     network: Network,
     interval: Duration,
-    /// How long one test may take before its member counts as failed;
-    /// also the window failed connections are counted in.
+    /// How long one test, of one URL, may take before it counts as
+    /// failed; also the window failed connections are counted in.
     timeout: Duration,
     /// How many failed connections within `timeout` have the members
     /// tested, see `failed`.
@@ -187,7 +266,7 @@ impl Checker {
     pub fn new(
         tag: &str,
         members: Arc<Members>,
-        probe: HttpProbe,
+        probes: Probes,
         dns_client: SyncDnsClient,
         network: Network,
         interval: Duration,
@@ -200,7 +279,7 @@ impl Checker {
         let checker = Arc::new(Self {
             tag: tag.to_string(),
             members,
-            probe,
+            probes,
             dns_client,
             network,
             interval,
@@ -467,35 +546,38 @@ impl Checker {
         let _round = self.round.lock().await;
         let started = SystemTime::now();
         let snapshot = self.members.load();
-        let tests = snapshot
-            .members
-            .iter()
-            .map(|m| &m.handler)
-            .map(|member| async move {
-                // A pass outbound fails any connection: it is down, and
-                // not tested.
-                if member.is_pass() {
-                    return None;
-                }
-                match tokio::time::timeout(
-                    self.timeout,
-                    self.probe.run(self.dns_client.clone(), member),
-                )
-                .await
-                {
-                    Ok(Ok(latency)) => Some(latency),
-                    Ok(Err(e)) => {
-                        debug!("[{}] test of [{}] failed: {}", self.tag, member.tag(), e);
-                        None
-                    }
-                    Err(_) => {
-                        debug!("[{}] test of [{}] timed out", self.tag, member.tag());
-                        None
-                    }
-                }
-            });
+        let tests = snapshot.members.iter().map(|m| self.test(&m.handler));
         let latencies = futures::future::join_all(tests).await;
         self.round_ended(snapshot, started, latencies)
+    }
+
+    /// Tests `member` at every URL at once; its latency, none if it
+    /// failed. A pass outbound fails any connection: it is down, and not
+    /// tested.
+    async fn test(&self, member: &AnyOutboundHandler) -> Option<Duration> {
+        if member.is_pass() {
+            return None;
+        }
+        let probes = &self.probes.probes;
+        let tests = probes
+            .iter()
+            .map(|probe| probe.run(self.dns_client.clone(), member));
+        let (results, latency) = run_tests(self.probes.policy, self.timeout, tests).await;
+        for (probe, result) in probes.iter().zip(&results) {
+            if let Err(e) = result {
+                match probes.len() {
+                    1 => debug!("[{}] test of [{}] failed: {}", self.tag, member.tag(), e),
+                    _ => debug!(
+                        "[{}] test of [{}] at {} failed: {}",
+                        self.tag,
+                        member.tag(),
+                        probe.url(),
+                        e
+                    ),
+                }
+            }
+        }
+        latency
     }
 
     /// Ends a round of tests of `snapshot` begun at `started`: records
@@ -584,12 +666,13 @@ impl crate::app::outbound::selector::GroupChecks for Checker {
         Checker::record(self, member, latency, at)
     }
 
+    /// The first URL, as Mihomo shows the group's own.
     fn url(&self) -> String {
-        self.probe.url().to_string()
+        self.probes.first().url().to_string()
     }
 
     fn expected_status(&self) -> String {
-        self.probe.expected_status()
+        self.probes.first().expected_status()
     }
 }
 
@@ -767,7 +850,7 @@ pub(crate) mod tests {
         Checker::new(
             "t",
             members,
-            probe,
+            probe.into(),
             dns_client,
             network.clone(),
             DEFAULT_INTERVAL,
@@ -919,5 +1002,95 @@ pub(crate) mod tests {
         checker.network_changed();
         settle().await;
         assert_eq!(rounds.load(Ordering::Relaxed), 2);
+    }
+
+    /// A test of a URL that answers after `ms`.
+    fn answers(ms: u64) -> BoxFuture<'static, anyhow::Result<Duration>> {
+        let latency = Duration::from_millis(ms);
+        async move {
+            tokio::time::sleep(latency).await;
+            Ok(latency)
+        }
+        .boxed()
+    }
+
+    /// A test of a URL whose host never answers.
+    fn silent() -> BoxFuture<'static, anyhow::Result<Duration>> {
+        futures::future::pending().boxed()
+    }
+
+    /// A test of a URL that is refused.
+    fn refused() -> BoxFuture<'static, anyhow::Result<Duration>> {
+        futures::future::ready(Err(anyhow::anyhow!("refused"))).boxed()
+    }
+
+    /// The latency a member's `tests` give it under `policy`, and how long
+    /// they took.
+    async fn verdict(
+        policy: UrlPolicy,
+        tests: Vec<BoxFuture<'static, anyhow::Result<Duration>>>,
+    ) -> (Option<Duration>, Duration) {
+        let start = Instant::now();
+        let (_, latency) = run_tests(policy, DEFAULT_TIMEOUT, tests).await;
+        (latency, start.elapsed())
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn under_any_a_member_passes_when_one_url_answers() {
+        let ms = |v| Some(Duration::from_millis(v));
+        // The other's host never answers: the round waits out its timeout,
+        // no more.
+        let (latency, took) = verdict(UrlPolicy::Any, vec![answers(30), silent()]).await;
+        assert_eq!((latency, took), (ms(30), DEFAULT_TIMEOUT));
+        // The first that answered gives the latency.
+        assert_eq!(
+            verdict(UrlPolicy::Any, vec![silent(), answers(40)]).await.0,
+            ms(40)
+        );
+        assert_eq!(
+            verdict(UrlPolicy::Any, vec![refused(), answers(40), answers(10)])
+                .await
+                .0,
+            ms(40)
+        );
+        assert_eq!(
+            verdict(UrlPolicy::Any, vec![refused(), silent()]).await.0,
+            None
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn under_all_every_url_must_answer() {
+        let ms = |v| Some(Duration::from_millis(v));
+        assert_eq!(
+            verdict(UrlPolicy::All, vec![answers(30), silent()]).await,
+            (None, DEFAULT_TIMEOUT)
+        );
+        assert_eq!(
+            verdict(UrlPolicy::All, vec![answers(30), refused()])
+                .await
+                .0,
+            None
+        );
+        // At once, not one after the other; the first URL's latency.
+        assert_eq!(
+            verdict(UrlPolicy::All, vec![answers(50), answers(30)]).await,
+            (ms(50), Duration::from_millis(50))
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn one_url_is_its_own_test_under_either_policy() {
+        for policy in [UrlPolicy::Any, UrlPolicy::All] {
+            assert_eq!(
+                verdict(policy, vec![answers(30)]).await,
+                (Some(Duration::from_millis(30)), Duration::from_millis(30))
+            );
+            assert_eq!(verdict(policy, vec![refused()]).await.0, None);
+            assert_eq!(
+                verdict(policy, vec![silent()]).await,
+                (None, DEFAULT_TIMEOUT)
+            );
+        }
     }
 }

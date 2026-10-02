@@ -254,6 +254,18 @@ sing-box 没有这个选项：它的 sniff `override_destination` 已废弃，�
 }
 ```
 
+fallback 组的 `url` 也可以写成列表（Sail 扩展）。每轮测试会同时用每个 URL 测试每个成员，每个 URL 各自受 `timeout` 限制，`expected_status` 对每个 URL 分别生效。`url_policy` 为 `"any"`（默认）时，任一 URL 有响应成员即通过，可以区分成员失效和测试 URL 被屏蔽；为 `"all"` 时，所有 URL 都要有响应。每多一个 URL，每轮测试就多一份请求。显示的延迟取第一个 URL 的（`any` 下取第一个有响应的 URL 的），Clash API 也把第一个 URL 作为组的 `testUrl`。写成单个字符串时只测一个 URL，与以前相同。
+
+```json
+{
+  "type": "fallback",
+  "tag": "auto",
+  "outbounds": ["primary", "backup"],
+  "url": ["https://www.gstatic.com/generate_204", "https://cp.cloudflare.com/generate_204"],
+  "url_policy": "any"
+}
+```
+
 ## 防止 TUN 回环
 
 开了 `auto_route` 的 TUN 入站会接管系统流量，Sail 自己的出站套接字本会绕回 TUN。Sail 把它们绑定到物理网卡：目标所在网段的那块网卡，否则是默认网卡。网络变化时 Sail 会跟着切换，默认网卡变了就重置 TUN 上的连接。开了 `auto_route` 时，即使没写 `route.auto_detect_interface`，这个机制也会自动开启；出口必须固定时改用 `route.default_interface`。

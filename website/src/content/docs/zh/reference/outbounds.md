@@ -122,8 +122,9 @@ Rust 定义：[`FallbackOutboundOptions`](https://github.com/peakpassvpn/sail/bl
 | `exclude_filter` | string 或 数组，元素为 string | `[]` | sail 扩展 | Regular expressions no member's name may match, the group's own outbounds' too. |
 | `exclude_type` | string 或 数组，元素为 string | `[]` | sail 扩展 | The types no member may be of, the group's own outbounds too, in Mihomo's names for them, without case: `Shadowsocks`, `Vmess`, `Socks5`, `Direct`, ... |
 | `empty_fallback` | string | 未设置 | sail 扩展 | An outbound, not a group, that is the member while there is none else. Without it such a group has none, and its connections fail. |
-| `url` | string | `default_url()` | sail 扩展 | What is requested through each member to test it. |
-| `expected_status` | string | 未设置 | sail 扩展 | The HTTP statuses a test must be answered with to pass, as Mihomo's `expected-status`: codes and ranges, `200/204/401-429`; any when unset. |
+| `url` | string 或 数组，元素为 string | `default_url()` | sail 扩展 | What is requested through each member to test it: a URL, or a list of them, a sail extension, all tested at once in each round. The latency shown is the first URL's, and the API shows it as the group's `testUrl`. |
+| `url_policy` | string, 取值 `any`, `all` | `any` | sail 扩展 | With several URLs, which a member must answer to pass: `any` of them, which tells a dead member from a URL blocked, or `all`; a sail extension. Under `any`, the latency shown is that of the first URL that answered. |
+| `expected_status` | string | 未设置 | sail 扩展 | The HTTP statuses a test must be answered with to pass, as Mihomo's `expected-status`: codes and ranges, `200/204/401-429`; any when unset. Each URL's answer must be one. |
 | `interval` | duration | 未设置 | sail 扩展 | — |
 | `timeout` | duration | 未设置 | sail 扩展 | How long a test may take before its member counts as failed; 5s, as Mihomo's `timeout`. Also how close together `max_failed_times` failures must come, and `dial_timeout` when that is unset. |
 | `dial_timeout` | duration | 未设置 | sail 扩展 | How long a connection attempt through a member, with a member left to fall back to, may take before the group moves on to the next; a sail extension, 1s at least, `timeout` when unset. One still dialling the member's server then marks it down at once; one in the member's handshake is counted toward `max_failed_times`. |

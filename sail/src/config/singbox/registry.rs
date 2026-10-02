@@ -1399,6 +1399,16 @@ const EXTENSIONS: &[(&str, &str, &str)] = &[
         "How long a connection attempt through a member may take before the group moves on, apart from the tests' `timeout`; 1s at least",
     ),
     (
+        "outbounds[fallback].url",
+        r#"["https://www.gstatic.com/generate_204", "https://cp.cloudflare.com/generate_204"]"#,
+        "Several URLs to test the members at, at once, as well as one",
+    ),
+    (
+        "outbounds[fallback].url_policy",
+        r#""all""#,
+        "With several URLs, whether a member passes when `any` of them answers or only when `all` do",
+    ),
+    (
         "outbounds[load-balance].outbounds",
         r#"["direct"]"#,
         "A group spreading connections over its members",

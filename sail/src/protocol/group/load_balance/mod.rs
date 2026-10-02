@@ -110,7 +110,7 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
     let (checker, abort_handle) = Checker::new(
         ctx.tag,
         members.clone(),
-        probe,
+        probe.into(),
         ctx.dns_client.clone(),
         ctx.env.network.clone(),
         interval,

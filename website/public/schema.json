@@ -14795,12 +14795,30 @@
      "description": "An outbound, not a group, that is the member while there is none else. Without it such a group has none, and its connections fail."
     },
     "url": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      }
+     ],
+     "description": "What is requested through each member to test it: a URL, or a list of them, a sail extension, all tested at once in each round. The latency shown is the first URL's, and the API shows it as the group's `testUrl`."
+    },
+    "url_policy": {
      "type": "string",
-     "description": "What is requested through each member to test it."
+     "enum": [
+      "any",
+      "all"
+     ],
+     "description": "With several URLs, which a member must answer to pass: `any` of them, which tells a dead member from a URL blocked, or `all`; a sail extension. Under `any`, the latency shown is that of the first URL that answered."
     },
     "expected_status": {
      "type": "string",
-     "description": "The HTTP statuses a test must be answered with to pass, as Mihomo's `expected-status`: codes and ranges, `200/204/401-429`; any when unset."
+     "description": "The HTTP statuses a test must be answered with to pass, as Mihomo's `expected-status`: codes and ranges, `200/204/401-429`; any when unset. Each URL's answer must be one."
     },
     "interval": {
      "type": "string"

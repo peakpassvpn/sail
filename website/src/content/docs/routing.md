@@ -263,6 +263,18 @@ A connection through a fallback that has a member left to fall back to waits `ti
 }
 ```
 
+A fallback's `url` also takes a list, a Sail extension. One round tests every member at every URL at once, each within `timeout`, and `expected_status` applies to each. With `url_policy: "any"`, the default, a member passes when one URL answers, which tells a dead member from a blocked test URL; with `"all"`, every URL must answer. Each URL adds its own requests to each round. The latency shown is the first URL's (under `any`, that of the first URL that answered), and the Clash API shows the first URL as the group's `testUrl`. A single string tests one URL, as before.
+
+```json
+{
+  "type": "fallback",
+  "tag": "auto",
+  "outbounds": ["primary", "backup"],
+  "url": ["https://www.gstatic.com/generate_204", "https://cp.cloudflare.com/generate_204"],
+  "url_policy": "any"
+}
+```
+
 ## TUN loop prevention
 
 A TUN inbound with `auto_route` takes the system's traffic, and Sail's own outbound sockets would go back into it. Sail binds them to the physical interface: the one the destination's network is on, or the default one. It follows that interface as the network changes, and resets the TUN's connections when it moves. With `auto_route`, this is on even without `route.auto_detect_interface`; set `route.default_interface` instead when the egress interface must be fixed.

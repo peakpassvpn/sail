@@ -24,6 +24,9 @@
 //! on it for `min_dwell`. A member marked down is left at once all the
 //! same, and a pin goes by the member's last test.
 //!
+//! Its `url` may list several URLs, a sail extension: a member passes
+//! when `any` of them answers, or, `url_policy: "all"`, every one.
+//!
 //! Its `dial_timeout`, a sail extension, is how long a connection attempt
 //! through a member may take before the group moves on to the next, apart
 //! from `timeout`, which its tests take: a member whose server does not
@@ -42,7 +45,7 @@ use tokio::time::Instant;
 use tracing::{debug, info, warn};
 
 use super::attempt::{member_unreachable, Progress};
-use super::health::{self, Checker, Debounce};
+use super::health::{self, Checker, Debounce, Probes, UrlPolicy};
 use super::members::{MemberKey, Members, Snapshot};
 use super::merge;
 use crate::adapter::outbound::HandlerBuilder;
@@ -72,12 +75,21 @@ struct FallbackOutboundOptions {
     /// Members from outbound providers too, a sail extension.
     #[serde(flatten)]
     providers: GroupProviders,
-    /// What is requested through each member to test it.
-    #[serde(default = "default_url")]
-    url: String,
+    /// What is requested through each member to test it: a URL, or a
+    /// list of them, a sail extension, all tested at once in each round.
+    /// The latency shown is the first URL's, and the API shows it as the
+    /// group's `testUrl`.
+    #[serde(default = "default_url", with = "crate::config::model::listable")]
+    url: Vec<String>,
+    /// With several URLs, which a member must answer to pass: `any` of
+    /// them, which tells a dead member from a URL blocked, or `all`; a
+    /// sail extension. Under `any`, the latency shown is that of the first
+    /// URL that answered.
+    #[serde(default)]
+    url_policy: UrlPolicy,
     /// The HTTP statuses a test must be answered with to pass, as
     /// Mihomo's `expected-status`: codes and ranges, `200/204/401-429`;
-    /// any when unset.
+    /// any when unset. Each URL's answer must be one.
     #[serde(default)]
     expected_status: Option<String>,
     #[serde(default, with = "crate::config::model::duration")]
@@ -150,8 +162,8 @@ fn one() -> u32 {
     1
 }
 
-fn default_url() -> String {
-    health::DEFAULT_URL.to_string()
+fn default_url() -> Vec<String> {
+    vec![health::DEFAULT_URL.to_string()]
 }
 
 fn default_lazy() -> bool {
@@ -566,9 +578,22 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
     let min_dwell = options.debounce.min_dwell.unwrap_or_default();
     let expected = StatusRanges::parse(options.expected_status.as_deref().unwrap_or_default())
         .map_err(|e| anyhow!("[{}] outbound: expected_status: {}", ctx.tag, e))?;
-    let probe = HttpProbe::new(&options.url, ctx.dns_client.clone(), ctx.env)
-        .map_err(|e| anyhow!("[{}] outbound: url: {}", ctx.tag, e))?
-        .expecting(expected);
+    if options.url.is_empty() {
+        return Err(anyhow!(
+            "[{}] outbound: url: must name one URL at least",
+            ctx.tag
+        ));
+    }
+    let probes = options
+        .url
+        .iter()
+        .map(|url| {
+            HttpProbe::new(url, ctx.dns_client.clone(), ctx.env)
+                .map(|probe| probe.expecting(expected.clone()))
+                .map_err(|e| anyhow!("[{}] outbound: url: {}", ctx.tag, e))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let probes = Probes::new(probes, options.url_policy);
 
     // The member pinned before the restart, if any, else the first, until
     // the first tests are done.
@@ -594,7 +619,7 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
     let (checker, abort_handle) = Checker::new(
         ctx.tag,
         members.clone(),
-        probe,
+        probes,
         ctx.dns_client.clone(),
         ctx.env.network.clone(),
         interval,
