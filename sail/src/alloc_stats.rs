@@ -9,6 +9,9 @@
 //! #[global_allocator]
 //! static ALLOC: sail::alloc_stats::Counting = sail::alloc_stats::Counting;
 //! ```
+// The counters a measurement build's allocator keeps: std's atomics, as
+// portable-atomic's fallback takes a lock, and that build is never mips.
+#![allow(clippy::disallowed_types)]
 
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::path::PathBuf;

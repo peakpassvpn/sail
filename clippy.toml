@@ -1,0 +1,3 @@
+disallowed-types = [
+    { path = "std::sync::atomic::AtomicU64", reason = "32-bit mips has no 64-bit atomics: use portable_atomic::AtomicU64, the same type and instructions elsewhere, so that sail builds for mipsel (OpenWrt's MT7621 routers)" },
+]

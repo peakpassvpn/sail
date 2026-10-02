@@ -3,6 +3,8 @@
 //! a delay of its own, so a group's choice and latencies can be told apart
 //! without the internet. The servers listen on ports the OS assigns.
 #![allow(dead_code)]
+// A test, never built for mips.
+#![allow(clippy::disallowed_types)]
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;

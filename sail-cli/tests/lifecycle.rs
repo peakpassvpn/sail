@@ -2,6 +2,8 @@
 //! a second signal, and SIGHUP reloading the configuration file.
 
 #![cfg(unix)]
+// A test, never built for mips.
+#![allow(clippy::disallowed_types)]
 
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
