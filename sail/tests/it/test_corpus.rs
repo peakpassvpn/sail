@@ -21,7 +21,31 @@ fn the_corpus_reads_as_expected() {
     // What reading and building a configuration came to: read, with its
     // warnings counted, and built (`check`), or the first line of the
     // error; a panic is a bug.
-    fn outcome(path: &Path) -> Value {
+    // Every way a configuration reaches sail reads it alike: a file (the
+    // CLI, a reload, a check) and the same text from a host (the FFI's
+    // start, reload and check), to the same configuration or the same
+    // error. Compared here, from the read this test makes anyway; a Surge
+    // profile that includes a file next to it is left out, as text has no
+    // place to find one.
+    fn alike(path: &Path, read: &anyhow::Result<sail::config::Config>) -> Option<String> {
+        let text = std::fs::read_to_string(path).unwrap();
+        if text
+            .lines()
+            .any(|l| l.trim_start().starts_with("#!include"))
+        {
+            return None;
+        }
+        let said = |r: &anyhow::Result<sail::config::Config>| match r {
+            Ok(config) => format!("ok, warned {:?}", config.warnings),
+            Err(e) => format!("{:#}", e),
+        };
+        let given = sail::config::from_string_for(&text, &sail::runtime::Host::default());
+        let (file, given) = (said(read), said(&given));
+        (file != given)
+            .then(|| format!("{}: as a file {}; as text {}", path.display(), file, given))
+    }
+
+    fn outcome(path: &Path, differ: &mut Vec<String>) -> Value {
         // Relative paths are the data directory's: one of the entry's own,
         // as those with a cache file hold it locked while they build, and
         // written `<data_dir>`, for the outcome to be every machine's.
@@ -33,6 +57,9 @@ fn the_corpus_reads_as_expected() {
         let read = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             sail::config::from_file_for(path.to_str().unwrap(), &host)
         }));
+        if let Ok(read) = &read {
+            differ.extend(alike(path, read));
+        }
         let config = match read {
             Ok(Ok(config)) => config,
             Ok(Err(e)) => return json!({ "error": placed(&format!("{:#}", e), &data_dir) }),
@@ -67,23 +94,31 @@ fn the_corpus_reads_as_expected() {
     }
     // Read on every core: the files are many.
     let threads = std::thread::available_parallelism().map_or(4, |n| n.get());
+    let mut differ = Vec::new();
     let found: BTreeMap<String, Value> = std::thread::scope(|scope| {
         let workers: Vec<_> = files
             .chunks(files.len().div_ceil(threads).max(1))
             .map(|chunk| {
                 scope.spawn(move || {
-                    chunk
+                    let mut differ = Vec::new();
+                    let found = chunk
                         .iter()
-                        .map(|(name, path)| (name.clone(), outcome(path)))
-                        .collect::<Vec<_>>()
+                        .map(|(name, path)| (name.clone(), outcome(path, &mut differ)))
+                        .collect::<Vec<_>>();
+                    (found, differ)
                 })
             })
             .collect();
         workers
             .into_iter()
-            .flat_map(|w| w.join().unwrap())
+            .flat_map(|w| {
+                let (found, more) = w.join().unwrap();
+                differ.extend(more);
+                found
+            })
             .collect()
     });
+    assert!(differ.is_empty(), "{}", differ.join("\n"));
     let _ = std::fs::remove_dir_all(
         std::env::temp_dir()
             .join("sail-corpus-data")
@@ -194,61 +229,6 @@ fn panic_message(panic: Box<dyn std::any::Any + Send>) -> String {
         .or_else(|| panic.downcast_ref::<&str>().map(|s| s.to_string()))
         .unwrap_or_default();
     first_line(&message)
-}
-
-/// Every way a configuration reaches sail reads it alike: a file (the CLI,
-/// a reload, a check) and the same text from a host (the FFI's start,
-/// reload and check). A Surge profile that includes a file next to it is
-/// left out: text has no place to find one.
-#[cfg(all(
-    feature = "config-surge",
-    feature = "all-endpoints",
-    feature = "rule-set",
-    feature = "outbound-provider"
-))]
-#[test]
-fn a_file_and_its_text_read_alike() {
-    use std::path::Path;
-
-    let host = sail::runtime::Host::default();
-    let said = |r: anyhow::Result<sail::config::Config>| match r {
-        Ok(config) => format!("ok, warned {:?}", config.warnings),
-        Err(e) => format!("{:#}", e),
-    };
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/corpus");
-    let mut paths = Vec::new();
-    for dir in ["sing-box", "clash", "surge"] {
-        for entry in std::fs::read_dir(root.join(dir)).unwrap() {
-            paths.push(entry.unwrap().path());
-        }
-    }
-    // Each file on its own, so on as many threads as there are cores.
-    let compare = |path: &std::path::PathBuf| -> Option<String> {
-        let text = std::fs::read_to_string(path).unwrap();
-        if text
-            .lines()
-            .any(|l| l.trim_start().starts_with("#!include"))
-        {
-            return None;
-        }
-        let file = said(sail::config::from_file_for(path.to_str().unwrap(), &host));
-        let given = said(sail::config::from_string_for(&text, &host));
-        (file != given)
-            .then(|| format!("{}: as a file {}; as text {}", path.display(), file, given))
-    };
-    let threads = std::thread::available_parallelism().map_or(4, |n| n.get());
-    let chunk = paths.len().div_ceil(threads).max(1);
-    let differ: Vec<String> = std::thread::scope(|scope| {
-        let handles: Vec<_> = paths
-            .chunks(chunk)
-            .map(|part| scope.spawn(|| part.iter().filter_map(compare).collect::<Vec<_>>()))
-            .collect();
-        handles
-            .into_iter()
-            .flat_map(|h| h.join().unwrap())
-            .collect()
-    });
-    assert!(differ.is_empty(), "{}", differ.join("\n"));
 }
 
 /// The corpus's own examples (`own-*`), written here for the features the
