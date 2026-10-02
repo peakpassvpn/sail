@@ -14,6 +14,7 @@
 //!   dispatcher sees them;
 //! - the LAN goes past sail;
 //! - an address added to an interface joins the local set;
+//! - the host's DNS is left alone by sail in a namespace;
 //! - a stop removes the nftables table and the ip rules, and traffic goes
 //!   direct again;
 //! - route_address_set takes its rule-set's addresses only, a reload that
@@ -231,7 +232,17 @@ fn auto_redirect_takes_the_host_s_traffic_and_gives_it_back() -> Result<()> {
             "final": "direct"
         }}"#
     );
+    // systemd-resolved serves the host, whose links are numbered as the
+    // namespace's are not: sail in a namespace leaves its DNS alone.
+    let host_dns = || run("resolvectl", "dns").ok();
+    let before = host_dns();
     let sail = Sail::start(&dir, &config(&log, "", &route), &[])?;
+    ensure!(
+        host_dns() == before,
+        "sail in a namespace changed the host's DNS: {:?} then {:?}",
+        before,
+        host_dns()
+    );
 
     ensure!(
         tcp(SERVER).as_deref() == Some(PEER4),

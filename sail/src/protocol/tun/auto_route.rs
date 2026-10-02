@@ -5,7 +5,8 @@
 //! - Linux: the TUN's routes in a table of their own, and ip rules that
 //!   send into it what is to go into the TUN; the rules left by a run that
 //!   died are removed by the next start. DNS goes to the address after the
-//!   TUN's, through systemd-resolved where there is one.
+//!   TUN's, through systemd-resolved where there is one and sail runs in
+//!   the namespace it serves, the host's.
 //! - macOS: routes through the utun more specific than the default route
 //!   (1/8, 2/7 ... 128/1), which win without replacing it.
 //! - Windows: 0/0 and ::/0 through wintun at metric 0, which win over the
@@ -346,7 +347,7 @@ mod backend {
                     .add_rule(&to_netlink(rule))
                     .map_err(|e| anyhow!("auto_route: rule {}: {}", plan::render(rule), e))?;
             }
-            if let Some(server) = self.server {
+            if let Some(server) = self.server.filter(|_| in_the_host_s_namespace()) {
                 let name = self.tun.as_str();
                 let server = server.to_string();
                 let set = resolvectl(&["dns", name, &server])
@@ -434,6 +435,29 @@ mod backend {
         }
     }
 
+    /// Whether sail runs in the network namespace systemd-resolved serves,
+    /// the first process's. resolvectl names a link by its index in the
+    /// caller's namespace, but resolved, over the system bus that `ip netns
+    /// exec` shares, takes it as the host's: a TUN in a namespace of its
+    /// own is index 2, as the host's first interface is, and would get the
+    /// TUN's DNS. Where the first process's namespace cannot be read (no
+    /// root, but the capability to route), it is taken to be.
+    fn in_the_host_s_namespace() -> bool {
+        use std::os::unix::fs::MetadataExt;
+        let ours = std::fs::metadata("/proc/self/ns/net");
+        let first = std::fs::metadata("/proc/1/ns/net");
+        match (ours, first) {
+            (Ok(ours), Ok(first)) => {
+                let same = (ours.dev(), ours.ino()) == (first.dev(), first.ino());
+                if !same {
+                    debug!("auto_route: in a network namespace of its own: the system's DNS is left as it is");
+                }
+                same
+            }
+            _ => true,
+        }
+    }
+
     fn resolvectl(args: &[&str]) -> bool {
         match Command::new("resolvectl")
             .args(args)
@@ -444,6 +468,21 @@ mod backend {
             Ok(status) => status.success(),
             // No systemd-resolved: the system's DNS stays as it is.
             Err(_) => false,
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        /// A test runs where the host's processes run, unless a namespace
+        /// test put it in its own; there, the TUN's DNS is set as on a
+        /// desktop. (tests/test_auto_redirect_linux.rs runs sail in a
+        /// namespace of its own, and checks that the host's DNS is left.)
+        #[test]
+        fn the_host_s_namespace_is_told_from_another() {
+            let ours = std::fs::read_link("/proc/self/ns/net").unwrap();
+            let first = std::fs::read_link("/proc/1/ns/net");
+            let expected = first.map_or(true, |first| first == ours);
+            assert_eq!(super::in_the_host_s_namespace(), expected);
         }
     }
 }
