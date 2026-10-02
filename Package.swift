@@ -17,7 +17,7 @@ let package = Package(
         .library(name: "Sail", targets: ["Sail"]),
     ],
     targets: [
-        .systemLibrary(name: "SailC", path: "bindings/swift/Sources/SailC"),
+        .binaryTarget(name: "SailC", url: "https://github.com/peakpassvpn/sail/releases/download/v0.15.0/SailC.xcframework.zip", checksum: "42c00f5b3e73ad76c9a07527b88c517846835ff12a356ee8f758c95f7faa8282"),
         .target(name: "Sail", dependencies: ["SailC"], path: "bindings/swift/Sources/Sail"),
         .testTarget(name: "SailTests", dependencies: ["Sail"], path: "bindings/swift/Tests/SailTests"),
     ]
