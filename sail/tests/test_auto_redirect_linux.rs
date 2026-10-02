@@ -100,6 +100,13 @@ fn tcp(addr: &str) -> Option<String> {
     Some(out.trim().to_string())
 }
 
+/// Whether TCP to `addr` is kept from the server. Redirected, a connection
+/// is accepted by sail's listener before it is routed: one sail blocks is
+/// closed without a word, not refused.
+fn blocked(addr: &str) -> bool {
+    !tcp(addr).is_some_and(|answer| answer.starts_with("peer="))
+}
+
 /// Whether the server at `addr` echoes a datagram within 3 s, from the
 /// address it was sent to.
 fn udp_echoes(addr: &str) -> bool {
@@ -253,7 +260,7 @@ fn auto_redirect_takes_the_host_s_traffic_and_gives_it_back() -> Result<()> {
         tcp(SERVER)
     );
     ensure!(
-        tcp(BLOCKED).is_none(),
+        blocked(BLOCKED),
         "TCP goes through sail, whose rule blocks it"
     );
     ensure!(udp_echoes(SERVER), "UDP is redirected through sail");
@@ -267,7 +274,7 @@ fn auto_redirect_takes_the_host_s_traffic_and_gives_it_back() -> Result<()> {
         tcp(SERVER6)
     );
     ensure!(
-        tcp(BLOCKED6).is_none(),
+        blocked(BLOCKED6),
         "TCP over IPv6 goes through sail, whose rule blocks it"
     );
     ensure!(
@@ -340,7 +347,7 @@ fn auto_redirect_takes_the_host_s_traffic_and_gives_it_back() -> Result<()> {
     };
     let sail = Sail::start(&dir, &reloading(Some(SERVER)), &["--auto-reload"])?;
     ensure!(
-        tcp(SERVER).is_none(),
+        blocked(SERVER),
         "route_address_set takes its rule-set's addresses"
     );
     ensure!(
@@ -356,7 +363,7 @@ fn auto_redirect_takes_the_host_s_traffic_and_gives_it_back() -> Result<()> {
     );
     std::thread::sleep(Duration::from_millis(500));
     ensure!(
-        tcp(SPARE).is_none() && tcp(SERVER).as_deref() == Some(PEER4),
+        blocked(SPARE) && tcp(SERVER).as_deref() == Some(PEER4),
         "after a reload, the new rule-set's addresses are taken and the old ones are not"
     );
 
@@ -372,7 +379,7 @@ fn auto_redirect_takes_the_host_s_traffic_and_gives_it_back() -> Result<()> {
     })?;
     ensure!(failed, "a reload without the rule-set fails");
     ensure!(reloads()? == before, "and is not applied");
-    ensure!(tcp(SPARE).is_none(), "a failed reload keeps what was taken");
+    ensure!(blocked(SPARE), "a failed reload keeps what was taken");
     sail.stop()?;
     let _ = std::fs::remove_dir_all(&dir);
     Ok(())
