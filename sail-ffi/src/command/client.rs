@@ -70,6 +70,13 @@ impl<T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Unpin> Connection 
 impl Client {
     fn connect(address: Address) -> Result<Arc<Self>, Failure> {
         static NEXT: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(0);
+        // Off Unix the service listens on loopback TCP only.
+        #[cfg(not(unix))]
+        if !matches!(address, Address::Tcp(..)) {
+            return Err(Failure::invalid(
+                "a unix socket or descriptor: not on this system, only port with secret",
+            ));
+        }
         let events = Events::new(NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed))?;
         let secret = match &address {
             Address::Tcp(_, secret) => Some(
@@ -79,6 +86,7 @@ impl Client {
             ),
             _ => None,
         };
+        #[cfg(unix)]
         let fd = match &address {
             Address::Fd(fd) => Some(
                 // SAFETY: the host gives the descriptor, which the client
@@ -91,13 +99,16 @@ impl Client {
         };
         let connector = tower::service_fn(move |_: http::Uri| {
             let address = address.clone();
+            #[cfg(unix)]
             let fd = fd.clone();
             async move {
                 let stream: Box<dyn Connection> = match address {
+                    #[cfg(unix)]
                     Address::Unix(path) => Box::new(tokio::net::UnixStream::connect(path).await?),
                     Address::Tcp(port, _) => {
                         Box::new(tokio::net::TcpStream::connect(("127.0.0.1", port)).await?)
                     }
+                    #[cfg(unix)]
                     Address::Fd(_) => {
                         // One connection: the socket the host gave.
                         let fd = fd
@@ -106,6 +117,10 @@ impl Client {
                         let stream = std::os::unix::net::UnixStream::from(fd);
                         stream.set_nonblocking(true)?;
                         Box::new(tokio::net::UnixStream::from_std(stream)?)
+                    }
+                    #[cfg(not(unix))]
+                    Address::Unix(_) | Address::Fd(_) => {
+                        return Err(std::io::Error::other("not on this system"))
                     }
                 };
                 Ok::<_, std::io::Error>(hyper_util::rt::TokioIo::new(stream))

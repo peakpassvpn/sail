@@ -108,6 +108,7 @@ async fn accept<S>(
             accepted = async {
                 use sail::control::listen::Listener;
                 match &listener {
+                    #[cfg(unix)]
                     Listener::Unix(l) => l.accept().await.map(|(s, _)| Box::new(s) as Box<dyn Connection>),
                     Listener::Tcp(l) => l.accept().await.map(|(s, _)| Box::new(s) as Box<dyn Connection>),
                 }
