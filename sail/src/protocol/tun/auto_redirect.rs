@@ -44,20 +44,30 @@ pub(crate) struct AutoRedirect {
     /// the rules, the routes that name no device, the table, the drop-in.
     ledger: Ledger,
     recorded: Vec<Item>,
+    /// The TUN's name, which its table and drop-in are named after.
+    tun: String,
 }
 
-/// The nftables table of the ruleset.
-const TABLE: &str = "sail";
+/// The nftables table of the ruleset of the TUN `tun`: one each, so that
+/// two instances' do not meet (sing-tun's has one fixed name). Letters,
+/// digits and `_` only, as nft(8) reads a table's name.
+pub(crate) fn table_name(tun: &str) -> String {
+    let tun: String = tun
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .collect();
+    format!("sail_{}", tun)
+}
 
 impl Drop for AutoRedirect {
     fn drop(&mut self) {
         if self.ruleset {
-            if let Err(e) = ruleset::cleanup(TABLE).commit() {
+            if let Err(e) = ruleset::cleanup(&table_name(&self.tun)).commit() {
                 warn!("auto_redirect: removing the ruleset: {}", e);
             }
         }
         if self.fw4 {
-            openwrt::cleanup();
+            openwrt::cleanup(&self.tun);
         }
         self.routes.cleanup();
         for item in &self.recorded {
@@ -125,7 +135,10 @@ impl AutoRedirect {
 
         let routes = policy_routes(settings, options);
         let ledger = dispatcher.env().ledger.clone();
-        let mut recorded: Vec<Item> = routes.rules().into_iter().map(Item::Rule).collect();
+        // The TUN first: while one of its name is up, a live instance holds
+        // what is named after it, and a sweep leaves the rest.
+        let mut recorded = vec![Item::Tun(settings.name.clone())];
+        recorded.extend(routes.rules().into_iter().map(Item::Rule));
         // Those through the TUN go with it.
         recorded.extend(
             routes
@@ -134,8 +147,8 @@ impl AutoRedirect {
                 .filter(|route| route.oif.is_none())
                 .map(Item::Route),
         );
-        recorded.push(Item::NftTable(TABLE.into()));
-        recorded.push(Item::File(openwrt::DROP_IN.into()));
+        recorded.push(Item::NftTable(table_name(&settings.name)));
+        recorded.push(Item::File(openwrt::drop_in_path(&settings.name)));
         for item in &recorded {
             ledger.record(item.clone());
         }
@@ -157,6 +170,7 @@ impl AutoRedirect {
             fw4: false,
             ledger,
             recorded,
+            tun: settings.name.clone(),
             feed: RuleSetFeed {
                 sets: Arc::new(address_sets),
                 sender: Arc::new(sender),
@@ -352,7 +366,7 @@ fn ruleset_options(
 ) -> RulesetOptions {
     let prefix = |inet: &cidr::IpInet| (inet.address(), inet.network_length());
     RulesetOptions {
-        table: TABLE.into(),
+        table: table_name(&settings.name),
         tun_name: settings.name.clone(),
         ipv4: settings.ipv4.map(|i| (i.address(), i.network_length())),
         ipv6: settings.ipv6.map(|i| (i.address(), i.network_length())),

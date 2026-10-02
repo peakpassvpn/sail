@@ -2,14 +2,18 @@
 //! accept: traffic in and out of the TUN is let through by a drop-in fw4
 //! includes, as sing-tun writes it, and fw4 is reloaded.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{anyhow, Result};
 
 use super::nft;
 
-pub(crate) const DROP_IN: &str = "/etc/nftables.d/0-sail-auto-redirect.nft";
+/// The drop-in of the TUN `tun`: one each, so that two instances' do not
+/// meet.
+pub(crate) fn drop_in_path(tun: &str) -> PathBuf {
+    PathBuf::from(format!("/etc/nftables.d/0-sail-auto-redirect-{}.nft", tun))
+}
 
 /// The drop-in's text: input and forward accept the TUN's traffic.
 pub(crate) fn drop_in(tun: &str) -> String {
@@ -42,18 +46,20 @@ pub(crate) fn setup(tun: &str) -> Result<bool> {
     if !has_fw4() {
         return Ok(false);
     }
-    std::fs::write(DROP_IN, drop_in(tun)).map_err(|e| anyhow!("{}: {}", DROP_IN, e))?;
+    let path = drop_in_path(tun);
+    std::fs::write(&path, drop_in(tun)).map_err(|e| anyhow!("{}: {}", path.display(), e))?;
     reload().map_err(|e| anyhow!("auto_redirect: fw4: {:#}", e))?;
     Ok(true)
 }
 
-/// Removes the drop-in, if there is one, and reloads fw4.
-pub(crate) fn cleanup() {
-    if !Path::new(DROP_IN).exists() {
+/// Removes the drop-in of `tun`, if there is one, and reloads fw4.
+pub(crate) fn cleanup(tun: &str) {
+    let path = drop_in_path(tun);
+    if !Path::new(&path).exists() {
         return;
     }
-    if let Err(e) = std::fs::remove_file(DROP_IN) {
-        tracing::warn!("{}: {}", DROP_IN, e);
+    if let Err(e) = std::fs::remove_file(&path) {
+        tracing::warn!("{}: {}", path.display(), e);
         return;
     }
     if let Err(e) = reload() {

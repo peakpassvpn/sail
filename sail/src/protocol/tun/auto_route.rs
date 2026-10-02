@@ -277,7 +277,7 @@ mod backend {
     use std::sync::atomic::{AtomicBool, Ordering};
 
     use anyhow::{anyhow, Result};
-    use tracing::debug;
+    use tracing::{debug, warn};
 
     use super::super::inbound::TunSettings;
     use crate::platform::auto_route::{self as plan, RuleOptions, RULE_SPAN};
@@ -335,7 +335,19 @@ mod backend {
                             .map(|i| IpAddr::from(super::super::inbound::peer(i)))
                     }),
             };
-            backend.remove_rules();
+            // A sweep has taken what a killed instance wrote down: what is
+            // left at these priorities is another's.
+            let others = backend.remove_rules();
+            if others > 0 {
+                warn!(
+                    "auto_route: removed {} ip rules at priorities {} to {} that this instance did not \
+                     make: another program's, or another sail instance's; give each its own \
+                     iproute2_rule_index",
+                    others,
+                    backend.rule_index,
+                    backend.rule_index + RULE_SPAN
+                );
+            }
             Ok(backend)
         }
 
@@ -349,6 +361,7 @@ mod backend {
 
         /// The routes are there: the rules send traffic to them, and DNS.
         pub(super) fn routed(&self) -> Result<()> {
+            self.ledger.record(Item::Tun(self.tun.clone()));
             for rule in &self.rules {
                 let rule_ = to_netlink(rule);
                 self.ledger.record(Item::Rule(rule_.clone()));
@@ -372,6 +385,7 @@ mod backend {
             for rule in &self.rules {
                 self.ledger.forget(&Item::Rule(to_netlink(rule)));
             }
+            self.ledger.forget(&Item::Tun(self.tun.clone()));
             if self.resolved.load(Ordering::Relaxed) {
                 resolvectl(&["revert", &self.tun]);
             }
@@ -383,14 +397,18 @@ mod backend {
 
         /// Removes every rule of either family at the priorities auto_route
         /// uses, whatever made it, as sing-tun does.
-        fn remove_rules(&self) {
+        /// Returns how many there were.
+        fn remove_rules(&self) -> usize {
+            let mut removed = 0;
             for family in [rtnl::Family::V4, rtnl::Family::V6] {
                 for priority in self.rule_index..=self.rule_index + RULE_SPAN {
-                    if let Err(e) = self.netlink.del_rules_at(family, priority) {
-                        debug!("auto_route: removing rules at {}: {}", priority, e);
+                    match self.netlink.del_rules_at(family, priority) {
+                        Ok(n) => removed += n,
+                        Err(e) => debug!("auto_route: removing rules at {}: {}", priority, e),
                     }
                 }
             }
+            removed
         }
     }
 

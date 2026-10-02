@@ -35,7 +35,8 @@ use anyhow::{ensure, Context, Result};
 /// sail's ip rules and nftables table, as tun/inbound.rs and
 /// tun/auto_redirect.rs name them.
 const RULE_PRIORITIES: std::ops::RangeInclusive<u32> = 9000..=9010;
-const NFT_TABLE: &str = "sail";
+/// The nftables table of the TUN `sadtun`, named after it.
+const NFT_TABLE: &str = "sail_sadtun";
 
 /// The plain server; one sail blocks; one a `bypass` rule lets go; one only
 /// a rule-set names; their IPv6 kin; and one on the LAN, which sail blocks
@@ -90,9 +91,13 @@ fn sail_rules(family: &str) -> Result<Vec<String>> {
 
 /// Whether sail's nftables table is there.
 fn nft_table() -> Result<bool> {
+    nft_table_named(NFT_TABLE)
+}
+
+fn nft_table_named(name: &str) -> Result<bool> {
     Ok(run("nft", "list tables")?
         .lines()
-        .any(|line| line.split_whitespace().last() == Some(NFT_TABLE)))
+        .any(|line| line.split_whitespace().last() == Some(name)))
 }
 
 /// What the server at `addr` answers on TCP, if anything within 3 s.
@@ -225,13 +230,32 @@ impl Drop for Sail {
 /// A TUN with auto_redirect, logging to `log`, with `more` tun fields and
 /// `route` as the route section.
 fn config(log: &Path, more: &str, route: &str) -> String {
+    config_for(
+        log,
+        "sadtun",
+        r#""172.31.233.1/30", "fdfe:233::1/126""#,
+        true,
+        more,
+        route,
+    )
+}
+
+/// A TUN called `tun` with `addresses`, auto_redirect or only auto_route.
+fn config_for(
+    log: &Path,
+    tun: &str,
+    addresses: &str,
+    redirect: bool,
+    more: &str,
+    route: &str,
+) -> String {
     format!(
         r#"{{
             "log": {{ "level": "debug", "output": "{log}" }},
             "inbounds": [{{
-                "type": "tun", "tag": "tun-in", "interface_name": "sadtun",
-                "address": ["172.31.233.1/30", "fdfe:233::1/126"],
-                "auto_route": true, "auto_redirect": true{more}
+                "type": "tun", "tag": "tun-in", "interface_name": "{tun}",
+                "address": [{addresses}],
+                "auto_route": true, "auto_redirect": {redirect}{more}
             }}],
             "outbounds": [
                 {{ "type": "direct", "tag": "direct" }},
@@ -493,5 +517,115 @@ fn what_a_killed_instance_left_goes_at_the_next_start() -> Result<()> {
     sail.stop()?;
     run("ip", "rule del priority 9105 lookup 3000")?;
     let _ = std::fs::remove_dir_all(&dir);
+    Ok(())
+}
+
+/// A configuration with no TUN: a SOCKS inbound on `port`.
+fn plain(log: &Path, port: u16) -> String {
+    format!(
+        r#"{{ "log": {{ "level": "debug", "output": "{}" }},
+             "inbounds": [{{ "type": "socks", "tag": "socks", "listen": "127.0.0.1", "listen_port": {port} }}],
+             "outbounds": [{{ "type": "direct", "tag": "direct" }}] }}"#,
+        log.display()
+    )
+}
+
+/// Starts a plain instance in `dir` and waits for it to listen on `port`.
+fn start_plain(dir: &Path, log: &Path, port: u16) -> Result<Sail> {
+    let sail = Sail::spawn(dir, &plain(log, port), &[])?;
+    ensure!(
+        eventually(Duration::from_secs(10), || Ok(
+            std::net::TcpStream::connect(("127.0.0.1", port)).is_ok()
+        ))?,
+        "the plain instance did not start"
+    );
+    Ok(sail)
+}
+
+#[test]
+#[ignore = "needs root, in the namespace tests/scripts/auto_redirect_netns.sh builds"]
+fn a_sweep_leaves_another_live_instance_alone() -> Result<()> {
+    let _one = one_at_a_time();
+    ensure!(
+        std::env::var_os("SAIL_BIN").is_some(),
+        "run through tests/scripts/auto_redirect_netns.sh"
+    );
+    let base = std::env::temp_dir().join(format!("sail-two-{}", std::process::id()));
+    // Two hosts' worth of run directories, configurations and logs.
+    let (one, two) = (base.join("one"), base.join("two"));
+    for dir in [&one, &two] {
+        std::fs::create_dir_all(dir)?;
+    }
+    let (log_one, log_two) = (one.join("sail.log"), two.join("sail.log"));
+    let route = r#"{ "final": "direct" }"#;
+
+    // One: auto_redirect on sadtun, sail's default indexes.
+    let first = Sail::start(&one, &config(&log_one, "", route), &[])?;
+    let first_rules = rules_at(&(9000..=9010).chain([32768]).collect::<Vec<_>>())?;
+    ensure!(!first_rules.is_empty(), "the first instance's rules");
+
+    // Two: auto_route on sadtwo, indexes of its own, killed.
+    let second = Sail::spawn(
+        &two,
+        &config_for(
+            &log_two,
+            "sadtwo",
+            r#""172.31.234.1/30""#,
+            false,
+            r#", "iproute2_table_index": 2200, "iproute2_rule_index": 9200"#,
+            route,
+        ),
+        &[],
+    )?;
+    let seconds: Vec<u32> = (9200..=9210).collect();
+    ensure!(
+        eventually(Duration::from_secs(10), || Ok(
+            !rules_at(&seconds)?.is_empty()
+        ))?,
+        "the second instance did not route"
+    );
+    second.crash()?;
+    ensure!(!rules_at(&seconds)?.is_empty(), "a kill leaves its rules");
+
+    // The next start in the second's run directory sweeps the second's,
+    // and nothing of the first's.
+    let plain_two = start_plain(&two, &log_two, 10801)?;
+    ensure!(rules_at(&seconds)?.is_empty(), "the killed one's rules go");
+    ensure!(nft_table()?, "the live one keeps its table");
+    ensure!(
+        rules_at(&(9000..=9010).chain([32768]).collect::<Vec<_>>())? == first_rules,
+        "and its rules"
+    );
+    ensure!(
+        tcp(SERVER).as_deref() == Some(PEER4),
+        "and carries traffic: {:?}",
+        tcp(SERVER)
+    );
+    plain_two.stop()?;
+
+    // A dead ledger naming the live one's TUN (its name taken again since)
+    // waits: whoever holds the name holds what is named after it.
+    let netns = std::fs::metadata("/proc/self/ns/net").map(|m| {
+        use std::os::unix::fs::MetadataExt;
+        m.ino()
+    })?;
+    let stale = two.join("run").join("1-1.json");
+    std::fs::create_dir_all(two.join("run"))?;
+    std::fs::write(
+        &stale,
+        format!(
+            r#"{{"pid":1,"start":0,"instance":1,"netns":{netns},
+                "items":[{{"tun":"sadtun"}},{{"nft_table":"{NFT_TABLE}"}}]}}"#
+        ),
+    )?;
+    let plain_two = start_plain(&two, &log_two, 10801)?;
+    ensure!(nft_table()?, "a ledger whose TUN is up takes nothing");
+    ensure!(stale.exists(), "and waits");
+    plain_two.stop()?;
+    std::fs::remove_file(&stale)?;
+
+    first.stop()?;
+    ensure!(!nft_table()?, "a stop removes its own table");
+    let _ = std::fs::remove_dir_all(&base);
     Ok(())
 }

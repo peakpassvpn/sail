@@ -36,8 +36,8 @@ marked *to verify*:
 | Linux | routes in table `table_index` through the TUN | yes, with the device |
 | Linux | auto_redirect's `throw` routes in that table (route_exclude_address) | **no**: they name no device |
 | Linux | auto_redirect ip rules, incl. the fallback rule at `fallback_rule_index` | **no** |
-| Linux | auto_redirect nftables table `inet sail` | **no** |
-| OpenWrt | fw4 drop-in `/etc/nftables.d/0-sail-auto-redirect.nft` | **no** (a file) |
+| Linux | auto_redirect nftables table `inet sail_<tun>` | **no** |
+| OpenWrt | fw4 drop-in `/etc/nftables.d/0-sail-auto-redirect-<tun>.nft` | **no** (a file) |
 | macOS | utun device and the routes through it | yes: utun goes with its control socket *(to verify with kill -9 on a Mac)* |
 | Windows | Wintun adapter (named, GUID from the name) | **no** *(to verify)*: sail reopens it by name today |
 | Windows | routes and DNS on that adapter | **no**, while the adapter stays *(to verify)* |
@@ -55,7 +55,7 @@ as the leftovers it lists:
 
 | System | Left by a kill | Left by a reboot | Ledger kept in |
 |---|---|---|---|
-| Linux | ip rules, `inet sail`, fw4 drop-in | the fw4 drop-in only (a file; rules and nftables are kernel state) | tmpfs `/run/sail` for kernel state; the drop-in is also found by its fixed path, ledger or not |
+| Linux | ip rules, `inet sail_<tun>`, fw4 drop-in | the fw4 drop-in only (a file; rules and nftables are kernel state) | tmpfs `/run/sail` |
 | macOS | nothing expected (to verify) | nothing | tmpfs `/var/run/sail` |
 | Windows | adapter, its routes and DNS (to verify) | the adapter, possibly with its persistent routes and DNS (to verify) | persistent `%ProgramData%\sail\run` |
 
@@ -140,6 +140,34 @@ other software's rules.
   already gone is "already gone". WFP needs nothing.
 - **Android/iOS**: the host's VPN service owns the device and routes, so
   sail has no sweep there and writes no ledger.
+
+## Two instances on one host
+
+Two sail instances can run side by side: a desktop service's two, or a
+CLI beside an embedded one, each with its own run directory. Neither may
+lose anything to the other's sweep:
+
+- **Names.** What auto_redirect makes is named after the TUN: the
+  nftables table `inet sail_<tun>` and the fw4 drop-in
+  `0-sail-auto-redirect-<tun>.nft`. sing-tun uses one fixed table name;
+  sail does not, so that two instances with different TUNs never share a
+  table. Rule priorities and the routing table come from the
+  configuration, as in sing-box: two instances need their own
+  `iproute2_rule_index` (and `auto_redirect_iproute2_fallback_rule_index`,
+  `iproute2_table_index`). A start that finds rules at its priorities that
+  no ledger accounted for removes them, as sing-tun does, and warns naming
+  those fields.
+- **Ownership.** A ledger records the TUN its changes belong to. On Linux
+  and macOS the TUN dies with its process, so while a device of that name
+  is up, a live instance holds the name and, through its own setup, what
+  is named after it. The sweep then leaves that ledger alone and tries
+  again at a later start. The kernel allows one device per name, so this
+  is a reliable sign, unlike guessing about other processes or run
+  directories.
+- **Windows** keeps a Wintun adapter after its process, so a device of
+  the name tells nothing there. Liveness there will be decided by pid,
+  start time and instance id, as for the rest, or by whether a process
+  holds the adapter open. That is part of the Windows work above.
 
 ## Where it runs
 

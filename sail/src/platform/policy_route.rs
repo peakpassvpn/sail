@@ -121,7 +121,20 @@ impl PolicyRoutes {
     pub(crate) fn setup(&self) -> Result<()> {
         let netlink = super::rtnetlink::Netlink::open()
             .map_err(|e| anyhow!("auto_redirect: routing: {}", e))?;
-        self.cleanup_with(&netlink);
+        // A sweep has taken what a killed instance wrote down: what is left
+        // at these priorities is another's.
+        let others = self.cleanup_with(&netlink);
+        if others > 0 {
+            tracing::warn!(
+                "auto_redirect: removed {} ip rules at priorities {} to {} and {} that this \
+                 instance did not make: another program's, or another sail instance's; give each \
+                 its own iproute2_rule_index and auto_redirect_iproute2_fallback_rule_index",
+                others,
+                self.rule_index,
+                self.rule_index + RULE_SPAN,
+                self.fallback_rule_index
+            );
+        }
         let result = (|| -> std::io::Result<()> {
             let tun = netlink.link_index(&self.tun)?;
             for route in self.routes(tun) {
@@ -133,7 +146,7 @@ impl PolicyRoutes {
             Ok(())
         })();
         if let Err(e) = result {
-            self.cleanup_with(&netlink);
+            let _ = self.cleanup_with(&netlink);
             return Err(anyhow!("auto_redirect: routing: {}", e));
         }
         Ok(())
@@ -144,23 +157,28 @@ impl PolicyRoutes {
     #[cfg(target_os = "linux")]
     pub(crate) fn cleanup(&self) {
         match super::rtnetlink::Netlink::open() {
-            Ok(netlink) => self.cleanup_with(&netlink),
+            Ok(netlink) => {
+                let _ = self.cleanup_with(&netlink);
+            }
             Err(e) => tracing::warn!("auto_redirect: removing the routing: {}", e),
         }
     }
 
+    /// Returns how many rules there were.
     #[cfg(target_os = "linux")]
-    fn cleanup_with(&self, netlink: &super::rtnetlink::Netlink) {
+    fn cleanup_with(&self, netlink: &super::rtnetlink::Netlink) -> usize {
+        let mut removed = 0;
         for family in [Family::V4, Family::V6] {
             let priorities =
                 (self.rule_index..=self.rule_index + RULE_SPAN).chain([self.fallback_rule_index]);
             for priority in priorities {
-                let _ = netlink.del_rules_at(family, priority);
+                removed += netlink.del_rules_at(family, priority).unwrap_or(0);
             }
             for route in netlink.routes_in(family, self.table).unwrap_or_default() {
                 let _ = netlink.del_route(&route);
             }
         }
+        removed
     }
 }
 

@@ -64,6 +64,10 @@ impl RunDir {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum Item {
+    /// The TUN the rest belongs to, which goes with the process. While a
+    /// device of its name is up, a live instance holds that name and, by
+    /// its own setup, what is named after it: the ledger waits.
+    Tun(String),
     /// An ip rule, deleted as it was added: every attribute given, so
     /// that only that rule matches.
     #[cfg(any(target_os = "linux", test))]
@@ -260,6 +264,18 @@ pub fn sweep(dir: &RunDir) -> Vec<String> {
         if entry.netns != netns() || !stale(&entry) {
             continue;
         }
+        let held = entry.items.iter().find_map(|item| match item {
+            Item::Tun(name) if device_exists(name) => Some(name),
+            _ => None,
+        });
+        if let Some(name) = held {
+            debug!(
+                "sweep: {} left for later: {} is up, held by a running instance",
+                file.display(),
+                name
+            );
+            continue;
+        }
         let mut left = Vec::new();
         for item in entry.items.iter().rev() {
             match undo(item) {
@@ -348,8 +364,29 @@ fn start_time(_pid: u32) -> Option<u64> {
     Some(0)
 }
 
+/// Whether a network device of this name is up in this namespace.
+/// Linux and macOS take the TUN down with its process; Windows keeps a
+/// Wintun adapter, so this would not tell there (its TUN keeps no ledger
+/// yet).
+fn device_exists(name: &str) -> bool {
+    #[cfg(unix)]
+    {
+        let Ok(name) = std::ffi::CString::new(name) else {
+            return false;
+        };
+        // SAFETY: a NUL-terminated name, read only.
+        unsafe { libc::if_nametoindex(name.as_ptr()) != 0 }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = name;
+        false
+    }
+}
+
 fn describe(item: &Item) -> String {
     match item {
+        Item::Tun(name) => format!("the TUN {}", name),
         #[cfg(any(target_os = "linux", test))]
         Item::Rule(rule) => format!("the ip rule at {} ({})", rule.priority, rule.family),
         #[cfg(any(target_os = "linux", test))]
@@ -370,6 +407,8 @@ fn undo(item: &Item) -> anyhow::Result<bool> {
         )
     };
     match item {
+        // It went with the process.
+        Item::Tun(_) => Ok(false),
         Item::Rule(rule) => match Netlink::open()?.del_rule(rule) {
             Ok(()) => Ok(true),
             Err(e) if gone(&e) => Ok(false),
@@ -545,6 +584,29 @@ mod tests {
         write(&path, &entry).unwrap();
         assert!(sweep(&RunDir::Dir(dir.clone())).is_empty());
         assert!(left.exists() && path.exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_ledger_whose_tun_is_up_waits() {
+        let dir = dir("held");
+        let left = dir.join("named-after-it.nft");
+        std::fs::write(&left, "x").unwrap();
+        // The loopback device, up everywhere: as a live instance's TUN.
+        let lo = if cfg!(target_os = "macos") {
+            "lo0"
+        } else {
+            "lo"
+        };
+        let ledger = ledger_of(
+            &dir,
+            dead_pid(),
+            0,
+            1,
+            vec![Item::Tun(lo.into()), Item::File(left.clone())],
+        );
+        assert!(sweep(&RunDir::Dir(dir.clone())).is_empty());
+        assert!(left.exists() && ledger.exists(), "left for later");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
