@@ -28,6 +28,10 @@ const WARN_EVERY: Duration = Duration::from_secs(10);
 pub struct Sessions {
     places: Arc<Semaphore>,
     limit: usize,
+    /// Those waiting for a place: they hold their inbound side already, so
+    /// that more of them than this are refused at once.
+    waiting: AtomicUsize,
+    max_waiting: usize,
     refused: AtomicUsize,
     warned: Mutex<Option<Instant>>,
 }
@@ -41,15 +45,30 @@ impl Sessions {
         (limit > 0).then(|| Self {
             places: Arc::new(Semaphore::new(limit)),
             limit,
+            waiting: AtomicUsize::new(0),
+            // A quarter of the limit (judged): a burst passes, and those
+            // waiting cost a quarter of what the places do at most.
+            max_waiting: (limit / 4).max(1),
             refused: AtomicUsize::new(0),
             warned: Mutex::new(None),
         })
     }
 
-    /// A place for one more session, waiting `wait` at most; none, and the
-    /// session is refused.
+    /// A place for one more session, waiting `wait` at most, and only
+    /// while fewer than `max_waiting` wait; none, and the session is
+    /// refused.
     pub async fn enter(&self, wait: Duration) -> Option<Place> {
-        match tokio::time::timeout(wait, self.places.clone().acquire_owned()).await {
+        if let Ok(permit) = self.places.clone().try_acquire_owned() {
+            return Some(Place(permit));
+        }
+        if self.waiting.fetch_add(1, Ordering::AcqRel) >= self.max_waiting {
+            self.waiting.fetch_sub(1, Ordering::AcqRel);
+            self.refused();
+            return None;
+        }
+        let waited = tokio::time::timeout(wait, self.places.clone().acquire_owned()).await;
+        self.waiting.fetch_sub(1, Ordering::AcqRel);
+        match waited {
             Ok(Ok(permit)) => Some(Place(permit)),
             _ => {
                 self.refused();
@@ -87,7 +106,8 @@ pub struct Held {
 }
 
 impl Held {
-    pub fn new(inner: AnyOutboundDatagram, place: Place) -> AnyOutboundDatagram {
+    /// `inner`, holding `place` until both its halves are dropped.
+    pub fn wrap(inner: AnyOutboundDatagram, place: Place) -> AnyOutboundDatagram {
         Box::new(Self { inner, place })
     }
 }
@@ -161,6 +181,32 @@ mod tests {
         assert_eq!(sessions.live(), 2);
     }
 
+    /// Beyond a quarter of the limit waiting, one more is refused at once.
+    #[tokio::test]
+    async fn no_more_than_a_quarter_of_the_limit_waits() {
+        let sessions = Arc::new(Sessions::new(4).unwrap());
+        let mut held = Vec::new();
+        for _ in 0..4 {
+            held.push(sessions.enter(Duration::ZERO).await.unwrap());
+        }
+        // One may wait (4 / 4).
+        let waiter = {
+            let sessions = sessions.clone();
+            tokio::spawn(async move { sessions.enter(Duration::from_secs(5)).await.is_some() })
+        };
+        while sessions.waiting.load(Ordering::Acquire) == 0 {
+            tokio::task::yield_now().await;
+        }
+        // A second is refused without waiting.
+        let started = Instant::now();
+        assert!(sessions.enter(Duration::from_secs(5)).await.is_none());
+        assert!(started.elapsed() < Duration::from_millis(100));
+        // The one waiting gets the next place given back.
+        drop(held.pop());
+        assert!(waiter.await.unwrap());
+        assert_eq!(sessions.waiting.load(Ordering::Acquire), 0);
+    }
+
     struct Quiet;
 
     #[async_trait]
@@ -197,7 +243,7 @@ mod tests {
     async fn a_udp_session_holds_its_place_while_either_half_lives() {
         let sessions = Sessions::new(1).unwrap();
         let place = sessions.enter(Duration::from_millis(10)).await.unwrap();
-        let (recv, send) = Held::new(Box::new(Quiet), place).split();
+        let (recv, send) = Held::wrap(Box::new(Quiet), place).split();
         assert_eq!(sessions.live(), 1);
         drop(send);
         assert_eq!(sessions.live(), 1, "the receive half still lives");

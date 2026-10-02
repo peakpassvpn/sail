@@ -779,7 +779,7 @@ impl Dispatcher {
             .map_err(|()| io::Error::other("refused: inbound.max_connections sessions live"))?;
         let (datagram, idle) = self.dispatch_datagram_inner(sess, sniffer).await?;
         let datagram = match place {
-            Some(place) => super::sessions::Held::new(datagram, place),
+            Some(place) => super::sessions::Held::wrap(datagram, place),
             None => datagram,
         };
         Ok((datagram, idle))
