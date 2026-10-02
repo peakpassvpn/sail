@@ -64,9 +64,16 @@ jobs:
           path: ~/.cargo/bin/cbindgen
           key: cbindgen-0.29.4-${{ runner.os }}
 
+      # rust-cache may restore ~/.cargo/bin with cbindgen already in it, while
+      # the cache above misses: install only when that version isn't there.
       - name: install cbindgen
         if: steps.cbindgen.outputs.cache-hit != 'true'
-        run: cargo install cbindgen --version 0.29.4 --locked
+        run: |
+          if cbindgen --version 2>/dev/null | grep -qx 'cbindgen 0.29.4'; then
+            echo "cbindgen 0.29.4 already installed"
+          else
+            cargo install cbindgen --version 0.29.4 --locked --force
+          fi
 
       - name: save cbindgen
         if: steps.cbindgen.outputs.cache-hit != 'true' && github.ref == 'refs/heads/master'
