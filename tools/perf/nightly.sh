@@ -87,12 +87,28 @@ if [ -n "$building" ]; then
   echo "skipped: a build runs on the host" | tee "$OUT/skipped"
   exit 0
 fi
+# A registered build may be about to start: its file says "build" with its
+# memory ("mem: 3.7G, build").
+registered=$(remote "grep -l -E '^mem:.*build' $PERF_JOBS/* 2>/dev/null | grep -v '/$JOB\$' || true")
+if [ -n "$registered" ]; then
+  echo "skipped: a build is registered: $registered" | tee "$OUT/skipped"
+  exit 0
+fi
 measuring=$(remote "grep -l -E '^kind: *measurement' $PERF_JOBS/* 2>/dev/null | grep -v '/$JOB\$' || true")
 if [ -n "$measuring" ]; then
   echo "skipped: another measurement runs: $measuring" | tee "$OUT/skipped"
   exit 0
 fi
-declared=$(remote "grep -h -E '^mem:' $PERF_JOBS/* 2>/dev/null | awk '{ for (i = 2; i <= NF; i++) if (\$i ~ /^[0-9]+\$/) { sum += \$i; break } } END { print sum + 0 }'")
+# Each job's declared memory in MB, whichever way it is written: "800 MB",
+# "800M", "3.7G", "3.7 GB".
+declared=$(remote "grep -h -E '^mem:' $PERF_JOBS/* 2>/dev/null | awk '{
+  line = tolower(\$0); sub(/^mem: */, \"\", line)
+  if (match(line, /[0-9]+(\\.[0-9]+)?/)) {
+    n = substr(line, RSTART, RLENGTH); unit = substr(line, RSTART + RLENGTH)
+    sub(/^ */, \"\", unit)
+    sum += (unit ~ /^g/) ? n * 1024 : n
+  }
+} END { printf \"%d\", sum }'")
 if [ $((${declared:-0} + MEM_MB)) -gt "$HOST_MEM_MB" ]; then
   echo "skipped: ${declared} MB declared, and $MEM_MB more passes $HOST_MEM_MB" | tee "$OUT/skipped"
   exit 0
@@ -149,5 +165,11 @@ remote "cd $WORK/server-accept && python3 run.py --work $WORK/server --sail $WOR
 # The summaries back here, outside the repository.
 rsync -az --no-o --no-g --include '*/' --include 'summary.json' --exclude '*' \
   "$PERF_HOST:$WORK/" "$OUT/results/"
-echo "base $BASE new $NEW rounds $ROUNDS" > "$OUT/run"
+# What the host was, for a baseline that shifts: swap may change memory
+# figures under pressure.
+{
+  echo "base $BASE new $NEW rounds $ROUNDS"
+  echo "host swap: $(remote "swapon --show=NAME,SIZE --noheadings 2>/dev/null | tr '\n' ' '")"
+  echo "host swappiness: $(remote 'cat /proc/sys/vm/swappiness')"
+} > "$OUT/run"
 "$ROOT/tools/perf/btier.py" "$OUT" | tee "$OUT/report.md"
