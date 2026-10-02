@@ -1334,3 +1334,43 @@ fn an_include_s_url_is_told_by_its_host() {
         err
     );
 }
+
+/// A profile read without a directory, a host's text or a download, names
+/// local files only in the data directory: one from elsewhere makes sail
+/// read no file it likes. Read from its file, a profile names any.
+#[test]
+fn a_profile_read_from_text_names_files_only_in_the_data_directory() {
+    let set = |path: &str| format!("[Rule]\nRULE-SET,{path},DIRECT\nFINAL,DIRECT\n");
+    for path in ["/etc/passwd", "../outside.list", "rules/../../outside.list"] {
+        let e = error(&set(path));
+        assert!(e.contains("is not in the data directory"), "{path}: {e}");
+    }
+    assert!(parse(&set("rules/a.list")).is_ok());
+    #[cfg(unix)]
+    {
+        let home = Some(Path::new("/srv/sail/data"));
+        assert!(parse_with(&set("/srv/sail/data/a.list"), None, None, home).is_ok());
+        assert!(parse_with(&set("/srv/sail/other/a.list"), None, None, home).is_err());
+        // Read from its file, as the operator's own.
+        let config = parse_in(&set("/srv/rules/a.list"), Some(Path::new("/srv/profiles"))).unwrap();
+        assert_eq!(
+            config.route.rule_set[0].path.as_deref(),
+            Some("/srv/rules/a.list")
+        );
+    }
+}
+
+#[cfg(feature = "outbound-provider")]
+#[test]
+fn a_policy_path_read_from_text_stays_in_the_data_directory() {
+    let group =
+        |path: &str| format!("[Proxy Group]\nG = select, policy-path={path}\n[Rule]\nFINAL,G\n");
+    for path in ["/etc/passwd", "../outside.list"] {
+        let e = error(&group(path));
+        assert!(
+            e.contains("policy-path") && e.contains("is not in the data directory"),
+            "{path}: {e}"
+        );
+    }
+    assert!(parse(&group("a.list")).is_ok());
+}

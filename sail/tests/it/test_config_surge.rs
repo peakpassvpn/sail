@@ -134,7 +134,8 @@ fn a_surge_profile_s_rule_sets_route() -> anyhow::Result<()> {
                  [Rule]\n{}FINAL,DIRECT\n",
                 socks, rules
             );
-            common::test_configs(vec![profile], "127.0.0.1", socks)
+            // Read from text, its files are in the data directory.
+            common::test_configs_in(vec![profile], "127.0.0.1", socks, dir.path())
         });
         assert_eq!(result.is_err(), rejected, "{}: {:?}", rules, result);
     }
@@ -235,7 +236,8 @@ fn a_surge_policy_path_routes() -> anyhow::Result<()> {
                 }}"#,
                 relay
             );
-            common::test_configs(vec![profile, server], "127.0.0.1", socks)
+            // Read from text, its list is in the data directory.
+            common::test_configs_in(vec![profile, server], "127.0.0.1", socks, dir.path())
         });
         assert_eq!(result.is_ok(), up, "{:?}", result);
     }

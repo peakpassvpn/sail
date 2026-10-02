@@ -74,7 +74,7 @@ impl Format {
             #[cfg(feature = "config-surge")]
             Format::Surge => {
                 let fetched = host.cache_dir.as_deref().map(surge::includes_dir);
-                surge::parse_with(s, dir, fetched.as_deref())
+                surge::parse_with(s, dir, fetched.as_deref(), Some(&host.data_dir()))
             }
             #[cfg(not(feature = "config-surge"))]
             Format::Surge => Err(anyhow!(

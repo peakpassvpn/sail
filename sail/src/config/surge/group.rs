@@ -329,6 +329,7 @@ pub fn lower(
     proxies: &Proxies,
     general: &General,
     dir: Option<&Path>,
+    home: Option<&Path>,
     out: &mut Lowered,
     warnings: &mut Vec<String>,
 ) -> Result<Policies> {
@@ -408,7 +409,7 @@ pub fn lower(
     let mut sources: HashMap<String, Source> = HashMap::new();
     let mut vias: HashMap<String, (String, String)> = HashMap::new();
     for g in &mut groups {
-        if let Some(source) = policy_path(&mut g.p, dir, warnings)? {
+        if let Some(source) = policy_path(&mut g.p, dir, home, warnings)? {
             sources.insert(g.name.clone(), source);
         }
         if let Some((via, at)) = g.p.take_at("underlying-proxy") {
@@ -909,6 +910,7 @@ fn provider_path(provider: &Value) -> &str {
 fn policy_path(
     p: &mut Params,
     dir: Option<&Path>,
+    home: Option<&Path>,
     warnings: &mut Vec<String>,
 ) -> Result<Option<Source>> {
     let Some((path, at)) = p.take_at("policy-path") else {
@@ -927,11 +929,10 @@ fn policy_path(
         ));
     }
     let interval = p.num::<i64>("update-interval")?;
-    let path = match dir {
-        Some(dir) if !remote && Path::new(&path).is_relative() => {
-            dir.join(&path).to_string_lossy().to_string()
-        }
-        _ => path,
+    let path = if remote {
+        path
+    } else {
+        super::local_file(dir, home, &at, &path)?
     };
     let prefix = p.string("external-policy-name-prefix");
     if let Some(prefix) = &prefix {

@@ -67,6 +67,27 @@ pub fn includes_dir(cache_dir: &Path) -> std::path::PathBuf {
     cache_dir.join("surge-include")
 }
 
+/// `path`, a local file a profile names at `at`, as it is read. Next to the
+/// profile when it was read from its file, wherever an absolute one is; a
+/// profile read without a directory, a host's text or a download, names
+/// files only in `home`, the data directory (a relative path there), so
+/// that one from elsewhere makes sail read no file it likes.
+fn local_file(dir: Option<&Path>, home: Option<&Path>, at: &str, path: &str) -> Result<String> {
+    match dir {
+        Some(dir) if Path::new(path).is_relative() => {
+            Ok(dir.join(path).to_string_lossy().to_string())
+        }
+        Some(_) => Ok(path.to_string()),
+        None if crate::common::path::stays_in(home, path) => Ok(path.to_string()),
+        None => Err(anyhow!(
+            "{}: {:?} is not in the data directory, which a profile read from text or a \
+             URL names its files in",
+            at,
+            path
+        )),
+    }
+}
+
 /// Reads a Surge profile, which includes no files.
 pub fn parse(s: &str) -> Result<Config> {
     parse_in(s, None)
@@ -75,12 +96,19 @@ pub fn parse(s: &str) -> Result<Config> {
 /// Reads a Surge profile in the directory `dir`, which the files it
 /// includes are named relative to.
 pub fn parse_in(s: &str, dir: Option<&Path>) -> Result<Config> {
-    parse_with(s, dir, None)
+    parse_with(s, dir, None, None)
 }
 
 /// Reads a Surge profile, as `parse_in`; the URLs it includes are the
-/// copies a host fetched into `fetched`, each at its `include_path`.
-pub fn parse_with(s: &str, dir: Option<&Path>, fetched: Option<&Path>) -> Result<Config> {
+/// copies a host fetched into `fetched`, each at its `include_path`. One
+/// read without a directory names local files only in `home`, the data
+/// directory, as [`local_file`] has it.
+pub fn parse_with(
+    s: &str,
+    dir: Option<&Path>,
+    fetched: Option<&Path>,
+    home: Option<&Path>,
+) -> Result<Config> {
     let mut warnings = Vec::new();
     let mut profile = Profile::read_with(s, dir, fetched, &mut warnings)?;
     let mut out = Lowered::default();
@@ -91,10 +119,11 @@ pub fn parse_with(s: &str, dir: Option<&Path>, fetched: Option<&Path>) -> Result
         &proxies,
         &general,
         dir,
+        home,
         &mut out,
         &mut warnings,
     )?;
-    let mut sets = sets::Sets::new(dir, profile.take_named("Ruleset"));
+    let mut sets = sets::Sets::new(dir, home, profile.take_named("Ruleset"));
     rule::lower(
         profile.take("Rule"),
         &policies,

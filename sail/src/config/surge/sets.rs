@@ -92,6 +92,8 @@ pub struct Sets {
     geo: crate::config::clash::provider::Sets,
     /// The profile's directory, which paths are relative to.
     dir: Option<PathBuf>,
+    /// The data directory, which a profile without one names files in.
+    home: Option<PathBuf>,
     /// The `[Ruleset <name>]` sections, by name.
     inline: IndexMap<String, Vec<Line>>,
     /// The files named, by tag: what they hold, and the rule-set.
@@ -101,10 +103,11 @@ pub struct Sets {
 }
 
 impl Sets {
-    pub fn new(dir: Option<&Path>, inline: Vec<(String, Vec<Line>)>) -> Self {
+    pub fn new(dir: Option<&Path>, home: Option<&Path>, inline: Vec<(String, Vec<Line>)>) -> Self {
         Sets {
             geo: Default::default(),
             dir: dir.map(Path::to_path_buf),
+            home: home.map(Path::to_path_buf),
             inline: inline.into_iter().collect(),
             files: IndexMap::new(),
             stack: Vec::new(),
@@ -146,11 +149,15 @@ impl Sets {
     /// below 0.
     pub fn file(&mut self, kind: Kind, location: &str, interval: Option<i64>) -> Result<String> {
         let remote = location.starts_with("http://") || location.starts_with("https://");
-        let tag = match (remote, &self.dir) {
-            (false, Some(dir)) if Path::new(location).is_relative() => {
-                dir.join(location).to_string_lossy().to_string()
-            }
-            _ => location.to_string(),
+        let tag = if remote {
+            location.to_string()
+        } else {
+            super::local_file(
+                self.dir.as_deref(),
+                self.home.as_deref(),
+                kind.name(),
+                location,
+            )?
         };
         if let Some((known, _)) = self.files.get(&tag) {
             if *known != kind {
