@@ -158,6 +158,12 @@ pub struct Inbound {
     /// `net.ipv4.tcp_wmem` (4 MiB) while the connection goes fast. Linux
     /// keeps twice what is set, for its own bookkeeping.
     pub tcp_send_buffer: usize,
+    /// Proxied sessions (connections, UDP sessions, and streams of a
+    /// multiplexed or QUIC inbound) live at once; 0, no limit. One more
+    /// waits for one to end, `MAX_CONNECTIONS_WAIT` at most, and is then
+    /// refused. A sail extension: neither sing-box nor Mihomo bounds them.
+    #[serde(default)]
+    pub max_connections: usize,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -334,6 +340,7 @@ impl RuntimeOptions {
                 multiplex_accept_concurrency: 256,
                 tcp_abort_on_close: false,
                 tcp_send_buffer: 0,
+                max_connections: 0,
             },
             quic: Quic {
                 max_concurrent_streams: 1024,
@@ -433,6 +440,12 @@ impl RuntimeOptions {
                     // with it, 50 without (measured); twice this, what
                     // Linux keeps, carries 200 Mbit/s at 20 ms.
                     tcp_send_buffer: 256,
+                    // A session is 24 to 39 KiB, trojan's the most. In a
+                    // 64 MiB budget, 2000 trojan connections held and 500
+                    // new ones a second: 1024 was killed in the burst, 768
+                    // and 512 lived through both (measured); the most that
+                    // did.
+                    max_connections: 768,
                     ..desktop.inbound
                 },
                 quic: Quic {

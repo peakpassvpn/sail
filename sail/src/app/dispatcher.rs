@@ -1,7 +1,6 @@
 use std::io::{self};
 
 use crate::app::dns::FakeIp;
-use async_recursion::async_recursion;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tracing::{debug, info, warn, Instrument};
 
@@ -336,6 +335,8 @@ pub struct Dispatcher {
     env: crate::runtime::SyncRuntimeEnv,
     /// The protocol of each inbound, by tag.
     inbound_types: std::sync::RwLock<std::collections::HashMap<String, &'static str>>,
+    /// The places for sessions, under `inbound.max_connections`.
+    sessions: Option<super::sessions::Sessions>,
 }
 
 impl Dispatcher {
@@ -351,8 +352,21 @@ impl Dispatcher {
             router,
             dns_client,
             stat_manager,
+            sessions: super::sessions::Sessions::new(env.options.inbound.max_connections),
             env,
             inbound_types: Default::default(),
+        }
+    }
+
+    /// A place for one more session, or none: it is refused.
+    async fn enter(&self) -> Result<Option<super::sessions::Place>, ()> {
+        match &self.sessions {
+            None => Ok(None),
+            Some(sessions) => sessions
+                .enter(super::sessions::MAX_CONNECTIONS_WAIT)
+                .await
+                .map(Some)
+                .ok_or(()),
         }
     }
 
@@ -402,6 +416,15 @@ impl Dispatcher {
         if !admitted(&sess) {
             return;
         }
+        // Its place, held as long as it lives; without one, it is refused
+        // as a general failure (SOCKS REP 1): the limit is sail's own, not
+        // the destination refusing.
+        let Ok(_place) = self.enter().await else {
+            let mut lhs = lhs;
+            let e = io::Error::other("connection limit reached");
+            refuse(&sess, &mut lhs, &e).await;
+            return;
+        };
         // Routing, which may sniff and resolve, runs in a future of its own
         // that is freed once it decides: the one relaying for the life of
         // the connection does not keep room for it.
@@ -744,8 +767,25 @@ impl Dispatcher {
     /// Datagrams to where the rules send the UDP session `sess`, which
     /// `sniffer` reads the first datagrams of for a `sniff` rule, and how
     /// long the session lasts idle when a rule says.
-    #[async_recursion]
     pub async fn dispatch_datagram(
+        &self,
+        sess: Session,
+        sniffer: &mut dyn Sniffer,
+    ) -> io::Result<(Box<dyn OutboundDatagram>, Option<std::time::Duration>)> {
+        // Its place, held by the datagram as long as the session lives.
+        let place = self
+            .enter()
+            .await
+            .map_err(|()| io::Error::other("refused: inbound.max_connections sessions live"))?;
+        let (datagram, idle) = self.dispatch_datagram_inner(sess, sniffer).await?;
+        let datagram = match place {
+            Some(place) => super::sessions::Held::new(datagram, place),
+            None => datagram,
+        };
+        Ok((datagram, idle))
+    }
+
+    async fn dispatch_datagram_inner(
         &self,
         mut sess: Session,
         sniffer: &mut dyn Sniffer,

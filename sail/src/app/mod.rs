@@ -28,6 +28,7 @@ pub mod outbound;
 #[cfg(feature = "outbound-provider")]
 pub(crate) mod provider;
 pub mod router;
+pub mod sessions;
 pub mod stat_manager;
 
 #[cfg(feature = "api")]
