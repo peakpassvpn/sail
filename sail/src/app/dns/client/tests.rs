@@ -2238,4 +2238,150 @@ mod tests {
             ips(&["10.0.0.1", "fd00::1"])
         );
     }
+
+    // -- answers per client (EDNS) ---------------------------------------
+
+    /// A UDP server answering A 10.0.0.5 for a minute, as a server that
+    /// speaks EDNS: the query's client cookie with a server cookie of its
+    /// own, and padding; counting the queries.
+    async fn cookie_server() -> (u16, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+        use hickory_proto::op::Edns;
+        use hickory_proto::rr::rdata::opt::{EdnsCode, EdnsOption};
+        let socket = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let port = socket.local_addr().unwrap().port();
+        let count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counter = count.clone();
+        tokio::spawn(async move {
+            let mut buf = [0u8; 1500];
+            while let Ok((n, peer)) = socket.recv_from(&mut buf).await {
+                counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                let request = Message::from_vec(&buf[..n]).unwrap();
+                let mut reply = DnsClient::reply(&request, &ips(&["10.0.0.5"]), 60);
+                let mut edns = Edns::new();
+                edns.set_max_payload(1232);
+                if let Some(EdnsOption::Unknown(10, client)) = request
+                    .extensions()
+                    .as_ref()
+                    .and_then(|e| e.options().get(EdnsCode::Cookie))
+                {
+                    let mut cookie = client[..8.min(client.len())].to_vec();
+                    cookie.extend_from_slice(&[0xee; 8]);
+                    edns.options_mut().insert(EdnsOption::Unknown(10, cookie));
+                }
+                edns.options_mut().insert(EdnsOption::Unknown(12, vec![0; 16]));
+                *reply.extensions_mut() = Some(edns);
+                let _ = socket.send_to(&reply.to_vec().unwrap(), peer).await;
+            }
+        });
+        (port, count)
+    }
+
+    /// A query of `name`, type A, with `edns` made by `with` when given.
+    fn query_with(name: &str, id: u16, with: Option<fn(&mut hickory_proto::op::Edns)>) -> Vec<u8> {
+        let mut m = DnsClient::new_query(Name::from_ascii(format!("{}.", name)).unwrap(), RecordType::A);
+        m.set_id(id);
+        if let Some(with) = with {
+            let mut edns = hickory_proto::op::Edns::new();
+            edns.set_max_payload(1232);
+            with(&mut edns);
+            *m.extensions_mut() = Some(edns);
+        }
+        m.to_vec().unwrap()
+    }
+
+    async fn ask(client: &DnsClient, query: Vec<u8>) -> Message {
+        let response = client
+            .exchange(&query, &super::LookupContext::default())
+            .await
+            .unwrap();
+        Message::from_vec(&response).unwrap()
+    }
+
+    fn cookie_of(m: &Message) -> Option<Vec<u8>> {
+        use hickory_proto::rr::rdata::opt::{EdnsCode, EdnsOption};
+        match m.extensions().as_ref()?.options().get(EdnsCode::Cookie)? {
+            EdnsOption::Unknown(10, cookie) => Some(cookie.clone()),
+            _ => None,
+        }
+    }
+
+    fn cookie_client(port: u16) -> DnsClient {
+        let config = crate::config::Config::from_json(
+            &serde_json::json!({ "dns": { "servers": [
+                { "type": "udp", "server": "127.0.0.1", "server_port": port }
+            ] } })
+            .to_string(),
+        )
+        .unwrap();
+        DnsClient::new(&config.dns, Default::default(), &Default::default()).unwrap()
+    }
+
+    /// A query with a cookie is asked of its server each time, as sing-box
+    /// leaves it out of the cache: each client is answered with its own
+    /// cookie, never with one a query before it carried.
+    #[tokio::test]
+    async fn each_client_is_answered_with_its_own_cookie() {
+        use hickory_proto::rr::rdata::opt::EdnsOption;
+        let (port, count) = cookie_server().await;
+        let client = cookie_client(port);
+        let a = ask(&client, query_with("a.example", 1, Some(|e| e.options_mut().insert(EdnsOption::Unknown(10, vec![0xaa; 8]))))).await;
+        let b = ask(&client, query_with("a.example", 2, Some(|e| e.options_mut().insert(EdnsOption::Unknown(10, vec![0xbb; 8]))))).await;
+        assert_eq!(&cookie_of(&a).unwrap()[..8], &[0xaa; 8]);
+        assert_eq!(&cookie_of(&b).unwrap()[..8], &[0xbb; 8], "not the first client's");
+        assert_eq!((a.id(), b.id()), (1, 2));
+        assert_eq!(count.load(std::sync::atomic::Ordering::SeqCst), 2);
+    }
+
+    /// A kept answer answers a query of another case with the query's own
+    /// question, and its ID; no padding is kept or passed on, and a client
+    /// that sent no EDNS gets none.
+    #[tokio::test]
+    async fn a_kept_answer_takes_the_question_as_asked() {
+        use hickory_proto::rr::rdata::opt::EdnsCode;
+        let (port, count) = cookie_server().await;
+        let client = cookie_client(port);
+        let first = ask(&client, query_with("a.example", 3, Some(|_| {}))).await;
+        let edns = first.extensions().as_ref().expect("EDNS to an EDNS query");
+        assert!(edns.options().get(EdnsCode::Padding).is_none(), "padding not passed on");
+        let mixed = ask(&client, query_with("A.ExAmPlE", 4, None)).await;
+        assert_eq!(count.load(std::sync::atomic::Ordering::SeqCst), 1, "from the cache");
+        assert_eq!(mixed.id(), 4);
+        assert_eq!(mixed.queries()[0].name().to_utf8(), "A.ExAmPlE.");
+        assert!(mixed.extensions().is_none(), "no EDNS to a query without");
+        assert_eq!(answer_ips(&mixed), ips(&["10.0.0.5"]));
+    }
+
+    /// The DO bit and a later EDNS version are the client's: such a query is
+    /// asked each time, as a cookie is.
+    #[tokio::test]
+    async fn the_do_bit_and_a_later_version_are_not_answered_from_the_cache() {
+        let (port, count) = cookie_server().await;
+        let client = cookie_client(port);
+        ask(&client, query_with("a.example", 5, Some(|_| {}))).await;
+        ask(&client, query_with("a.example", 6, Some(|e| {
+            e.set_dnssec_ok(true);
+        })))
+        .await;
+        ask(&client, query_with("a.example", 7, Some(|e| {
+            e.set_version(1);
+        })))
+        .await;
+        ask(&client, query_with("a.example", 8, Some(|_| {}))).await;
+        assert_eq!(count.load(std::sync::atomic::Ordering::SeqCst), 3, "the plain one again from the cache");
+    }
+
+    #[test]
+    fn a_simple_request_is_sing_box_s() {
+        use hickory_proto::rr::rdata::opt::{ClientSubnet, EdnsOption};
+        let simple = |q: Vec<u8>| super::rules::simple_request(&Message::from_vec(&q).unwrap());
+        assert!(simple(query_with("a.example", 1, None)));
+        assert!(simple(query_with("a.example", 1, Some(|_| {}))));
+        assert!(simple(query_with("a.example", 1, Some(|e| {
+            e.options_mut().insert(EdnsOption::Subnet(ClientSubnet::new("10.0.0.0".parse().unwrap(), 8, 0)));
+        }))));
+        assert!(!simple(query_with("a.example", 1, Some(|e| e.options_mut().insert(EdnsOption::Unknown(10, vec![1; 8]))))));
+        assert!(!simple(query_with("a.example", 1, Some(|e| e.options_mut().insert(EdnsOption::Unknown(12, vec![0; 4]))))));
+        assert!(!simple(query_with("a.example", 1, Some(|e| { e.set_dnssec_ok(true); }))));
+        assert!(!simple(query_with("a.example", 1, Some(|e| { e.set_version(1); }))));
+    }
 }

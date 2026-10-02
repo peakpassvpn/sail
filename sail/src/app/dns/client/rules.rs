@@ -779,7 +779,8 @@ impl DnsClient {
         }
         let cached = !self.disable_cache
             && !options.disable_cache
-            && !matches!(server.kind, Kind::FakeIp(_));
+            && !matches!(server.kind, Kind::FakeIp(_))
+            && simple_request(&request);
         let key = request.queries().first().filter(|_| cached).map(|q| {
             let name = q.name().to_utf8();
             (
@@ -791,10 +792,10 @@ impl DnsClient {
         });
         if let Some(key) = &key {
             match self.answers.get(key, request.id()) {
-                Cached::Fresh(answer) => return Ok(answer),
+                Cached::Fresh(answer) => return Ok(for_request(answer, &request)),
                 Cached::Stale(answer) if !options.disable_optimistic_cache => {
                     self.refresh(tag, &request, options, key.clone());
-                    return Ok(answer);
+                    return Ok(for_request(answer, &request));
                 }
                 Cached::Stale(_) | Cached::Missing => {}
             }
@@ -820,6 +821,8 @@ impl DnsClient {
             }
         };
         response.set_id(request.id());
+        // Padding is the server's, for its own link: not kept, nor passed on.
+        strip_padding(&mut response);
         let ttl = options
             .rewrite_ttl
             .unwrap_or_else(|| cache::ttl_of(&response));
@@ -831,6 +834,7 @@ impl DnsClient {
         if let (true, Some(key)) = (keeps, key) {
             self.answers.put(key, &response, ttl);
         }
+        fit_edns(&mut response, request);
         Ok(response)
     }
 
@@ -903,6 +907,66 @@ pub(super) fn client_subnet(request: &Message) -> Option<Prefix> {
         _ => return None,
     };
     Some(Prefix { addr, len })
+}
+
+/// Whether `request` may be answered from the cache and its answer kept, as
+/// sing-box decides it (dns/client.go `isSimpleRequest`): one question, no
+/// authority, and no additional record but an OPT of version 0, with no DO
+/// bit, a payload size, and no option but a client subnet, which the cache
+/// keys by. Anything else of EDNS is the asking client's own: a cookie, which
+/// an answer kept for another client would carry wrong and the client then
+/// drops, padding, the DO bit, a later version. Such a query is asked of its
+/// server each time, and the server answers it for this client.
+pub(super) fn simple_request(request: &Message) -> bool {
+    if request.queries().len() != 1
+        || !request.name_servers().is_empty()
+        || !request.additionals.is_empty()
+    {
+        return false;
+    }
+    let Some(edns) = request.extensions() else {
+        return true;
+    };
+    edns.version() == 0
+        && edns.rcode_high() == 0
+        && !edns.flags().dnssec_ok
+        && edns.max_payload() > 0
+        && edns
+            .options()
+            .as_ref()
+            .iter()
+            .all(|(code, _)| *code == EdnsCode::Subnet)
+}
+
+/// A kept answer as it answers `request`: its ID, and its question as the
+/// client wrote it (a resolver that randomizes the letters' case checks
+/// them), with the EDNS `request` takes.
+fn for_request(mut answer: Message, request: &Message) -> Message {
+    answer.set_id(request.id());
+    answer.queries = request.queries().to_vec();
+    fit_edns(&mut answer, request);
+    answer
+}
+
+/// An answer's EDNS as a client that sent `request` takes it, as sing-box
+/// fits it (dns/client.go finishExchange): none to one that sent none, and
+/// no later version than its own.
+fn fit_edns(response: &mut Message, request: &Message) {
+    match (request.extensions(), response.extensions_mut()) {
+        (None, edns) => *edns = None,
+        (Some(asked), Some(answered)) if answered.version() > asked.version() => {
+            answered.set_version(asked.version());
+        }
+        _ => {}
+    }
+}
+
+/// Takes out EDNS padding (RFC 7830), as sing-box does before it keeps an
+/// answer.
+fn strip_padding(response: &mut Message) {
+    if let Some(edns) = response.extensions_mut() {
+        edns.options_mut().remove(EdnsCode::Padding);
+    }
 }
 
 /// Makes `request` carry `prefix` as its client subnet, in place of any it
