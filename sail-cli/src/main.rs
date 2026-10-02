@@ -77,6 +77,16 @@ struct Args {
     #[argh(option)]
     cache_dir: Option<String>,
 
+    /// where changes to the system a kill would leave (ip rules, nftables)
+    /// are written down, for the next start to undo; /run/sail on Linux by
+    /// default
+    #[argh(option)]
+    run_dir: Option<String>,
+
+    /// keep no such record, and sweep nothing at start
+    #[argh(switch)]
+    no_run_dir: bool,
+
     /// the base URL of your own Sub-Store backend (secret path included),
     /// which sub.store, Sub-Store's address inside Surge, Loon and
     /// Quantumult X, stands for in subscription and rule-set URLs
@@ -526,6 +536,12 @@ fn main() {
         sub_store: args.sub_store.map(sail::runtime::SubStore),
         ui_download_url: Some(args.ui_download_url).filter(|u| !u.is_empty()),
         asset_sources,
+        run_dir: if args.no_run_dir {
+            Some(sail::runtime::RunDirSetting::Off)
+        } else {
+            args.run_dir
+                .map(|dir| sail::runtime::RunDirSetting::Dir(dir.into()))
+        },
         ..Default::default()
     };
     let (runtime, host) = match settings.resolve() {

@@ -254,6 +254,7 @@ impl Instance {
                     tag,
                     settings,
                     &self.rule_sets,
+                    &self.dispatcher.env().ledger,
                 )
                 .map(|(routing, runner)| (TunRouting::Route(routing), runner)),
             };

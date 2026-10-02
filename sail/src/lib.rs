@@ -1594,11 +1594,16 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
     let _log = app::logger::enter(Some(log.clone()));
     #[cfg(feature = "inbound-tun")]
     let listen_mark = auto_redirect_output_mark(&config, &host).map_err(Error::Config)?;
+    // What a killed instance left goes before this one changes anything;
+    // this one's place among those running ends with the run, however it
+    // ends.
+    let (ledger, _running) = platform::sweep::begin(&host.run_dir);
     let env = Arc::new(runtime::RuntimeEnv {
         options: opts.runtime,
         host,
         #[cfg(feature = "inbound-tun")]
         listen_mark,
+        ledger,
         ..Default::default()
     });
 

@@ -19,7 +19,10 @@
 //!   direct again;
 //! - route_address_set takes its rule-set's addresses only, a reload that
 //!   changes the rule-set changes what is taken, and a reload that drops the
-//!   rule-set fails and keeps what was taken.
+//!   rule-set fails and keeps what was taken;
+//! - what a killed instance left (its ip rules, a throw route, the
+//!   nftables table) goes when the next starts, even one with no TUN, and
+//!   another's rule at one of its priorities stays.
 #![cfg(target_os = "linux")]
 
 use std::net::UdpSocket;
@@ -47,6 +50,14 @@ const LAN: &str = "10.233.0.3";
 /// What the server sees as the peer, from the host's uplink.
 const PEER4: &str = "peer=10.233.0.1";
 const PEER6: &str = "peer=fd33::1";
+
+/// The tests share one namespace, its nftables table and its rules: one at
+/// a time.
+static ONE_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn one_at_a_time() -> std::sync::MutexGuard<'static, ()> {
+    ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner())
+}
 
 fn run(program: &str, args: &str) -> Result<String> {
     let out = Command::new(program)
@@ -155,20 +166,27 @@ struct Sail {
 }
 
 impl Sail {
-    /// Writes `config` to `dir` and starts sail on it, with `args`, and waits
-    /// for its nftables table.
-    fn start(dir: &Path, config: &str, args: &[&str]) -> Result<Self> {
+    /// Writes `config` to `dir` and starts sail on it, with `args` and its
+    /// ledgers in `dir`/run.
+    fn spawn(dir: &Path, config: &str, args: &[&str]) -> Result<Self> {
         let path = dir.join("config.json");
         std::fs::write(&path, config)?;
         let bin = PathBuf::from(std::env::var("SAIL_BIN").context("SAIL_BIN")?);
         let child = Command::new(bin)
             .arg("-c")
             .arg(&path)
+            .arg("--run-dir")
+            .arg(dir.join("run"))
             .args(args)
             .stdout(Stdio::null())
             .stderr(Stdio::inherit())
             .spawn()?;
-        let sail = Self { child: Some(child) };
+        Ok(Self { child: Some(child) })
+    }
+
+    /// `spawn`, then waits for its nftables table.
+    fn start(dir: &Path, config: &str, args: &[&str]) -> Result<Self> {
+        let sail = Self::spawn(dir, config, args)?;
         ensure!(
             eventually(Duration::from_secs(10), nft_table)?,
             "sail did not set up auto_redirect"
@@ -176,6 +194,14 @@ impl Sail {
         // The default-interface follower and pre-match settle.
         std::thread::sleep(Duration::from_millis(1200));
         Ok(sail)
+    }
+
+    /// Kills sail, which leaves what it set up behind.
+    fn crash(mut self) -> Result<()> {
+        let mut child = self.child.take().context("running")?;
+        child.kill()?;
+        child.wait()?;
+        Ok(())
     }
 
     /// Stops sail as a service manager would, and waits for it.
@@ -220,6 +246,7 @@ fn config(log: &Path, more: &str, route: &str) -> String {
 #[test]
 #[ignore = "needs root, in the namespace tests/scripts/auto_redirect_netns.sh builds"]
 fn auto_redirect_takes_the_host_s_traffic_and_gives_it_back() -> Result<()> {
+    let _one = one_at_a_time();
     ensure!(
         std::env::var_os("SAIL_BIN").is_some(),
         "run through tests/scripts/auto_redirect_netns.sh"
@@ -381,6 +408,90 @@ fn auto_redirect_takes_the_host_s_traffic_and_gives_it_back() -> Result<()> {
     ensure!(reloads()? == before, "and is not applied");
     ensure!(blocked(SPARE), "a failed reload keeps what was taken");
     sail.stop()?;
+    let _ = std::fs::remove_dir_all(&dir);
+    Ok(())
+}
+
+/// The rules at `priorities`, of both families, as `ip rule` lists them.
+fn rules_at(priorities: &[u32]) -> Result<Vec<String>> {
+    let mut found = Vec::new();
+    for family in ["", "-6"] {
+        for line in run("ip", &format!("{} rule", family))?.lines() {
+            let priority = line
+                .split(':')
+                .next()
+                .and_then(|p| p.trim().parse::<u32>().ok());
+            if priority.is_some_and(|p| priorities.contains(&p)) {
+                found.push(format!("{} {}", family, line.trim()));
+            }
+        }
+    }
+    Ok(found)
+}
+
+#[test]
+#[ignore = "needs root, in the namespace tests/scripts/auto_redirect_netns.sh builds"]
+fn what_a_killed_instance_left_goes_at_the_next_start() -> Result<()> {
+    let _one = one_at_a_time();
+    ensure!(
+        std::env::var_os("SAIL_BIN").is_some(),
+        "run through tests/scripts/auto_redirect_netns.sh"
+    );
+    let dir = std::env::temp_dir().join(format!("sail-sweep-{}", std::process::id()));
+    std::fs::create_dir_all(&dir)?;
+    let log = dir.join("sail.log");
+    std::fs::write(&log, "")?;
+    // Indexes of its own: the sweep undoes what the killed instance made,
+    // not what the next one's configuration would.
+    let more = r#", "iproute2_table_index": 2100, "iproute2_rule_index": 9100,
+                  "auto_redirect_iproute2_fallback_rule_index": 32100,
+                  "route_exclude_address": ["198.51.100.23/32"]"#;
+    let sails: Vec<u32> = (9100..=9110).chain([32100]).collect();
+    let route = r#"{ "final": "direct" }"#;
+    Sail::start(&dir, &config(&log, more, route), &[])?.crash()?;
+    let left = rules_at(&sails)?;
+    ensure!(nft_table()?, "a kill leaves the nftables table");
+    ensure!(!left.is_empty(), "and the ip rules");
+    // Someone else's rule among sail's priorities, made since (a start
+    // clears the priorities it takes, as sing-tun's does; a sweep removes
+    // only what it wrote down).
+    run("ip", "rule add priority 9105 lookup 3000")?;
+    let neighbour = rules_at(&[9105])?;
+    ensure!(
+        run("ip", "route show table 2100 type throw")?.contains("198.51.100.23"),
+        "and the throw route, which names no device"
+    );
+
+    // An instance with no TUN at all sweeps them.
+    let plain = format!(
+        r#"{{ "log": {{ "level": "debug", "output": "{}" }},
+             "inbounds": [{{ "type": "socks", "tag": "socks", "listen": "127.0.0.1", "listen_port": 10800 }}],
+             "outbounds": [{{ "type": "direct", "tag": "direct" }}] }}"#,
+        log.display()
+    );
+    let sail = Sail::spawn(&dir, &plain, &[])?;
+    ensure!(
+        eventually(Duration::from_secs(10), || Ok(
+            std::net::TcpStream::connect("127.0.0.1:10800").is_ok()
+        ))?,
+        "the plain instance did not start"
+    );
+    ensure!(!nft_table()?, "the next start removes the nftables table");
+    ensure!(
+        rules_at(&sails)? == neighbour,
+        "and sail's rules, leaving the neighbour's: {:?}",
+        rules_at(&sails)?
+    );
+    ensure!(
+        run("ip", "route show table 2100")?.trim().is_empty(),
+        "and the throw route"
+    );
+    ensure!(
+        std::fs::read_dir(dir.join("run"))?.count() == 0,
+        "and the ledger"
+    );
+    sail.stop()?;
+    run("ip", "rule del priority 9105 lookup 3000")?;
     let _ = std::fs::remove_dir_all(&dir);
     Ok(())
 }

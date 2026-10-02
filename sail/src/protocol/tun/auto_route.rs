@@ -24,6 +24,7 @@ use tracing::{info, warn};
 use super::inbound::TunSettings;
 use crate::app::router::rule_set::RuleSets;
 use crate::platform::auto_route as plan;
+use crate::platform::sweep::Ledger;
 use crate::Runner;
 
 /// What auto_route set up; dropping it undoes it.
@@ -52,6 +53,7 @@ impl AutoRoute {
         tag: &str,
         settings: &TunSettings,
         rule_sets: &RuleSets,
+        ledger: &Ledger,
     ) -> Result<(AutoRoute, Runner)> {
         let selection = &settings.route;
         let prefix = |inet: &cidr::IpInet| (inet.address(), inet.network_length());
@@ -73,7 +75,7 @@ impl AutoRoute {
                 .collect(),
         };
         let prefixes = sets.prefixes(rule_sets)?;
-        let backend = Arc::new(backend::Backend::start(settings)?);
+        let backend = Arc::new(backend::Backend::start(settings, ledger)?);
         let routes = Arc::new(Mutex::new(Vec::new()));
         let (sender, feed) = watch::channel(rule_sets.clone());
         // From here, dropping it undoes what was done.
@@ -280,6 +282,7 @@ mod backend {
     use super::super::inbound::TunSettings;
     use crate::platform::auto_route::{self as plan, RuleOptions, RULE_SPAN};
     use crate::platform::rtnetlink::{self as rtnl, Netlink};
+    use crate::platform::sweep::{Item, Ledger};
 
     /// The routes are all of each family: the rules choose.
     pub(super) const ROUTES_OWN_NETWORK: bool = false;
@@ -301,12 +304,15 @@ mod backend {
         rules: Vec<plan::Rule>,
         /// Whether systemd-resolved was told of the TUN's DNS.
         resolved: AtomicBool,
+        /// The rules are written down here before they are added: they
+        /// outlive a killed process, unlike the TUN and its routes.
+        ledger: Ledger,
         server: Option<IpAddr>,
     }
 
     impl Backend {
         /// Removes the rules a run that died left.
-        pub(super) fn start(settings: &TunSettings) -> Result<Backend> {
+        pub(super) fn start(settings: &TunSettings, ledger: &Ledger) -> Result<Backend> {
             let netlink = Netlink::open().map_err(|e| anyhow!("auto_route: netlink: {}", e))?;
             let index = netlink
                 .link_index(&settings.name)
@@ -319,6 +325,7 @@ mod backend {
                 rule_index: settings.route.rule_index,
                 rules: plan::rules(&rule_options(settings)),
                 resolved: AtomicBool::new(false),
+                ledger: ledger.clone(),
                 server: settings
                     .ipv4
                     .map(|i| IpAddr::from(super::super::inbound::peer(i)))
@@ -343,8 +350,10 @@ mod backend {
         /// The routes are there: the rules send traffic to them, and DNS.
         pub(super) fn routed(&self) -> Result<()> {
             for rule in &self.rules {
+                let rule_ = to_netlink(rule);
+                self.ledger.record(Item::Rule(rule_.clone()));
                 self.netlink
-                    .add_rule(&to_netlink(rule))
+                    .add_rule(&rule_)
                     .map_err(|e| anyhow!("auto_route: rule {}: {}", plan::render(rule), e))?;
             }
             if let Some(server) = self.server.filter(|_| in_the_host_s_namespace()) {
@@ -360,6 +369,9 @@ mod backend {
 
         pub(super) fn stop(&self) {
             self.remove_rules();
+            for rule in &self.rules {
+                self.ledger.forget(&Item::Rule(to_netlink(rule)));
+            }
             if self.resolved.load(Ordering::Relaxed) {
                 resolvectl(&["revert", &self.tun]);
             }
@@ -500,6 +512,7 @@ mod backend {
 
     use super::super::inbound::TunSettings;
     use crate::platform::route_socket::RouteSocket;
+    use crate::platform::sweep::Ledger;
 
     /// The utun is point-to-point: its network needs a route.
     pub(super) const ROUTES_OWN_NETWORK: bool = true;
@@ -528,7 +541,7 @@ mod backend {
     }
 
     impl Backend {
-        pub(super) fn start(settings: &TunSettings) -> Result<Backend> {
+        pub(super) fn start(settings: &TunSettings, _ledger: &Ledger) -> Result<Backend> {
             Ok(Backend {
                 socket: RouteSocket::open()
                     .map_err(|e| anyhow!("auto_route: routing socket: {}", e))?,
@@ -614,6 +627,7 @@ mod backend {
     use anyhow::{anyhow, Result};
 
     use super::super::inbound::{peer, TunSettings};
+    use crate::platform::sweep::Ledger;
     use crate::platform::windows::ip_helper::{self, Luid};
     use crate::platform::windows::wfp::StrictRoute;
 
@@ -640,7 +654,7 @@ mod backend {
     }
 
     impl Backend {
-        pub(super) fn start(settings: &TunSettings) -> Result<Backend> {
+        pub(super) fn start(settings: &TunSettings, _ledger: &Ledger) -> Result<Backend> {
             let luid = Luid::by_alias(&settings.name)
                 .map_err(|e| anyhow!("auto_route: {}: {}", settings.name, e))?;
             let index = luid

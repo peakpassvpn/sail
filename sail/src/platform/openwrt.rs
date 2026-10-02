@@ -9,7 +9,7 @@ use anyhow::{anyhow, Result};
 
 use super::nft;
 
-const DROP_IN: &str = "/etc/nftables.d/0-sail-auto-redirect.nft";
+pub(crate) const DROP_IN: &str = "/etc/nftables.d/0-sail-auto-redirect.nft";
 
 /// The drop-in's text: input and forward accept the TUN's traffic.
 pub(crate) fn drop_in(tun: &str) -> String {

@@ -28,6 +28,7 @@ use crate::platform::nfqueue::Queue;
 use crate::platform::openwrt;
 use crate::platform::original_dst::{original_destination, unmapped};
 use crate::platform::policy_route::PolicyRoutes;
+use crate::platform::sweep::{Item, Ledger};
 use crate::session::{Network, Session, SocksAddr};
 use crate::Runner;
 
@@ -39,6 +40,10 @@ pub(crate) struct AutoRedirect {
     /// Whether fw4's drop-in was written (OpenWrt).
     fw4: bool,
     feed: RuleSetFeed,
+    /// What outlives a killed process, written down before it is made:
+    /// the rules, the routes that name no device, the table, the drop-in.
+    ledger: Ledger,
+    recorded: Vec<Item>,
 }
 
 /// The nftables table of the ruleset.
@@ -55,6 +60,9 @@ impl Drop for AutoRedirect {
             openwrt::cleanup();
         }
         self.routes.cleanup();
+        for item in &self.recorded {
+            self.ledger.forget(item);
+        }
         info!("auto_redirect removed");
     }
 }
@@ -116,7 +124,28 @@ impl AutoRedirect {
         let batch = ruleset::setup(&ruleset_options)?;
 
         let routes = policy_routes(settings, options);
-        routes.setup()?;
+        let ledger = dispatcher.env().ledger.clone();
+        let mut recorded: Vec<Item> = routes.rules().into_iter().map(Item::Rule).collect();
+        // Those through the TUN go with it.
+        recorded.extend(
+            routes
+                .routes(0)
+                .into_iter()
+                .filter(|route| route.oif.is_none())
+                .map(Item::Route),
+        );
+        recorded.push(Item::NftTable(TABLE.into()));
+        recorded.push(Item::File(openwrt::DROP_IN.into()));
+        for item in &recorded {
+            ledger.record(item.clone());
+        }
+        if let Err(e) = routes.setup() {
+            // It undid itself.
+            for item in &recorded {
+                ledger.forget(item);
+            }
+            return Err(e);
+        }
         let follow_sets = AddressSets {
             tun: address_sets.tun.clone(),
             include: address_sets.include.clone(),
@@ -126,6 +155,8 @@ impl AutoRedirect {
             routes,
             ruleset: true,
             fw4: false,
+            ledger,
+            recorded,
             feed: RuleSetFeed {
                 sets: Arc::new(address_sets),
                 sender: Arc::new(sender),

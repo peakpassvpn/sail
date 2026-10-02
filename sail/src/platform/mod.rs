@@ -59,6 +59,9 @@ pub mod auto_redirect;
 #[cfg(target_os = "windows")]
 pub(crate) mod windows;
 
+// What a killed instance left, swept before the next starts.
+pub mod sweep;
+
 pub(crate) mod sleep;
 
 // The network the host is on, as the system tells it.

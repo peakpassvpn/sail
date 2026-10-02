@@ -51,6 +51,10 @@ pub struct Host {
     /// Where the instance's log lines go, the host's to read; one keeping
     /// none when unset.
     pub log: Option<crate::app::logger::InstanceLogRef>,
+    /// Where an instance writes down the changes to the system that a kill
+    /// would leave, for the sweep before the next start
+    /// (docs/tun-leftover-sweep.md).
+    pub run_dir: crate::platform::sweep::RunDir,
     /// Gives the instance Clash modes (`Rule`, `Global`, `Direct` and those
     /// its rules name) though its configuration has no Clash API, as
     /// sing-box's libbox does for its apps: its daemon always has a
@@ -176,6 +180,9 @@ pub struct RuntimeEnv {
     /// `dns.reverse_mapping`'s domains by address, which the DNS client
     /// writes as it answers and routing reads; kept across reloads.
     pub reverse_map: crate::sniff::dns::DnsSniffer,
+    /// What this instance has changed in the system and not yet undone,
+    /// for a sweep should it be killed.
+    pub ledger: crate::platform::sweep::Ledger,
 }
 
 pub type SyncRuntimeEnv = Arc<RuntimeEnv>;
@@ -219,7 +226,8 @@ impl RuntimeEnv {
 ///   "data_dir": "/var/lib/sail", "cache_dir": "/var/cache/sail",
 ///   "log_to_system": true, "socket_protect": "/data/protect.sock",
 ///   "sub_store": "https://sub.example.com/secret",
-///   "asset_sources": { "asn.mmdb": "https://example.com/asn.mmdb" } }
+///   "asset_sources": { "asn.mmdb": "https://example.com/asn.mmdb" },
+///   "run_dir": "/run/sail" }
 /// ```
 #[derive(Deserialize, Debug, Default, Clone)]
 #[serde(deny_unknown_fields)]
@@ -248,6 +256,46 @@ pub struct StartSettings {
     /// Where each asset is downloaded from, by its name.
     #[serde(default)]
     pub asset_sources: BTreeMap<String, String>,
+    /// Where the ledgers of the leftover sweep are kept: a directory, or
+    /// `false` for none; the system's when unset.
+    #[serde(default)]
+    pub run_dir: Option<RunDirSetting>,
+}
+
+/// `run_dir` as start settings give it: a directory, or `false` for none.
+#[derive(Debug)]
+pub enum RunDirSetting {
+    Dir(PathBuf),
+    Off,
+}
+
+impl<'de> serde::Deserialize<'de> for RunDirSetting {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> std::result::Result<Self, D::Error> {
+        struct Visitor;
+        impl serde::de::Visitor<'_> for Visitor {
+            type Value = RunDirSetting;
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("a directory, or false for none")
+            }
+            fn visit_str<E: serde::de::Error>(
+                self,
+                v: &str,
+            ) -> std::result::Result<Self::Value, E> {
+                Ok(RunDirSetting::Dir(v.into()))
+            }
+            fn visit_bool<E: serde::de::Error>(
+                self,
+                v: bool,
+            ) -> std::result::Result<Self::Value, E> {
+                if v {
+                    Err(E::invalid_value(serde::de::Unexpected::Bool(true), &self))
+                } else {
+                    Ok(RunDirSetting::Off)
+                }
+            }
+        }
+        d.deserialize_any(Visitor)
+    }
 }
 
 impl StartSettings {
@@ -282,6 +330,11 @@ impl StartSettings {
                 asset_sources: self.asset_sources,
                 log: None,
                 clash_modes: false,
+                run_dir: match self.run_dir {
+                    None => crate::platform::sweep::RunDir::Default,
+                    Some(RunDirSetting::Dir(dir)) => crate::platform::sweep::RunDir::Dir(dir),
+                    Some(RunDirSetting::Off) => crate::platform::sweep::RunDir::Off,
+                },
             },
         ))
     }
@@ -290,6 +343,27 @@ impl StartSettings {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn run_dir_is_a_directory_or_false() {
+        let dir = |json: &str| {
+            StartSettings::from_json(json).map(|s| s.resolve().map(|(_, h)| h.run_dir))
+        };
+        use crate::platform::sweep::RunDir;
+        assert_eq!(dir("{}").unwrap().unwrap(), RunDir::Default);
+        assert_eq!(
+            dir(r#"{"run_dir": "/srv/run"}"#).unwrap().unwrap(),
+            RunDir::Dir("/srv/run".into())
+        );
+        assert_eq!(dir(r#"{"run_dir": false}"#).unwrap().unwrap(), RunDir::Off);
+        for wrong in [r#"{"run_dir": true}"#, r#"{"run_dir": 3}"#] {
+            let err = dir(wrong).unwrap_err().to_string();
+            assert!(
+                err.contains("run_dir") && err.contains("a directory, or false for none"),
+                "{err}"
+            );
+        }
+    }
 
     const INLINE_KEY: &str = "-----BEGIN PRIVATE KEY-----\nMIGH\n-----END PRIVATE KEY-----\n";
 

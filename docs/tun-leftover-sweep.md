@@ -74,15 +74,18 @@ too.
 So each instance writes down what it is about to create **before** it
 creates it, in a ledger file:
 
-- one file per instance, in a directory only root writes:
-  - Linux and OpenWrt: `/run/sail/`
-  - macOS: `/var/run/sail/`
-  - Windows: `%ProgramData%\sail\run\`
-- an embedder can choose the directory, so a mobile or sandboxed host can
-  give its own or none;
-- it records the TUN name, the families, the table and rule priorities
-  (auto_route, auto_redirect, fallback), the nftables table, the fw4
-  drop-in, and on Windows the adapter name and GUID;
+- one file per instance, in a directory only root writes. By default it
+  is `/run/sail/` on Linux and OpenWrt, and there is none elsewhere yet:
+  macOS has nothing to sweep, and the Windows TUN does not write a ledger
+  until the adapter work above is settled (its directory will be
+  persistent, under `%ProgramData%`). The directory is made with the
+  first entry, so an instance that changes nothing (an unprivileged one,
+  say) needs none;
+- a host can choose the directory (`run_dir`: a path, or `false` for
+  none), so a mobile or sandboxed host can give its own or none;
+- it records each change exactly as it is made: every ip rule with all
+  its attributes, the routes that name no device (auto_redirect's
+  `throw` routes), the nftables table, and the fw4 drop-in;
 - it is written before each piece is added (write-ahead), so a kill between
   the two still leaves an entry;
 - it also records sail's pid, the process start time and an instance id,
@@ -103,26 +106,23 @@ instance's tasks leaves the run, and its id, alive, which is right: the
 instance still holds its TUN.
 
 At instance creation, the sweep reads every stale entry.
-For each one, it removes exactly what the ledger lists, and only in the
-form sail creates it. A rule is deleted only at a listed priority, and only
-if it is one of sail's shapes (lookup of the listed table, or the
-fallback's mark match). Each removal tolerates "already gone". The ledger
-is deleted last. Running the sweep twice does nothing the second time.
+For each one, it removes exactly what the ledger lists: a rule is deleted
+by all its attributes, so only that rule matches, never another's at the
+same priority. Each removal tolerates "already gone". What cannot be
+removed stays in the ledger for the next sweep; the ledger goes once it is
+empty. Running the sweep twice does nothing the second time.
 
-With no ledger at all (leftovers from a sail built before this lands), the
-sweep falls back to sail's **defaults** only: table 2022, rules
-9000–9010 and 32768 that sail's shapes match, `inet sail`, the fw4
-drop-in, and on Windows an adapter whose GUID is the one sail derives from
-its default name.
+There is no fallback for leftovers without a ledger: sail has none
+deployed from before the ledger, and guessing by priority would delete
+other software's rules.
 
 ## On each system
 
 - **Linux**: netlink, which sail already speaks (platform/rtnetlink), plus
-  the existing nft batch `del_table_if_exists`. Rules are matched by
-  priority and by shape (lookup or goto of the listed table, nop,
-  `unreachable`, the fallback's mark), and the listed table is emptied of
-  whatever routes are left in it, `throw` ones included. sail adds nothing
-  to the main table and no bypass route through the physical interface. The TUN device itself
+  the existing nft batch `del_table_if_exists`. Rules and device-less
+  routes are deleted as recorded; the routes through the TUN go with it.
+  sail adds nothing to the main table and no bypass route through the
+  physical interface. The TUN device itself
   needs no sweep, because it is not persistent. If a device by the
   ledger's name still exists with no live owner, it is not sail's to judge
   and is left alone.
@@ -177,8 +177,10 @@ needs.
 3. **Same process, after a panic:** create an instance with a TUN in
    process, drop it without a stop (as a host does after a panic), create
    another in the same process: it starts clean.
-4. **Unit:** parsing the ledger, matching the shapes, and the defaults
-   fallback, against recorded netlink dumps.
+4. **Unit:** a dead process's ledger swept once; a running instance's
+   left, and swept once its run ends; a live process's left and a reused
+   pid's swept; what is undone forgotten; rules and routes reading back
+   as written; `run_dir` settings.
 5. **Windows VM:** kill -9 an instance with a TUN, then
    create one: the adapter, its routes and its DNS end as the decision
    above says.
