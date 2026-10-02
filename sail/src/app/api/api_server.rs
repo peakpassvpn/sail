@@ -699,7 +699,7 @@ pub fn bind(
         info!("api server listening on {}", path.display());
     }
     if let Some(addr) = api.listen {
-        let listener = std::net::TcpListener::bind(addr)
+        let listener = crate::net::listen_tcp(&addr)
             .and_then(|l| l.set_nonblocking(true).map(|()| l))
             .and_then(tokio::net::TcpListener::from_std)
             .map_err(|e| anyhow!("api.listen: {}: {}", addr, e))?;

@@ -361,7 +361,7 @@ impl NetworkInboundListener {
             }));
         }
         if self.handler.datagram().is_ok() {
-            let socket = std::net::UdpSocket::bind(listen_addr)
+            let socket = crate::net::bind_udp(&listen_addr)
                 .and_then(|socket| {
                     socket.set_nonblocking(true)?;
                     crate::net::fit_largest_datagram(socket2::SockRef::from(&socket))?;

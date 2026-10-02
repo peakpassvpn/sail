@@ -23,7 +23,7 @@ use crate::{
 /// A relay socket on `ip`, on a port the system picks, bound as the
 /// inbound's listener binds its sockets, with their `mark`.
 pub fn bind(ip: IpAddr, mark: Option<u32>) -> io::Result<UdpSocket> {
-    let socket = std::net::UdpSocket::bind(SocketAddr::new(ip, 0))?;
+    let socket = crate::net::bind_udp(&SocketAddr::new(ip, 0))?;
     socket.set_nonblocking(true)?;
     crate::net::fit_largest_datagram(socket2::SockRef::from(&socket))?;
     #[cfg(any(target_os = "linux", target_os = "android"))]

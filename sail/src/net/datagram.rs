@@ -493,7 +493,11 @@ mod tests {
     #[tokio::test]
     async fn a_dual_stack_socket_sends_to_an_ipv4_address() {
         let peer = UdpSocket::bind("127.0.0.1:0").await.unwrap();
-        let socket = UdpSocket::bind("[::]:0").await.unwrap();
+        // Dual-stack as sail makes its sockets on `::`: Windows would
+        // otherwise make it IPv6-only.
+        let socket = crate::net::bind_udp(&"[::]:0".parse().unwrap()).unwrap();
+        socket.set_nonblocking(true).unwrap();
+        let socket = UdpSocket::from_std(socket).unwrap();
         let to = for_socket(&socket, peer.local_addr().unwrap());
         assert!(to.is_ipv6());
         socket.send_to(b"ping", to).await.unwrap();

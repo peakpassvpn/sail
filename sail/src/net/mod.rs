@@ -47,6 +47,7 @@ impl TcpListener {
     /// Must be called from within a Tokio runtime.
     pub fn bind_now(addr: &SocketAddr) -> io::Result<Self> {
         let socket = Socket::new(Domain::for_address(*addr), Type::STREAM, None)?;
+        dual_stack(SockRef::from(&socket), addr)?;
         // As tokio's own bind does: lets a restarted process listen again
         // while connections of the last one are still in TIME_WAIT.
         #[cfg(not(windows))]
@@ -144,6 +145,41 @@ pub fn fit_largest_datagram(socket: SockRef) -> io::Result<()> {
         socket.set_send_buffer_size(MAX_DATAGRAM + 1)?;
     }
     Ok(())
+}
+
+/// Makes `socket`, about to be bound to `addr`, carry IPv4 as well when
+/// `addr` is IPv6's unspecified address, `::`: a listener there accepts
+/// IPv4, and a socket there sends to IPv4 addresses, IPv4-mapped. Go does
+/// the same on every system for a wildcard listen. The systems' defaults
+/// differ: Windows makes every IPv6 socket IPv6-only, and Linux does with
+/// `net.ipv6.bindv6only` set. A socket on any other address is left as it
+/// is. Call it before the bind.
+pub fn dual_stack(socket: SockRef, addr: &SocketAddr) -> io::Result<()> {
+    match addr {
+        SocketAddr::V6(v6) if v6.ip().is_unspecified() => socket.set_only_v6(false),
+        _ => Ok(()),
+    }
+}
+
+/// A UDP socket bound to `addr`, as `std::net::UdpSocket::bind` binds it,
+/// but [`dual_stack`] on `::`.
+pub fn bind_udp(addr: &SocketAddr) -> io::Result<std::net::UdpSocket> {
+    let socket = Socket::new(Domain::for_address(*addr), Type::DGRAM, None)?;
+    dual_stack(SockRef::from(&socket), addr)?;
+    socket.bind(&(*addr).into())?;
+    Ok(socket.into())
+}
+
+/// A TCP listener on `addr`, as `std::net::TcpListener::bind` makes it,
+/// but [`dual_stack`] on `::`.
+pub fn listen_tcp(addr: &SocketAddr) -> io::Result<std::net::TcpListener> {
+    let socket = Socket::new(Domain::for_address(*addr), Type::STREAM, None)?;
+    dual_stack(SockRef::from(&socket), addr)?;
+    #[cfg(not(windows))]
+    socket.set_reuse_address(true)?;
+    socket.bind(&(*addr).into())?;
+    socket.listen(128)?;
+    Ok(socket.into())
 }
 
 /// TCP keepalive: probes once a connection has carried nothing for `idle`,
@@ -428,6 +464,97 @@ pub async fn peek_tcp_one_off(lhs: Option<&mut AnyStream>) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const ANY_V6: &str = "[::]:0";
+
+    /// A socket on `::` is made dual-stack whatever the system's default,
+    /// here IPv6-only as on Windows; one on another address is left alone.
+    /// Told by what the socket can send where the option cannot be read
+    /// back: socket2's getter fails on Windows, which answers with one byte.
+    #[test]
+    fn a_socket_on_the_ipv6_unspecified_address_is_made_dual_stack() {
+        let peer = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        peer.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        let to: SocketAddr = (
+            std::net::Ipv4Addr::LOCALHOST.to_ipv6_mapped(),
+            peer.local_addr().unwrap().port(),
+        )
+            .into();
+        let v6_only = || {
+            let socket = Socket::new(Domain::IPV6, Type::DGRAM, None).unwrap();
+            socket.set_only_v6(true).unwrap();
+            socket
+        };
+        let socket = v6_only();
+        dual_stack(SockRef::from(&socket), &ANY_V6.parse().unwrap()).unwrap();
+        // macOS lets an IPv6-only socket send to an IPv4-mapped address, so
+        // the send alone tells only on Windows.
+        #[cfg(not(windows))]
+        assert!(!socket.only_v6().unwrap());
+        socket
+            .bind(&ANY_V6.parse::<SocketAddr>().unwrap().into())
+            .unwrap();
+        socket.send_to(b"ping", &to.into()).unwrap();
+        let mut buf = [0u8; 8];
+        let (n, _) = peer.recv_from(&mut buf).unwrap();
+        assert_eq!(&buf[..n], b"ping");
+
+        let socket = v6_only();
+        dual_stack(SockRef::from(&socket), &"[::1]:0".parse().unwrap()).unwrap();
+        #[cfg(not(windows))]
+        assert!(socket.only_v6().unwrap());
+    }
+
+    /// A UDP socket and the TCP listeners on `::` take IPv4 from 127.0.0.1.
+    #[tokio::test]
+    async fn listeners_on_the_ipv6_unspecified_address_take_ipv4() {
+        let any: SocketAddr = ANY_V6.parse().unwrap();
+        let udp = bind_udp(&any).unwrap();
+        udp.set_nonblocking(true).unwrap();
+        let udp = tokio::net::UdpSocket::from_std(udp).unwrap();
+        let port = udp.local_addr().unwrap().port();
+        let peer = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        peer.send_to(b"ping", ("127.0.0.1", port)).await.unwrap();
+        let mut buf = [0u8; 8];
+        let (n, _) = timeout(Duration::from_secs(5), udp.recv_from(&mut buf))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(&buf[..n], b"ping");
+
+        let listener = TcpListener::bind_now(&any).unwrap();
+        let port = listener.io().local_addr().unwrap().port();
+        let (connected, accepted) = tokio::join!(
+            TcpStream::connect(("127.0.0.1", port)),
+            timeout(Duration::from_secs(5), listener.accept())
+        );
+        connected.unwrap();
+        accepted.unwrap().unwrap();
+
+        let listener = listen_tcp(&any).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+        listener.accept().unwrap();
+    }
+
+    /// A dialer's UDP socket on `::` sends to an IPv4 address, IPv4-mapped.
+    #[tokio::test]
+    async fn a_dialer_udp_socket_on_the_ipv6_unspecified_address_sends_to_ipv4() {
+        let socket = Dialer::system()
+            .udp_socket(&ANY_V6.parse().unwrap())
+            .await
+            .unwrap();
+        let peer = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let port = peer.local_addr().unwrap().port();
+        let mapped = std::net::Ipv4Addr::LOCALHOST.to_ipv6_mapped();
+        socket.send_to(b"ping", (mapped, port)).await.unwrap();
+        let mut buf = [0u8; 8];
+        let (n, _) = timeout(Duration::from_secs(5), peer.recv_from(&mut buf))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(&buf[..n], b"ping");
+    }
 
     fn runtime() -> tokio::runtime::Runtime {
         tokio::runtime::Builder::new_current_thread()

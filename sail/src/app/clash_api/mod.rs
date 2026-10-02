@@ -61,7 +61,7 @@ pub(crate) fn bind(api: Option<&ClashApi>) -> Result<Option<(std::net::TcpListen
         return Ok(None);
     }
     let addr = listen_address(controller)?;
-    let listener = std::net::TcpListener::bind(addr)
+    let listener = crate::net::listen_tcp(&addr)
         .map_err(|e| anyhow!("clash_api.external_controller: {}: {}", controller, e))?;
     Ok(Some((listener, api.clone())))
 }
