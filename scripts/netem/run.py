@@ -80,6 +80,17 @@ def sh(cmd, check=True, timeout=None):
 CPUS = {}
 
 
+# The traffic tool on CPUs of its own (--netgen-cpus), off both the
+# client's and the server's.
+NETGEN_CPUS = {}
+
+
+def in_ns_netgen(ns, cmd):
+    cpus = NETGEN_CPUS.get(ns) or CPUS.get(ns)
+    pin = f"taskset -c {cpus} " if cpus else ""
+    return f"ip netns exec {ns} {pin}{cmd}"
+
+
 def in_ns(ns, cmd):
     cpus = CPUS.get(ns)
     pin = f"taskset -c {cpus} " if cpus else ""
@@ -136,13 +147,13 @@ BULK_BYTES = {"rate10m": 8 << 20, "rate2m": 2 << 20, "rtt300": 16 << 20,
 
 # ------------------------------------------------------------- processes
 class Proc:
-    def __init__(self, name, ns, cmd, log, nofile=None):
+    def __init__(self, name, ns, cmd, log, nofile=None, netgen=False):
         self.name = name
         self.log = open(log, "a")
         # Descriptors as a deployment raises them, for all but a client
         # under test given its own limit (--client-nofile).
         cmd = f"sh -c 'ulimit -n {nofile or NOFILE}; exec {cmd}'"
-        self.p = subprocess.Popen(in_ns(ns, cmd), shell=True, stdout=self.log,
+        self.p = subprocess.Popen((in_ns_netgen if netgen else in_ns)(ns, cmd), shell=True, stdout=self.log,
                                   stderr=subprocess.STDOUT, preexec_fn=os.setsid)
 
     def pid(self):
@@ -168,6 +179,11 @@ class Proc:
 
 
 def server_config(proto, work):
+    if proto in ("h2mux", "smux"):
+        proto = "mux"
+    cc = None
+    if proto.startswith("tuic-"):
+        proto, cc = "tuic", proto.split("-", 1)[1]
     tls = {"enabled": True, "certificate_path": f"{work}/cert.pem",
            "key_path": f"{work}/key.pem"}
     if proto == "reality":
@@ -185,7 +201,11 @@ def server_config(proto, work):
     elif proto == "tuic":
         inbound = {"type": "tuic", "listen": "0.0.0.0", "listen_port": 8443,
                    "users": [{"uuid": UUID, "password": PASSWORD}],
-                   "congestion_control": "bbr", "tls": dict(tls, alpn=["h3"])}
+                   "congestion_control": cc or "bbr", "tls": dict(tls, alpn=["h3"])}
+    elif proto == "vless":
+        # Plain VLESS over TLS, no flow.
+        inbound = {"type": "vless", "listen": "0.0.0.0", "listen_port": 8443,
+                   "users": [{"uuid": UUID, "flow": ""}], "tls": tls}
     elif proto == "mux":
         inbound = {"type": "trojan", "listen": "0.0.0.0", "listen_port": 8443,
                    "users": [{"password": PASSWORD}], "tls": tls,
@@ -207,6 +227,12 @@ def server_config(proto, work):
 
 
 def client_config(proto, inbound="socks", server=SERVER_ADDR, auto_detect=False):
+    mux_protocol = None
+    if proto in ("h2mux", "smux"):
+        proto, mux_protocol = "mux", proto
+    cc = None
+    if proto.startswith("tuic-"):
+        proto, cc = "tuic", proto.split("-", 1)[1]
     insecure = {"enabled": True, "server_name": "localhost", "insecure": True}
     if proto == "reality":
         out = {"type": "vless", "server": server, "server_port": 8443, "uuid": UUID,
@@ -220,12 +246,17 @@ def client_config(proto, inbound="socks", server=SERVER_ADDR, auto_detect=False)
                "password": PASSWORD, "tls": insecure}
     elif proto == "tuic":
         out = {"type": "tuic", "server": server, "server_port": 8443, "uuid": UUID,
-               "password": PASSWORD, "congestion_control": "bbr",
+               "password": PASSWORD, "congestion_control": cc or "bbr",
                "tls": dict(insecure, alpn=["h3"])}
     elif proto == "mux":
         out = {"type": "trojan", "server": server, "server_port": 8443,
                "password": PASSWORD, "tls": insecure,
                "multiplex": {"enabled": True, "max_connections": 4}}
+        if mux_protocol:
+            out["multiplex"]["protocol"] = mux_protocol
+    elif proto == "vless":
+        out = {"type": "vless", "server": server, "server_port": 8443, "uuid": UUID,
+               "flow": "", "tls": insecure}
     elif proto == "ss":
         out = {"type": "shadowsocks", "server": server, "server_port": 8388,
                "method": SS_METHOD, "password": SS_KEY}
@@ -303,6 +334,20 @@ class Sampler:
         self.t.join()
 
 
+def proc_ticks(proc):
+    """(pid, utime+stime) of a Proc, or None."""
+    if proc is None:
+        return None
+    pid = proc.pid()
+    if not pid:
+        return None
+    try:
+        stat = open(f"/proc/{pid}/stat").read().rsplit(")", 1)[1].split()
+        return pid, int(stat[11]) + int(stat[12])
+    except OSError:
+        return None
+
+
 def peak(samples, key):
     vals = [s[key] for s in samples if key in s]
     return max(vals) if vals else None
@@ -315,14 +360,17 @@ def last(samples, key):
 
 # ------------------------------------------------------------- runs
 class Run:
-    def __init__(self, args, proto, client, server):
+    def __init__(self, args, proto, client, server, client_bin=None, server_bin=None,
+                 tag=""):
         self.args = args
+        self.client_bin = client_bin or args.sail
+        self.server_bin = server_bin or args.sail
         self.proto = proto
         self.client = client
         self.server = server
         # The server is named only when it is not the reference.
         self.name = (f"{proto}-{client}" + ("" if server == "sing-box" else f"-to-{server}")
-                     + ("" if args.inbound == "socks" else f"-{args.inbound}"))
+                     + ("" if args.inbound == "socks" else f"-{args.inbound}") + tag)
         self.dir = os.path.join(args.out, self.name)
         os.makedirs(self.dir, exist_ok=True)
         self.records = []
@@ -333,7 +381,7 @@ class Run:
         proxy = f"-proxy {SOCKS} " if self.args.inbound == "socks" else ""
         target = (TARGET if self.args.inbound == "socks" and self.args.only != "route_switch"
                   else FAR_TARGET)
-        cmd = in_ns(CLIENT_NS, f"{self.args.netgen} {mode} {proxy}-target {target} "
+        cmd = in_ns_netgen(CLIENT_NS, f"{self.args.netgen} {mode} {proxy}-target {target} "
                     + " ".join(flags))
         t0 = time.time()
         # Its own process group: a timeout ends the traffic tool itself, not
@@ -361,7 +409,7 @@ class Run:
     def start_server(self):
         log = os.path.join(self.dir, "server.log")
         self.procs["netgen"] = Proc("netgen", SERVER_NS,
-                                    f"{self.args.netgen} serve -listen {LISTEN}", log)
+                                    f"{self.args.netgen} serve -listen {LISTEN}", log, netgen=True)
         if self.proto == "reality":
             self.procs["reality-dest"] = Proc(
                 "reality-dest", SERVER_NS,
@@ -375,8 +423,8 @@ class Run:
         time.sleep(1)
 
     def server_command(self, path):
-        if self.server == "sail":
-            return f"{self.args.sail} -c {path}"
+        if self.server.startswith("sail"):
+            return f"{self.server_bin} -c {path} --profile {self.args.server_profile}"
         return f"{self.args.singbox} run -c {path}"
 
     def start_client(self):
@@ -390,7 +438,7 @@ class Run:
         log = os.path.join(self.dir, "client.log")
         if self.client.startswith("sail"):
             profile = self.client.split("-", 1)[1]
-            cmd = f"{self.args.sail} -c {path} --profile {profile}"
+            cmd = f"{self.client_bin} -c {path} --profile {profile}"
             cmd += "".join(f" --set {setting}" for setting in self.args.client_set)
         else:
             cmd = f"{self.args.singbox} run -c {path}"
@@ -407,7 +455,7 @@ class Run:
             self.procs[key] = Proc("server", SERVER_NS, self.server_command(path), log)
         else:
             self.procs[key] = Proc("netgen", SERVER_NS,
-                                   f"{self.args.netgen} serve -listen {LISTEN}", log)
+                                   f"{self.args.netgen} serve -listen {LISTEN}", log, netgen=True)
 
     def record(self, scenario, workload, res, samples, idle_before, idle_after):
         rec = {"scenario": scenario, "workload": workload, "result": res,
@@ -449,13 +497,17 @@ class Run:
             ("echo", ["-conns 8", f"-rounds {50 if quick else 150}", "-size 4096"]),
             ("setup", [f"-n {self.args.setup_n or (50 if quick else 150)}"]),
         ]
+        if self.args.bulk_only:
+            plan = plan[:2]
         cell = {}
         for round_ in range(self.args.rounds):
             for workload, flags in plan:
                 idle_before = self.idle(sampler, settle=1)
                 m = sampler.mark()
                 before = sampler.one()
+                srv0 = proc_ticks(self.procs.get("server"))
                 res = self.netgen(workload.split("_")[0], *flags)
+                srv1 = proc_ticks(self.procs.get("server"))
                 after = sampler.one()
                 rec = self.record(scenario, workload, res, sampler.since(m), idle_before,
                                   self.idle(sampler, settle=2))
@@ -465,6 +517,9 @@ class Run:
                 if (ticks0 is not None and ticks1 is not None and ticks1 >= ticks0
                         and before["pid"] == after["pid"]):
                     rec["cpu_s"] = (ticks1 - ticks0) / os.sysconf("SC_CLK_TCK")
+                # The protocol server's CPU over the same span.
+                if srv0 and srv1 and srv0[0] == srv1[0] and srv1[1] >= srv0[1]:
+                    rec["server_cpu_s"] = (srv1[1] - srv0[1]) / os.sysconf("SC_CLK_TCK")
                 rec["round"] = round_ + 1
                 self.check(scenario, workload, res)
                 print(f"  {self.name} {scenario} {workload}: {brief(res)}", flush=True)
@@ -750,7 +805,7 @@ class Run:
                 self.scenarios(sampler)
         finally:
             netns("clear")
-            end_idle = self.idle(sampler, settle=10)
+            end_idle = self.idle(sampler, settle=self.args.end_settle)
             sampler.stop()
             for p in self.procs.values():
                 p.stop()
@@ -822,6 +877,37 @@ def write_summary(out, summaries):
     os.replace(path + ".tmp", path)
 
 
+def matrix(args, summaries):
+    """--matrix: each client>server pair in turn, rounds outermost, the
+    order of pairs and of protocols rotating each round. A side is sb
+    (sing-box), sail (--sail), or a name --sail-bin gives a sail binary."""
+    bins = dict(args.sail_bins, sail=args.sail)
+    pairs = [p.split(">") for p in args.matrix.split(",")]
+    rounds, args.rounds = args.rounds, 1
+    tcp_bytes = args.bulk_bytes
+    protos = args.protocols.split(",")
+    for r in range(rounds):
+        order = pairs[r % len(pairs):] + pairs[:r % len(pairs)]
+        # The protocol order rotates too.
+        porder = protos[r % len(protos):] + protos[:r % len(protos)]
+        for proto in porder:
+            quic = proto == "hy2" or proto.startswith("tuic")
+            args.bulk_bytes = (args.bulk_bytes_quic or tcp_bytes) if quic else tcp_bytes
+            for c, s in order:
+                client = "sing-box" if c == "sb" else "sail-server"
+                server = "sing-box" if s == "sb" else "sail"
+                tag = f"--{c}-{s}-r{r + 1}"
+                run = Run(args, proto, client, server, client_bin=bins.get(c),
+                          server_bin=bins.get(s), tag=tag)
+                run.pair = f"{c}>{s}"
+                summ = run.go()
+                summ.update({"proto": proto, "pair": f"{c}>{s}", "round": r + 1})
+                summaries.append(summ)
+                if not run.failures:
+                    os.remove(os.path.join(run.dir, "raw.jsonl.gz"))
+                write_summary(args.out, summaries)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--work", default="netem-work")
@@ -872,6 +958,23 @@ def main():
                     help="the client under test's descriptor limit (soft and hard); "
                          "the others keep a deployment's")
     ap.add_argument("--quick", action="store_true")
+    ap.add_argument("--bulk-only", action="store_true",
+                    help="of the workloads, bulk down and up only")
+    ap.add_argument("--netgen-cpus", default=None, metavar="LIST",
+                    help="CPUs for the traffic tool at both ends, apart from the client's "
+                         "and the server's")
+    ap.add_argument("--server-profile", default="server",
+                    help="the runtime profile of a sail server (default server)")
+    ap.add_argument("--end-settle", type=float, default=10, metavar="SECONDS",
+                    help="how long the client rests before its last sample (default 10)")
+    ap.add_argument("--sail-bin", action="append", default=[], metavar="NAME=PATH",
+                    help="another sail binary, named for --matrix (repeatable)")
+    ap.add_argument("--matrix", default="",
+                    help="client>server pairs, each sb, sail or a --sail-bin name, e.g. "
+                         "sb>sb,sail>sb,sb>sail,sail>sail; rounds go outside, the order of "
+                         "pairs and protocols rotates each round")
+    ap.add_argument("--bulk-bytes-quic", type=int, default=None,
+                    help="bulk bytes for hy2 and tuic, in place of --bulk-bytes")
     args = ap.parse_args()
     args.only_list = [o.strip() for o in args.only.split(",") if o.strip()]
     try:
@@ -889,6 +992,19 @@ def main():
         if any(name == n for n, _ in SHAPED):
             ap.error(f"--shape {name}: a fixed scenario's name")
         SHAPED.append((name, spec.strip()))
+    args.sail_bins = {}
+    for item in args.sail_bin:
+        name, sep, path = item.partition("=")
+        if not sep or not name or not path or name in ("sb", "sail"):
+            ap.error(f"--sail-bin {item!r}: NAME=PATH, NAME other than sb and sail")
+        args.sail_bins[name] = path
+    for pair in filter(None, args.matrix.split(",")):
+        sides = pair.split(">")
+        known = {"sb", "sail", *args.sail_bins}
+        if len(sides) != 2 or not set(sides) <= known:
+            ap.error(f"--matrix {pair!r}: client>server, each of {sorted(known)}")
+    if args.netgen_cpus:
+        NETGEN_CPUS[CLIENT_NS] = NETGEN_CPUS[SERVER_NS] = args.netgen_cpus
     if args.cpus:
         CPUS[CLIENT_NS] = args.cpus
         CPUS[SERVER_NS] = args.server_cpus or args.cpus
@@ -908,6 +1024,15 @@ def main():
 
     netns("up")
     summaries = []
+    if args.matrix:
+        try:
+            matrix(args, summaries)
+        finally:
+            netns("down")
+        write_summary(args.out, summaries)
+        failed = [s["name"] for s in summaries if s["failures"]]
+        print(f"== done: {len(summaries)} runs, failing: {failed or 'none'}; {args.out}")
+        sys.exit(1 if failed else 0)
     try:
         for proto in args.protocols.split(","):
             for server in args.servers.split(","):
