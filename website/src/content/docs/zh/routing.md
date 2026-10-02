@@ -151,7 +151,29 @@ Sail 从上到下评估路由规则。`route`、`reject` 和 `hijack-dns` 会停
 
 `sniffer` 列出要识别的协议，为空时全部识别；`timeout` 默认 300 毫秒。嗅探只获取元数据，不会解密 TLS。
 
-Sail 另外提供三个字段：`override_destination` 改为连接嗅探到的域名，而不是原地址；`skip_rule_set` 忽略所列规则集匹配到的嗅探域名，对应 Mihomo 的 `skip-domain`；`on_demand` 只预备而不立即嗅探，等后续规则需要结果时才执行。
+Sail 另外提供三个字段：`override_destination` 为连接设置同名选项，见下一节；`skip_rule_set` 忽略所列规则集匹配到的嗅探域名，对应 Mihomo 的 `skip-domain`；`on_demand` 只预备而不立即嗅探，等后续规则需要结果时才执行。
+
+## 用域名连接代理（override_destination）
+
+TUN 连接到达时只有 IP 地址，而 Sail 往往知道它背后的域名。`override_destination` 是 Sail 扩展：把这个域名而不是地址交给代理服务器，由服务器自己解析。本地解析结果被污染、指向远处节点，或是只有本地网络才能访问的地址时，这样做更可靠。
+
+```json
+{
+  "inbound": ["tun"],
+  "action": "route-options",
+  "override_destination": true
+}
+```
+
+- **在哪里设置。** `route` 或 `route-options` 规则可以设置，`sniff` 规则的同名字段也可以。规则条件决定它作用于哪些连接；后面规则的值优先。
+- **规则仍然看到地址。** 域名只在路由之后、建立连接时使用。`ip_cidr`、`ip_is_private`、`ip_version` 和规则集匹配的都是原地址，所以把局域网网段发往直连的规则照常生效。
+- **取值。** `true` 或 `"proxy"`：只有最后一跳连接代理服务器时才用域名，包括成员是代理的分组和经由 `detour` 的链式代理；`direct` 直连保留地址。`"proxy_and_direct"`：直连也用域名，由直连出站用自己的 `domain_resolver` 和策略解析。例如主机开启了 IPv6 但没有 IPv6 路由时，可以让已知域名的 IPv6 目标改走 IPv4：`{"inbound": ["tun"], "ip_cidr": ["2000::/3"], "action": "route-options", "override_destination": "proxy_and_direct"}`，并在直连出站上设置 `"domain_resolver": {"server": "local", "strategy": "ipv4_only"}`。
+- **域名来源，按顺序。** 先用嗅探到的域名（TLS 或 QUIC 服务器名、HTTP Host）。否则在开启 [`dns.reverse_mapping`](/sail/zh/configuration/#dns) 时，使用 Sail 自己的 DNS 为该地址给出的域名，且只在应答 TTL 内有效。IPv4 映射的 IPv6 地址按其 IPv4 地址查找。嗅探到的“域名”本身是地址，或 HTTP 请求没有 Host 时，也回退到映射。两者都没有时发送地址。多个域名共用一个地址时，以最近的应答为准。目标本来就是域名时不做改动。
+- **UDP。** 数据报发往域名。回复看起来来自客户端原本发往的地址；设置 `udp_disable_domain_unmapping` 时则来自域名。
+- **日志与连接列表。** debug 日志记为 `dial <地址> as <域名> (sniff)` 或 `(reverse mapping)`。用反向映射得到的域名连接失败时（映射可能已过时），debug 日志会记下，不会改用地址重试。Clash API 中 `destinationIP` 保留地址，`host` 显示实际连接的域名，`sniffHost` 显示嗅探到的域名，`dialDomainSource` 为 `sniff` 或 `reverse_mapping`。
+- **与 `resolve` 同时使用。** 两者都生效时，代理收到的是域名而不是 `resolve` 得到的地址；直连仍使用这些地址。
+
+sing-box 没有这个选项：它的 sniff `override_destination` 已废弃，现在作为未知字段被拒绝。Mihomo 嗅探器的 `override-destination` 行为不同：它在规则之前替换目标，之后的 IP 规则解析嗅探到的域名。Clash 前端保留 Mihomo 的行为，把 sniff 规则的 `override_destination` 设为 `"at_sniff"`；这个值只能用在 `sniff` 规则上。`ip_version` 匹配的仍是原地址的 IP 版本。
 
 ## IP 匹配前先解析
 
@@ -170,6 +192,7 @@ Sail 另外提供三个字段：`override_destination` 改为连接嗅探到的�
 
 - 普通的 `resolve` 动作与 sing-box 一致：地址交给连接所走的任一出站。代理出站发给服务器的是 IP 地址而不是域名，因此由本地 DNS 决定连接去向，代理服务器看不到域名。
 - `on_demand` 解析（Clash 与 Surge 的 IP 规则，如未加 `no-resolve` 的 `IP-CIDR`、`GEOIP`，都会转换成它）与 Mihomo 一致：地址只用于匹配和直连出站。代理出站发送的仍是域名，由代理服务器解析。
+- 同时设置了 [`override_destination`](#用域名连接代理override_destination) 时，无论哪种解析，代理出站发送的都是域名而不是地址。
 
 ## 选择网络（network_strategy）
 

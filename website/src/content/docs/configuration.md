@@ -180,7 +180,7 @@ These fields are Sail's own; sing-box does not accept them. The full list closes
 
 - Tags referenced by `route.final`, route rules, groups and detours must exist, as must the DNS servers that rules and resolvers name.
 - A rule that ends matching for every connection (`route`, `reject`, or `bypass` with an outbound) needs at least one condition; use `route.final` for the catch-all path.
-- Action fields belong to their action: `sniffer`, `override_destination` and `skip_rule_set` to `sniff`; `server` and `strategy` to `resolve`; `timeout` to either; `method` to `reject`.
+- Action fields belong to their action: `sniffer` and `skip_rule_set` to `sniff`; `server` and `strategy` to `resolve`; `timeout` to either; `method` to `reject`. `override_destination` belongs to `sniff`, `route` and `route-options`, and its `"at_sniff"` value to `sniff` only.
 - `route.auto_detect_interface` and `route.default_interface` are mutually exclusive.
 - `route.default_network_strategy` needs `route.auto_detect_interface`.
 - Durations such as DNS, UDP and sniff timeouts must be greater than zero.

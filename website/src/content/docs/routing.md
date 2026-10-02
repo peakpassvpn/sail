@@ -160,7 +160,29 @@ When an application connects to an IP address, Sail can inspect the first bytes 
 
 `sniffer` lists the protocols to look for; all of them when it is empty. `timeout` defaults to 300 ms. Sniffing learns metadata; it does not decrypt TLS.
 
-Sail adds three fields. `override_destination` connects to the sniffed domain instead of the original address. `skip_rule_set` ignores sniffed domains that the named rule-sets match, as Mihomo's `skip-domain` does. `on_demand` arms the sniff instead of running it, so it runs only when a later rule needs its result.
+Sail adds three fields. `override_destination` sets the option of the same name for the connection, described in the next section. `skip_rule_set` ignores sniffed domains that the named rule-sets match, as Mihomo's `skip-domain` does. `on_demand` arms the sniff instead of running it, so it runs only when a later rule needs its result.
+
+## Dial a proxy by the domain (override_destination)
+
+A TUN connection arrives with an IP address, and Sail often knows the domain behind it. `override_destination`, a Sail extension, sends that domain to the proxy server instead of the address, so the server resolves it itself. This helps when the local answer is poisoned, points to a far-away node, or is an address that only the local network can reach.
+
+```json
+{
+  "inbound": ["tun"],
+  "action": "route-options",
+  "override_destination": true
+}
+```
+
+- **Where it is set.** A `route` or `route-options` rule sets it, and so does a `sniff` rule's field of the same name. Rule conditions decide which connections it applies to. A later rule's value wins.
+- **The rules still see the address.** The domain is used only when the connection is dialled, after routing. `ip_cidr`, `ip_is_private`, `ip_version` and rule-sets match the original address, so a rule that sends a LAN range direct still does.
+- **Values.** `true` or `"proxy"` uses the domain only where the last hop dials a proxy server. This includes groups whose member is a proxy, and chains through a `detour`. A `direct` dial keeps the address. `"proxy_and_direct"` also gives the domain to a direct dial, which resolves it with its own `domain_resolver` and strategy. For example, a host with IPv6 enabled but no IPv6 route can dial IPv6 destinations it knows a name for over IPv4: `{"inbound": ["tun"], "ip_cidr": ["2000::/3"], "action": "route-options", "override_destination": "proxy_and_direct"}` with `"domain_resolver": {"server": "local", "strategy": "ipv4_only"}` on the direct outbound.
+- **Where the domain comes from, in order.** First the sniffed domain (TLS or QUIC server name, HTTP Host). Otherwise the name Sail's own DNS answered with for that address, when [`dns.reverse_mapping`](/sail/configuration/#dns) is on, and only until the answer's TTL runs out. An IPv4-mapped IPv6 address is looked up as its IPv4 address. A sniffed "domain" that is an address, or an HTTP request without a Host, falls back to the mapping. With neither, the address is sent. When several names share an address, the latest answer wins. A destination that is already a domain is never changed.
+- **UDP.** Datagrams go to the domain. Replies come back as if from the address the client sent to, or from the domain with `udp_disable_domain_unmapping`.
+- **Logs and the connection list.** A debug line reads `dial <address> as <domain> (sniff)` or `(reverse mapping)`. If a dial by a reverse-mapped name fails, which may mean the mapping is stale, a debug line says so. The address is not retried. In the Clash API, `destinationIP` keeps the address, `host` shows the domain dialled, `sniffHost` the sniffed domain, and `dialDomainSource` is `sniff` or `reverse_mapping`.
+- **With `resolve`.** When both apply, a proxy gets the domain, not the addresses `resolve` found. A direct dial still uses those addresses.
+
+sing-box has no such option. Its sniff `override_destination` was deprecated and is now refused as an unknown field. Mihomo's sniffer `override-destination` works differently: it replaces the destination before the rules, so later IP rules resolve the sniffed domain. The Clash front-end keeps Mihomo's behaviour. It sets the sniff rule's `override_destination` to `"at_sniff"`, which is valid only on a `sniff` rule. The IP version that `ip_version` matches is still the original address's.
 
 ## Resolve before IP matching
 
@@ -179,6 +201,7 @@ What happens to the addresses afterwards differs between the two kinds of resolv
 
 - A plain `resolve` action works as in sing-box: the addresses go to whatever outbound the connection takes. A proxy outbound sends its server the IP address, not the domain, so the local DNS decides where the connection goes and the proxy server never sees the name.
 - An `on_demand` resolve, which Clash and Surge IP rules (`IP-CIDR`, `GEOIP` and the like, without `no-resolve`) turn into, works as in Mihomo: the addresses are only for matching and for a direct outbound. A proxy outbound still sends the domain, and the proxy server resolves it.
+- With [`override_destination`](#dial-a-proxy-by-the-domain-override_destination) set as well, a proxy outbound sends the domain, not the addresses, after either kind.
 
 ## Choosing a network (network_strategy)
 

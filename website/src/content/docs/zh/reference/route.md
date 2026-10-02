@@ -221,6 +221,7 @@ Rust 定义：[`Rule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/con
 | `tls_record_fragment` | bool | `false` | 支持 | `route`, `route-options`: sends the TLS ClientHello as several TLS records, cut in the server name. |
 | `tls_spoof` | string | — | 报错：Fragmenting or spoofing the TLS handshake against censorship | — |
 | `tls_spoof_method` | string, 取值 `wrong-sequence`, `wrong-checksum`, `wrong-ack`, `wrong-md5`, `wrong-timestamp` | — | 报错：Fragmenting or spoofing the TLS handshake against censorship | — |
+| `override_destination` | bool 或 string, 取值 `proxy`, `proxy_and_direct`, `at_sniff` | 未设置 | sail 扩展 | `route`, `route-options`, `sniff`, a sail extension: a connection to an address is dialled by the name known for it, the sniffed domain or else the one `dns.reverse_mapping` keeps, where its last hop dials a proxy's server (`true` or `"proxy"`), or a direct dial too (`"proxy_and_direct"`). The rules still match the address. On a sniff rule, `"at_sniff"` instead makes the sniffed domain the destination there, for the rules after, as Mihomo's sniffer does. |
 
 <a id="route-rules-action-route-options"></a>
 
@@ -242,6 +243,7 @@ Rust 定义：[`Rule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/con
 | `tls_record_fragment` | bool | `false` | 支持 | `route`, `route-options`: sends the TLS ClientHello as several TLS records, cut in the server name. |
 | `tls_spoof` | string | — | 报错：Fragmenting or spoofing the TLS handshake against censorship | — |
 | `tls_spoof_method` | string, 取值 `wrong-sequence`, `wrong-checksum`, `wrong-ack`, `wrong-md5`, `wrong-timestamp` | — | 报错：Fragmenting or spoofing the TLS handshake against censorship | — |
+| `override_destination` | bool 或 string, 取值 `proxy`, `proxy_and_direct`, `at_sniff` | 未设置 | sail 扩展 | `route`, `route-options`, `sniff`, a sail extension: a connection to an address is dialled by the name known for it, the sniffed domain or else the one `dns.reverse_mapping` keeps, where its last hop dials a proxy's server (`true` or `"proxy"`), or a direct dial too (`"proxy_and_direct"`). The rules still match the address. On a sniff rule, `"at_sniff"` instead makes the sniffed domain the destination there, for the rules after, as Mihomo's sniffer does. |
 
 <a id="route-rules-action-sniff"></a>
 
@@ -253,7 +255,7 @@ Rust 定义：[`Rule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/con
 | --- | --- | --- | --- | --- |
 | `sniffer` | listable-string, 取值 `tls`, `http`, `quic`, `dns`, `stun`, `bittorrent`, `dtls`, `ssh`, `rdp`, `ntp` | `[]` | 支持 | `sniff`: the protocols to look for; all of them when empty. |
 | `timeout` | duration | 未设置 | 支持 | `sniff`: how long to wait for the first bytes; 300ms when unset. `resolve`: how long to wait for the answer; `dns.timeout` when unset. |
-| `override_destination` | bool | `false` | sail 扩展 | `sniff`, a sail extension: connects to the sniffed domain rather than to the address the client asked for. |
+| `override_destination` | bool 或 string, 取值 `proxy`, `proxy_and_direct`, `at_sniff` | 未设置 | sail 扩展 | `route`, `route-options`, `sniff`, a sail extension: a connection to an address is dialled by the name known for it, the sniffed domain or else the one `dns.reverse_mapping` keeps, where its last hop dials a proxy's server (`true` or `"proxy"`), or a direct dial too (`"proxy_and_direct"`). The rules still match the address. On a sniff rule, `"at_sniff"` instead makes the sniffed domain the destination there, for the rules after, as Mihomo's sniffer does. |
 | `skip_rule_set` | string 或 数组，元素为 string | `[]` | sail 扩展 | `sniff`, a sail extension: a domain found that one of these rule-sets matches is not taken, neither matched nor connected to, as Mihomo's sniffer `skip-domain` has it. |
 
 <a id="route-rules-logical"></a>

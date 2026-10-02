@@ -221,6 +221,7 @@ Rust: [`Rule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/mode
 | `tls_record_fragment` | bool | `false` | Supported | `route`, `route-options`: sends the TLS ClientHello as several TLS records, cut in the server name. |
 | `tls_spoof` | string | — | Error: Fragmenting or spoofing the TLS handshake against censorship | — |
 | `tls_spoof_method` | string, one of `wrong-sequence`, `wrong-checksum`, `wrong-ack`, `wrong-md5`, `wrong-timestamp` | — | Error: Fragmenting or spoofing the TLS handshake against censorship | — |
+| `override_destination` | bool or string, one of `proxy`, `proxy_and_direct`, `at_sniff` | unset | sail extension | `route`, `route-options`, `sniff`, a sail extension: a connection to an address is dialled by the name known for it, the sniffed domain or else the one `dns.reverse_mapping` keeps, where its last hop dials a proxy's server (`true` or `"proxy"`), or a direct dial too (`"proxy_and_direct"`). The rules still match the address. On a sniff rule, `"at_sniff"` instead makes the sniffed domain the destination there, for the rules after, as Mihomo's sniffer does. |
 
 <a id="route-rules-action-route-options"></a>
 
@@ -242,6 +243,7 @@ Rust: [`Rule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/mode
 | `tls_record_fragment` | bool | `false` | Supported | `route`, `route-options`: sends the TLS ClientHello as several TLS records, cut in the server name. |
 | `tls_spoof` | string | — | Error: Fragmenting or spoofing the TLS handshake against censorship | — |
 | `tls_spoof_method` | string, one of `wrong-sequence`, `wrong-checksum`, `wrong-ack`, `wrong-md5`, `wrong-timestamp` | — | Error: Fragmenting or spoofing the TLS handshake against censorship | — |
+| `override_destination` | bool or string, one of `proxy`, `proxy_and_direct`, `at_sniff` | unset | sail extension | `route`, `route-options`, `sniff`, a sail extension: a connection to an address is dialled by the name known for it, the sniffed domain or else the one `dns.reverse_mapping` keeps, where its last hop dials a proxy's server (`true` or `"proxy"`), or a direct dial too (`"proxy_and_direct"`). The rules still match the address. On a sniff rule, `"at_sniff"` instead makes the sniffed domain the destination there, for the rules after, as Mihomo's sniffer does. |
 
 <a id="route-rules-action-sniff"></a>
 
@@ -253,7 +255,7 @@ Rust: [`Rule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/mode
 | --- | --- | --- | --- | --- |
 | `sniffer` | listable-string, one of `tls`, `http`, `quic`, `dns`, `stun`, `bittorrent`, `dtls`, `ssh`, `rdp`, `ntp` | `[]` | Supported | `sniff`: the protocols to look for; all of them when empty. |
 | `timeout` | duration | unset | Supported | `sniff`: how long to wait for the first bytes; 300ms when unset. `resolve`: how long to wait for the answer; `dns.timeout` when unset. |
-| `override_destination` | bool | `false` | sail extension | `sniff`, a sail extension: connects to the sniffed domain rather than to the address the client asked for. |
+| `override_destination` | bool or string, one of `proxy`, `proxy_and_direct`, `at_sniff` | unset | sail extension | `route`, `route-options`, `sniff`, a sail extension: a connection to an address is dialled by the name known for it, the sniffed domain or else the one `dns.reverse_mapping` keeps, where its last hop dials a proxy's server (`true` or `"proxy"`), or a direct dial too (`"proxy_and_direct"`). The rules still match the address. On a sniff rule, `"at_sniff"` instead makes the sniffed domain the destination there, for the rules after, as Mihomo's sniffer does. |
 | `skip_rule_set` | string or array of string | `[]` | sail extension | `sniff`, a sail extension: a domain found that one of these rule-sets matches is not taken, neither matched nor connected to, as Mihomo's sniffer `skip-domain` has it. |
 
 <a id="route-rules-logical"></a>

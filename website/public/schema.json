@@ -24562,6 +24562,17 @@
      "type": "boolean",
      "description": "`resolve`, `sniff`, a sail extension: the rule does not act where it stands but arms its action, with its options, and matching goes on. The action is taken the first time a later rule needs what it learns, just before that rule is matched: a resolve for a rule with conditions on the destination's addresses, while the destination is a domain; a sniff for one on the protocol, the plain HTTP request, or a domain while the destination is an address. A connection no later rule needs it for is never resolved or sniffed, as Surge and Mihomo have it. A later rule arming the same action replaces its options."
     },
+    "override_destination": {
+     "anyOf": [
+      {
+       "type": "boolean"
+      },
+      {
+       "type": "string"
+      }
+     ],
+     "description": "`route`, `route-options`, `sniff`, a sail extension: a connection to an address is dialled by the name known for it, the sniffed domain or else the one `dns.reverse_mapping` keeps, where its last hop dials a proxy's server (`true` or `\"proxy\"`), or a direct dial too (`\"proxy_and_direct\"`). The rules still match the address. On a sniff rule, `\"at_sniff\"` instead makes the sniffed domain the destination there, for the rules after, as Mihomo's sniffer does."
+    },
     "sniffer": {
      "anyOf": [
       {
@@ -24593,10 +24604,6 @@
       }
      ],
      "description": "`sniff`: the protocols to look for; all of them when empty."
-    },
-    "override_destination": {
-     "type": "boolean",
-     "description": "`sniff`, a sail extension: connects to the sniffed domain rather than to the address the client asked for."
     },
     "skip_rule_set": {
      "anyOf": [
@@ -24991,6 +24998,17 @@
      "type": "boolean",
      "description": "`resolve`, `sniff`, a sail extension: the rule does not act where it stands but arms its action, with its options, and matching goes on. The action is taken the first time a later rule needs what it learns, just before that rule is matched: a resolve for a rule with conditions on the destination's addresses, while the destination is a domain; a sniff for one on the protocol, the plain HTTP request, or a domain while the destination is an address. A connection no later rule needs it for is never resolved or sniffed, as Surge and Mihomo have it. A later rule arming the same action replaces its options."
     },
+    "override_destination": {
+     "anyOf": [
+      {
+       "type": "boolean"
+      },
+      {
+       "type": "string"
+      }
+     ],
+     "description": "`route`, `route-options`, `sniff`, a sail extension: a connection to an address is dialled by the name known for it, the sniffed domain or else the one `dns.reverse_mapping` keeps, where its last hop dials a proxy's server (`true` or `\"proxy\"`), or a direct dial too (`\"proxy_and_direct\"`). The rules still match the address. On a sniff rule, `\"at_sniff\"` instead makes the sniffed domain the destination there, for the rules after, as Mihomo's sniffer does."
+    },
     "sniffer": {
      "anyOf": [
       {
@@ -25022,10 +25040,6 @@
       }
      ],
      "description": "`sniff`: the protocols to look for; all of them when empty."
-    },
-    "override_destination": {
-     "type": "boolean",
-     "description": "`sniff`, a sail extension: connects to the sniffed domain rather than to the address the client asked for."
     },
     "skip_rule_set": {
      "anyOf": [

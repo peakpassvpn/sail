@@ -180,7 +180,7 @@ sing-box 的 `ntp` 段会被丢弃并给出警告；其 `services`、`certificat
 
 - `route.final`、路由规则、策略组和 detour 引用的标签必须存在；规则和解析器引用的 DNS 服务器也必须存在。
 - 对所有连接都会结束匹配的规则（`route`、`reject`，或带出站的 `bypass`）至少需要一个条件；全量兜底应使用 `route.final`。
-- 动作字段只属于对应动作：`sniffer`、`override_destination`、`skip_rule_set` 属于 `sniff`；`server`、`strategy` 属于 `resolve`；`timeout` 属于两者之一；`method` 属于 `reject`。
+- 动作字段只属于对应动作：`sniffer`、`skip_rule_set` 属于 `sniff`；`server`、`strategy` 属于 `resolve`；`timeout` 属于两者之一；`method` 属于 `reject`。`override_destination` 属于 `sniff`、`route` 和 `route-options`，其中 `"at_sniff"` 只能用于 `sniff`。
 - `route.auto_detect_interface` 与 `route.default_interface` 不能同时设置。
 - `route.default_network_strategy` 需要开启 `route.auto_detect_interface`。
 - DNS、UDP、嗅探等超时必须大于零。
