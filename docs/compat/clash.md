@@ -13,6 +13,8 @@ As in Mihomo, a rule on addresses (`IP-CIDR`, `GEOIP` and the like, without `no-
 
 `timeout`, `max-failed-times`, `expected-status` and `lazy` are read for `url-test` and `fallback` groups, and warned of for the others, which the table measures. A lazy `url-test` group pauses its tests once unused for its `interval`, as Mihomo's; a urltest of sail's own configuration pauses after its `idle_timeout`, 30 minutes by default.
 
+As in Mihomo, the sniffer's `override-destination` makes the sniffed name the destination where the sniff stands: the rules after match the name, and rules on addresses resolve it. sail's own `override_destination` route option differs: it dials a proxy by the name while the rules match the address.
+
 | Section | Fields | Supported | Warned | Error |
 |---|--:|--:|--:|--:|
 | `clash-for-android` | 3 | 0 | 3 | 0 |

@@ -3130,7 +3130,9 @@ Fields and types sail accepts that sing-box does not.
 | `route.rules[].network_gateway` | The default route's gateway (Surge's ROUTER) |
 | `route.rules[].network_mcc_mnc` | The cellular carrier (Surge's MCCMNC) |
 | `route.rules[].no_resolve` | Address conditions do not resolve a domain (Surge's and Clash's no-resolve) |
-| `route.rules[action=sniff].override_destination` | Connects to the sniffed domain rather than the address asked for |
+| `route.rules[action=route].override_destination` | Dials a proxy by the domain known for the address (sniffed, else reverse-mapped); `"proxy_and_direct"` a direct dial too. The rules still match the address |
+| `route.rules[action=route-options].override_destination` | As a route rule's |
+| `route.rules[action=sniff].override_destination` | As a route rule's (sing-box's own is deprecated, refused); `"at_sniff"` makes the sniffed domain the destination for the rules after, as Mihomo's sniffer does (the Clash front-end's) |
 | `route.rules[action=sniff].skip_rule_set` | Sniffed domains a rule-set matches are not taken (Mihomo's skip-domain) |
 | `route.rules[action=resolve].ignore_failure` | A domain that does not resolve has no addresses, and matching goes on |
 | `route.rules[action=resolve].on_demand` | Resolves, or sniffs, only when a later rule needs it (Surge and Mihomo) |

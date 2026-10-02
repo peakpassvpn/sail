@@ -341,7 +341,11 @@ while a proxy's server is still sent the domain.\n\n\
 `timeout`, `max-failed-times`, `expected-status` and `lazy` are read for `url-test` and \
 `fallback` groups, and warned of for the others, which the table measures. A lazy \
 `url-test` group pauses its tests once unused for its `interval`, as Mihomo's; a urltest \
-of sail's own configuration pauses after its `idle_timeout`, 30 minutes by default.",
+of sail's own configuration pauses after its `idle_timeout`, 30 minutes by default.\n\n\
+As in Mihomo, the sniffer's `override-destination` makes the sniffed name the destination \
+where the sniff stands: the rules after match the name, and rules on addresses resolve it. \
+sail's own `override_destination` route option differs: it dials a proxy by the name while \
+the rules match the address.",
     summary: "| Section | Fields | Supported | Warned | Error |",
     head: "| Field | sail | What sail says |",
     tiers: ["Supported", "Warned", "Error", "Unknown"],
@@ -365,7 +369,9 @@ const ZH: Words = Words {
 - `size-limit`：下载超过它即失败，保留原有内容；Mihomo 会在上限处截断并读取截断后的内容。\n\
 - 下载不跟随从 https 到 http 或到其他协议的重定向（Mihomo 的客户端会跟随）：请求携带的内容（如订阅令牌）会以明文传出。\n\n\
 与 Mihomo 一致，地址规则（`IP-CIDR`、`GEOIP` 等，未加 `no-resolve`）解析域名只为匹配：直连出站连接解析出的地址，代理服务器收到的仍是域名。\n\n\
-`timeout`、`max-failed-times`、`expected-status` 和 `lazy` 对 `url-test` 与 `fallback` 组生效，对其他组（即表中实测的组）警告并忽略。lazy 的 `url-test` 组在闲置一个 `interval` 后暂停测试，与 Mihomo 一致；sail 自身配置中的 urltest 在 `idle_timeout`（默认 30 分钟）后暂停。",
+`timeout`、`max-failed-times`、`expected-status` 和 `lazy` 对 `url-test` 与 `fallback` 组生效，对其他组（即表中实测的组）警告并忽略。lazy 的 `url-test` 组在闲置一个 `interval` 后暂停测试，与 Mihomo 一致；sail 自身配置中的 urltest 在 `idle_timeout`（默认 30 分钟）后暂停。\n\n\
+与 Mihomo 一致，嗅探器的 `override-destination` 在嗅探处把嗅探到的域名设为目标：之后的规则匹配该域名，地址规则会解析它。\
+sail 自己的 `override_destination` 路由选项不同：规则匹配原地址，只在连接代理时使用域名。",
     summary: "| 部分 | 字段 | 支持 | 警告 | 报错 |",
     head: "| 字段 | sail | sail 的说明 |",
     tiers: ["支持", "警告", "报错", "未知"],

@@ -174,31 +174,21 @@ impl OutboundDatagramRecvHalf for SniffingDatagramRecvHalf {
     async fn recv_from(&mut self, buf: &mut [u8]) -> io::Result<(usize, SocksAddr)> {
         let (len, src_addr) = self.inner.recv_from(buf).await?;
 
+        // Each address under its record's own name, for the record's TTL,
+        // as the answers sail gives are kept: through a CNAME chain, the
+        // name that has the address.
         if let Ok(msg) = Message::from_vec(&buf[..len]) {
             if msg.message_type() == MessageType::Response {
-                // Extract domain from the first query in the response
-                let domain = if let Some(query) = msg.queries().first() {
-                    let mut name = query.name().to_string();
-                    if name.ends_with('.') {
-                        name.pop();
-                    }
-                    Some(name)
-                } else {
-                    None
-                };
-
-                if let Some(domain) = domain {
-                    for answer in msg.answers() {
-                        match &answer.data {
-                            RData::A(ip) => {
-                                self.sniffer.add(IpAddr::V4(ip.0), domain.clone()).await;
-                            }
-                            RData::AAAA(ip) => {
-                                self.sniffer.add(IpAddr::V6(ip.0), domain.clone()).await;
-                            }
-                            _ => {}
-                        }
-                    }
+                for answer in msg.answers() {
+                    let ip = match &answer.data {
+                        RData::A(ip) => IpAddr::V4(ip.0),
+                        RData::AAAA(ip) => IpAddr::V6(ip.0),
+                        _ => continue,
+                    };
+                    let name = answer.name.to_utf8();
+                    let domain = name.trim_end_matches('.').to_string();
+                    let ttl = std::time::Duration::from_secs(u64::from(answer.ttl));
+                    self.sniffer.add_for(ip, domain, ttl).await;
                 }
             }
         }
@@ -371,5 +361,41 @@ mod tests {
         let sniffed_ip = IpAddr::V4(ip);
         let domain = sniffer.get(&sniffed_ip).await;
         assert_eq!(domain, Some("example.com".to_string()));
+    }
+
+    /// An address an answer seen going by gives is kept under its record's
+    /// own name, the end of a CNAME chain, and only for its TTL.
+    #[tokio::test(start_paused = true)]
+    async fn a_seen_answer_maps_the_owner_name_for_its_ttl() {
+        let sniffer = DnsSniffer::new();
+        let mut msg = Message::new(0, MessageType::Query, OpCode::Query);
+        msg.set_message_type(MessageType::Response);
+        let asked = Name::from_str("www.example.com.").unwrap();
+        let edge = Name::from_str("edge.cdn.test.").unwrap();
+        msg.add_query(Query::query(asked.clone(), RecordType::A));
+        msg.add_answer(Record::from_rdata(
+            asked,
+            300,
+            RData::CNAME(hickory_proto::rr::rdata::CNAME(edge.clone())),
+        ));
+        let ip = Ipv4Addr::new(1, 2, 3, 4);
+        msg.add_answer(Record::from_rdata(
+            edge,
+            10,
+            RData::A(hickory_proto::rr::rdata::A(ip)),
+        ));
+        let mock = Box::new(MockOutboundDatagram {
+            recv: MockOutboundDatagramRecvHalf {
+                data: msg.to_vec().unwrap(),
+            },
+            send: MockOutboundDatagramSendHalf,
+        });
+        let (mut recv, _send) = Box::new(SniffingDatagram::new(mock, sniffer.clone())).split();
+        let mut buf = vec![0u8; 1500];
+        recv.recv_from(&mut buf).await.unwrap();
+        let ip = IpAddr::V4(ip);
+        assert_eq!(sniffer.get(&ip).await, Some("edge.cdn.test".to_string()));
+        tokio::time::advance(std::time::Duration::from_secs(11)).await;
+        assert_eq!(sniffer.get(&ip).await, None);
     }
 }

@@ -67,6 +67,7 @@ mod test_reality;
 mod test_redaction;
 mod test_reload;
 mod test_route_actions;
+mod test_route_dial_domain;
 mod test_route_dns;
 mod test_route_network;
 mod test_route_on_demand;

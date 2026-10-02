@@ -29,6 +29,7 @@ where
 use crate::app::SyncStatManager;
 
 use super::router::{Decision, NoSniffer, Passes, PreMatch, SniffAction, Sniffer};
+use crate::config::model::OverrideDestination;
 
 /// Where routing sends a connection.
 enum Routed {
@@ -76,7 +77,11 @@ fn record_sniffed(
         return;
     }
     debug!("sniffed protocol={} domain={}", protocol, &domain);
-    if action.override_destination {
+    // Only Mihomo's match-time override changes the destination here; the
+    // dial-time one leaves the rules the address.
+    if action.override_destination == Some(OverrideDestination::AtSniff)
+        && net::dial_domain::usable(&domain)
+    {
         if let Ok(dest) = SocksAddr::try_from((domain.as_str(), sess.destination.port())) {
             debug!("override destination with sniffed domain={}", dest);
             sess.destination = dest;
@@ -433,6 +438,7 @@ impl Dispatcher {
             refuse(&sess, &mut lhs, &io::Error::other("no outbound")).await;
             return;
         };
+        self.find_dial_domain(&mut sess).await;
         sess.outbound_tag = h.tag().clone();
         // The groups on the way record the members they take here.
         sess.chain = Default::default();
@@ -450,7 +456,8 @@ impl Dispatcher {
         // connects taken; or the destination.
         let mut handshake = Err(io::Error::other("nowhere to connect"));
         let mut lhs_counted = false;
-        for to in net::destinations(&sess, &th.connect_addr()) {
+        let connect = th.connect_addr();
+        for to in net::destinations(&sess, &connect) {
             let attempt;
             let at = if to == sess.destination {
                 &sess
@@ -461,6 +468,8 @@ impl Dispatcher {
                 };
                 &attempt
             };
+            // Where it is dialled as a name, `override_destination`.
+            let at = &*net::dial_domain::session(at, &h, &connect);
             let stream =
                 match crate::net::connect_stream_routed(at, self.dns_client.clone(), &h).await {
                     Ok(s) => s,
@@ -472,6 +481,7 @@ impl Dispatcher {
                             outbound_path(at, h.tag()),
                             e
                         );
+                        net::dial_domain::failed(at, &e);
                         handshake = Err(e);
                         continue;
                     }
@@ -488,13 +498,19 @@ impl Dispatcher {
             };
             handshake = th.handle(at, Some(&mut lhs), stream).await;
             match &handshake {
-                Ok(_) => break,
-                Err(e) => debug!(
-                    "outbound handle dst={} out={} err={}",
-                    &at.destination,
-                    outbound_path(at, h.tag()),
-                    e
-                ),
+                Ok(_) => {
+                    net::dial_domain::connected(at);
+                    break;
+                }
+                Err(e) => {
+                    debug!(
+                        "outbound handle dst={} out={} err={}",
+                        &at.destination,
+                        outbound_path(at, h.tag()),
+                        e
+                    );
+                    net::dial_domain::failed(at, e);
+                }
             }
         }
         match handshake {
@@ -557,7 +573,10 @@ impl Dispatcher {
 
     pub async fn dispatch_stream_outbound(&self, mut sess: Session) -> io::Result<AnyStream> {
         match self.route(&mut sess, &mut NoSniffer).await? {
-            Routed::Outbound(outbound) => self.stream_through(outbound.as_deref(), sess).await,
+            Routed::Outbound(outbound) => {
+                self.find_dial_domain(&mut sess).await;
+                self.stream_through(outbound.as_deref(), sess).await
+            }
             Routed::HijackDns | Routed::Drop => Err(io::Error::new(
                 io::ErrorKind::ConnectionRefused,
                 "not routed to an outbound",
@@ -605,17 +624,22 @@ impl Dispatcher {
         sess.chain = Default::default();
         let th = h.stream()?;
         let mut handshake = Err(io::Error::other("nowhere to connect"));
-        for to in net::destinations(&sess, &th.connect_addr()) {
+        let connect = th.connect_addr();
+        for to in net::destinations(&sess, &connect) {
             let at = Session {
                 destination: to,
                 ..sess.clone()
             };
-            handshake = async {
-                let stream =
-                    crate::net::connect_stream_routed(&at, self.dns_client.clone(), &h).await?;
-                th.handle(&at, None, stream).await
-            }
-            .await;
+            let at = net::dial_domain::session(&at, &h, &connect);
+            handshake = net::dial_domain::stream_done(
+                &at,
+                async {
+                    let stream =
+                        crate::net::connect_stream_routed(&at, self.dns_client.clone(), &h).await?;
+                    th.handle(&at, None, stream).await
+                }
+                .await,
+            );
             if handshake.is_ok() {
                 break;
             }
@@ -774,6 +798,7 @@ impl Dispatcher {
             warn!("handler not found");
             return Err(io::Error::other("handler not found"));
         };
+        self.find_dial_domain(&mut sess).await;
         sess.outbound_tag = h.tag().clone();
         // The groups on the way record the members they take here.
         sess.chain = Default::default();
@@ -786,11 +811,14 @@ impl Dispatcher {
         // opens taken; or the destination.
         let mut handshake = Err(io::Error::other("nowhere to send"));
         let mut dialed = sess.destination.clone();
-        for to in net::destinations(&sess, &dh.connect_addr()) {
+        let connect = dh.connect_addr();
+        for to in net::destinations(&sess, &connect) {
             let at = Session {
                 destination: to,
                 ..sess.clone()
             };
+            // Where it is dialled as a name, `override_destination`.
+            let at = net::dial_domain::session(&at, &h, &connect);
             handshake = async {
                 let transport =
                     crate::net::connect_datagram_routed(&at, self.dns_client.clone(), &h).await?;
@@ -799,15 +827,19 @@ impl Dispatcher {
             .await;
             match &handshake {
                 Ok(_) => {
-                    dialed = at.destination;
+                    net::dial_domain::connected(&at);
+                    dialed = at.destination.clone();
                     break;
                 }
-                Err(e) => debug!(
-                    "outbound handle dst={} out={} err={}",
-                    &at.destination,
-                    outbound_path(&at, h.tag()),
-                    e
-                ),
+                Err(e) => {
+                    debug!(
+                        "outbound handle dst={} out={} err={}",
+                        &at.destination,
+                        outbound_path(&at, h.tag()),
+                        e
+                    );
+                    net::dial_domain::failed(&at, e);
+                }
             }
         }
 
@@ -822,11 +854,12 @@ impl Dispatcher {
                 if reverse_mapping && sess.destination.port() == 53 {
                     d = Box::new(SniffingDatagram::new(d, self.env.reverse_map.clone()));
                 }
-                // A destination a sniff or a rule overrode, or an address
-                // a resolve rule handed on, answers as the one asked for
-                // (route/conn.go:228-244).
-                // Answers to an address handed on come back from it, not
-                // from the domain, with `udp_disable_domain_unmapping`
+                // A destination a sniff or a rule overrode, an address a
+                // resolve rule handed on, or the name it is dialled as,
+                // answers as the one asked for (route/conn.go:228-244).
+                // Answers to an address handed on come back from it, and
+                // those to the name dialled from the name, not from the
+                // destination asked for, with `udp_disable_domain_unmapping`
                 // (route/conn.go:237-241).
                 if dialed != origin {
                     let handed_on = dialed != sess.destination;
@@ -930,13 +963,29 @@ impl Dispatcher {
         if !self.dns_client.load().reverse_mapping() {
             return false;
         }
-        if let Some(ip) = sess.destination.ip() {
+        // An IPv4-mapped IPv6 address is the IPv4 address the DNS gave.
+        if let Some(ip) = sess.destination.ip().map(|ip| ip.to_canonical()) {
             if let Some(domain) = self.env.reverse_map.get(&ip).await {
                 debug!("dns reverse mapped domain={}", &domain);
                 sess.set_sniffed_domain(SniffedFrom::Dns, domain);
             }
         }
         true
+    }
+
+    /// The name a routed `sess` is dialled as, where its
+    /// `override_destination` says: looked up once the rules decided, the
+    /// reverse mapping as it is then.
+    async fn find_dial_domain(&self, sess: &mut Session) {
+        if sess.route.override_destination.is_none() {
+            return;
+        }
+        let reverse_map = self
+            .dns_client
+            .load()
+            .reverse_mapping()
+            .then_some(&self.env.reverse_map);
+        sess.route.dial_domain = net::dial_domain::find(sess, reverse_map).await;
     }
 
     /// The pre-match of a connection not yet set up, from its first packet
@@ -1118,7 +1167,7 @@ mod tests {
         SniffAction {
             protocols,
             timeout: Duration::from_millis(300),
-            override_destination: true,
+            override_destination: Some(OverrideDestination::AtSniff),
             skip: Default::default(),
         }
     }
@@ -1158,6 +1207,50 @@ mod tests {
         let mut read = Vec::new();
         stream.read_to_end(&mut read).await.unwrap();
         assert_eq!(read, request);
+    }
+
+    /// The dial-time override leaves the rules the address asked for: only
+    /// `at_sniff`, Mihomo's, makes the sniffed domain the destination, and
+    /// never a Host that is an address.
+    #[tokio::test]
+    async fn only_at_sniff_overrides_the_destination_at_the_sniff() {
+        for (how, host, overridden) in [
+            (Some(OverrideDestination::Proxy), "example.com", false),
+            (
+                Some(OverrideDestination::ProxyAndDirect),
+                "example.com",
+                false,
+            ),
+            (None, "example.com", false),
+            (Some(OverrideDestination::AtSniff), "5.6.7.8", false),
+            (Some(OverrideDestination::AtSniff), "example.com", true),
+        ] {
+            let (mut client, server) = tokio::io::duplex(4096);
+            let request = format!("GET / HTTP/1.1\r\nHost: {}\r\n\r\n", host);
+            client.write_all(request.as_bytes()).await.unwrap();
+            let mut sess = to_ip(Network::Tcp);
+            let action = SniffAction {
+                override_destination: how,
+                ..action(Protocols::ALL)
+            };
+            StreamSniffer::new(server)
+                .sniff(&mut sess, &action)
+                .await
+                .unwrap();
+            // A Host that is an address is no domain.
+            let named = host.parse::<IpAddr>().is_err();
+            assert_eq!(
+                sess.sniffed_domain_from(SniffedFrom::Http),
+                named.then_some(host)
+            );
+            assert_eq!(
+                sess.destination.is_domain(),
+                overridden,
+                "{:?} {}",
+                how,
+                host
+            );
+        }
     }
 
     #[cfg(feature = "rule-set")]

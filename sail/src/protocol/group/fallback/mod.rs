@@ -41,7 +41,7 @@ use crate::app::healthcheck::{HttpProbe, StatusRanges};
 use crate::app::outbound::selector::{GroupPin, OutboundSelector, SelectedBy, Selection};
 use crate::app::SyncDnsClient;
 use crate::config::model::GroupProviders;
-use crate::net::{connect_datagram_outbound, connect_stream_outbound};
+use crate::net::{connect_datagram_outbound, connect_stream_outbound, dial_domain};
 use crate::runtime::cache_file::CacheFile;
 use crate::session::Session;
 
@@ -432,6 +432,7 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         dns_client: ctx.dns_client.clone(),
     });
     Ok(HandlerBuilder::default()
+        .is_group(true)
         .tag(ctx.tag.to_owned())
         .stream_handler(group.clone())
         .datagram_handler(group)
@@ -559,11 +560,16 @@ impl OutboundStreamHandler for Group {
         let snapshot = self.members.load();
         let (member, stream) = self
             .connect(sess, &snapshot, |a, progress| async move {
-                progress.dialing(&a.stream()?.connect_addr());
-                let stream = connect_stream_outbound(sess, self.dns_client.clone(), a).await?;
-                progress.dialled();
-                let stream = a.stream()?.handle(sess, None, stream).await?;
-                Ok(stream)
+                let connect = a.stream()?.connect_addr();
+                progress.dialing(&connect);
+                let at = dial_domain::session(sess, a, &connect);
+                let result = async {
+                    let stream = connect_stream_outbound(&at, self.dns_client.clone(), a).await?;
+                    progress.dialled();
+                    a.stream()?.handle(&at, None, stream).await
+                }
+                .await;
+                dial_domain::stream_done(&at, result)
             })
             .await?;
         sess.chain.push(&member.name);
@@ -592,11 +598,17 @@ impl OutboundDatagramHandler for Group {
         let snapshot = self.members.load();
         let (member, datagram) = self
             .connect(sess, &snapshot, |a, progress| async move {
-                progress.dialing(&a.datagram()?.connect_addr());
-                let transport = connect_datagram_outbound(sess, self.dns_client.clone(), a).await?;
-                progress.dialled();
-                let datagram = a.datagram()?.handle(sess, transport).await?;
-                Ok(datagram)
+                let connect = a.datagram()?.connect_addr();
+                progress.dialing(&connect);
+                let at = dial_domain::session(sess, a, &connect);
+                let result = async {
+                    let transport =
+                        connect_datagram_outbound(&at, self.dns_client.clone(), a).await?;
+                    progress.dialled();
+                    a.datagram()?.handle(&at, transport).await
+                }
+                .await;
+                dial_domain::datagram_done(sess, &at, result)
             })
             .await?;
         sess.chain.push(&member.name);

@@ -13,6 +13,8 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 
 `timeout`、`max-failed-times`、`expected-status` 和 `lazy` 对 `url-test` 与 `fallback` 组生效，对其他组（即表中实测的组）警告并忽略。lazy 的 `url-test` 组在闲置一个 `interval` 后暂停测试，与 Mihomo 一致；sail 自身配置中的 urltest 在 `idle_timeout`（默认 30 分钟）后暂停。
 
+与 Mihomo 一致，嗅探器的 `override-destination` 在嗅探处把嗅探到的域名设为目标：之后的规则匹配该域名，地址规则会解析它。sail 自己的 `override_destination` 路由选项不同：规则匹配原地址，只在连接代理时使用域名。
+
 | 部分 | 字段 | 支持 | 警告 | 报错 |
 |---|--:|--:|--:|--:|
 | `clash-for-android` | 3 | 0 | 3 | 0 |

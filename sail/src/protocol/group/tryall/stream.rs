@@ -42,10 +42,7 @@ impl OutboundStreamHandler for Handler {
                     ))
                     .await;
                 }
-                let stream =
-                    crate::net::connect_stream_outbound(sess, self.dns_client.clone(), a).await?;
-                a.stream()?
-                    .handle(sess, None, stream)
+                crate::net::dial_domain::stream(sess, self.dns_client.clone(), a)
                     .await
                     .map(|stream| HandleResult { idx: i, stream })
             };

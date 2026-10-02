@@ -2579,10 +2579,19 @@ pub struct Rule {
     /// unset.
     #[serde(default, with = "duration", skip_serializing_if = "Option::is_none")]
     pub timeout: Option<std::time::Duration>,
-    /// `sniff`, a sail extension: connects to the sniffed domain rather than
-    /// to the address the client asked for.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub override_destination: bool,
+    /// `route`, `route-options`, `sniff`, a sail extension: a connection to
+    /// an address is dialled by the name known for it, the sniffed domain
+    /// or else the one `dns.reverse_mapping` keeps, where its last hop
+    /// dials a proxy's server (`true` or `"proxy"`), or a direct dial too
+    /// (`"proxy_and_direct"`). The rules still match the address. On a
+    /// sniff rule, `"at_sniff"` instead makes the sniffed domain the
+    /// destination there, for the rules after, as Mihomo's sniffer does.
+    #[serde(
+        default,
+        deserialize_with = "override_destination::deserialize",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub override_destination: Option<OverrideDestinationField>,
     /// `sniff`, a sail extension: a domain found that one of these
     /// rule-sets matches is not taken, neither matched nor connected to, as
     /// Mihomo's sniffer `skip-domain` has it.
@@ -2605,6 +2614,77 @@ pub struct Rule {
     /// replaces its options.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub on_demand: bool,
+}
+
+/// Which dials of a connection to an address go to the name known for
+/// it: a rule's `override_destination`.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum OverrideDestination {
+    /// `true` or `"proxy"`: a proxy's server is asked for the name, and a
+    /// direct dial keeps the address.
+    Proxy,
+    /// `"proxy_and_direct"`: a direct dial too goes to the name, which it
+    /// resolves as its own `domain_resolver` says.
+    ProxyAndDirect,
+    /// `"at_sniff"`, a sniff rule's only: the sniffed domain becomes the
+    /// destination where the rule stands, so that the rules after match it
+    /// and resolve it, as Mihomo's sniffer `override-destination` does.
+    AtSniff,
+}
+
+/// `override_destination` as it is written: `true` (`"proxy"`), `false`
+/// (none), or a name.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(untagged)]
+pub enum OverrideDestinationField {
+    Bool(bool),
+    Name(OverrideDestination),
+}
+
+impl OverrideDestinationField {
+    /// What it asks for.
+    pub fn get(self) -> Option<OverrideDestination> {
+        match self {
+            OverrideDestinationField::Bool(on) => on.then_some(OverrideDestination::Proxy),
+            OverrideDestinationField::Name(how) => Some(how),
+        }
+    }
+}
+
+/// `override_destination`: `true`, `false` or a name, refused with the
+/// values it takes.
+mod override_destination {
+    use super::{OverrideDestination, OverrideDestinationField};
+    use serde::{de, Deserializer};
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        d: D,
+    ) -> Result<Option<OverrideDestinationField>, D::Error> {
+        struct Visitor;
+        impl de::Visitor<'_> for Visitor {
+            type Value = Option<OverrideDestinationField>;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("true, false, \"proxy\", \"proxy_and_direct\" or \"at_sniff\"")
+            }
+
+            fn visit_bool<E: de::Error>(self, v: bool) -> Result<Self::Value, E> {
+                Ok(Some(OverrideDestinationField::Bool(v)))
+            }
+
+            fn visit_str<E: de::Error>(self, v: &str) -> Result<Self::Value, E> {
+                let how = match v {
+                    "proxy" => OverrideDestination::Proxy,
+                    "proxy_and_direct" => OverrideDestination::ProxyAndDirect,
+                    "at_sniff" => OverrideDestination::AtSniff,
+                    _ => return Err(E::invalid_value(de::Unexpected::Str(v), &self)),
+                };
+                Ok(Some(OverrideDestinationField::Name(how)))
+            }
+        }
+        d.deserialize_any(Visitor)
+    }
 }
 
 /// A rule's kind.
@@ -2697,6 +2777,13 @@ impl Rule {
     /// What the rule does.
     pub fn action(&self) -> RuleAction {
         self.action.unwrap_or_default()
+    }
+
+    /// Which dials go to the name known for the address, as
+    /// `override_destination` says.
+    pub fn override_destination(&self) -> Option<OverrideDestination> {
+        self.override_destination
+            .and_then(OverrideDestinationField::get)
     }
 
     /// The first condition of a default rule the rule sets, by name.
@@ -2862,7 +2949,11 @@ impl Rule {
             ("sniffer", !self.sniffer.is_empty(), &[Sniff]),
             ("timeout", self.timeout.is_some(), &[Sniff, Resolve]),
             ("ignore_failure", self.ignore_failure, &[Resolve]),
-            ("override_destination", self.override_destination, &[Sniff]),
+            (
+                "override_destination",
+                self.override_destination().is_some(),
+                &[Route, RouteOptions, Bypass, Sniff],
+            ),
             ("skip_rule_set", !self.skip_rule_set.is_empty(), &[Sniff]),
             ("on_demand", self.on_demand, &[Resolve, Sniff]),
         ]
@@ -2928,6 +3019,14 @@ impl Rule {
             | RuleAction::Sniff
             | RuleAction::Resolve
             | RuleAction::Direct => {}
+        }
+        if self.override_destination() == Some(OverrideDestination::AtSniff)
+            && action != RuleAction::Sniff
+        {
+            return Err(anyhow!(
+                "{}.override_destination: at_sniff is a sniff rule's only",
+                path
+            ));
         }
         if self.tls_fragment && self.tls_record_fragment {
             return Err(anyhow!(

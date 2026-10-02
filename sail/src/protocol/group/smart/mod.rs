@@ -346,6 +346,7 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
 
     let handler = Arc::new(Handler(group));
     Ok(HandlerBuilder::default()
+        .is_group(true)
         .tag(tag.to_owned())
         .stream_handler(handler.clone())
         .datagram_handler(handler)

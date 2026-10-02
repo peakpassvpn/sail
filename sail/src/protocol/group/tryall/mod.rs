@@ -49,6 +49,7 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         dns_client: ctx.dns_client.clone(),
     });
     Ok(HandlerBuilder::default()
+        .is_group(true)
         .tag(ctx.tag.to_owned())
         .stream_handler(stream)
         .datagram_handler(datagram)

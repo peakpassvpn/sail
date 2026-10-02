@@ -18,6 +18,7 @@ pub mod accept;
 pub mod backlog;
 pub mod datagram;
 pub mod dial;
+pub mod dial_domain;
 pub mod interface;
 pub mod nat64;
 pub(crate) mod neighbor;
@@ -390,7 +391,8 @@ fn resolved<'a>(sess: &'a Session, dialer: &Dialer) -> Option<&'a [std::net::IpA
 /// (route/conn.go:101-104, 166-175, 203-205;
 /// common/dialer/default_parallel_network.go:16-45). Not to a direct dial
 /// of its own, which races them itself, nor after an `on_demand` resolve,
-/// whose addresses, as Mihomo's, only a direct dial takes.
+/// whose addresses, as Mihomo's, only a direct dial takes. Nor where
+/// `override_destination` asks that a proxy be told the name: it wins.
 pub(crate) fn destinations(sess: &Session, connect: &OutboundConnect) -> Vec<SocksAddr> {
     let self_dialing =
         matches!(connect, OutboundConnect::Direct(dialer) if dialer.detour().is_none());
@@ -398,7 +400,8 @@ pub(crate) fn destinations(sess: &Session, connect: &OutboundConnect) -> Vec<Soc
         SocksAddr::Domain(_, port)
             if sess.route.resolved_for_every_outbound
                 && !sess.route.resolved.is_empty()
-                && !self_dialing =>
+                && !self_dialing
+                && sess.route.override_destination.is_none() =>
         {
             sess.route
                 .resolved

@@ -45,10 +45,7 @@ impl OutboundDatagramHandler for Handler {
                     ))
                     .await;
                 }
-                let transport =
-                    crate::net::connect_datagram_outbound(sess, self.dns_client.clone(), a).await?;
-                a.datagram()?
-                    .handle(sess, transport)
+                crate::net::dial_domain::datagram_through(sess, self.dns_client.clone(), a)
                     .await
                     .map(|dgram| HandleResult { idx: i, dgram })
             };

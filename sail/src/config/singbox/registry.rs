@@ -1194,9 +1194,19 @@ const EXTENSIONS: &[(&str, &str, &str)] = &[
         "Address conditions do not resolve a domain (Surge's and Clash's no-resolve)",
     ),
     (
+        "route.rules[action=route].override_destination",
+        r#""proxy""#,
+        "Dials a proxy by the domain known for the address (sniffed, else reverse-mapped); `\"proxy_and_direct\"` a direct dial too. The rules still match the address",
+    ),
+    (
+        "route.rules[action=route-options].override_destination",
+        r#""proxy_and_direct""#,
+        "As a route rule's",
+    ),
+    (
         "route.rules[action=sniff].override_destination",
         "true",
-        "Connects to the sniffed domain rather than the address asked for",
+        "As a route rule's (sing-box's own is deprecated, refused); `\"at_sniff\"` makes the sniffed domain the destination for the rules after, as Mihomo's sniffer does (the Clash front-end's)",
     ),
     (
         "route.rules[action=sniff].skip_rule_set",

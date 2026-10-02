@@ -11,7 +11,7 @@ use std::time::{Duration, SystemTime};
 
 use crate::adapter::AnyOutboundHandler;
 use crate::app::healthcheck::{HttpProbe, DEFAULT_URL};
-use crate::session::{Network, SocksAddr};
+use crate::session::{Network, SniffedFrom, SocksAddr};
 use crate::RuntimeManager;
 
 mod dial;
@@ -45,8 +45,14 @@ pub struct ConnectionInfo {
     pub inbound_tag: String,
     pub source: SocketAddr,
     pub destination: SocksAddr,
-    /// The domain it goes to: the destination's, else the one sniffed.
+    /// The domain it goes to: the destination's, the name it was dialled
+    /// as (`override_destination`), else the one sniffed.
     pub host: Option<String>,
+    /// The domain a sniff found, from a TLS server name or an HTTP Host.
+    pub sniff_host: Option<String>,
+    /// Where the name it was dialled as came from, `sniff` or
+    /// `reverse_mapping`; none where it was dialled as asked.
+    pub dial_domain_source: Option<&'static str>,
     pub process: Option<String>,
     pub user: Option<String>,
     /// Who opened it, as the host tells it (Android): the uid, and the
@@ -491,6 +497,11 @@ impl RuntimeManager {
                 let sess = &counter.sess;
                 let mut chains = sess.chain.get();
                 chains.push(sess.outbound_tag.clone());
+                let dialled = sess.state.get::<crate::session::Dialled>().get();
+                let sniff_host = [SniffedFrom::Tls, SniffedFrom::Http]
+                    .into_iter()
+                    .find_map(|from| sess.sniffed_domain_from(from))
+                    .map(str::to_owned);
                 ConnectionInfo {
                     id: counter.id,
                     network: sess.network,
@@ -502,7 +513,10 @@ impl RuntimeManager {
                         .destination
                         .domain()
                         .cloned()
+                        .or_else(|| dialled.as_ref().map(|(domain, _)| domain.clone()))
                         .or_else(|| sess.sniffed.as_ref().map(|(_, domain)| domain.clone())),
+                    sniff_host,
+                    dial_domain_source: dialled.map(|(_, source)| source.name()),
                     process: sess.process_name.clone(),
                     user: crate::user::name(&sess.user).map(str::to_owned),
                     uid: sess.owner.as_ref().map(|o| o.uid),

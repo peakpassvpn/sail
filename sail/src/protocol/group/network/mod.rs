@@ -28,7 +28,6 @@ use crate::app::router::matcher::NetworkConditions;
 use crate::app::SyncDnsClient;
 use crate::config::model::{self, listable};
 use crate::net::network::{Network, NetworkState};
-use crate::net::{connect_datagram_outbound, connect_stream_outbound};
 use crate::session::Session;
 
 pub(crate) fn register(registry: &mut OutboundRegistry) {
@@ -185,6 +184,7 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         .insert(ctx.tag.to_owned(), Arc::new(RwLock::new(selector)));
 
     let builder = HandlerBuilder::default()
+        .is_group(true)
         .tag(ctx.tag.to_owned())
         .stream_handler(group.clone());
     // UDP when any member carries it: the member picked may not.
@@ -240,8 +240,7 @@ impl OutboundStreamHandler for Group {
         _stream: Option<AnyStream>,
     ) -> io::Result<AnyStream> {
         let (name, a) = self.member(sess);
-        let stream = connect_stream_outbound(sess, self.dns_client.clone(), a).await?;
-        let stream = a.stream()?.handle(sess, None, stream).await?;
+        let stream = crate::net::dial_domain::stream(sess, self.dns_client.clone(), a).await?;
         sess.chain.push(name);
         Ok(stream)
     }
@@ -263,8 +262,8 @@ impl OutboundDatagramHandler for Group {
         _transport: Option<AnyOutboundTransport>,
     ) -> io::Result<AnyOutboundDatagram> {
         let (name, a) = self.member(sess);
-        let transport = connect_datagram_outbound(sess, self.dns_client.clone(), a).await?;
-        let datagram = a.datagram()?.handle(sess, transport).await?;
+        let datagram =
+            crate::net::dial_domain::datagram_through(sess, self.dns_client.clone(), a).await?;
         sess.chain.push(name);
         Ok(datagram)
     }

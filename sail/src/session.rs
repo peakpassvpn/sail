@@ -430,6 +430,59 @@ pub struct RouteOptions {
     /// has it; not so for an `on_demand` resolve, whose addresses only a
     /// direct dial takes, as Mihomo's rules on addresses have it.
     pub resolved_for_every_outbound: bool,
+    /// Which dials of a connection to an address go to the name known for
+    /// it, as a rule's `override_destination` says: a proxy's, or a direct
+    /// one's too.
+    pub override_destination: Option<crate::config::model::OverrideDestination>,
+    /// The name the destination's address is dialled as, where
+    /// `override_destination` says: found once the rules decided.
+    pub dial_domain: Option<DialDomain>,
+}
+
+/// The name a connection to an address is dialled as, and where it came
+/// from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DialDomain {
+    /// The destination it stands for.
+    pub address: SocksAddr,
+    pub domain: String,
+    pub source: DialDomainSource,
+    /// A direct dial takes it too.
+    pub direct: bool,
+}
+
+/// Where the name a connection is dialled as came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DialDomainSource {
+    /// A sniffed TLS server name or HTTP Host.
+    Sniff,
+    /// The DNS answer sail gave for the address (`dns.reverse_mapping`).
+    ReverseMapping,
+}
+
+impl DialDomainSource {
+    /// As the connections list and the logs name it.
+    pub fn name(self) -> &'static str {
+        match self {
+            DialDomainSource::Sniff => "sniff",
+            DialDomainSource::ReverseMapping => "reverse_mapping",
+        }
+    }
+}
+
+/// The name a connection was dialled as, once a dial took it: shared by
+/// the session's copies, for the connections list.
+#[derive(Debug, Default)]
+pub struct Dialled(std::sync::Mutex<Option<(String, DialDomainSource)>>);
+
+impl Dialled {
+    pub fn set(&self, domain: &str, source: DialDomainSource) {
+        *self.0.lock().unwrap_or_else(|e| e.into_inner()) = Some((domain.to_string(), source));
+    }
+
+    pub fn get(&self) -> Option<(String, DialDomainSource)> {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
 }
 
 /// How a TLS ClientHello is cut, in its server name.

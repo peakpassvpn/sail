@@ -16,7 +16,6 @@ use tokio::time::Instant;
 use super::score::PLAIN_WEIGHT;
 use super::{is_handshake, lock, Group, Verdict};
 use crate::adapter::*;
-use crate::net::connect_datagram_outbound;
 use crate::protocol::group::interrupt;
 use crate::protocol::group::members::MemberKey;
 use crate::session::{Session, SocksAddr};
@@ -37,10 +36,7 @@ pub async fn connect(group: Arc<Group>, sess: &Session) -> io::Result<AnyOutboun
     let result = group
         .try_members(sess, &snapshot, &order, &site, &mut failed, |a| {
             let dns_client = dns_client.clone();
-            async move {
-                let transport = connect_datagram_outbound(sess, dns_client, &a).await?;
-                a.datagram()?.handle(sess, transport).await
-            }
+            async move { crate::net::dial_domain::datagram_through(sess, dns_client, &a).await }
         })
         .await;
     let verdict = Verdict::new(group.clone(), failed);

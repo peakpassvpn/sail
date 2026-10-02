@@ -9,7 +9,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 /// A SOCKS5 server that records the address each CONNECT asks for, says
 /// it connected, and carries nothing.
-async fn recording_socks_server() -> (u16, Arc<Mutex<Vec<String>>>) {
+pub(crate) async fn recording_socks_server() -> (u16, Arc<Mutex<Vec<String>>>) {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     let asked = Arc::new(Mutex::new(Vec::new()));

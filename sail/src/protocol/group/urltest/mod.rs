@@ -32,7 +32,7 @@ use crate::app::healthcheck::{HttpProbe, StatusRanges};
 use crate::app::outbound::selector::{OutboundSelector, SelectedBy, Selection};
 use crate::app::SyncDnsClient;
 use crate::config::model::GroupProviders;
-use crate::net::{connect_datagram_outbound, connect_stream_outbound};
+use crate::net::{connect_datagram_outbound, connect_stream_outbound, dial_domain};
 use crate::session::Session;
 
 pub(crate) fn register(registry: &mut OutboundRegistry) {
@@ -277,6 +277,7 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         dns_client: ctx.dns_client.clone(),
     });
     Ok(HandlerBuilder::default()
+        .is_group(true)
         .tag(ctx.tag.to_owned())
         .stream_handler(group.clone())
         .datagram_handler(group)
@@ -347,10 +348,19 @@ impl OutboundStreamHandler for Group {
         let progress = Progress::default();
         let stream = self.failed(
             async {
-                progress.dialing(&a.stream()?.connect_addr());
-                let stream = connect_stream_outbound(sess, self.dns_client.clone(), a).await?;
-                progress.dialled();
-                let stream = a.stream()?.handle(sess, None, stream).await?;
+                let connect = a.stream()?.connect_addr();
+                progress.dialing(&connect);
+                let at = dial_domain::session(sess, a, &connect);
+                let stream = dial_domain::stream_done(
+                    &at,
+                    async {
+                        let stream =
+                            connect_stream_outbound(&at, self.dns_client.clone(), a).await?;
+                        progress.dialled();
+                        a.stream()?.handle(&at, None, stream).await
+                    }
+                    .await,
+                )?;
                 sess.chain.push(&member.key.name);
                 Ok(stream)
             }
@@ -386,10 +396,20 @@ impl OutboundDatagramHandler for Group {
         let progress = Progress::default();
         let datagram = self.failed(
             async {
-                progress.dialing(&a.datagram()?.connect_addr());
-                let transport = connect_datagram_outbound(sess, self.dns_client.clone(), a).await?;
-                progress.dialled();
-                let datagram = a.datagram()?.handle(sess, transport).await?;
+                let connect = a.datagram()?.connect_addr();
+                progress.dialing(&connect);
+                let at = dial_domain::session(sess, a, &connect);
+                let datagram = dial_domain::datagram_done(
+                    sess,
+                    &at,
+                    async {
+                        let transport =
+                            connect_datagram_outbound(&at, self.dns_client.clone(), a).await?;
+                        progress.dialled();
+                        a.datagram()?.handle(&at, transport).await
+                    }
+                    .await,
+                )?;
                 sess.chain.push(&member.key.name);
                 Ok(datagram)
             }

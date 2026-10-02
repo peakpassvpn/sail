@@ -89,7 +89,7 @@ impl Facts {
             domain,
             ips,
             port: sess.destination.port(),
-            ip_version: destination.map(|ip| if ip.is_ipv4() { 4 } else { 6 }),
+            ip_version: Self::ip_version_of(sess),
             network: sess.network,
             inbound: sess.inbound_tag.clone(),
             user: sess.user.clone(),
@@ -106,6 +106,20 @@ impl Facts {
             responses: None,
             network_state: None,
         }
+    }
+
+    /// 4 or 6, when the destination of `sess` is an address.
+    pub fn ip_version_of(sess: &Session) -> Option<u8> {
+        sess.destination
+            .ip()
+            .map(|ip| if ip.to_canonical().is_ipv4() { 4 } else { 6 })
+    }
+
+    /// With the IP version `ip_version`, the destination's when the
+    /// matching began.
+    pub fn with_ip_version(mut self, ip_version: Option<u8>) -> Self {
+        self.ip_version = ip_version;
+        self
     }
 
     /// With the network the host is on, which conditions on it

@@ -11,6 +11,7 @@ pub struct Handler {
     datagram_handler: Option<AnyOutboundDatagramHandler>,
     is_direct: bool,
     is_pass: bool,
+    is_group: bool,
 }
 
 impl Handler {
@@ -20,6 +21,7 @@ impl Handler {
         datagram_handler: Option<AnyOutboundDatagramHandler>,
         is_direct: bool,
         is_pass: bool,
+        is_group: bool,
     ) -> Arc<Self> {
         Arc::new(Handler {
             tag,
@@ -27,6 +29,7 @@ impl Handler {
             datagram_handler,
             is_direct,
             is_pass,
+            is_group,
         })
     }
 }
@@ -54,6 +57,10 @@ impl OutboundHandler for Handler {
         self.is_pass
     }
 
+    fn is_group(&self) -> bool {
+        self.is_group
+    }
+
     /// Both its handlers hear of it; one that is both hears twice.
     fn network_changed(&self, change: &crate::net::network::NetworkChange) {
         if let Some(stream) = &self.stream_handler {
@@ -77,6 +84,7 @@ pub struct HandlerBuilder {
     datagram_handler: Option<AnyOutboundDatagramHandler>,
     is_direct: bool,
     is_pass: bool,
+    is_group: bool,
 }
 
 impl HandlerBuilder {
@@ -87,6 +95,7 @@ impl HandlerBuilder {
             datagram_handler: None,
             is_direct: false,
             is_pass: false,
+            is_group: false,
         }
     }
 
@@ -116,6 +125,12 @@ impl HandlerBuilder {
         self
     }
 
+    /// Marks a group, see `OutboundHandler::is_group`.
+    pub fn is_group(mut self, v: bool) -> Self {
+        self.is_group = v;
+        self
+    }
+
     pub fn build(self) -> AnyOutboundHandler {
         Handler::new(
             self.tag,
@@ -123,6 +138,7 @@ impl HandlerBuilder {
             self.datagram_handler,
             self.is_direct,
             self.is_pass,
+            self.is_group,
         )
     }
 }

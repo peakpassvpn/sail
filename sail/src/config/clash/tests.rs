@@ -1327,7 +1327,7 @@ fn the_sniffer_is_sniff_rules_before_every_other() {
     );
     let http = &rules[1];
     assert_eq!(http["action"], "sniff");
-    assert_eq!(http["override_destination"], true);
+    assert_eq!(http["override_destination"], "at_sniff");
     assert!(rules[0].get("override_destination").is_none());
     assert_eq!(
         http["skip_rule_set"],

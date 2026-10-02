@@ -59,6 +59,13 @@ pub trait OutboundHandler: BaseHandler {
     fn is_pass(&self) -> bool {
         false
     }
+    /// Whether it is a group that dials each connection through a member
+    /// it picks, which decides how it is dialled (`override_destination`).
+    /// Not a selector, which asks for what its pick asks for, and is
+    /// dialled as that is.
+    fn is_group(&self) -> bool {
+        false
+    }
 
     /// The network changed so that connections made on the one before do
     /// not survive: what the handler keeps of it (pooled sessions,

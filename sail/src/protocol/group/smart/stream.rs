@@ -17,7 +17,6 @@ use super::score::PLAIN_WEIGHT;
 use super::{is_handshake, Group, Verdict};
 use crate::adapter::{AnyOutboundHandler, AnyStream};
 use crate::app::SyncDnsClient;
-use crate::net::connect_stream_outbound;
 use crate::protocol::group::interrupt;
 use crate::protocol::group::members::{MemberKey, Snapshot};
 use crate::session::Session;
@@ -32,8 +31,7 @@ async fn dial(
     dns_client: SyncDnsClient,
     member: &AnyOutboundHandler,
 ) -> io::Result<AnyStream> {
-    let stream = connect_stream_outbound(sess, dns_client, member).await?;
-    member.stream()?.handle(sess, None, stream).await
+    crate::net::dial_domain::stream(sess, dns_client, member).await
 }
 
 /// A stream for `sess` through the member of `group` its site goes to, or

@@ -138,8 +138,9 @@ pub struct SniffAction {
     pub protocols: crate::sniff::Protocols,
     /// How long to wait for the first bytes.
     pub timeout: Duration,
-    /// Connects to the sniffed domain rather than to the address asked for.
-    pub override_destination: bool,
+    /// Which dials go to the name known for the address asked for; or,
+    /// `AtSniff`, the sniffed domain becomes the destination here.
+    pub override_destination: Option<model::OverrideDestination>,
     /// Domains found that are not taken.
     pub skip: SniffSkip,
 }
@@ -229,6 +230,7 @@ struct Options {
     tls_fragment: Option<TlsFragment>,
     network_strategy: Option<crate::net::dial::NetworkStrategy>,
     fallback_delay: Option<Duration>,
+    override_destination: Option<model::OverrideDestination>,
 }
 
 /// How long apart the pieces of a fragmented ClientHello go when the rule
@@ -275,6 +277,7 @@ impl Options {
             network_strategy: rule.network_strategy,
             // Zero is unset, as in sing-box (route/route.go:646).
             fallback_delay: rule.fallback_delay.filter(|d| !d.is_zero()),
+            override_destination: rule.override_destination(),
         })
     }
 
@@ -313,6 +316,18 @@ impl Options {
         if self.fallback_delay.is_some() {
             route.fallback_delay = self.fallback_delay;
         }
+        if self.override_destination.is_some() {
+            route.override_destination = self.override_destination;
+        }
+    }
+}
+
+/// Takes the dial-time `override_destination` of the sniff rule `action`,
+/// taken for `sess`, as a route option; `AtSniff` the sniff itself acts on.
+fn sniff_options(action: &SniffAction, sess: &mut Session) {
+    match action.override_destination {
+        Some(model::OverrideDestination::AtSniff) | None => {}
+        how => sess.route.override_destination = how,
     }
 }
 
@@ -468,7 +483,7 @@ impl Rule {
                 Action::Sniff(SniffAction {
                     protocols,
                     timeout: rule.timeout.unwrap_or(Duration::from_millis(300)),
-                    override_destination: rule.override_destination,
+                    override_destination: rule.override_destination(),
                     skip: SniffSkip::of(
                         rule.skip_rule_set
                             .iter()
@@ -673,8 +688,12 @@ impl Router {
         // The network as it is when the connection is matched, for every
         // rule alike.
         let network = self.network.as_ref().map(|n| n.snapshot());
+        // The destination's IP version, once, from the address asked for,
+        // as sing-box has it (route/route.go:585-589): a sniff that makes
+        // the sniffed domain the destination does not change it.
+        let ip_version = Facts::ip_version_of(sess);
         let facts_of = |sess: &Session, resolved: &[IpAddr]| {
-            let facts = Facts::new(sess, resolved);
+            let facts = Facts::new(sess, resolved).with_ip_version(ip_version);
             match &network {
                 Some(state) => facts.with_network(state.clone()),
                 None => facts,
@@ -699,6 +718,7 @@ impl Router {
                                 .sniff(sess, action)
                                 .await
                                 .map_err(|e| anyhow!("sniff: {}", e))?;
+                            sniff_options(action, sess);
                             facts = facts_of(sess, &resolved);
                         }
                     }
@@ -776,10 +796,13 @@ impl Router {
                 // nowhere, nor stops at it (route/route.go:690-697).
                 Action::Direct => debug!("rule {} is direct, which does nothing", i),
                 Action::Sniff(action) => match sniffer.as_mut() {
-                    Some(sniffer) => sniffer
-                        .sniff(sess, action)
-                        .await
-                        .map_err(|e| anyhow!("sniff: {}", e))?,
+                    Some(sniffer) => {
+                        sniffer
+                            .sniff(sess, action)
+                            .await
+                            .map_err(|e| anyhow!("sniff: {}", e))?;
+                        sniff_options(action, sess);
+                    }
                     None => return Ok(Stop::NeedsData),
                 },
                 Action::Resolve(how) => {
@@ -993,7 +1016,7 @@ mod tests {
             {
                 sess.set_sniffed_domain(crate::session::SniffedFrom::Tls, self.domain.to_string());
                 sess.sniffed_protocol = Some(crate::session::SniffedProtocol::Tls);
-                if action.override_destination {
+                if action.override_destination == Some(model::OverrideDestination::AtSniff) {
                     sess.destination =
                         SocksAddr::Domain(self.domain.into(), sess.destination.port());
                 }
@@ -1033,10 +1056,11 @@ mod tests {
     /// As sing-box's, a resolve rule resolves the domain the connection
     /// goes to, never one only sniffed: to an address, it resolves nothing
     /// (route/route.go:898-921). Once the sniffed domain is where it goes,
-    /// by `override_destination`, it is resolved.
+    /// by `override_destination: at_sniff`, it is resolved; the dial-time
+    /// override leaves the destination as it is.
     #[tokio::test]
     async fn a_resolve_rule_resolves_the_destination_not_the_sniffed_domain() {
-        let route = |override_destination: bool| async move {
+        let route = |override_destination: serde_json::Value| async move {
             let router = router(serde_json::json!([
                 { "action": "sniff", "override_destination": override_destination },
                 { "action": "resolve", "server": "lan" },
@@ -1054,17 +1078,137 @@ mod tests {
             assert_eq!(sess.sniffed_domain(), Some("test.sail"));
             (decision, sess.route.resolved)
         };
+        for dial_time in [false.into(), true.into(), "proxy_and_direct".into()] {
+            assert_eq!(
+                route(dial_time).await,
+                (Decision::Route(Some("b".into())), vec![])
+            );
+        }
         assert_eq!(
-            route(false).await,
-            (Decision::Route(Some("b".into())), vec![])
-        );
-        assert_eq!(
-            route(true).await,
+            route("at_sniff".into()).await,
             (
                 Decision::Route(Some("a".into())),
                 vec!["10.0.0.1".parse::<IpAddr>().unwrap()]
             )
         );
+    }
+
+    /// `override_destination` on a sniff rule is a route option for the
+    /// dial: the rules after still match the address, so a LAN address
+    /// sniffed goes where its rule says (B2).
+    #[tokio::test]
+    async fn a_dial_time_override_leaves_the_rules_the_address() {
+        for how in [
+            serde_json::json!(true),
+            serde_json::json!("proxy_and_direct"),
+        ] {
+            let router = router(serde_json::json!([
+                { "action": "sniff", "override_destination": how },
+                { "ip_cidr": "127.0.0.2/32", "outbound": "a" },
+            ]));
+            let mut sniffer = FakeSniffer {
+                domain: "lan.test",
+                calls: 0,
+            };
+            let mut sess = to("127.0.0.2:443");
+            let decision = router
+                .pick_route(&mut sess, &mut sniffer, &NoPass)
+                .await
+                .unwrap();
+            assert_eq!(decision, Decision::Route(Some("a".into())), "{}", how);
+            assert_eq!(sess.destination, to("127.0.0.2:443").destination);
+            assert_eq!(sess.sniffed_domain(), Some("lan.test"));
+            let expected = match how.as_bool() {
+                Some(true) => model::OverrideDestination::Proxy,
+                _ => model::OverrideDestination::ProxyAndDirect,
+            };
+            assert_eq!(sess.route.override_destination, Some(expected));
+        }
+    }
+
+    /// A route or route-options rule sets it too, a later rule's value
+    /// going before; a rule skipped sets nothing.
+    #[tokio::test]
+    async fn route_rules_set_the_override_a_later_one_going_before() {
+        let router = router(serde_json::json!([
+            { "port": [443], "action": "route-options", "override_destination": "proxy" },
+            { "port": [80], "action": "route-options", "override_destination": "proxy" },
+            { "ip_cidr": "2000::/3", "action": "route-options",
+              "override_destination": "proxy_and_direct" },
+            { "port": [443], "outbound": "a" },
+        ]));
+        let mut sess = to("[2001:db8::50]:443");
+        assert_eq!(
+            pick(&router, &mut sess).await,
+            Decision::Route(Some("a".into()))
+        );
+        assert_eq!(
+            sess.route.override_destination,
+            Some(model::OverrideDestination::ProxyAndDirect)
+        );
+        let mut sess = to("192.0.2.1:443");
+        pick(&router, &mut sess).await;
+        assert_eq!(
+            sess.route.override_destination,
+            Some(model::OverrideDestination::Proxy)
+        );
+        let mut sess = to("192.0.2.1:8443");
+        pick(&router, &mut sess).await;
+        assert_eq!(sess.route.override_destination, None);
+    }
+
+    /// `at_sniff` is a sniff rule's only.
+    #[test]
+    fn at_sniff_is_a_sniff_rule_s_only() {
+        let err = crate::config::Config::from_json(
+            &serde_json::json!({
+                "outbounds": [{ "type": "direct", "tag": "a" }],
+                "route": { "rules": [
+                    { "port": [443], "action": "route-options", "override_destination": "at_sniff" }
+                ] },
+            })
+            .to_string(),
+        )
+        .err()
+        .unwrap();
+        assert!(
+            format!("{:#}", err).contains("override_destination: at_sniff is a sniff rule's only"),
+            "{:#}",
+            err
+        );
+        let err = crate::config::Config::from_json(
+            &serde_json::json!({
+                "route": { "rules": [
+                    { "action": "sniff", "override_destination": "proxy_only" }
+                ] },
+            })
+            .to_string(),
+        )
+        .err()
+        .unwrap();
+        assert!(format!("{:#}", err).contains("proxy_only"), "{:#}", err);
+    }
+
+    /// The IP version is the destination's when matching began, as in
+    /// sing-box: a sniff that makes the sniffed domain the destination
+    /// leaves it (route/route.go:585-589).
+    #[tokio::test]
+    async fn the_ip_version_is_the_address_asked_for_s() {
+        let router = router(serde_json::json!([
+            { "action": "sniff", "override_destination": "at_sniff" },
+            { "ip_version": 4, "outbound": "a" },
+        ]));
+        let mut sniffer = FakeSniffer {
+            domain: "v4.test",
+            calls: 0,
+        };
+        let mut sess = to("127.0.0.2:443");
+        let decision = router
+            .pick_route(&mut sess, &mut sniffer, &NoPass)
+            .await
+            .unwrap();
+        assert_eq!(sess.destination, to("v4.test:443").destination);
+        assert_eq!(decision, Decision::Route(Some("a".into())));
     }
 
     /// As the Clash front-end lowers Mihomo's sniffer: only a connection to

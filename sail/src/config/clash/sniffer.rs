@@ -6,6 +6,10 @@
 //! matches. A name found that `skip-domain` matches is not taken, through
 //! the rule's `skip_rule_set`, a sail extension.
 //!
+//! `override-destination` is Mihomo's: the sniffed name becomes the
+//! destination where the sniff stands (`override_destination: at_sniff`),
+//! not sail's dial-time override, which leaves the rules the address.
+//!
 //! Where sail does otherwise: a connection to an address the DNS answered
 //! for a name, which Mihomo sniffs with `force-dns-mapping`, is sniffed
 //! only while the address stands for no name in sail; where sail's DNS
@@ -148,8 +152,10 @@ pub fn lower(
         rule.insert("rules".into(), Value::Array(conditions));
         rule.insert("action".into(), json!("sniff"));
         rule.insert("sniffer".into(), json!([name]));
+        // Mihomo's override is at the sniff: the rules after match the
+        // name, and those on addresses resolve it.
         if overrides {
-            rule.insert("override_destination".into(), json!(true));
+            rule.insert("override_destination".into(), json!("at_sniff"));
         }
         if !skip_sets.is_empty() {
             rule.insert("skip_rule_set".into(), json!(skip_sets));

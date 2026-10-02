@@ -77,6 +77,8 @@ fn connection(c: &ConnectionInfo) -> Value {
             "destinationIP": c.destination.ip().map(|ip| ip.to_string()).unwrap_or_default(),
             "destinationPort": c.destination.port().to_string(),
             "host": c.host.clone().unwrap_or_default(),
+            "sniffHost": c.sniff_host.clone().unwrap_or_default(),
+            "dialDomainSource": c.dial_domain_source.unwrap_or_default(),
             "dnsMode": "normal",
             "processPath": c.process.clone().unwrap_or_default(),
             "inboundName": c.inbound_tag,

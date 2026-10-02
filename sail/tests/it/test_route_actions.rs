@@ -114,7 +114,7 @@ fn a_quic_session_is_routed_by_its_server_name() -> anyhow::Result<()> {
             "outbounds": [{ "type": "direct" }],
             "route": {
                 "rules": [
-                    { "action": "sniff", "sniffer": ["quic"], "override_destination": true },
+                    { "action": "sniff", "sniffer": ["quic"], "override_destination": "at_sniff" },
                     { "domain": ["localhost"], "port": [rejected_addr.port()], "action": "reject" }
                 ]
             }
