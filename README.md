@@ -34,7 +34,7 @@ The complete, measured list of what Sail takes from each format is in the [compa
 
 ## Quick start
 
-Building needs Rust, CMake and a C/C++ compiler: BoringSSL is compiled from source.
+Building needs Rust, CMake and a C/C++ compiler: BoringSSL is compiled from source. On Windows (MSVC), BoringSSL's assembly also needs [NASM](https://www.nasm.us/) on `PATH`; without it the build stops.
 
 ```sh
 cargo build -p sail-cli --release

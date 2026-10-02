@@ -34,7 +34,7 @@ Sail 对每种配置格式支持哪些字段，完整的实测清单见[兼容�
 
 ## 快速开始
 
-编译需要 Rust、CMake 和 C/C++ 编译器，因为 BoringSSL 要从源码编译。
+编译需要 Rust、CMake 和 C/C++ 编译器，因为 BoringSSL 要从源码编译。在 Windows（MSVC）上，BoringSSL 的汇编还需要 `PATH` 里有 [NASM](https://www.nasm.us/)，没有它编译会停下。
 
 ```sh
 cargo build -p sail-cli --release
