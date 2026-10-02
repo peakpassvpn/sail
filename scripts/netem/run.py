@@ -683,7 +683,7 @@ class Run:
         self.check("concurrency", "concurrent", res)
         print(f"  {self.name} concurrency: {brief(res)} rss peak {rec['rss_peak_kb']} kB",
               flush=True)
-        for rate in (200, 500):
+        for rate in self.args.churn_rates:
             m = sampler.mark()
             res = self.netgen("churn", f"-rate {rate}", f"-duration {10 if self.args.quick else 30}s")
             self.record("concurrency", f"churn{rate}", res, sampler.since(m), None,
@@ -863,6 +863,9 @@ def main():
                          "distribution normal'; a rate needs its own limit (about 100 ms of "
                          "queue, as the fixed rate10m's 'limit 420'), or netns.sh gives it "
                          "100000 packets; with --only NAME, the only one run")
+    ap.add_argument("--churn-rates", default="200,500", metavar="LIST",
+                    help="the new connections a second of the concurrency scenario's churn "
+                         "phases, 30 s each (10 with --quick), comma-separated")
     ap.add_argument("--setup-n", type=int, default=0,
                     help="connections of the setup workload, for rare failures")
     ap.add_argument("--client-nofile", type=int, default=None,
@@ -871,6 +874,12 @@ def main():
     ap.add_argument("--quick", action="store_true")
     args = ap.parse_args()
     args.only_list = [o.strip() for o in args.only.split(",") if o.strip()]
+    try:
+        args.churn_rates = [int(r) for r in args.churn_rates.split(",") if r.strip()]
+    except ValueError:
+        ap.error(f"--churn-rates {args.churn_rates!r}: numbers, comma-separated")
+    if not args.churn_rates or any(r <= 0 for r in args.churn_rates):
+        ap.error("--churn-rates: one rate or more, each above 0")
     if "route_switch" in args.only_list and args.only != "route_switch":
         ap.error("--only route_switch is a run of its own")
     for shape in args.shape:
