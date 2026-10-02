@@ -241,7 +241,7 @@ pub(crate) fn routed(
     connect: OutboundConnect,
     datagram: bool,
 ) -> OutboundConnect {
-    let known = sess.route.resolved
+    let known = !sess.route.resolved.is_empty()
         || (sess.destination.ip().is_some() && (!datagram || sess.route.udp_connect));
     match connect {
         OutboundConnect::Direct(dialer) if handler.is_direct() && known => OutboundConnect::Direct(
@@ -264,6 +264,13 @@ async fn connect_stream(
         }
         OutboundConnect::Direct(dialer) => {
             trace!("connect stream direct dst={}", &sess.destination);
+            if let Some(ips) = resolved(sess, &dialer) {
+                return Ok(Some(
+                    dialer
+                        .stream_to_resolved(Some(sess), ips, sess.destination.port())
+                        .await?,
+                ));
+            }
             Ok(Some(
                 dialer
                     .stream(&dns_client, Some(sess), &sess.destination)
@@ -317,7 +324,10 @@ async fn connect_datagram(
             let addr = match &sess.destination {
                 SocksAddr::Ip(addr) => *addr,
                 SocksAddr::Domain(domain, port) => {
-                    let ips = dialer.lookup(&dns_client, domain).await?;
+                    let ips = match resolved(sess, &dialer) {
+                        Some(ips) => ips.to_vec(),
+                        None => dialer.lookup(&dns_client, domain).await?,
+                    };
                     let ip = ips.first().ok_or_else(|| {
                         io::Error::other(format!("{} resolves to nothing", domain))
                     })?;
@@ -346,7 +356,8 @@ async fn connect_datagram(
                         dns_client.clone(),
                         dialer,
                     )
-                    .without_unmapping(sess.route.udp_disable_domain_unmapping),
+                    .without_unmapping(sess.route.udp_disable_domain_unmapping)
+                    .resolved(sess.route.resolved.clone()),
                 ))))
             }
             SocksAddr::Ip(addr) => {
@@ -358,6 +369,18 @@ async fn connect_datagram(
         },
         _ => Ok(None),
     }
+}
+
+/// The addresses a `resolve` rule resolved `sess`'s domain to, which
+/// `dialer` dials instead of resolving the domain again, as sing-box dials
+/// its `DestinationAddresses` (route/conn.go:101-104, 166-170, 203-205):
+/// none for an address, or for a dialer with a detour, which hands the
+/// domain on.
+fn resolved<'a>(sess: &'a Session, dialer: &Dialer) -> Option<&'a [std::net::IpAddr]> {
+    (sess.destination.domain().is_some()
+        && !sess.route.resolved.is_empty()
+        && dialer.detour().is_none())
+    .then_some(sess.route.resolved.as_slice())
 }
 
 /// Peeks data from the local side of a stream.
@@ -641,6 +664,85 @@ mod tests {
         accepting.abort();
     }
 
+    /// A direct dial to a domain a `resolve` rule resolved goes to the
+    /// addresses it resolved to, not to what its own resolver answers, as
+    /// sing-box dials `DestinationAddresses` (route/conn.go:101-104,
+    /// 166-170, 203-205): over TCP, connected UDP, and UDP that is not.
+    /// Here the default server answers `::1`, the rule's `127.0.0.1`.
+    #[tokio::test]
+    async fn a_direct_dial_goes_to_the_addresses_a_resolve_rule_resolved() {
+        use tokio::io::AsyncWriteExt;
+
+        let config = crate::config::Config::from_json(
+            r#"{ "dns": { "servers": [
+                { "type": "hosts", "predefined": { "test.sail": "::1" } }
+            ] } }"#,
+        )
+        .unwrap();
+        let dns = crate::app::dns::DnsClient::new(
+            &config.dns,
+            std::sync::Arc::new(DialDefaults::default()),
+            &Default::default(),
+        )
+        .unwrap()
+        .into_shared();
+        // One port on both loopbacks, for TCP and UDP.
+        let (tcp, udp, port) = loop {
+            let v4 = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let port = v4.local_addr().unwrap().port();
+            let at = |ip: &str| SocketAddr::new(ip.parse().unwrap(), port);
+            let (Ok(v6), Ok(u4), Ok(u6)) = (
+                tokio::net::TcpListener::bind(at("::1")).await,
+                tokio::net::UdpSocket::bind(at("127.0.0.1")).await,
+                tokio::net::UdpSocket::bind(at("::1")).await,
+            ) else {
+                continue;
+            };
+            break ((v4, v6), (u4, u6), port);
+        };
+        let resolved = |udp_connect: bool| {
+            let mut sess = Session {
+                destination: SocksAddr::Domain("test.sail".into(), port),
+                ..Default::default()
+            };
+            sess.route.resolved = vec!["127.0.0.1".parse().unwrap()];
+            sess.route.udp_connect = udp_connect;
+            sess
+        };
+        let direct = || OutboundConnect::Direct(Dialer::system());
+
+        let sess = resolved(false);
+        let mut stream = connect_stream(&sess, dns.clone(), direct())
+            .await
+            .unwrap()
+            .unwrap();
+        stream.write_all(b"x").await.unwrap();
+        let accepted = tokio::select! {
+            _ = tcp.0.accept() => "127.0.0.1",
+            _ = tcp.1.accept() => "::1",
+        };
+        assert_eq!(accepted, "127.0.0.1");
+
+        let (mut buf4, mut buf6) = ([0u8; 8], [0u8; 8]);
+        for udp_connect in [false, true] {
+            let sess = resolved(udp_connect);
+            let Some(OutboundTransport::Datagram(datagram)) =
+                connect_datagram(&sess, dns.clone(), direct())
+                    .await
+                    .unwrap()
+            else {
+                panic!("no datagrams");
+            };
+            let (_recv, mut send) = datagram.split();
+            send.send_to(b"x", &sess.destination).await.unwrap();
+            let heard = tokio::select! {
+                _ = udp.0.recv_from(&mut buf4) => "127.0.0.1",
+                _ = udp.1.recv_from(&mut buf6) => "::1",
+            };
+            assert_eq!(heard, "127.0.0.1", "udp_connect: {}", udp_connect);
+        }
+    }
+
     /// Only a direct outbound the rules route to dials with what they set:
     /// neither an outbound that dials its server, nor a group passing on a
     /// direct pick's request, which says it is no direct outbound, as only
@@ -699,7 +801,7 @@ mod tests {
         let mut domain = at("x.test");
         assert_eq!(strategy(&domain, true, direct(), false), not);
         assert_eq!(strategy(&domain, true, direct(), true), not);
-        domain.route.resolved = true;
+        domain.route.resolved = vec!["192.0.2.1".parse().unwrap()];
         assert_eq!(strategy(&domain, true, direct(), false), taken);
         assert_eq!(strategy(&domain, true, direct(), true), taken);
     }

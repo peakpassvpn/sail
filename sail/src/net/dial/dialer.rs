@@ -508,6 +508,37 @@ impl Dialer {
         }
     }
 
+    /// A stream to one of `ips` at `port`, the addresses a `resolve` rule
+    /// resolved the destination's domain to, which it does not resolve
+    /// again: their families raced as `tcp` races a name's, the first
+    /// address's family first, as sing-box's direct outbound dials them
+    /// (protocol/direct/outbound.go:232-246). A dialer with a detour has
+    /// none.
+    pub async fn stream_to_resolved(
+        &self,
+        sess: Option<&Session>,
+        ips: &[IpAddr],
+        port: u16,
+    ) -> io::Result<AnyStream> {
+        let SocketDialer { spec, .. } = self.socket()?;
+        let Some(first) = ips.first() else {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "no address to dial",
+            ));
+        };
+        let addrs: Vec<SocketAddr> = ips.iter().map(|ip| SocketAddr::new(*ip, port)).collect();
+        let order = Order {
+            race: !spec.tcp_fast_open,
+            prefer_ipv6: first.to_canonical().is_ipv6(),
+            fallback_delay: spec.fallback_delay,
+        };
+        let (stream, egress) =
+            super::happy::connect(&addrs, order, |addr| self.tcp_to_out(addr)).await?;
+        record(sess, egress);
+        Ok(Box::new(stream))
+    }
+
     /// Datagrams to `to`: a UDP socket of its own, a name resolved as each
     /// datagram is sent, or the datagrams of its detour, as `stream`.
     pub async fn datagram(

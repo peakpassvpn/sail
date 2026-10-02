@@ -420,9 +420,11 @@ pub struct RouteOptions {
     /// first interfaces, before the others race them, instead of its own
     /// `fallback_delay`.
     pub fallback_delay: Option<std::time::Duration>,
-    /// Whether a `resolve` rule resolved its domain, so that its addresses
-    /// are known before it is dialled: sing-box's `DestinationAddresses`.
-    pub resolved: bool,
+    /// The addresses a `resolve` rule resolved the destination's domain
+    /// to, in the order its strategy put them, known before it is
+    /// dialled: sing-box's `DestinationAddresses`. A direct dial goes to
+    /// these, not to what it would resolve itself.
+    pub resolved: Vec<std::net::IpAddr>,
 }
 
 /// How a TLS ClientHello is cut, in its server name.

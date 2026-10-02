@@ -158,6 +158,9 @@ pub struct DomainAssociatedOutboundDatagram {
     dialer: Dialer,
     /// Answers come as from the domain they were sent to.
     unmap: bool,
+    /// The addresses a `resolve` rule resolved `destination` to, which
+    /// datagrams to it go to instead of what it resolves to here.
+    resolved: Vec<IpAddr>,
 }
 
 impl DomainAssociatedOutboundDatagram {
@@ -173,7 +176,17 @@ impl DomainAssociatedOutboundDatagram {
             dns_client,
             dialer,
             unmap: true,
+            resolved: Vec::new(),
         }
+    }
+
+    /// The same datagram, whose datagrams to its destination go to `ips`,
+    /// the addresses a `resolve` rule resolved it to, in their order, as
+    /// sing-box sends them to the address its listen took
+    /// (route/conn.go:203-205, 228-244); none leaves it to resolve.
+    pub fn resolved(mut self, ips: Vec<IpAddr>) -> Self {
+        self.resolved = ips;
+        self
     }
 
     /// The same datagram, whose answers come as from the address a domain
@@ -198,7 +211,7 @@ impl OutboundDatagram for DomainAssociatedOutboundDatagram {
         (
             Box::new(DomainAssociatedOutboundDatagramRecvHalf(
                 r,
-                self.destination,
+                self.destination.clone(),
                 self.unmap.then(|| targets.clone()),
                 udp_backoff(),
             )),
@@ -207,6 +220,7 @@ impl OutboundDatagram for DomainAssociatedOutboundDatagram {
                 self.dns_client,
                 targets,
                 self.dialer,
+                (!self.resolved.is_empty()).then_some((self.destination, self.resolved)),
             )),
         )
     }
@@ -352,6 +366,7 @@ pub struct DomainAssociatedOutboundDatagramSendHalf(
     SyncDnsClient,
     DomainTargetMap,
     Dialer,
+    Option<(SocksAddr, Vec<IpAddr>)>,
 );
 
 #[async_trait]
@@ -359,7 +374,10 @@ impl OutboundDatagramSendHalf for DomainAssociatedOutboundDatagramSendHalf {
     async fn send_to(&mut self, buf: &[u8], target: &SocksAddr) -> io::Result<usize> {
         let addr = match target {
             SocksAddr::Domain(domain, port) => {
-                let ips = self.3.lookup(&self.1, domain).await?;
+                let ips = match &self.4 {
+                    Some((destination, ips)) if destination == target => ips.clone(),
+                    _ => self.3.lookup(&self.1, domain).await?,
+                };
                 // An IPv4 socket sends to IPv4 addresses only; a dual-stack
                 // IPv6 one to either.
                 let dual_stack = self.0.local_addr()?.is_ipv6();

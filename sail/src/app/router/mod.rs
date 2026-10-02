@@ -288,7 +288,7 @@ impl Options {
             }
             // What was resolved is of the destination before (route/route.go:633-635).
             if self.override_address.is_some() {
-                sess.route.resolved = false;
+                sess.route.resolved.clear();
             }
             let port = self.override_port.unwrap_or(sess.destination.port());
             sess.destination = match self.override_address.as_ref().unwrap_or(&sess.destination) {
@@ -667,7 +667,7 @@ impl Router {
     ) -> Result<Stop> {
         let pre_match = sniffer.is_none();
         sess.matched_rule = None;
-        sess.route.resolved = false;
+        sess.route.resolved.clear();
         // The network as it is when the connection is matched, for every
         // rule alike.
         let network = self.network.as_ref().map(|n| n.snapshot());
@@ -710,7 +710,7 @@ impl Router {
                             resolved = self
                                 .resolve_as(how, &domain, sess, network.as_ref())
                                 .await?;
-                            sess.route.resolved = !resolved.is_empty();
+                            sess.route.resolved = resolved.clone();
                             facts = facts_of(sess, &resolved);
                         }
                     }
@@ -780,15 +780,15 @@ impl Router {
                     None => return Ok(Stop::NeedsData),
                 },
                 Action::Resolve(how) => {
+                    // As sing-box's, only the domain the connection goes
+                    // to, not one sniffed: nothing for an address
+                    // (route/route.go:898-921).
                     if resolved.is_empty() && !sess.skip_resolve {
-                        if let Some(domain) = facts.domain().map(str::to_string) {
+                        if let Some(domain) = sess.destination.domain().cloned() {
                             resolved = self
                                 .resolve_as(how, &domain, sess, network.as_ref())
                                 .await?;
-                            // As sing-box's, only of a domain to go to
-                            // (route/route.go:898-920).
-                            sess.route.resolved =
-                                !resolved.is_empty() && sess.destination.domain().is_some();
+                            sess.route.resolved = resolved.clone();
                         }
                     }
                 }
@@ -989,6 +989,10 @@ mod tests {
             {
                 sess.set_sniffed_domain(crate::session::SniffedFrom::Tls, self.domain.to_string());
                 sess.sniffed_protocol = Some(crate::session::SniffedProtocol::Tls);
+                if action.override_destination {
+                    sess.destination =
+                        SocksAddr::Domain(self.domain.into(), sess.destination.port());
+                }
             }
             Ok(())
         }
@@ -1020,6 +1024,43 @@ mod tests {
         assert_eq!(decision, Decision::Route(Some("a".into())));
         assert_eq!(sniffer.calls, 1);
         assert_eq!(sess.sniffed_domain(), Some("www.example.com"));
+    }
+
+    /// As sing-box's, a resolve rule resolves the domain the connection
+    /// goes to, never one only sniffed: to an address, it resolves nothing
+    /// (route/route.go:898-921). Once the sniffed domain is where it goes,
+    /// by `override_destination`, it is resolved.
+    #[tokio::test]
+    async fn a_resolve_rule_resolves_the_destination_not_the_sniffed_domain() {
+        let route = |override_destination: bool| async move {
+            let router = router(serde_json::json!([
+                { "action": "sniff", "override_destination": override_destination },
+                { "action": "resolve", "server": "lan" },
+                { "ip_cidr": "10.0.0.1/32", "outbound": "a" },
+            ]));
+            let mut sniffer = FakeSniffer {
+                domain: "test.sail",
+                calls: 0,
+            };
+            let mut sess = to("127.0.0.2:443");
+            let decision = router
+                .pick_route(&mut sess, &mut sniffer, &NoPass)
+                .await
+                .unwrap();
+            assert_eq!(sess.sniffed_domain(), Some("test.sail"));
+            (decision, sess.route.resolved)
+        };
+        assert_eq!(
+            route(false).await,
+            (Decision::Route(Some("b".into())), vec![])
+        );
+        assert_eq!(
+            route(true).await,
+            (
+                Decision::Route(Some("a".into())),
+                vec!["10.0.0.1".parse::<IpAddr>().unwrap()]
+            )
+        );
     }
 
     /// As the Clash front-end lowers Mihomo's sniffer: only a connection to
@@ -1708,11 +1749,11 @@ mod tests {
             unresolved.route.network_strategy,
             Some(NetworkStrategy::Hybrid)
         );
-        assert!(!unresolved.route.resolved);
+        assert!(unresolved.route.resolved.is_empty());
         assert_eq!(strategy(&unresolved), None);
         let mut resolved = to("test.sail:443");
         pick(&router, &mut resolved).await;
-        assert!(resolved.route.resolved);
+        assert!(!resolved.route.resolved.is_empty());
         assert_eq!(strategy(&resolved), Some(NetworkStrategy::Hybrid));
 
         // An override after puts another destination in place, its
@@ -1724,7 +1765,7 @@ mod tests {
         ]));
         let mut sess = to("test.sail:443");
         pick(&router, &mut sess).await;
-        assert!(!sess.route.resolved);
+        assert!(sess.route.resolved.is_empty());
     }
 
     /// A `direct` rule's dial fields are checked when the router is built,
