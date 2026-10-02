@@ -331,6 +331,13 @@ mod tests {
         serde_json::from_value(json).unwrap()
     }
 
+    /// An absolute path where the tests run.
+    const ABSOLUTE: &str = if cfg!(windows) {
+        "C:/abs/other.mmdb"
+    } else {
+        "/abs/other.mmdb"
+    };
+
     #[test]
     fn each_kind_is_found_once_a_path_with_its_readers() {
         let dir = std::env::temp_dir().join(format!("sail-assets-{}", std::process::id()));
@@ -341,7 +348,7 @@ mod tests {
                 { "type": "direct" },
                 { "type": "smart", "tag": "s", "outbounds": ["direct"], "prefer_asn": true },
                 { "type": "smart", "tag": "t", "outbounds": ["direct"],
-                  "prefer_asn": true, "asn_file": "/abs/other.mmdb" },
+                  "prefer_asn": true, "asn_file": ABSOLUTE },
                 { "type": "smart", "tag": "u", "outbounds": ["direct"] }
             ],
             "dns": { "rules": [
@@ -395,8 +402,8 @@ mod tests {
         assert_eq!(site.used_by, ["dns.rules[0].geosite"]);
         assert_eq!(by_name("ads.dat").used_by, ["dns.rules[1].external[0]"]);
         if cfg!(feature = "outbound-smart") {
-            let other = by_name("/abs/other.mmdb");
-            assert_eq!(other.path, "/abs/other.mmdb", "absolute, as it is");
+            let other = by_name(ABSOLUTE);
+            assert_eq!(other.path, ABSOLUTE, "absolute, as it is");
             assert_eq!(other.used_by, ["outbounds[2].prefer_asn"]);
         }
         let expected = if cfg!(feature = "outbound-smart") {

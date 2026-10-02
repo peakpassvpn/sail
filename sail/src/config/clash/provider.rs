@@ -382,7 +382,9 @@ pub fn domain_conditions(patterns: Vec<String>, tags: Vec<String>) -> Vec<Map<St
 /// A provider's or rule-provider's `path`, kept where Mihomo keeps it: in
 /// `home`, the data directory (Mihomo's home), as its `IsSafePath` has it.
 /// A relative path may not climb out of it; an absolute one must be in it,
-/// and without a home to tell, one is refused.
+/// and without a home to tell, one is refused. On Windows a path with a
+/// drive or a root, but not both (`C:x`, `\x`), is held to the data
+/// directory like an absolute one, which it never lands in.
 pub(super) fn home_path(
     f: &mut Fields,
     key: &str,
@@ -418,4 +420,42 @@ fn regex_escape(s: &str) -> String {
         out.push(c);
     }
     out
+}
+
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use std::path::Path;
+
+    /// Windows paths: one with a drive and a root is held to the data
+    /// directory; one with only one of them is refused, since where it
+    /// lands depends on the process's current drive and directory.
+    #[test]
+    fn a_provider_path_on_windows_lands_in_the_data_directory_or_is_refused() {
+        let home = Path::new(r"C:\sail\data");
+        let config = |path: &str| {
+            let yaml = format!(
+                "proxy-providers: {{ a: {{ type: file, path: '{path}' }} }}\n\
+                 proxy-groups: [{{ name: G, type: select, use: [a] }}]\n"
+            );
+            super::super::parse_in(&yaml, Some(home))
+        };
+        for taken in [r"C:\sail\data\a.yaml", r"sub\a.yaml", r".\a.yaml"] {
+            let config = config(taken).unwrap_or_else(|e| panic!("{taken}: {e:#}"));
+            assert_eq!(config.outbound_providers[0].path.as_deref(), Some(taken));
+        }
+        for refused in [
+            r"C:\Windows\a.yaml",
+            r"\\server\share\a.yaml",
+            r"\sail\data\a.yaml",
+            r"C:a.yaml",
+            r"C:sail\data\a.yaml",
+            r"sub\..\..\a.yaml",
+        ] {
+            let err = format!("{:#}", config(refused).unwrap_err());
+            assert!(
+                err.contains("is not in the data directory"),
+                "{refused}: {err}"
+            );
+        }
+    }
 }
