@@ -1630,8 +1630,8 @@ mod tests {
             io::ErrorKind::Unsupported
         );
         assert_eq!(
-            watch_neighbors().unwrap_err().kind(),
-            io::ErrorKind::Unsupported
+            watch_neighbors().err().map(|e| e.kind()),
+            Some(io::ErrorKind::Unsupported)
         );
     }
 }
