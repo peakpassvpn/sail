@@ -499,11 +499,20 @@ mod tests {
 
     #[test]
     fn the_body_key_is_not_printed() {
-        let mut header = RequestHeader::new(0, 0, 1, None);
-        header.body_key = Secret([0xab; 16]);
+        // Every field fixed, none of them 0xab, so that only the key could
+        // print 171.
+        let header = RequestHeader {
+            body_iv: [1; 16],
+            body_key: Secret([0xab; 16]),
+            response_auth: 2,
+            option: 0,
+            security: 0,
+            command: 1,
+            address: None,
+        };
         let debug = format!("{:?}", header);
         assert!(
-            !debug.contains("171") && debug.contains("<redacted>"),
+            !debug.contains("171") && debug.contains("body_key: <redacted>"),
             "{}",
             debug
         );
