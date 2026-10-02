@@ -20,6 +20,7 @@ import argparse
 import gzip
 import json
 import os
+import shlex
 import shutil
 import signal
 import statistics
@@ -76,7 +77,10 @@ def in_ns(ns, cmd):
 
 
 def netns(*args):
-    sh(f"{NETNS} " + " ".join(args))
+    # Each argument split as a shell would, then quoted: a spec reaches
+    # netns.sh as the words it is made of, whatever they hold.
+    words = [w for a in args for w in shlex.split(a)]
+    sh(f"{NETNS} " + " ".join(shlex.quote(w) for w in words))
 
 
 # ------------------------------------------------------------- scenarios
@@ -826,6 +830,12 @@ def main():
                     help="only these scenarios, comma-separated: each a part of a shaped "
                          "scenario's name, or disconnect, concurrency, halfclose; "
                          "route_switch alone, as a run of its own")
+    ap.add_argument("--shape", action="append", default=[], metavar="NAME=SPEC",
+                    help="a shaped scenario of one's own, after the fixed ones: NAME, and "
+                         "what `tc qdisc ... netem` takes, e.g. rtt100='delay 50ms 5ms "
+                         "distribution normal'; a rate needs its own limit (about 100 ms of "
+                         "queue, as the fixed rate10m's 'limit 420'), or netns.sh gives it "
+                         "100000 packets; with --only NAME, the only one run")
     ap.add_argument("--setup-n", type=int, default=0,
                     help="connections of the setup workload, for rare failures")
     ap.add_argument("--client-nofile", type=int, default=None,
@@ -836,6 +846,13 @@ def main():
     args.only_list = [o.strip() for o in args.only.split(",") if o.strip()]
     if "route_switch" in args.only_list and args.only != "route_switch":
         ap.error("--only route_switch is a run of its own")
+    for shape in args.shape:
+        name, sep, spec = shape.partition("=")
+        if not sep or not name or not spec.strip():
+            ap.error(f"--shape {shape!r}: NAME=SPEC")
+        if any(name == n for n, _ in SHAPED):
+            ap.error(f"--shape {name}: a fixed scenario's name")
+        SHAPED.append((name, spec.strip()))
     if args.cpus:
         CPUS[CLIENT_NS] = args.cpus
         CPUS[SERVER_NS] = args.server_cpus or args.cpus
