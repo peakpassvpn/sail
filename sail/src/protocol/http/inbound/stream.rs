@@ -293,14 +293,25 @@ impl HttpStream {
             TargetFormat::Absolute => {
                 // Forwarded to the origin as a request of its own, which
                 // names its target by path and Host, without what was meant
-                // for this proxy.
+                // for this proxy. The client's Host is kept as it sent it;
+                // without one, the request-target's authority is, less a
+                // default port 80, as sing-box does (sing's
+                // protocol/http/handshake.go, handleHTTPConnection and
+                // removeExtraHTTPHostPort).
+                if head.header("Host").is_none_or(str::is_empty) {
+                    let authority = head.uri.authority().ok_or_else(bad_request)?;
+                    let host = match authority.port_u16() {
+                        Some(80) => authority.host(),
+                        _ => authority.as_str(),
+                    };
+                    head.set_header("Host".to_string(), host.to_string());
+                }
                 let path_and_query = head
                     .uri
                     .path_and_query()
                     .map(|paq| paq.as_str())
                     .unwrap_or("/");
                 head.uri = path_and_query.parse().map_err(|_| bad_request())?;
-                head.set_header("Host".to_string(), addr.to_string());
                 head.remove_header("Proxy-Authorization");
                 head.remove_header("Proxy-Connection");
                 self.cache = head.into();
@@ -506,6 +517,41 @@ mod tests {
         assert!(forwarded.starts_with("GET /a?b HTTP/1.1\r\n"));
         assert!(!forwarded.to_ascii_lowercase().contains("proxy-"));
         assert!(forwarded.ends_with("\r\n\r\nbody"));
+    }
+
+    /// The Host a request is forwarded with: the client's, as it sent it,
+    /// or the target's without a default port, as sing-box forwards it.
+    #[tokio::test]
+    async fn the_client_s_host_is_forwarded_as_sent() {
+        for (request, host) in [
+            (
+                "GET http://127.0.0.1:8080/a HTTP/1.1\r\nHost: other.example\r\n\r\n",
+                "other.example",
+            ),
+            (
+                "GET http://example.com/a HTTP/1.1\r\nHost: example.com\r\n\r\n",
+                "example.com",
+            ),
+            ("GET http://example.com/a HTTP/1.1\r\n\r\n", "example.com"),
+            (
+                "GET http://example.com:80/a HTTP/1.1\r\n\r\n",
+                "example.com",
+            ),
+            (
+                "GET http://example.com:8080/a HTTP/1.1\r\n\r\n",
+                "example.com:8080",
+            ),
+            ("GET http://[::1]/a HTTP/1.1\r\nHost: \r\n\r\n", "[::1]"),
+        ] {
+            let (result, _, cache) = accept(Passwords::new(), request.as_bytes()).await;
+            result.unwrap();
+            let forwarded = String::from_utf8(cache).unwrap();
+            let hosts: Vec<&str> = forwarded
+                .split("\r\n")
+                .filter(|line| line.to_ascii_lowercase().starts_with("host:"))
+                .collect();
+            assert_eq!(hosts, [format!("Host: {}", host)], "{}", request);
+        }
     }
 
     #[tokio::test]
