@@ -101,20 +101,71 @@ fn client(
     Ok((instance, handler))
 }
 
+/// How long an accepted stream or datagram may take to echo.
+const ECHOED_WITHIN: Duration = Duration::from_secs(3);
+/// How long silence takes, at least, to count as a refusal. A refused
+/// stream or datagram gets no echo, and a refusal is often silence (a
+/// server that does not tell a prober it failed, a datagram dropped); an
+/// accepted one echoes over loopback within milliseconds.
+const REFUSED_AFTER: Duration = Duration::from_millis(500);
+
+/// The slowest echo an accepted stream or datagram gave in these tests:
+/// what calibrates the refusal window, so that a refusal is told from a
+/// slow acceptance on any host.
+static SLOWEST_ECHO: std::sync::Mutex<Duration> = std::sync::Mutex::new(Duration::ZERO);
+
+/// How long silence takes to count as a refusal: `REFUSED_AFTER`, or ten
+/// times the slowest accepted echo, whichever is longer. A forbidden user
+/// answered as slowly as an allowed one is never taken for refused.
+fn refusal_window() -> Duration {
+    let slowest = *SLOWEST_ECHO.lock().unwrap_or_else(|e| e.into_inner());
+    REFUSED_AFTER.max(slowest * 10)
+}
+
+/// Keeps `elapsed`, an accepted echo's, for the refusal window.
+fn echoed_in(elapsed: Duration) {
+    let mut slowest = SLOWEST_ECHO.lock().unwrap_or_else(|e| e.into_inner());
+    *slowest = (*slowest).max(elapsed);
+}
+
 async fn open(handler: &AnyOutboundHandler, address: SocketAddr) -> Result<AnyStream> {
+    open_within(handler, address, Duration::from_secs(5)).await
+}
+
+async fn open_within(
+    handler: &AnyOutboundHandler,
+    address: SocketAddr,
+    limit: Duration,
+) -> Result<AnyStream> {
     let sess = Session {
         destination: SocksAddr::from(address),
         ..Default::default()
     };
-    Ok(tokio::time::timeout(
-        Duration::from_secs(5),
-        handler.stream()?.handle(&sess, None, None),
-    )
-    .await??)
+    Ok(tokio::time::timeout(limit, handler.stream()?.handle(&sess, None, None)).await??)
 }
 
 async fn ping(stream: &mut AnyStream) -> Result<()> {
-    tokio::time::timeout(Duration::from_secs(3), async {
+    let start = std::time::Instant::now();
+    ping_within(stream, ECHOED_WITHIN).await?;
+    echoed_in(start.elapsed());
+    Ok(())
+}
+
+/// Whether `stream` is refused: it fails, or no echo comes in time.
+async fn refused(stream: &mut AnyStream) -> bool {
+    ping_within(stream, refusal_window()).await.is_err()
+}
+
+/// Whether a stream `handler` opens is refused.
+async fn refused_new(handler: &AnyOutboundHandler, address: SocketAddr) -> bool {
+    match open_within(handler, address, refusal_window()).await {
+        Ok(mut stream) => refused(&mut stream).await,
+        Err(_) => true,
+    }
+}
+
+async fn ping_within(stream: &mut AnyStream, limit: Duration) -> Result<()> {
+    tokio::time::timeout(limit, async {
         stream.write_all(b"live").await?;
         stream.flush().await?;
         let mut echo = [0; 4];
@@ -130,7 +181,30 @@ async fn udp_ping(
     send: &mut dyn sail::adapter::OutboundDatagramSendHalf,
     address: SocketAddr,
 ) -> Result<()> {
-    tokio::time::timeout(Duration::from_secs(3), async {
+    let start = std::time::Instant::now();
+    udp_ping_within(recv, send, address, ECHOED_WITHIN).await?;
+    echoed_in(start.elapsed());
+    Ok(())
+}
+
+/// Whether datagrams are refused: none comes back in time.
+async fn udp_refused(
+    recv: &mut dyn sail::adapter::OutboundDatagramRecvHalf,
+    send: &mut dyn sail::adapter::OutboundDatagramSendHalf,
+    address: SocketAddr,
+) -> bool {
+    udp_ping_within(recv, send, address, refusal_window())
+        .await
+        .is_err()
+}
+
+async fn udp_ping_within(
+    recv: &mut dyn sail::adapter::OutboundDatagramRecvHalf,
+    send: &mut dyn sail::adapter::OutboundDatagramSendHalf,
+    address: SocketAddr,
+    limit: Duration,
+) -> Result<()> {
+    tokio::time::timeout(limit, async {
         send.send_to(b"udp-live", &SocksAddr::from(address)).await?;
         let mut buf = [0; 64];
         let (n, _) = recv.recv_from(&mut buf).await?;
@@ -210,17 +284,15 @@ fn quic_users_and_certificates_rotate_without_disconnecting_sessions() -> Result
             // A user taken out is revoked at once: its sessions are closed,
             // and so are new streams on the connection it authenticated.
             ensure!(
-                ping(&mut old_stream).await.is_err(),
+                refused(&mut old_stream).await,
                 "a removed user's stream outlived it: {protocol}"
             );
             ensure!(
-                udp_ping(&mut *recv, &mut *send, udp_address).await.is_err(),
+                udp_refused(&mut *recv, &mut *send, udp_address).await,
                 "a removed user's UDP outlived it: {protocol}"
             );
             ensure!(
-                async { ping(&mut open(&old_handler, address).await?).await }
-                    .await
-                    .is_err(),
+                refused_new(&old_handler, address).await,
                 "a removed user opened a stream on its old connection: {protocol}"
             );
             let (_new_client, new_handler) = client(protocol, port, "bob", &second.cert.pem())?;
@@ -229,15 +301,16 @@ fn quic_users_and_certificates_rotate_without_disconnecting_sessions() -> Result
             let (_wrong_cert_client, wrong_cert) =
                 client(protocol, port, "bob", &first.cert.pem())?;
             ensure!(
-                open(&wrong_cert, address).await.is_err(),
+                open_within(&wrong_cert, address, refusal_window())
+                    .await
+                    .is_err(),
                 "old certificate still trusted"
             );
             let (_removed_client, removed) = client(protocol, port, "alice", &second.cert.pem())?;
             // TUIC's connect writes before auth completes; an echo, not only open(),
             // is the proof of authentication for both protocols.
-            let removed_result = async { ping(&mut open(&removed, address).await?).await }.await;
             ensure!(
-                removed_result.is_err(),
+                refused_new(&removed, address).await,
                 "removed credentials accepted: {protocol}"
             );
 
@@ -247,13 +320,11 @@ fn quic_users_and_certificates_rotate_without_disconnecting_sessions() -> Result
                 .update_inbound_resources(serde_json::from_value(empty)?)
                 .await?;
             ensure!(
-                ping(&mut kept_stream).await.is_err(),
+                refused(&mut kept_stream).await,
                 "an emptied inbound's user kept its stream: {protocol}"
             );
             let (_denied_client, denied) = client(protocol, port, "bob", &second.cert.pem())?;
-            ensure!(async { ping(&mut open(&denied, address).await?).await }
-                .await
-                .is_err());
+            ensure!(refused_new(&denied, address).await);
             manager
                 .update_inbound_resources(serde_json::from_value(new.clone())?)
                 .await?;
@@ -383,9 +454,9 @@ fn shadowsocks_reload(legacy: bool) -> Result<()> {
         if let Some(kept) = &mut kept_stream {
             ping(kept).await?;
             // A user taken out is revoked at once.
-            ensure!(ping(&mut stream).await.is_err(), "a removed user's stream outlived it");
+            ensure!(refused(&mut stream).await, "a removed user's stream outlived it");
             ensure!(
-                udp_ping(&mut *recv, &mut *send, udp_address).await.is_err(),
+                udp_refused(&mut *recv, &mut *send, udp_address).await,
                 "a removed user's UDP outlived it"
             );
         } else {
@@ -394,11 +465,14 @@ fn shadowsocks_reload(legacy: bool) -> Result<()> {
             ping(&mut stream).await?;
             udp_ping(&mut *recv, &mut *send, udp_address).await?;
         }
-        ensure!(
-            async { ping(&mut connect(&old, port, address).await?).await }
-                .await
-                .is_err()
-        );
+        // Whether a stream `handler` opens is refused.
+        async fn refused_ss(handler: &AnyOutboundHandler, port: u16, address: SocketAddr) -> bool {
+            match tokio::time::timeout(refusal_window(), connect(handler, port, address)).await {
+                Ok(Ok(mut stream)) => refused(&mut stream).await,
+                _ => true,
+            }
+        }
+        ensure!(refused_ss(&old, port, address).await);
         let (_new, fresh) = client(&bob)?;
         ping(&mut connect(&fresh, port, address).await?).await?;
         let socket = tokio::net::UdpSocket::bind("127.0.0.1:0").await?;
@@ -408,19 +482,15 @@ fn shadowsocks_reload(legacy: bool) -> Result<()> {
         let socket = tokio::net::UdpSocket::bind("127.0.0.1:0").await?;
         let denied_udp = old.datagram()?.handle(&sess, Some(OutboundTransport::Datagram(Box::new(sail::net::StdOutboundDatagram::new(socket))))).await?;
         let (mut denied_recv, mut denied_send) = denied_udp.split();
-        ensure!(udp_ping(&mut *denied_recv, &mut *denied_send, udp_address).await.is_err());
+        ensure!(udp_refused(&mut *denied_recv, &mut *denied_send, udp_address).await);
         if !legacy {
         manager
             .update_inbound_resources(serde_json::from_value(inbound(json!([])))?)
             .await?;
         if let Some(kept) = &mut kept_stream {
-            ensure!(ping(kept).await.is_err(), "an emptied inbound's user kept its stream");
+            ensure!(refused(kept).await, "an emptied inbound's user kept its stream");
         }
-        ensure!(
-            async { ping(&mut connect(&fresh, port, address).await?).await }
-                .await
-                .is_err()
-        );
+        ensure!(refused_ss(&fresh, port, address).await);
         manager
             .update_inbound_resources(serde_json::from_value(new)?)
             .await?;
