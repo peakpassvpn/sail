@@ -107,3 +107,54 @@ fn a_group_shows_its_checks_as_it_goes_by_them() {
 
     common::shutdown_instances(&rt, ids);
 }
+
+#[test]
+fn a_group_check_dropped_mid_round_records_nothing_and_leaves_the_next_whole() {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    // [a] slower than the request's time but within the group's.
+    let (_a, a_delay, p_a, _) = rt.block_on(serve_counted("a", Duration::ZERO));
+    let (_b, _, p_b, _) = rt.block_on(serve_counted("b", Duration::ZERO));
+    let ids = common::run_sail_instances(&rt, vec![config(p_a, p_b)]).unwrap();
+    let rm = sail::runtime_managers().get(&ids[0]).cloned().unwrap();
+
+    rt.block_on(async {
+        let history = |tag: &'static str| {
+            let rm = rm.clone();
+            async move { rm.outbound(tag).await.unwrap().history }
+        };
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        while history("b").await.is_empty() && tokio::time::Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        let (a0, b0) = (history("a").await, history("b").await);
+        assert_eq!(b0.len(), 1, "the first round is done");
+
+        // The request's time runs out mid-round, [b] already measured:
+        // nothing of the round is kept.
+        a_delay.store(300, Ordering::Relaxed);
+        let timed_out = rm
+            .url_test_members("fb", None, Duration::from_millis(100))
+            .await;
+        assert!(timed_out.is_err(), "{:?}", timed_out);
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        assert_eq!(history("a").await, a0);
+        assert_eq!(history("b").await, b0);
+
+        // The next check is not held up by the one dropped, and is whole.
+        let results = tokio::time::timeout(
+            Duration::from_secs(2),
+            rm.url_test_members("fb", None, Duration::from_secs(5)),
+        )
+        .await
+        .expect("not held up")
+        .unwrap();
+        assert!(results.iter().all(|(_, d)| d.is_ok()), "{:?}", results);
+        let (a1, b1) = (history("a").await, history("b").await);
+        let (a1, b1) = (a1.last().unwrap(), b1.last().unwrap());
+        assert_eq!(a1.time, b1.time);
+        assert!(b1.time > b0[0].time);
+        assert!(a1.delay.is_some() && b1.delay.is_some());
+    });
+
+    common::shutdown_instances(&rt, ids);
+}

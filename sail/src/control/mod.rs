@@ -832,7 +832,10 @@ impl RuntimeManager {
         let mut history = self.delays.of(tag);
         // A group's own last check, failed or not, at the time it ended,
         // where nothing was measured here since: the state the group
-        // goes by, as Mihomo shows it.
+        // goes by. A failed one is kept, delay 0 and not alive, as Mihomo
+        // keeps its alive state (adapter/adapter.go), which dashboards
+        // read; sing-box deletes a failed member's history instead, and
+        // has no alive.
         if let Some(tested) = latencies.get(tag) {
             if history.last().is_none_or(|d| d.time < tested.at) {
                 history.push(Delay {

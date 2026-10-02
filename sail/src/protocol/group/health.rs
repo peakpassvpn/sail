@@ -156,6 +156,10 @@ impl Checker {
     /// A test of `member` made elsewhere, through the API, ended at `at`:
     /// it counts as the member's last check, and, once every member was
     /// checked, the group chooses again, as after a round.
+    ///
+    /// It never awaits and never takes the selector's `RwLock`; it may set
+    /// the `Selection`, whose own lock is separate. The API calls it under
+    /// the selector's read lock, so this must stay true.
     #[cfg(any(feature = "outbound-urltest", feature = "outbound-fallback"))]
     pub fn record(&self, member: &MemberKey, latency: Option<Duration>, at: SystemTime) {
         let snapshot = self.members.load();
@@ -181,6 +185,14 @@ impl Checker {
     /// Tests every member now, after the round under way if there is one,
     /// and returns the members tested with their latencies, as the round
     /// leaves them.
+    ///
+    /// Cancellation-safe: the round writes its results only once every
+    /// test is done, so a future dropped before then records nothing; the
+    /// round's lock goes with it; and the scheduled rounds run in a task of
+    /// their own, which it does not touch. A request that times out and is
+    /// dropped so discards the whole round's measurements: the group keeps
+    /// showing the previous round's until its next scheduled check. Mihomo's
+    /// group test returns partial results instead.
     #[cfg(any(feature = "outbound-urltest", feature = "outbound-fallback"))]
     pub async fn check(&self) -> (Arc<Snapshot>, Vec<Option<Duration>>) {
         self.start();

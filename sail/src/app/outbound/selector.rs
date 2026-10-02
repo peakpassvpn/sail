@@ -139,6 +139,10 @@ pub trait GroupChecks: Send + Sync {
 
     /// A test of `member` made through the API, ended at `at`, counts as
     /// its last check.
+    ///
+    /// It never awaits and never takes the selector's `RwLock`; it may set
+    /// the `Selection`, whose own lock is separate. The API calls it under
+    /// the selector's read lock, so this must stay true.
     fn record(&self, member: &MemberKey, latency: Option<Duration>, at: SystemTime);
 }
 
@@ -413,6 +417,50 @@ mod tests {
         assert_eq!(selector.get_selected_tag(), "a");
         members.publish(vec![member(None, "a"), member(None, "b")]);
         assert_eq!(selector.get_selected_tag(), "b");
+    }
+
+    #[tokio::test]
+    async fn changes_are_heard_from_when_they_are_taken_only() {
+        let members = outbounds(&["a", "b"]);
+        let selection = Arc::new(Selection::new("a", key("a")));
+        let latencies = MemberLatencies::default();
+        let selector = OutboundSelector::new(
+            "g".to_string(),
+            members,
+            selection.clone(),
+            SelectedBy::Checks,
+            Some(latencies.clone()),
+        );
+        let quiet = |mut changes: GroupChanges| async move {
+            tokio::time::timeout(Duration::from_millis(20), changes.changed())
+                .await
+                .is_err()
+        };
+        // Nothing changed since they were taken: nothing is heard, and a
+        // follower waits rather than spins.
+        selection.set(key("b"));
+        assert!(quiet(selector.changes()).await);
+
+        let mut changes = selector.changes();
+        selection.set(key("a"));
+        tokio::time::timeout(Duration::from_millis(20), changes.changed())
+            .await
+            .unwrap();
+        let mut changes = selector.changes();
+        latencies.replace(
+            [(
+                key("a"),
+                Tested {
+                    latency: None,
+                    at: SystemTime::now(),
+                },
+            )]
+            .into(),
+        );
+        tokio::time::timeout(Duration::from_millis(20), changes.changed())
+            .await
+            .unwrap();
+        assert!(quiet(selector.changes()).await);
     }
 
     #[test]

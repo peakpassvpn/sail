@@ -1985,6 +1985,130 @@ fn a_change_of_network_is_followed() {
     });
 }
 
+/// A member's HTTP server, answering every request `204 No Content`,
+/// until it stops: then its port refuses connections.
+struct Member {
+    port: u16,
+    stop: Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl Member {
+    fn serve() -> Self {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let stopped = stop.clone();
+        std::thread::spawn(move || {
+            while !stopped.load(Ordering::SeqCst) {
+                let Ok((mut s, _)) = listener.accept() else {
+                    std::thread::sleep(Duration::from_millis(5));
+                    continue;
+                };
+                std::thread::spawn(move || {
+                    let _ = s.set_nonblocking(false);
+                    let mut buf = [0u8; 1024];
+                    while let Ok(n) = s.read(&mut buf) {
+                        if n == 0 {
+                            return;
+                        }
+                        let ok = b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n";
+                        if s.write_all(ok).is_err() {
+                            return;
+                        }
+                    }
+                });
+            }
+        });
+        Self { port, stop }
+    }
+
+    /// Stops it, and returns once its port refuses connections.
+    fn stop(&self) {
+        self.stop.store(true, Ordering::SeqCst);
+        eventually("the member's port is closed", || {
+            std::net::TcpStream::connect(("127.0.0.1", self.port)).is_err()
+        });
+    }
+}
+
+#[test]
+fn a_group_switch_is_followed_at_once() {
+    let _serial = serial();
+    within(Duration::from_secs(60), || {
+        let (a, b) = (Member::serve(), Member::serve());
+        let port = free_port();
+        let config = serde_json::json!({
+            "inbounds": [{ "type": "socks", "tag": "socks-in", "listen": "127.0.0.1", "listen_port": port }],
+            "outbounds": [
+                {
+                    "type": "fallback", "tag": "fb", "outbounds": ["a", "b"],
+                    "url": "http://probe.test/generate_204", "interval": "1h", "lazy": false,
+                },
+                { "type": "redirect", "tag": "a", "server": "127.0.0.1", "server_port": a.port },
+                { "type": "redirect", "tag": "b", "server": "127.0.0.1", "server_port": b.port },
+            ],
+            "route": { "final": "fb" },
+        })
+        .to_string();
+        let instance = new_instance(None, None);
+        start(instance, &config);
+        let events = Recorder::new();
+        // Looked at every 5 s: what comes sooner came of a change.
+        subscribe(
+            instance,
+            SAIL_EVENT_OUTBOUNDS,
+            Some(r#"{"interval_ms": 5000}"#),
+            &events,
+            record,
+        );
+        let fb = |e: &serde_json::Value, tag: &str| {
+            e["outbounds"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|o| o["tag"] == tag)
+                .cloned()
+                .unwrap()
+        };
+        // The first round done: both members up, [a] selected.
+        events.wait(SAIL_EVENT_OUTBOUNDS, |e| {
+            fb(e, "fb")["group"]["selected"] == "a"
+                && fb(e, "b")["history"]
+                    .as_array()
+                    .is_some_and(|h| !h.is_empty())
+        });
+        // Nothing changes: nothing more is told.
+        let told = events.count(SAIL_EVENT_OUTBOUNDS);
+        std::thread::sleep(Duration::from_secs(1));
+        assert_eq!(events.count(SAIL_EVENT_OUTBOUNDS), told);
+
+        // [a] refuses a connection: the group leaves it, and that is told
+        // well before the next look.
+        a.stop();
+        let switched = Instant::now();
+        // A connection through the group; held open while it is routed.
+        let mut conn = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+        conn.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+        conn.write_all(&[5, 1, 0]).unwrap();
+        let mut reply = [0u8; 2];
+        conn.read_exact(&mut reply).unwrap();
+        conn.write_all(&[5, 1, 0, 1, 127, 0, 0, 1, 0, 80]).unwrap();
+        events.wait(SAIL_EVENT_OUTBOUNDS, |e| {
+            fb(e, "fb")["group"]["selected"] == "b"
+        });
+        assert!(
+            switched.elapsed() < Duration::from_secs(1),
+            "told after {:?}",
+            switched.elapsed()
+        );
+        drop(conn);
+        stop(instance);
+        sail_instance_free(instance);
+        eventually("released", || events.released.load(Ordering::SeqCst) == 1);
+    });
+}
+
 extern "C" fn protect_any(_fd: i32, _context: *mut c_void) -> bool {
     true
 }

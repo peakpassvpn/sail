@@ -225,7 +225,12 @@ pub(super) async fn group_delay(
         .rm
         .url_test_members(&name, Some(&url), timeout)
         .await
-        .map_err(delay_error)?;
+        // As sing-box answers: 404 for no such group, 504 with the
+        // error's own text for any error of the test.
+        .map_err(|e| match e {
+            ControlError::NotFound(_) => ApiError::not_found(),
+            e => ApiError(StatusCode::GATEWAY_TIMEOUT, e.to_string()),
+        })?;
     let map: Map<String, Value> = delays
         .into_iter()
         .filter_map(|(m, d)| d.ok().map(|d| (m, json!(millis(d)))))
