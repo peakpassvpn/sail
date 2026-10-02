@@ -19,8 +19,8 @@
 //!   them.
 //!
 //! - with a TUN taking the default route, a DNS server without a detour,
-//!   `local` (which asks the servers of resolv.conf), `udp` or `tcp` (whose
-//!   connections DoT and DoH make as well), sends its queries out of the
+//!   `local` (which asks the servers of resolv.conf), `udp`, `tcp` or `tls`
+//!   (whose connections DoH makes as well), sends its queries out of the
 //!   uplink too, not into the TUN, where `hijack-dns`
 //!   would hand them back to it in a loop.
 //!
@@ -359,6 +359,10 @@ fn dns_servers_without_a_detour_go_out_of_the_uplink() -> Result<()> {
         r#"{ "type": "local", "tag": "resolver" }"#.to_string(),
         format!(r#"{{ "type": "udp", "tag": "resolver", "server": "{DNS}" }}"#),
         format!(r#"{{ "type": "tcp", "tag": "resolver", "server": "{DNS}" }}"#),
+        format!(
+            r#"{{ "type": "tls", "tag": "resolver", "server": "{DNS}",
+                  "tls": {{ "server_name": "dns.test", "insecure": true }} }}"#
+        ),
     ] {
         let sail = Sail::start_dns(&dir, &server)?;
         let answered = tcp_by_name("server.test");

@@ -4,7 +4,7 @@
 # behind two uplinks, runs the test in the host's, and removes the
 # namespaces again.
 #
-# Needs root, iproute2 and python3. Everything it changes is inside the
+# Needs root, iproute2, openssl and python3. Everything it changes is inside the
 # namespaces it creates; the host's own routing is untouched.
 #
 #   sudo sail/tests/scripts/auto_route_netns.sh [extra cargo test args]
@@ -15,9 +15,10 @@
 #   default via 10.241.0.2             lo 198.51.100.10-12/32: tcp 8080 answers
 #                                      the peer's address, udp 9999 echoes;
 #                                      10.241.0.3 serves the same;
-#                                      lo 198.51.100.53/32: udp and tcp 53
-#                                      answer every A query with
-#                                      198.51.100.10
+#                                      lo 198.51.100.53/32: udp and tcp 53,
+#                                      and DoT on 853 with a self-signed
+#                                      certificate, answer every A query
+#                                      with 198.51.100.10
 #
 # The host's /etc/resolv.conf, as `ip netns exec` mounts it from
 # /etc/netns/sar-r, names 198.51.100.53.
@@ -28,13 +29,14 @@ HOST=sar-r
 NET=sar-w
 
 SAIL_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
+CERTS=$(mktemp -d)
 
 cleanup() {
     ip netns pids "$NET" 2>/dev/null | xargs -r kill 2>/dev/null || true
     ip netns pids "$HOST" 2>/dev/null | xargs -r kill -9 2>/dev/null || true
     ip netns del "$HOST" 2>/dev/null || true
     ip netns del "$NET" 2>/dev/null || true
-    rm -rf "/etc/netns/$HOST"
+    rm -rf "/etc/netns/$HOST" "$CERTS"
 }
 trap cleanup EXIT
 cleanup
@@ -68,8 +70,13 @@ for ip in 198.51.100.10 198.51.100.11 198.51.100.12 198.51.100.53; do
     in_ns "$NET" ip addr add "$ip/32" dev lo
 done
 
-in_ns "$NET" python3 -c '
-import socket, threading
+mkdir -p "$CERTS"
+openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 1 \
+    -subj /CN=dns.test -addext subjectAltName=DNS:dns.test,IP:198.51.100.53 \
+    -keyout "$CERTS/key.pem" -out "$CERTS/cert.pem" 2>/dev/null
+
+in_ns "$NET" env CERTS="$CERTS" python3 -c '
+import os, socket, ssl, threading
 
 def tcp():
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -118,29 +125,45 @@ def dns_udp():
         if answer:
             sock.sendto(answer, peer)
 
-def dns_tcp_conn(conn):
-    with conn:
-        while True:
-            head = conn.recv(2, socket.MSG_WAITALL)
-            if len(head) < 2:
-                return
-            query = conn.recv(int.from_bytes(head, "big"), socket.MSG_WAITALL)
-            answer = reply(query)
-            if not answer:
-                return
-            conn.sendall(len(answer).to_bytes(2, "big") + answer)
+def recv_exact(conn, n):
+    data = b""
+    while len(data) < n:
+        chunk = conn.recv(n - len(data))
+        if not chunk:
+            return None
+        data += chunk
+    return data
 
-def dns_tcp():
+# Length-prefixed messages, over TCP or TLS.
+def dns_stream_conn(conn, tls):
+    try:
+        if tls:
+            conn = tls.wrap_socket(conn, server_side=True)
+        with conn:
+            while True:
+                head = recv_exact(conn, 2)
+                query = head and recv_exact(conn, int.from_bytes(head, "big"))
+                answer = query and reply(query)
+                if not answer:
+                    return
+                conn.sendall(len(answer).to_bytes(2, "big") + answer)
+    except (OSError, ssl.SSLError):
+        return
+
+def dns_stream(port, tls):
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    server.bind(("198.51.100.53", 53))
+    server.bind(("198.51.100.53", port))
     server.listen(16)
     while True:
         conn, _ = server.accept()
-        threading.Thread(target=dns_tcp_conn, args=(conn,), daemon=True).start()
+        threading.Thread(target=dns_stream_conn, args=(conn, tls), daemon=True).start()
 
+tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+tls.load_cert_chain(os.environ["CERTS"] + "/cert.pem", os.environ["CERTS"] + "/key.pem")
 threading.Thread(target=dns_udp, daemon=True).start()
-threading.Thread(target=dns_tcp, daemon=True).start()
+threading.Thread(target=dns_stream, args=(53, None), daemon=True).start()
+threading.Thread(target=dns_stream, args=(853, tls), daemon=True).start()
 threading.Event().wait()
 ' &
 
