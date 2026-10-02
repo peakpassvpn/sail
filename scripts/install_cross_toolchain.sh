@@ -22,6 +22,9 @@ SAIL_CROSS_DIR=${SAIL_CROSS_DIR:-$HOME/.sail-cross}
 
 # musl: GCC + musl + libstdc++ from https://github.com/cross-tools/musl-cross.
 MUSL_CROSS_TAG=20260823
+# mipsel is tier 3: no prebuilt std, so a pinned nightly builds it from
+# rust-src (-Zbuild-std); the same as cross.sh's.
+SAIL_NIGHTLY=nightly-2026-10-02
 # Android: the NDK, r27 is the current LTS. Google publishes SHA-1 only.
 NDK_VERSION=r27d
 NDK_SHA1=22105e410cf29afcf163760cc95522b9fb981121
@@ -43,6 +46,15 @@ apt_install() {
 	fi
 }
 
+# musl-cross's name for a target's toolchain: Rust's mipsel musl target is
+# soft-float, as OpenWrt's mipsel packages are.
+musl_toolchain() {
+	case $1 in
+	mipsel-unknown-linux-musl) echo mipsel-unknown-linux-muslsf ;;
+	*) echo "$1" ;;
+	esac
+}
+
 musl_sha256() {
 	case $1 in
 	x86_64-unknown-linux-musl) echo 9752ecb10bafc0fc2ea75b3ed864a78137f3e5ba9b1579f1f16923d444c48096 ;;
@@ -50,6 +62,8 @@ musl_sha256() {
 	aarch64-unknown-linux-musl) echo 0fc483607d9ed83bdf75e7539bacc66721d7e37ca606377aed6a90cef82e45da ;;
 	armv7-unknown-linux-musleabihf) echo 3e0c17cd4da0799102668dcbe4b041be740c61e93df80c0e1c36573ceecbe4ac ;;
 	arm-unknown-linux-musleabi) echo d9542873fbe7a2239418d1a2798ef3dece6f0679ba218721880b25a051e61cfd ;;
+	armv7-unknown-linux-musleabi) echo c330c0740878eec5b434e9cce19db548dedae41544048f59010f7e509e63332a ;;
+	mipsel-unknown-linux-muslsf) echo f07b85de446e4e3e30d5561c4efc4061c364aa7d0237736b627fe9a05b5af2a7 ;;
 	*)
 		echo "no musl toolchain pinned for $1" >&2
 		exit 1
@@ -58,13 +72,15 @@ musl_sha256() {
 }
 
 install_musl() {
+	local tc
+	tc=$(musl_toolchain "$target")
 	local dir=$SAIL_CROSS_DIR/musl-$MUSL_CROSS_TAG
-	if [ ! -x "$dir/$target/bin/$target-g++" ]; then
+	if [ ! -x "$dir/$tc/bin/$tc-g++" ]; then
 		mkdir -p "$dir"
-		local tarball=$dir/$target.tar.xz
+		local tarball=$dir/$tc.tar.xz
 		curl -fsSL --retry 5 --retry-all-errors --speed-limit 10000 --speed-time 60 -C - -o "$tarball" \
-			"https://github.com/cross-tools/musl-cross/releases/download/$MUSL_CROSS_TAG/$target.tar.xz"
-		echo "$(musl_sha256 "$target")  $tarball" | sha256sum -c -
+			"https://github.com/cross-tools/musl-cross/releases/download/$MUSL_CROSS_TAG/$tc.tar.xz"
+		echo "$(musl_sha256 "$tc")  $tarball" | sha256sum -c -
 		tar -C "$dir" -xJf "$tarball"
 		rm "$tarball"
 	fi
@@ -110,4 +126,7 @@ x86_64-pc-windows-gnu) install_windows ;;
 	;;
 esac
 
-rustup target add "$target"
+case $target in
+mipsel-*) rustup toolchain install "$SAIL_NIGHTLY" --profile minimal --component rust-src ;;
+*) rustup target add "$target" ;;
+esac

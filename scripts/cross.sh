@@ -24,6 +24,8 @@ shift
 BASE=$(cd "$(dirname "$0")" && pwd)
 SAIL_CROSS_DIR=${SAIL_CROSS_DIR:-$HOME/.sail-cross}
 MUSL_CROSS_TAG=20260823
+# The nightly mipsel's std is built with; install_cross_toolchain.sh's.
+SAIL_NIGHTLY=nightly-2026-10-02
 NDK_VERSION=r27d
 ANDROID_API=21
 
@@ -37,20 +39,26 @@ set_toolchain() {
 
 case $target in
 *-linux-musl*)
-	root=$SAIL_CROSS_DIR/musl-$MUSL_CROSS_TAG/$target
+	# musl-cross's name for the toolchain: mipsel's is soft-float.
+	case $target in
+	mipsel-unknown-linux-musl) tc=mipsel-unknown-linux-muslsf ;;
+	*) tc=$target ;;
+	esac
+	root=$SAIL_CROSS_DIR/musl-$MUSL_CROSS_TAG/$tc
 	export PATH=$root/bin:$PATH
-	set_toolchain "$target-gcc" "$target-g++" "$target-ar"
+	set_toolchain "$tc-gcc" "$tc-g++" "$tc-ar"
 	# btls-sys runs bindgen, i.e. the host's libclang, over BoringSSL's
 	# headers; without the musl sysroot it reads the host's glibc headers,
 	# which only happen to work for x86_64. It also becomes CMAKE_SYSROOT,
 	# the sysroot GCC uses anyway.
-	export "BORING_BSSL_SYSROOT_$t=$root/$target/sysroot"
+	export "BORING_BSSL_SYSROOT_$t=$root/$tc/sysroot"
 	case $target in
 	# This GCC targets a plain i686, without SSE2, and BoringSSL's x86
 	# assembly needs it; Rust's i686 targets assume it anyway.
 	i686-*) export "CFLAGS_$t=-msse2" "CXXFLAGS_$t=-msse2" ;;
 	aarch64-*) export "CARGO_TARGET_${T}_RUNNER=qemu-aarch64" ;;
 	armv7-*) export "CARGO_TARGET_${T}_RUNNER=qemu-arm" ;;
+	mipsel-*) export "CARGO_TARGET_${T}_RUNNER=qemu-mipsel" ;;
 	arm-*)
 		export "CARGO_TARGET_${T}_RUNNER=qemu-arm"
 		# ARMv6 has no atomic instructions libstdc++ can inline; it calls
@@ -113,4 +121,8 @@ fi
 
 sub=${1:?usage: $0 <target> <cargo subcommand> [args...]}
 shift
-exec cargo "$sub" --target "$target" "$@"
+case $target in
+# Tier 3: std built from source by the pinned nightly.
+mipsel-*) exec cargo "+$SAIL_NIGHTLY" "$sub" -Zbuild-std=std,panic_abort --target "$target" "$@" ;;
+*) exec cargo "$sub" --target "$target" "$@" ;;
+esac
