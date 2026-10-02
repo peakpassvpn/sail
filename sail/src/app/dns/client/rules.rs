@@ -792,8 +792,12 @@ impl DnsClient {
         });
         if let Some(key) = &key {
             match self.answers.get(key, request.id()) {
-                Cached::Fresh(answer) => return Ok(for_request(answer, &request)),
+                Cached::Fresh(answer) => {
+                    log_answer("cached", tag, &answer, None);
+                    return Ok(for_request(answer, &request));
+                }
                 Cached::Stale(answer) if !options.disable_optimistic_cache => {
+                    log_answer("optimistic", tag, &answer, None);
                     self.refresh(tag, &request, options, key.clone());
                     return Ok(for_request(answer, &request));
                 }
@@ -814,7 +818,20 @@ impl DnsClient {
         key: Option<AnswerKey>,
     ) -> Result<Message> {
         let timeout = options.timeout.unwrap_or(self.timeout);
-        let mut response = match self.query(server, request, timeout).await? {
+        let started = tokio::time::Instant::now();
+        let asked = self.query(server, request, timeout).await;
+        let ms = started.elapsed().as_millis();
+        let asked = match asked {
+            Ok(asked) => asked,
+            Err(e) => {
+                let (name, ty) = question(request);
+                let line = format!("dns: [{}] {} {}: {}", server.tag, name, ty, e);
+                logged(&line);
+                debug!(server = %server.tag, ms, "{}", line);
+                return Err(e);
+            }
+        };
+        let mut response = match asked {
             super::Answer::Message(message) => message,
             super::Answer::Ips(ips) => {
                 Self::reply(request, &ips, super::LOCAL_TTL.as_secs() as u32)
@@ -834,6 +851,7 @@ impl DnsClient {
         if let (true, Some(key)) = (keeps, key) {
             self.answers.put(key, &response, ttl);
         }
+        log_answer("exchanged", &server.tag, &response, Some(ms));
         fit_edns(&mut response, request);
         Ok(response)
     }
@@ -907,6 +925,68 @@ pub(super) fn client_subnet(request: &Message) -> Option<Prefix> {
         _ => return None,
     };
     Some(Prefix { addr, len })
+}
+
+/// The name and type a query asks, as logs write them.
+fn question(m: &Message) -> (String, String) {
+    m.queries()
+        .first()
+        .map(|q| {
+            let name = q.name().to_utf8();
+            (
+                name.trim_end_matches('.').to_string(),
+                q.query_type().to_string(),
+            )
+        })
+        .unwrap_or_default()
+}
+
+/// One line at debug for each query a server answered or the cache did:
+/// `how` (sing-box's words: `exchanged`, `cached`, `optimistic`), the name,
+/// type, code, the records and the TTL, with the server and, for a server's,
+/// the time it took. The records themselves are not logged, which sing-box
+/// does at info: a name a client asks for is the client's business.
+fn log_answer(how: &str, server: &str, answer: &Message, ms: Option<u128>) {
+    let (name, ty) = question(answer);
+    let ttl = answer.answers().iter().map(|r| r.ttl).min().unwrap_or(0);
+    let rcode = rcode_name(answer.response_code());
+    let records = answer.answers().len();
+    let line = format!("dns: {} {} {} {} {}", how, name, ty, rcode, ttl);
+    logged(&format!(
+        "{} server={} records={} ms={:?}",
+        line, server, records, ms
+    ));
+    match ms {
+        Some(ms) => debug!(server = %server, ms, records, "{}", line),
+        None => debug!(server = %server, records, "{}", line),
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// The query lines this thread logged, for tests to read: tracing's own
+    /// state is the process's, which tests running at once share.
+    pub(super) static LOGGED: std::cell::RefCell<Vec<String>> = Default::default();
+}
+
+/// Keeps `line` for tests; nothing outside them.
+fn logged(line: &str) {
+    #[cfg(test)]
+    LOGGED.with(|l| l.borrow_mut().push(line.to_string()));
+    let _ = line;
+}
+
+/// A response code as sing-box logs it (miekg/dns's RcodeToString).
+fn rcode_name(code: ResponseCode) -> String {
+    match code {
+        ResponseCode::NoError => "NOERROR".into(),
+        ResponseCode::FormErr => "FORMERR".into(),
+        ResponseCode::ServFail => "SERVFAIL".into(),
+        ResponseCode::NXDomain => "NXDOMAIN".into(),
+        ResponseCode::NotImp => "NOTIMP".into(),
+        ResponseCode::Refused => "REFUSED".into(),
+        other => u16::from(other).to_string(),
+    }
 }
 
 /// Whether `request` may be answered from the cache and its answer kept, as

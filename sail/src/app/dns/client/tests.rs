@@ -2659,4 +2659,46 @@ mod tests {
         assert_eq!(connections.load(std::sync::atomic::Ordering::SeqCst), 2);
         assert_eq!(queries(&next_at), 0, "the next member is not asked");
     }
+
+    /// Each query logs a line at debug, as sing-box's do: a server's answer
+    /// `exchanged`, with the server and its time; the cache's `cached`; a
+    /// failure with its server. No record of the answer is logged.
+    #[test]
+    fn each_query_logs_a_line_at_debug() {
+        super::rules::LOGGED.with(|l| l.borrow_mut().clear());
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        rt.block_on(async {
+            let (port, _) = counting_server(300, false).await;
+            let dead = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+            let dead_port = dead.local_addr().unwrap().port();
+            drop(dead);
+            let client = race_client(serde_json::json!([
+                { "type": "udp", "tag": "up", "server": "127.0.0.1", "server_port": port }
+            ]));
+            exchange(&client, "a.example", RecordType::A).await;
+            exchange(&client, "a.example", RecordType::A).await;
+            let config = crate::config::Config::from_json(
+                &serde_json::json!({ "dns": { "timeout": "300ms", "servers": [
+                    { "type": "udp", "tag": "down", "server": "127.0.0.1", "server_port": dead_port }
+                ] } })
+                .to_string(),
+            )
+            .unwrap();
+            let down = DnsClient::new(&config.dns, Default::default(), &Default::default()).unwrap();
+            exchange(&down, "b.example", RecordType::A).await;
+        });
+        let lines = super::rules::LOGGED.with(|l| l.borrow().clone());
+        let line = |what: &str| {
+            lines
+                .iter()
+                .find(|l| l.contains(what))
+                .unwrap_or_else(|| panic!("no {:?} in {:#?}", what, lines))
+                .clone()
+        };
+        let exchanged = line("dns: exchanged a.example A NOERROR 300");
+        assert!(exchanged.contains("server=up") && exchanged.contains("ms=Some("), "{}", exchanged);
+        assert!(line("dns: cached a.example A NOERROR").contains("server=up"));
+        line("dns: [down] b.example A");
+        assert!(lines.iter().all(|l| !l.contains("10.0.0.1")), "no record is logged");
+    }
 }
