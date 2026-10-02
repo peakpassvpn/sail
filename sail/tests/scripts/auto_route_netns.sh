@@ -15,8 +15,9 @@
 #   default via 10.241.0.2             lo 198.51.100.10-12/32: tcp 8080 answers
 #                                      the peer's address, udp 9999 echoes;
 #                                      10.241.0.3 serves the same;
-#                                      lo 198.51.100.53/32: udp 53 answers
-#                                      every A query with 198.51.100.10
+#                                      lo 198.51.100.53/32: udp and tcp 53
+#                                      answer every A query with
+#                                      198.51.100.10
 #
 # The host's /etc/resolv.conf, as `ip netns exec` mounts it from
 # /etc/netns/sar-r, names 198.51.100.53.
@@ -96,23 +97,50 @@ for address in ("198.51.100.10", "198.51.100.11", "198.51.100.12", "10.241.0.3")
 
 # A DNS server: every A query is answered with 198.51.100.10, any other
 # with no records.
-def dns():
+def reply(query):
+    end = 12
+    while end < len(query) and query[end] != 0:
+        end += query[end] + 1
+    end += 5
+    if end > len(query):
+        return None
+    a = query[end - 4:end - 2] == b"\x00\x01"
+    header = query[:2] + b"\x81\x80\x00\x01" + (b"\x00\x01" if a else b"\x00\x00") + b"\x00\x00\x00\x00"
+    answer = b"\xc0\x0c\x00\x01\x00\x01\x00\x00\x00\x3c\x00\x04" + bytes([198, 51, 100, 10]) if a else b""
+    return header + query[12:end] + answer
+
+def dns_udp():
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind(("198.51.100.53", 53))
     while True:
         query, peer = sock.recvfrom(2048)
-        end = 12
-        while end < len(query) and query[end] != 0:
-            end += query[end] + 1
-        end += 5
-        if end > len(query):
-            continue
-        a = query[end - 4:end - 2] == b"\x00\x01"
-        header = query[:2] + b"\x81\x80\x00\x01" + (b"\x00\x01" if a else b"\x00\x00") + b"\x00\x00\x00\x00"
-        answer = b"\xc0\x0c\x00\x01\x00\x01\x00\x00\x00\x3c\x00\x04" + bytes([198, 51, 100, 10]) if a else b""
-        sock.sendto(header + query[12:end] + answer, peer)
+        answer = reply(query)
+        if answer:
+            sock.sendto(answer, peer)
 
-threading.Thread(target=dns, daemon=True).start()
+def dns_tcp_conn(conn):
+    with conn:
+        while True:
+            head = conn.recv(2, socket.MSG_WAITALL)
+            if len(head) < 2:
+                return
+            query = conn.recv(int.from_bytes(head, "big"), socket.MSG_WAITALL)
+            answer = reply(query)
+            if not answer:
+                return
+            conn.sendall(len(answer).to_bytes(2, "big") + answer)
+
+def dns_tcp():
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server.bind(("198.51.100.53", 53))
+    server.listen(16)
+    while True:
+        conn, _ = server.accept()
+        threading.Thread(target=dns_tcp_conn, args=(conn,), daemon=True).start()
+
+threading.Thread(target=dns_udp, daemon=True).start()
+threading.Thread(target=dns_tcp, daemon=True).start()
 threading.Event().wait()
 ' &
 
