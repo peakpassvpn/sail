@@ -225,10 +225,57 @@ struct Local {
     path: std::path::PathBuf,
     set: SharedRuleSet,
     env: RuntimeEnv,
+    /// The file as it was just before it was read: what tells, once its
+    /// watch is set up, whether it was written in between.
+    read: Option<Stamp>,
+}
+
+/// A file's size and time of modification, and when they were taken.
+#[cfg(feature = "auto-reload")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Stamp {
+    len: u64,
+    modified: std::time::SystemTime,
+    taken: std::time::SystemTime,
+}
+
+/// A file modified this close before its stamp was taken may be written
+/// again without its time of modification changing, where a file system
+/// keeps it to the second or to two (ext3, HFS+, FAT): it is read again
+/// rather than trusted, as git treats a file as old as its index.
+#[cfg(feature = "auto-reload")]
+const STAMP_GRANULARITY: std::time::Duration = std::time::Duration::from_secs(2);
+
+#[cfg(feature = "auto-reload")]
+impl Stamp {
+    fn of(path: &std::path::Path) -> Option<Self> {
+        let taken = std::time::SystemTime::now();
+        let meta = std::fs::metadata(path).ok()?;
+        Some(Stamp {
+            len: meta.len(),
+            modified: meta.modified().ok()?,
+            taken,
+        })
+    }
 }
 
 #[cfg(feature = "auto-reload")]
 impl Local {
+    /// Whether the file may have been written since it was read: it is
+    /// not as it was then, or it was modified too close to then to tell.
+    /// A file that is gone or cannot be looked at is left: reading it
+    /// would only fail.
+    fn written_since_read(&self) -> bool {
+        let (Some(read), Some(now)) = (self.read, Stamp::of(&self.path)) else {
+            return false;
+        };
+        (now.len, now.modified) != (read.len, read.modified)
+            || read
+                .modified
+                .checked_add(STAMP_GRANULARITY)
+                .is_none_or(|settled| settled >= read.taken)
+    }
+
     /// Puts the file's rules in place; ones that do not read leave the
     /// rules in use, as sing-box does.
     fn reload(&self) {
@@ -279,21 +326,29 @@ impl RuleSets {
                     remotes.push(remote);
                     set
                 } else {
+                    // The file as it is before it is read: a write while
+                    // it is read, or after, shows against this.
+                    #[cfg(feature = "auto-reload")]
+                    let local = (config.kind == RuleSetKind::Local).then(|| {
+                        let path =
+                            std::path::PathBuf::from(env.data_path(&config::RuleSet::for_tag(
+                                config.path.as_deref().unwrap_or_default(),
+                                tag,
+                            )));
+                        let read = Stamp::of(&path);
+                        (path, read)
+                    });
                     let set =
                         HotResource::new(Self::load_one(config, tag, env).with_context(context)?);
                     #[cfg(feature = "auto-reload")]
-                    if config.kind == RuleSetKind::Local {
+                    if let Some((path, read)) = local {
                         locals.push(Arc::new(Local {
                             tag: tag.clone(),
                             config: shared.clone(),
-                            path: env
-                                .data_path(&config::RuleSet::for_tag(
-                                    config.path.as_deref().unwrap_or_default(),
-                                    tag,
-                                ))
-                                .into(),
+                            path,
                             set: set.clone(),
                             env: env.clone(),
+                            read,
                         }));
                     }
                     set
@@ -470,6 +525,11 @@ async fn until_due(
 
 /// Reads each local rule-set again when its file changes, a quarter of a
 /// second after the last change, so that one write is one read.
+///
+/// The files were read when the rule-sets were built, at the start or at
+/// a reload, and are watched only from here, which may be seconds later
+/// at a start: a file written in between is read again now, once its
+/// watch is set up, or the edit would never apply.
 #[cfg(feature = "auto-reload")]
 async fn follow_files(locals: Vec<Arc<Local>>) {
     use std::collections::BTreeSet;
@@ -486,6 +546,15 @@ async fn follow_files(locals: Vec<Arc<Local>>) {
         }
     }
     drop(tx);
+    for local in &locals {
+        if local.written_since_read() {
+            tracing::debug!(
+                "rule-set [{}]: its file was written since it was read",
+                local.tag
+            );
+            local.reload();
+        }
+    }
     while let Some(first) = rx.recv().await {
         let mut changed = BTreeSet::from([first]);
         loop {
@@ -686,6 +755,49 @@ mod tests {
         std::fs::write(&path, "{ cut sho").unwrap();
         tokio::time::sleep(Duration::from_millis(1500)).await;
         assert!(matches("b.example") && !matches("a.example"));
+        updater.abort();
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A local rule-set's file written after it was read and before its
+    /// watch is set up, the gap a start or a reload leaves, is read again
+    /// when the watch is: no event tells of that write.
+    #[cfg(feature = "auto-reload")]
+    #[tokio::test]
+    async fn a_file_written_before_its_watch_is_set_up_is_read_again() {
+        use std::time::Duration;
+        let dir = std::env::temp_dir().join(format!("sail-rs-gap-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&dir).unwrap();
+        let path = dir.join("rs.json");
+        let write = |domains: &[&str]| {
+            let rules = serde_json::json!({ "version": 3, "rules": [{ "domain": domains }] });
+            std::fs::write(&path, rules.to_string()).unwrap();
+        };
+        write(&["a.example"]);
+        let configs: Vec<config::RuleSet> = serde_json::from_value(serde_json::json!([
+            { "type": "local", "tag": "rs", "format": "source", "path": path }
+        ]))
+        .unwrap();
+        let sets =
+            RuleSets::load(&configs, &HttpClients::default(), &RuntimeEnv::default()).unwrap();
+        let matches = |domain: &str| {
+            sets.get("rs")
+                .unwrap()
+                .load()
+                .matches(&at(domain, 443, Tcp), false)
+        };
+        assert!(matches("a.example") && !matches("b.example"));
+        // Read, not watched yet: the write no watcher sees.
+        write(&["b.example"]);
+        let updater = sets.spawn_updater(std::sync::Weak::new()).unwrap();
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        while !(matches("b.example") && !matches("a.example")) {
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "the write before the watch never applied"
+            );
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
         updater.abort();
         std::fs::remove_dir_all(dir).unwrap();
     }
