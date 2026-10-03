@@ -41,11 +41,11 @@ marked *to verify*:
 | macOS | utun device and the routes through it | yes: utun goes with its control socket *(measured: the tun-macos CI job)* |
 | Windows | Wintun adapter (named, GUID from the name) | yes: Wintun removes it when the process that created it dies *(measured, see below)* |
 | Windows | routes and DNS on that adapter | yes: they go with the adapter *(measured)* |
-| Windows | strict_route WFP filters | yes: they are in a dynamic WFP session (`FWPM_SESSION_FLAG_DYNAMIC`) *(not yet observed)* |
+| Windows | strict_route WFP filters and sublayer | yes: they are in a dynamic WFP session (`FWPM_SESSION_FLAG_DYNAMIC`) *(measured)* |
 
 So the sweep has three jobs:
 - on Linux: ip rules, routes, the nftables table and the fw4 drop-in;
-- on Windows: nothing for the TUN (measured; its WFP filters by design);
+- on Windows: nothing for the TUN (measured, its WFP filters too);
 - on macOS: nothing (measured: after a kill -9 the routing table of both
   families equals the one before the start, on every tun-macos CI run).
 
@@ -71,10 +71,19 @@ ended and took it with it, the adapter, its 0.0.0.0/0 and ::/0 routes
 (metric 0) and its DNS servers were gone within 3 s, and the default
 route was the Ethernet adapter's again; after a reboot with sail running
 there was no adapter, no device of it, no route and no DNS. A start after
-a kill created the adapter again with the same GUID. Not covered:
-strict_route and route_exclude_address (the WFP filters were not
-listed with `netsh wfp show filters` after a kill), and other Windows or
-Wintun versions.
+a kill created the adapter again with the same GUID.
+
+With strict_route and route_exclude_address as well (the same day and
+build, excluding 10.0.0.0/8 and 192.168.0.0/16): while it ran, its six
+WFP filters and its sublayer were listed (`netsh wfp show filters`,
+`netsh wfp show state`), and the excluded ranges left by the Ethernet
+adapter. After `Stop-Process -Force` the filters, the sublayer, the
+adapter, its routes and its DNS were gone at the first look, within
+about 0.5 s, and still at 1, 3 and 10 s; DNS and TCP left by the
+Ethernet adapter again. A second start and kill did the same. Not
+covered: other Windows or Wintun versions, and sail embedded in a host's
+process, whose dynamic WFP session lasts as long as that process unless
+sail is stopped.
 
 ## How leftovers are identified: a ledger
 
