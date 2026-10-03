@@ -378,3 +378,120 @@ fn dns_servers_without_a_detour_go_out_of_the_uplink() -> Result<()> {
     let _ = std::fs::remove_dir_all(&dir);
     Ok(())
 }
+
+/// What the host does when it is told the outbounds are built, while the
+/// instance starts and before the TUN is opened: opens UDP to `to` through
+/// the direct outbound, and notes whether the TUN was there.
+struct DialsAsItStarts {
+    to: std::net::SocketAddr,
+    dialled: std::sync::Mutex<Option<(bool, Result<sail::control::Dialed, String>)>>,
+}
+
+impl sail::runtime::Platform for DialsAsItStarts {
+    fn log(&self, _line: &str) {}
+
+    fn dialable(&self, dialer: &sail::control::Dialer) {
+        let tun_was_up = run("ip", "link show sartun").is_ok();
+        let dialled = dialer
+            .handle()
+            .block_on(dialer.env().scope.enter(dialer.dial(
+                "direct",
+                sail::session::Network::Udp,
+                sail::session::SocksAddr::from(self.to),
+                Duration::from_secs(5),
+            )))
+            .map_err(|e| e.to_string());
+        *self.dialled.lock().unwrap() = Some((tun_was_up, dialled));
+    }
+}
+
+/// A direct dial a host makes while the instance starts, before the TUN is
+/// opened and routed, stays out of the TUN once it is: its socket is bound
+/// to the uplink when it is dialled, and the rules auto_route adds later
+/// leave it there. It reaches an address the rules block, which what goes
+/// through the TUN does not.
+#[test]
+#[ignore = "needs root, in the namespace tests/scripts/auto_route_netns.sh builds"]
+fn a_dial_made_while_it_starts_stays_out_of_the_tun() -> Result<()> {
+    use sail::embed::{Config, Instance, Options};
+    use sail::session::SocksAddr;
+
+    let to: std::net::SocketAddr = format!("{}:9999", BLOCKED).parse()?;
+    let host = std::sync::Arc::new(DialsAsItStarts {
+        to,
+        dialled: Default::default(),
+    });
+    let config = format!(
+        r#"{{
+            "inbounds": [{{
+                "type": "tun", "tag": "tun-in", "interface_name": "sartun",
+                "address": ["172.31.241.1/30"],
+                "auto_route": true, "strict_route": true
+            }}],
+            "outbounds": [
+                {{ "type": "direct", "tag": "direct" }},
+                {{ "type": "block", "tag": "block" }}
+            ],
+            "route": {{
+                "rules": [{{ "ip_cidr": ["{BLOCKED}/32"], "outbound": "block" }}],
+                "final": "direct"
+            }}
+        }}"#
+    );
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()?;
+    rt.block_on(async {
+        let instance = Instance::new(Options::new().platform(host.clone()))
+            .map_err(|e| anyhow::anyhow!("{}", e))?;
+        instance
+            .start(Config::Json(config))
+            .await
+            .map_err(|e| anyhow::anyhow!("start: {}", e))?;
+        let checked = async {
+            let (tun_was_up, dialled) = host
+                .dialled
+                .lock()
+                .unwrap()
+                .take()
+                .context("the host was told the outbounds were built")?;
+            ensure!(
+                !tun_was_up,
+                "the TUN was open before the outbounds were dialable"
+            );
+            let sail::control::Dialed::Datagram(datagram) =
+                dialled.map_err(|e| anyhow::anyhow!("the dial while it started: {}", e))?
+            else {
+                anyhow::bail!("a UDP dial gives datagrams");
+            };
+            // The TUN is up and takes the host's traffic: what goes through
+            // it to the blocked address goes nowhere.
+            ensure!(run("ip", "link show sartun").is_ok(), "the TUN is up");
+            ensure!(
+                run("ip", &format!("route show table {}", TABLE))?.contains("sartun"),
+                "its routes are in place"
+            );
+            ensure!(
+                !udp_echoes(BLOCKED),
+                "the blocked address was reached through the TUN"
+            );
+            // The socket dialled before goes out of the uplink still.
+            let (mut recv, mut send) = datagram.split();
+            send.send_to(b"ping-udp", &SocksAddr::from(to)).await?;
+            let mut buf = [0u8; 16];
+            let (n, _) = tokio::time::timeout(Duration::from_secs(3), recv.recv_from(&mut buf))
+                .await
+                .context(
+                    "no answer on the socket dialled while it started: it went into the TUN",
+                )??;
+            ensure!(&buf[..n] == b"ping-udp", "echoed");
+            Ok(())
+        };
+        let result = checked.await;
+        // Whatever was found, what it set up on the system goes.
+        let stopped = instance.stop().await;
+        result?;
+        stopped.map_err(|e| anyhow::anyhow!("stop: {}", e))
+    })
+}
