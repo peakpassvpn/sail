@@ -624,3 +624,174 @@ fn embedded_certificate_follow(port: u16) -> Result<()> {
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
     result
 }
+
+/// A rule-set server that holds its first answer until it is told to
+/// give it: a start that fetches from it waits there, its inbounds built
+/// and its files read, and not yet watched. Gives its port, what tells
+/// that the first request came, and what lets it be answered.
+#[cfg(all(feature = "auto-reload", feature = "rule-set"))]
+fn held_rule_set() -> (
+    u16,
+    std::sync::mpsc::Receiver<()>,
+    std::sync::mpsc::Sender<()>,
+) {
+    use std::io::{BufRead, BufReader};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (asked, was_asked) = std::sync::mpsc::channel();
+    let (release, released) = std::sync::mpsc::channel::<()>();
+    std::thread::spawn(move || {
+        let mut held = true;
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { continue };
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut line = String::new();
+            while reader.read_line(&mut line).is_ok() && line != "\r\n" && !line.is_empty() {
+                line.clear();
+            }
+            if held {
+                held = false;
+                let _ = asked.send(());
+                let _ = released.recv_timeout(Duration::from_secs(20));
+            }
+            let body = r#"{ "version": 3, "rules": [{ "ip_cidr": "192.0.2.0/24" }] }"#;
+            let _ = write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+        }
+    });
+    (port, was_asked, release)
+}
+
+/// Starts `config_path` as `id` on a thread of its own, which the caller
+/// waits for with `started`.
+#[cfg(all(feature = "auto-reload", feature = "rule-set"))]
+fn start_held(
+    config_path: &std::path::Path,
+    id: u16,
+    auto_reload: bool,
+) -> std::thread::JoinHandle<Result<(), sail::Error>> {
+    let path = config_path.to_string_lossy().to_string();
+    std::thread::spawn(move || {
+        sail::start(
+            id,
+            sail::StartOptions {
+                config: sail::Config::File(path),
+                auto_reload,
+                runtime_opt: sail::RuntimeOption::SingleThread,
+                runtime: common::runtime_options(),
+                host: Default::default(),
+            },
+        )
+    })
+}
+
+#[cfg(all(feature = "auto-reload", feature = "rule-set"))]
+fn started(id: u16, start: &std::thread::JoinHandle<Result<(), sail::Error>>) -> Result<Running> {
+    let running = Running(id);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !sail::is_running(id) {
+        ensure!(!start.is_finished(), "start failed");
+        ensure!(Instant::now() < deadline, "runtime did not start");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    Ok(running)
+}
+
+/// A certificate replaced while the instance starts, after its inbound
+/// read the files and before they are watched, is the one served: no
+/// event tells of that write, and it would otherwise be served stale
+/// until its next change.
+#[cfg(all(feature = "auto-reload", feature = "rule-set"))]
+#[test]
+fn a_certificate_replaced_while_the_instance_starts_is_served() -> Result<()> {
+    let port = common::free_port();
+    let dir = common::TempDir::new("certificate-start-gap")?;
+    let (cert_path, key_path) = (dir.join("cert.pem"), dir.join("key.pem"));
+    let first = rcgen::generate_simple_self_signed(vec!["localhost".into()])?;
+    let second = rcgen::generate_simple_self_signed(vec!["localhost".into()])?;
+    std::fs::write(&cert_path, first.cert.pem())?;
+    std::fs::write(&key_path, first.key_pair.serialize_pem())?;
+    let (rules_port, asked, release) = held_rule_set();
+    let config_path = dir.join("config.json");
+    let config = json!({
+        "inbounds": [{"type":"trojan", "tag":"server", "listen":"127.0.0.1", "listen_port":port,
+            "users":[{"name":"alice","password":"alice"}],
+            "tls":{"enabled":true,"certificate_path":cert_path,"key_path":key_path}}],
+        "outbounds":[{"type":"direct"}],
+        "route": {
+            "rule_set": [{ "type": "remote", "tag": "s", "format": "source",
+                           "url": format!("http://127.0.0.1:{}/s.json", rules_port) }],
+            "rules": [{ "rule_set": "s", "action": "reject" }],
+        },
+    });
+    std::fs::write(&config_path, config.to_string())?;
+    let start = start_held(&config_path, ID + 3, false);
+    // The start fetches the rule-set: its inbound is built, the files read.
+    asked
+        .recv_timeout(Duration::from_secs(10))
+        .map_err(|_| anyhow::anyhow!("the start did not fetch the rule-set"))?;
+    replace(&cert_path, second.cert.pem())?;
+    replace(&key_path, second.key_pair.serialize_pem())?;
+    let _ = release.send(());
+    let _running = started(ID + 3, &start)?;
+    // No write from here on: what serves the second pair is the read made
+    // once the files are watched.
+    let expected = second.cert.der().to_vec();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while peer(&connect(port)?)? != expected {
+        ensure!(
+            Instant::now() < deadline,
+            "the certificate replaced during the start is not served"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    Ok(())
+}
+
+/// A configuration file written while the instance starts, after the
+/// start read it and before it is watched, is reloaded once it is, where
+/// the instance reloads as its file changes.
+#[cfg(all(feature = "auto-reload", feature = "rule-set"))]
+#[test]
+fn a_configuration_written_while_the_instance_starts_is_reloaded() -> Result<()> {
+    let port = common::free_port();
+    let dir = common::TempDir::new("config-start-gap")?;
+    let (rules_port, asked, release) = held_rule_set();
+    let config_path = dir.join("config.json");
+    let config = |level: &str| {
+        json!({
+            "log": { "level": level },
+            "inbounds": [{"type":"trojan", "tag":"server", "listen":"127.0.0.1", "listen_port":port,
+                "users":[{"name":"alice","password":"alice"}]}],
+            "outbounds":[{"type":"direct"}],
+            "route": {
+                "rule_set": [{ "type": "remote", "tag": "s", "format": "source",
+                               "url": format!("http://127.0.0.1:{}/s.json", rules_port) }],
+                "rules": [{ "rule_set": "s", "action": "reject" }],
+            },
+        })
+        .to_string()
+    };
+    std::fs::write(&config_path, config("info"))?;
+    let start = start_held(&config_path, ID + 4, true);
+    asked
+        .recv_timeout(Duration::from_secs(10))
+        .map_err(|_| anyhow::anyhow!("the start did not fetch the rule-set"))?;
+    replace(&config_path, config("warn"))?;
+    let _ = release.send(());
+    let _running = started(ID + 4, &start)?;
+    let manager = sail::runtime_manager(ID + 4).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while manager.reloads() == 0 {
+        ensure!(
+            Instant::now() < deadline,
+            "the configuration written during the start was not reloaded"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    Ok(())
+}

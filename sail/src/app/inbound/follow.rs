@@ -17,8 +17,29 @@ use std::time::Duration;
 
 use tracing::{info, warn};
 
-use crate::runtime::watch::FileWatcher;
+use crate::runtime::watch::{written_since, FileWatcher, Stamp};
 use crate::RuntimeManager;
+
+/// The files of inbounds as they were just before they were read.
+pub(crate) type Read = std::collections::HashMap<PathBuf, Option<Stamp>>;
+
+/// The files `inbounds` read, the certificate and key each presents, as
+/// they are now: taken just before the inbounds are built, for
+/// `follow_certificates_read` to tell which were written before their
+/// watch was set up.
+pub(crate) fn about_to_read(
+    inbounds: &[crate::config::Inbound],
+    env: &crate::runtime::RuntimeEnv,
+) -> Read {
+    inbounds
+        .iter()
+        .flat_map(|inbound| super::resource::files(inbound, env))
+        .map(|path| {
+            let stamp = Stamp::of(&path);
+            (path, stamp)
+        })
+        .collect()
+}
 
 /// How long the files of an inbound are quiet before they are read: a
 /// certificate and its key are written one after the other.
@@ -41,6 +62,16 @@ impl RuntimeManager {
     /// Follows the certificate files of the inbounds as they are now; what
     /// followed others goes. Nothing changes when they read the same files.
     pub(crate) fn follow_certificates(&self) {
+        self.follow_certificates_read(&Read::new());
+    }
+
+    /// `follow_certificates`, of inbounds built since `read` was taken of
+    /// their files (`about_to_read`). The files were read when the
+    /// inbounds were built and are watched only from here, at a start
+    /// seconds later: an inbound whose file was written in between is
+    /// built again now, once its watch is set up, or the certificate
+    /// replaced then would be served stale until its next change.
+    pub(crate) fn follow_certificates_read(&self, read: &Read) {
         let files = match self.inbound_manager.lock() {
             Ok(inbounds) => inbounds.resource_files(),
             Err(_) => return,
@@ -49,6 +80,15 @@ impl RuntimeManager {
         if follow.as_ref().map(|f| &f.files) == Some(&files) {
             return;
         }
+        // The files watched until now, as they are: a write while their
+        // watchers are replaced shows against this. `read` is from before
+        // they were read, and tells more.
+        let mut seen: Read = follow
+            .iter()
+            .flat_map(|f| f.files.iter().flat_map(|(_, paths)| paths))
+            .map(|path| (path.clone(), Stamp::of(path)))
+            .collect();
+        seen.extend(read.iter().map(|(path, stamp)| (path.clone(), *stamp)));
         // The watchers of the files no longer read go first.
         *follow = None;
         if files.is_empty() {
@@ -66,6 +106,20 @@ impl RuntimeManager {
                     "[{}] inbound: its certificate files are not followed: {}",
                     tag, e
                 ),
+            }
+        }
+        // Watched from here: what was written before is built again.
+        for (tag, paths) in &files {
+            let written = paths.iter().any(|path| {
+                seen.get(path)
+                    .is_some_and(|read| written_since(*read, path))
+            });
+            if written {
+                tracing::debug!(
+                    "[{}] inbound: its certificate files were written since they were read",
+                    tag
+                );
+                let _ = tx.try_send(tag.clone());
             }
         }
         drop(tx);

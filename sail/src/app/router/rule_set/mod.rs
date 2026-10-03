@@ -227,53 +227,14 @@ struct Local {
     env: RuntimeEnv,
     /// The file as it was just before it was read: what tells, once its
     /// watch is set up, whether it was written in between.
-    read: Option<Stamp>,
-}
-
-/// A file's size and time of modification, and when they were taken.
-#[cfg(feature = "auto-reload")]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Stamp {
-    len: u64,
-    modified: std::time::SystemTime,
-    taken: std::time::SystemTime,
-}
-
-/// A file modified this close before its stamp was taken may be written
-/// again without its time of modification changing, where a file system
-/// keeps it to the second or to two (ext3, HFS+, FAT): it is read again
-/// rather than trusted, as git treats a file as old as its index.
-#[cfg(feature = "auto-reload")]
-const STAMP_GRANULARITY: std::time::Duration = std::time::Duration::from_secs(2);
-
-#[cfg(feature = "auto-reload")]
-impl Stamp {
-    fn of(path: &std::path::Path) -> Option<Self> {
-        let taken = std::time::SystemTime::now();
-        let meta = std::fs::metadata(path).ok()?;
-        Some(Stamp {
-            len: meta.len(),
-            modified: meta.modified().ok()?,
-            taken,
-        })
-    }
+    read: Option<crate::runtime::watch::Stamp>,
 }
 
 #[cfg(feature = "auto-reload")]
 impl Local {
-    /// Whether the file may have been written since it was read: it is
-    /// not as it was then, or it was modified too close to then to tell.
-    /// A file that is gone or cannot be looked at is left: reading it
-    /// would only fail.
+    /// Whether the file may have been written since it was read.
     fn written_since_read(&self) -> bool {
-        let (Some(read), Some(now)) = (self.read, Stamp::of(&self.path)) else {
-            return false;
-        };
-        (now.len, now.modified) != (read.len, read.modified)
-            || read
-                .modified
-                .checked_add(STAMP_GRANULARITY)
-                .is_none_or(|settled| settled >= read.taken)
+        crate::runtime::watch::written_since(self.read, &self.path)
     }
 
     /// Puts the file's rules in place; ones that do not read leave the
@@ -335,7 +296,7 @@ impl RuleSets {
                                 config.path.as_deref().unwrap_or_default(),
                                 tag,
                             )));
-                        let read = Stamp::of(&path);
+                        let read = crate::runtime::watch::Stamp::of(&path);
                         (path, read)
                     });
                     let set =

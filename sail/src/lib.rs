@@ -594,6 +594,10 @@ impl RuntimeManager {
         self.env
             .network
             .set_own_interfaces(own_interfaces(&config, &self.env.host));
+        // Before their files are read again: those written until they are
+        // watched show against this.
+        #[cfg(feature = "auto-reload")]
+        let inbound_files = app::inbound::follow::about_to_read(&config.inbounds, &self.env);
         let inbound_resources = self
             .inbound_manager
             .lock()
@@ -745,7 +749,7 @@ impl RuntimeManager {
         // What it matches on may be new to this configuration.
         self.detect_network(net::network::ChangeReason::State);
         #[cfg(feature = "auto-reload")]
-        self.follow_certificates();
+        self.follow_certificates_read(&inbound_files);
         self.reloads
             .fetch_add(1, portable_atomic::Ordering::Relaxed);
         Ok(())
@@ -835,6 +839,8 @@ impl RuntimeManager {
         if inbound.tag.is_empty() {
             inbound.tag = inbound.protocol.clone();
         }
+        #[cfg(feature = "auto-reload")]
+        let files = app::inbound::follow::about_to_read(std::slice::from_ref(&inbound), &self.env);
         let mut inbounds = self
             .inbound_manager
             .lock()
@@ -842,7 +848,7 @@ impl RuntimeManager {
         inbounds.add(&inbound).map_err(Error::Config)?;
         drop(inbounds);
         #[cfg(feature = "auto-reload")]
-        self.follow_certificates();
+        self.follow_certificates_read(&files);
         info!("added inbound [{}]", inbound.tag);
         Ok(())
     }
@@ -1038,6 +1044,24 @@ impl RuntimeManager {
         let watcher = self.prepare_watcher()?;
         *self.watcher.lock().unwrap_or_else(|e| e.into_inner()) = watcher;
         Ok(())
+    }
+
+    /// Reloads, where the instance reloads as its configuration file
+    /// changes, if the file was written since `read` was taken of it: just
+    /// before the start read it, long before `new_watcher` watched it. No
+    /// event told of that write.
+    #[cfg(feature = "auto-reload")]
+    pub(crate) fn reload_if_written_since(&self, read: Option<runtime::watch::Stamp>) {
+        let Some(config_path) = self.config_path.as_ref().filter(|_| self.auto_reload) else {
+            return;
+        };
+        if !runtime::watch::written_since(read, std::path::Path::new(config_path)) {
+            return;
+        }
+        info!("the configuration file was written while the instance started: reloading");
+        if let Some(events) = &*self.watch_events.lock().unwrap_or_else(|e| e.into_inner()) {
+            events.changed();
+        }
     }
 
     /// Stops watching files: what the instance followed goes with it.
@@ -1644,6 +1668,12 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
         _ => None,
     };
 
+    // The file as it is before it is read: where it is watched, a write
+    // from here until its watch is set up is reloaded then.
+    #[cfg(feature = "auto-reload")]
+    let config_read = config_path
+        .as_deref()
+        .and_then(|path| runtime::watch::Stamp::of(std::path::Path::new(path)));
     let config = match opts.config {
         Config::File(p) => config::from_file_for(&p, &opts.host).map_err(Error::Config)?,
         Config::Str(s) => config::from_string_for(&s, &opts.host).map_err(Error::Config)?,
@@ -1730,6 +1760,11 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
     }
 
     let dial_defaults = dial_defaults(&config, &env).map_err(Error::Config)?;
+    // The inbounds' certificate files as they are before they are read:
+    // they are watched only once the instance is built and what its start
+    // waits for is fetched, and one written until then is read again then.
+    #[cfg(feature = "auto-reload")]
+    let inbound_files = app::inbound::follow::about_to_read(&config.inbounds, &env);
     let mut instance = app::instance::Instance::build(&config, env.clone(), dial_defaults)
         .map_err(Error::Config)?;
     // Its outbounds are built: the host dials through them from here,
@@ -1807,7 +1842,8 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
         if let Err(e) = runtime_manager.new_watcher() {
             warn!("start config file watcher failed: {}", e);
         }
-        runtime_manager.follow_certificates();
+        runtime_manager.reload_if_written_since(config_read);
+        runtime_manager.follow_certificates_read(&inbound_files);
     }
 
     runtime_manager.set_assets(&config);
