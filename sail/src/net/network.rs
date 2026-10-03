@@ -4,14 +4,13 @@
 //! (FFI, the runtime API); without a push, sail detects what the system
 //! tells it. One state and one notice of change for all of sail.
 
-use portable_atomic::AtomicU64;
 use std::net::IpAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use anyhow::{anyhow, Result};
 use serde_derive::{Deserialize, Serialize};
-use tokio::sync::watch;
+use tokio::sync::{broadcast, watch};
 
 /// The kind of network, as sing-box names them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -270,14 +269,31 @@ pub struct NetworkChange {
     pub new: Arc<NetworkState>,
 }
 
+/// The state now, and the generation of the last change it came after, 0
+/// before any: taken together, so that one does not run ahead of the other.
+#[derive(Clone, Debug, Default)]
+pub struct Current {
+    pub state: Arc<NetworkState>,
+    pub generation: u64,
+}
+
+/// How many changes a subscriber of `change_events` may fall behind by
+/// before it is told it lagged: changes come seconds apart at most, a
+/// burst (down, then up) a handful.
+const EVENTS: usize = 64;
+
 /// The instance's network, kept across reloads: its state now, and a
 /// notice to whoever subscribed when it changes.
 #[derive(Clone)]
 pub struct Network {
-    state: Arc<watch::Sender<Arc<NetworkState>>>,
+    state: Arc<watch::Sender<Current>>,
     /// The last change the connections do not survive.
     changes: Arc<watch::Sender<Option<Arc<NetworkChange>>>>,
-    generation: Arc<AtomicU64>,
+    /// Every such change, in order.
+    events: Arc<broadcast::Sender<Arc<NetworkChange>>>,
+    /// Held while a change is made and told, and while a subscriber takes
+    /// the state and its events together.
+    telling: Arc<Mutex<()>>,
     /// Whether a state was ever set: the first is no change of network.
     known: Arc<AtomicBool>,
     /// Whether the host pushes the state, which detection then leaves.
@@ -290,9 +306,10 @@ pub struct Network {
 impl Default for Network {
     fn default() -> Self {
         Network {
-            state: Arc::new(watch::Sender::new(Arc::default())),
+            state: Arc::new(watch::Sender::new(Current::default())),
             changes: Arc::new(watch::Sender::new(None)),
-            generation: Arc::default(),
+            events: Arc::new(broadcast::Sender::new(EVENTS)),
+            telling: Arc::default(),
             known: Arc::default(),
             pushed: Arc::default(),
             own: Arc::default(),
@@ -311,36 +328,65 @@ impl std::fmt::Debug for Network {
 impl Network {
     /// The state now.
     pub fn snapshot(&self) -> Arc<NetworkState> {
+        self.state.borrow().state.clone()
+    }
+
+    /// The state now with the generation of the last change it came after.
+    pub fn snapshot_with_generation(&self) -> Current {
         self.state.borrow().clone()
     }
 
     /// Tells of each change of state from now on: rules that match the
     /// network take every one.
-    pub fn subscribe(&self) -> watch::Receiver<Arc<NetworkState>> {
+    pub fn subscribe(&self) -> watch::Receiver<Current> {
         self.state.subscribe()
     }
 
     /// Tells of each change that connections do not survive, from now on:
-    /// the instance drops what was of the network before.
+    /// the instance drops what was of the network before. The last one
+    /// only: a reader that is slow sees the latest.
     pub fn changes(&self) -> watch::Receiver<Option<Arc<NetworkChange>>> {
         self.changes.subscribe()
+    }
+
+    /// Every change that connections do not survive, in order, from now
+    /// on; a subscriber more than 64 behind is told it lagged.
+    pub fn change_events(&self) -> broadcast::Receiver<Arc<NetworkChange>> {
+        self.events.subscribe()
+    }
+
+    /// The state now, and every change after it, taken together: the
+    /// events are those whose generation is past the state's, none
+    /// missed and none the state already holds.
+    pub fn state_and_events(&self) -> (Current, broadcast::Receiver<Arc<NetworkChange>>) {
+        let _telling = self.telling.lock().unwrap_or_else(|e| e.into_inner());
+        (self.state.borrow().clone(), self.events.subscribe())
     }
 
     /// Tells of a change whatever the state says: the host says the network
     /// changed, or the system woke.
     pub fn announce(&self, reason: ChangeReason) {
-        let now = self.snapshot();
-        self.publish(reason, now.clone(), now);
+        let _telling = self.telling.lock().unwrap_or_else(|e| e.into_inner());
+        let mut change = None;
+        self.state.send_modify(|current| {
+            current.generation += 1;
+            change = Some(NetworkChange {
+                generation: current.generation,
+                reason,
+                old: current.state.clone(),
+                new: current.state.clone(),
+            });
+        });
+        self.tell(change.expect("set in send_modify"));
     }
 
-    fn publish(&self, reason: ChangeReason, old: Arc<NetworkState>, new: Arc<NetworkState>) {
-        let generation = self.generation.fetch_add(1, Ordering::Relaxed) + 1;
-        self.changes.send_replace(Some(Arc::new(NetworkChange {
-            generation,
-            reason,
-            old,
-            new,
-        })));
+    /// Tells the subscribers of `change`, whose state is stored already;
+    /// with `telling` held.
+    fn tell(&self, change: NetworkChange) {
+        let change = Arc::new(change);
+        self.changes.send_replace(Some(change.clone()));
+        // None subscribed is no error.
+        let _ = self.events.send(change);
     }
 
     /// Whether there is no network: a state was known, and now nothing is,
@@ -388,17 +434,29 @@ impl Network {
                 .interfaces
                 .retain(|i| default.as_ref() == Some(&i.name) || !own.contains(&i.name));
         }
+        let _telling = self.telling.lock().unwrap_or_else(|e| e.into_inner());
         let old = self.snapshot();
-        let changed = self.state.send_if_modified(|now| {
-            if **now == state {
-                return false;
-            }
-            *now = Arc::new(state);
-            true
-        });
         // The first state known, at the start, moves nothing.
         let known = self.known.swap(true, Ordering::Relaxed);
-        let moved = changed && known && old.moved_to(&self.snapshot());
+        let changed = *old != state;
+        let moved = changed && known && old.moved_to(&state);
+        let mut change = None;
+        if changed {
+            // The state and the generation of its move, in one send.
+            let state = Arc::new(state);
+            self.state.send_modify(|current| {
+                current.state = state.clone();
+                if moved {
+                    current.generation += 1;
+                    change = Some(NetworkChange {
+                        generation: current.generation,
+                        reason,
+                        old: old.clone(),
+                        new: state,
+                    });
+                }
+            });
+        }
         let captive = self.snapshot().captive;
         if changed && captive != old.captive {
             if captive {
@@ -410,8 +468,8 @@ impl Network {
                 tracing::info!("network: the captive portal cleared; the rules apply again");
             }
         }
-        if moved {
-            self.publish(reason, old, self.snapshot());
+        if let Some(change) = change {
+            self.tell(change);
         }
         if changed {
             let now = self.snapshot();
@@ -681,5 +739,58 @@ mod tests {
         let change = changes.borrow_and_update().clone().unwrap();
         assert_eq!((change.generation, change.reason), (4, ChangeReason::Wake));
         assert_eq!(change.old, change.new);
+    }
+
+    /// Two changes in quick succession, the network lost and back: a
+    /// subscriber of the events, slow to read, gets both, in order, with
+    /// consecutive generations, where the watch keeps only the last.
+    #[test]
+    fn every_change_is_an_event_in_order() {
+        let network = Network::default();
+        network.detected(on("en0", &["192.168.1.2/24"]), ChangeReason::State);
+        let mut events = network.change_events();
+        let changes = network.changes();
+        assert!(network.detected(NetworkState::default(), ChangeReason::State));
+        assert!(network.detected(on("en0", &["192.168.1.2/24"]), ChangeReason::State));
+
+        let lost = events.try_recv().unwrap();
+        let back = events.try_recv().unwrap();
+        assert_eq!((lost.generation, back.generation), (1, 2));
+        assert_eq!(lost.new.interface, None);
+        assert_eq!(back.new.interface.as_deref(), Some("en0"));
+        assert!(events.try_recv().is_err());
+        assert_eq!(changes.borrow().as_ref().unwrap().generation, 2);
+        // The state carries the generation of the change it came after.
+        let current = network.snapshot_with_generation();
+        assert_eq!(current.generation, 2);
+        assert_eq!(current.state, back.new);
+    }
+
+    /// The state and the events after it, taken together: none of the
+    /// events is one the state holds, and none after it is missed.
+    #[test]
+    fn the_state_and_its_events_are_taken_together() {
+        let network = Network::default();
+        network.detected(on("en0", &["192.168.1.2/24"]), ChangeReason::State);
+        network.detected(on("en1", &["10.0.0.2/24"]), ChangeReason::State);
+        let (current, mut events) = network.state_and_events();
+        assert_eq!(current.generation, 1);
+        assert_eq!(current.state.interface.as_deref(), Some("en1"));
+        assert!(
+            events.try_recv().is_err(),
+            "the state's own change is not an event"
+        );
+        network.announce(ChangeReason::Wake);
+        assert_eq!(events.try_recv().unwrap().generation, 2);
+
+        // A subscriber falling more than the bound behind is told so.
+        let mut slow = network.change_events();
+        for _ in 0..EVENTS + 1 {
+            network.announce(ChangeReason::Wake);
+        }
+        assert!(matches!(
+            slow.try_recv(),
+            Err(broadcast::error::TryRecvError::Lagged(1))
+        ));
     }
 }
