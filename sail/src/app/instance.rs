@@ -237,6 +237,19 @@ impl Instance {
             any(target_os = "linux", target_os = "macos", target_os = "windows")
         ))]
         if let Some((tag, settings)) = &self.routed_tun {
+            // The name the device got: a chosen one may have changed at open.
+            let mut settings = settings.clone();
+            if let Some(name) = self
+                .dispatcher
+                .env()
+                .tun_names
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .get(tag)
+            {
+                settings.name = name.name.clone();
+            }
+            let settings = &settings;
             let started = match &settings.auto_redirect {
                 #[cfg(target_os = "linux")]
                 Some(options) => crate::protocol::tun::auto_redirect::AutoRedirect::start(

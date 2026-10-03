@@ -310,8 +310,8 @@ struct TunInboundOptions {
     /// The device's name, used as it is: a start fails if it is taken.
     /// Without it, on macOS one past the highest utunN is chosen at start,
     /// as sing-box chooses, and kept across reloads (a host reads it back);
-    /// another program can take it before the device opens, and the start
-    /// then fails, the next choosing again. Elsewhere utun233.
+    /// one another program takes before the device opens is given up for
+    /// the next free one, three at most. Elsewhere utun233.
     #[serde(default)]
     interface_name: Option<String>,
     /// The device's addresses with their prefixes: one IPv4, one IPv6, or
@@ -635,6 +635,92 @@ fn resolve_names_among(
         names.insert(inbound.tag.clone(), name);
     }
     names
+}
+
+/// A TUN's name that could not be had: configured and in use, or chosen
+/// at start and taken by another program each of `attempts` times. A host
+/// tells it from other start failures by `downcast_ref` on the error's
+/// chain.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TunNameTaken {
+    pub tag: String,
+    /// The last name tried.
+    pub name: String,
+    /// Chosen by sail, as none was configured.
+    pub chosen: bool,
+    pub attempts: u32,
+}
+
+impl std::fmt::Display for TunNameTaken {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.chosen {
+            write!(
+                f,
+                "[{}] inbound: no free utun after {} attempts, the last {}: each was taken \
+                 between choosing and opening it",
+                self.tag, self.attempts, self.name
+            )
+        } else {
+            write!(
+                f,
+                "[{}] inbound: interface_name {} is in use by another program",
+                self.tag, self.name
+            )
+        }
+    }
+}
+
+impl std::error::Error for TunNameTaken {}
+
+/// How many names a chosen TUN tries before its start fails.
+const CHOOSE_ATTEMPTS: u32 = 3;
+
+/// Opens the TUN named `first`. A name sail chose that another program has
+/// taken since (EBUSY) is given up for the next free one, logged, up to
+/// CHOOSE_ATTEMPTS names; a configured one fails at once. Returns the
+/// device and the name it got.
+fn open_named<T>(
+    tag: &str,
+    first: &str,
+    chosen: bool,
+    existing: impl Fn() -> Vec<String>,
+    mut open: impl FnMut(&str) -> std::io::Result<T>,
+) -> Result<(T, String)> {
+    let mut name = first.to_owned();
+    let mut tried: Vec<String> = Vec::new();
+    loop {
+        match open(&name) {
+            Ok(device) => return Ok((device, name)),
+            Err(e) if e.kind() == std::io::ErrorKind::ResourceBusy => {
+                tried.push(name.clone());
+                let attempts = tried.len() as u32;
+                if !chosen || attempts >= CHOOSE_ATTEMPTS {
+                    return Err(anyhow::Error::new(TunNameTaken {
+                        tag: tag.to_owned(),
+                        name,
+                        chosen,
+                        attempts,
+                    }));
+                }
+                let mut taken = existing();
+                taken.extend(tried.iter().cloned());
+                let next = next_utun(&taken);
+                warn!(
+                    "[{}] inbound: {} was taken between choosing and opening it; trying {}",
+                    tag, name, next
+                );
+                name = next;
+            }
+            Err(e) => {
+                return Err(anyhow!(
+                    "[{}] inbound: create tun {} failed: {}",
+                    tag,
+                    name,
+                    e
+                ))
+            }
+        }
+    }
 }
 
 /// One past the highest utunN among `taken`.
@@ -1104,6 +1190,7 @@ fn open_device(
     let netstack = &dispatcher.env().options.netstack;
     let mtu = usize::from(settings.mtu);
     let mut cfg = tun::Configuration::default();
+    let host_opened = platform.is_some();
     if let Some(platform) = platform {
         let fd = platform
             .open_tun(&settings.request())
@@ -1130,8 +1217,7 @@ fn open_device(
                     inbound.tag
                 ));
             };
-            cfg.tun_name(&settings.name)
-                .address(ipv4.address())
+            cfg.address(ipv4.address())
                 .destination(peer(ipv4))
                 .netmask(ipv4.mask())
                 .mtu(settings.mtu)
@@ -1139,31 +1225,47 @@ fn open_device(
         }
     }
 
-    let tun = tun::create_as_async(&cfg).map_err(|e| {
-        let chosen = dispatcher
-            .env()
-            .tun_names
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .get(&inbound.tag)
-            .is_some_and(|name| name.chosen);
-        if chosen {
-            anyhow!(
-                "[{}] inbound: {}, chosen at start as free, was taken before it opened: {}; \
-                 starting again chooses another",
-                inbound.tag,
-                settings.name,
-                e
-            )
-        } else {
-            anyhow!(
-                "[{}] inbound: create tun {} failed: {}",
-                inbound.tag,
-                settings.name,
-                e
-            )
-        }
-    })?;
+    let chosen = dispatcher
+        .env()
+        .tun_names
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(&inbound.tag)
+        .is_some_and(|name| name.chosen);
+    let opened_here = !host_opened;
+    let (tun, name) = if opened_here {
+        open_named(
+            &inbound.tag,
+            &settings.name,
+            chosen,
+            interface_names,
+            |name| {
+                cfg.tun_name(name);
+                tun::create_as_async(&cfg).map_err(std::io::Error::from)
+            },
+        )?
+    } else {
+        let tun = tun::create_as_async(&cfg)
+            .map_err(|e| anyhow!("[{}] inbound: open the host's tun: {}", inbound.tag, e))?;
+        (tun, settings.name.clone())
+    };
+    let mut settings = settings;
+    if name != settings.name {
+        // What reads the name from here on reads the one the TUN got.
+        let names = {
+            let mut names = dispatcher
+                .env()
+                .tun_names
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            if let Some(entry) = names.get_mut(&inbound.tag) {
+                entry.name = name.clone();
+            }
+            names.values().map(|n| n.name.clone()).collect::<Vec<_>>()
+        };
+        dispatcher.env().network.set_own_interfaces(names);
+        settings.name = name;
+    }
     info!("[{}] inbound: tun {} is up", inbound.tag, settings.name);
     #[cfg(target_os = "macos")]
     if let Some(ipv6) = settings.ipv6.filter(|_| cfg_opened_here(&dispatcher)) {
@@ -1660,6 +1762,70 @@ mod tests {
         let names = resolve_names_among(&mut elsewhere, &BTreeMap::new(), &host, false, &existing);
         assert_eq!(names["a"].name, DEFAULT_NAME);
         assert_eq!(name_of(&elsewhere[0]), DEFAULT_NAME);
+    }
+
+    /// A name sail chose that another program takes before it opens is
+    /// given up for the next free one, three names at most; a configured
+    /// one fails at once. Either way the failure is a TunNameTaken.
+    #[test]
+    fn a_chosen_name_taken_in_between_is_chosen_again() {
+        let busy = || std::io::Error::from(std::io::ErrorKind::ResourceBusy);
+        let existing = || vec!["utun0".to_string(), "utun3".into()];
+
+        // Taken once: the next one past it.
+        let mut tries = Vec::new();
+        let (_, name) = open_named("t", "utun4", true, existing, |name| {
+            tries.push(name.to_owned());
+            if tries.len() == 1 {
+                Err(busy())
+            } else {
+                Ok(())
+            }
+        })
+        .unwrap();
+        assert_eq!(tries, ["utun4", "utun5"]);
+        assert_eq!(name, "utun5");
+
+        // Taken each time: three names, then a TunNameTaken.
+        let mut tries = Vec::new();
+        let err = open_named(
+            "t",
+            "utun4",
+            true,
+            existing,
+            |name| -> std::io::Result<()> {
+                tries.push(name.to_owned());
+                Err(busy())
+            },
+        )
+        .unwrap_err();
+        assert_eq!(tries, ["utun4", "utun5", "utun6"]);
+        assert_eq!(
+            err.downcast_ref::<TunNameTaken>(),
+            Some(&TunNameTaken {
+                tag: "t".into(),
+                name: "utun6".into(),
+                chosen: true,
+                attempts: 3
+            })
+        );
+
+        // Configured: no second name.
+        let mut tries = 0;
+        let err = open_named("t", "utun9", false, existing, |_| -> std::io::Result<()> {
+            tries += 1;
+            Err(busy())
+        })
+        .unwrap_err();
+        assert_eq!(tries, 1);
+        assert!(!err.downcast_ref::<TunNameTaken>().unwrap().chosen);
+
+        // Another failure is not a name's.
+        let err = open_named("t", "utun4", true, existing, |_| -> std::io::Result<()> {
+            Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied))
+        })
+        .unwrap_err();
+        assert!(err.downcast_ref::<TunNameTaken>().is_none());
     }
 
     #[test]

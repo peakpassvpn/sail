@@ -790,7 +790,7 @@ Rust 定义：[`TunInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
 | `tag` | string | `""` | 支持 | Defaults to the type. |
-| `interface_name` | string | 未设置 | 支持 | The device's name, used as it is: a start fails if it is taken. Without it, on macOS one past the highest utunN is chosen at start, as sing-box chooses, and kept across reloads (a host reads it back); another program can take it before the device opens, and the start then fails, the next choosing again. Elsewhere utun233. |
+| `interface_name` | string | 未设置 | 支持 | The device's name, used as it is: a start fails if it is taken. Without it, on macOS one past the highest utunN is chosen at start, as sing-box chooses, and kept across reloads (a host reads it back); one another program takes before the device opens is given up for the next free one, three at most. Elsewhere utun233. |
 | `netns` | string | — | 报错：Where and how an inbound listens: it would take connections otherwise | — |
 | `mtu` | number | `9000` | 支持 | 9000 when omitted, as sing-box has it on Android. |
 | `address` | listable-string | `[]` | 支持 | The device's addresses with their prefixes: one IPv4, one IPv6, or one of each. |
