@@ -1825,6 +1825,58 @@ mod tests {
         (port, count)
     }
 
+    /// A server that cuts its UDP answer short (TC, no records) and gives
+    /// it whole over TCP on the same port; first, over UDP, it sends an
+    /// answer to another query (another ID), which is no answer.
+    async fn truncating_server() -> (u16, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let tcp = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = tcp.local_addr().unwrap().port();
+        let udp = tokio::net::UdpSocket::bind(("127.0.0.1", port)).await.unwrap();
+        let over_tcp = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counter = over_tcp.clone();
+        tokio::spawn(async move {
+            let mut buf = [0u8; 1500];
+            while let Ok((n, peer)) = udp.recv_from(&mut buf).await {
+                let request = Message::from_vec(&buf[..n]).unwrap();
+                let mut other = DnsClient::reply(&request, &ips(&["10.9.9.9"]), 60);
+                other.metadata.id = request.metadata.id.wrapping_add(1);
+                let _ = udp.send_to(&other.to_vec().unwrap(), peer).await;
+                let mut cut = DnsClient::reply(&request, &[], 60);
+                cut.metadata.truncation = true;
+                let _ = udp.send_to(&cut.to_vec().unwrap(), peer).await;
+            }
+        });
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = tcp.accept().await {
+                counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                let mut len = [0u8; 2];
+                stream.read_exact(&mut len).await.unwrap();
+                let mut query = vec![0u8; u16::from_be_bytes(len) as usize];
+                stream.read_exact(&mut query).await.unwrap();
+                let request = Message::from_vec(&query).unwrap();
+                let reply = DnsClient::reply(&request, &ips(&["10.0.0.7"]), 60).to_vec().unwrap();
+                let mut framed = (reply.len() as u16).to_be_bytes().to_vec();
+                framed.extend_from_slice(&reply);
+                stream.write_all(&framed).await.unwrap();
+            }
+        });
+        (port, over_tcp)
+    }
+
+    /// A UDP answer cut short (TC) is asked for again over TCP, as
+    /// sing-box does; an answer to another query (another ID) is no
+    /// answer.
+    #[tokio::test]
+    async fn an_answer_cut_short_is_asked_for_again_over_tcp() {
+        let (port, over_tcp) = truncating_server().await;
+        let client = cache_client(port, serde_json::json!({})).unwrap();
+        let answer = exchange(&client, "a.example", RecordType::A).await;
+        assert_eq!(answer_ips(&answer), ips(&["10.0.0.7"]));
+        assert!(!answer.metadata.truncation);
+        assert_eq!(asked(&over_tcp), 1);
+    }
+
     fn cache_client(port: u16, dns: serde_json::Value) -> anyhow::Result<std::sync::Arc<DnsClient>> {
         let mut dns = dns;
         dns["servers"] = serde_json::json!([

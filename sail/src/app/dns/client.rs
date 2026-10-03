@@ -813,11 +813,9 @@ impl DnsClient {
                 for (i, addr) in servers.into_iter().take(asked).enumerate() {
                     let left = deadline.saturating_duration_since(tokio::time::Instant::now());
                     let share = left / (asked - i) as u32;
-                    let asked = async {
-                        let socket = self.dial_datagram(&dialed.dialer, addr).await?;
-                        self.exchange_udp(socket, &wire, addr, server, share).await
-                    }
-                    .await;
+                    let asked = self
+                        .exchange_plain(&dialed.dialer, addr, &wire, server, share)
+                        .await;
                     match asked {
                         Ok(response) => return Ok(Answer::Message(response)),
                         Err(e) => {
@@ -885,8 +883,7 @@ impl DnsClient {
             Kind::Udp { address, dialer } => {
                 let request = Self::wire(server, request)?;
                 let addr = self.server_addr(address).await?;
-                let socket = self.dial_datagram(dialer, addr).await?;
-                self.exchange_udp(socket, &request, addr, server, time)
+                self.exchange_plain(dialer, addr, &request, server, time)
                     .await
                     .map(Answer::Message)
             }
@@ -1024,6 +1021,35 @@ impl DnsClient {
             }
         }
         Err(last_err)
+    }
+
+    /// Asks `addr` over UDP, and again over TCP when the answer is cut
+    /// short (TC), within `time`, as sing-box's local and UDP servers do.
+    async fn exchange_plain(
+        &self,
+        dialer: &Dialer,
+        addr: SocketAddr,
+        request: &[u8],
+        server: &Server,
+        time: Duration,
+    ) -> Result<Message> {
+        let deadline = tokio::time::Instant::now() + time;
+        let socket = self.dial_datagram(dialer, addr).await?;
+        let response = self
+            .exchange_udp(socket, request, addr, server, time)
+            .await?;
+        if !response.metadata.truncation {
+            return Ok(response);
+        }
+        debug!("{}: {} cut its answer short; asking over TCP", server, addr);
+        let over_tcp = async {
+            let mut stream = self.dial_stream(dialer, addr).await?;
+            upstream::exchange_framed(&mut stream, request).await
+        };
+        let response = tokio::time::timeout_at(deadline, over_tcp)
+            .await
+            .map_err(|_| anyhow!("{}: timeout over TCP after a truncated answer", server))??;
+        Self::parse(&response, request, server)
     }
 
     async fn exchange_tcp(
