@@ -15,7 +15,7 @@ case $(uname) in
 Darwin)
     os=darwin
     lib=libsail_jni.dylib
-    flags="-dynamiclib -framework Security -framework CoreFoundation -framework CoreServices -lc++ -liconv"
+    flags="-dynamiclib -framework Security -framework CoreFoundation -framework CoreServices -framework SystemConfiguration -lc++ -liconv"
     ;;
 *)
     os=linux

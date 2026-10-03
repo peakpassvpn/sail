@@ -5,6 +5,7 @@ module SailC [system] {
     link framework "Security"
     link framework "CoreFoundation"
     link framework "CoreServices"
+    link framework "SystemConfiguration"
     link "c++"
     link "iconv"
     export *
