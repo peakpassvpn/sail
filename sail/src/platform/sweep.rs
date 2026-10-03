@@ -35,10 +35,10 @@ use tracing::{debug, info, warn};
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum RunDir {
     /// The system's: `/run/sail` on Linux, which empties at a reboot as
-    /// the kernel state the ledgers list does. None elsewhere yet: on
+    /// the kernel state the ledgers list does. None elsewhere: on
     /// macOS a kill leaves nothing (the utun and its routes go with the
-    /// process), and the Windows TUN does not write a ledger yet, so a
-    /// Windows host that wants its adapter swept passes `Dir` once it does.
+    /// process), and nor does it on Windows (a Wintun adapter goes with
+    /// its process, with its routes and DNS).
     #[default]
     Default,
     /// The host's.
@@ -528,9 +528,8 @@ fn start_time(_pid: u32) -> Option<u64> {
 }
 
 /// Whether a network device of this name is up in this namespace.
-/// Linux and macOS take the TUN down with its process; Windows keeps a
-/// Wintun adapter, so this would not tell there (its TUN keeps no ledger
-/// yet).
+/// Every system takes the TUN down with its process; only Linux keeps a
+/// ledger.
 fn device_exists(name: &str) -> bool {
     #[cfg(unix)]
     {
@@ -607,7 +606,7 @@ fn undo(item: &Item) -> anyhow::Result<bool> {
 }
 
 // The tests start processes, read their pids and look up devices as Unix
-// does; nothing on Windows writes a ledger yet.
+// does; nothing on Windows writes a ledger.
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;

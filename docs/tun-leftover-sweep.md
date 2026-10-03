@@ -38,7 +38,7 @@ marked *to verify*:
 | Linux | auto_redirect ip rules, incl. the fallback rule at `fallback_rule_index` | **no** |
 | Linux | auto_redirect nftables table `inet sail_<tun>` | **no** |
 | OpenWrt | fw4 drop-in `/etc/nftables.d/0-sail-auto-redirect-<tun>.nft` | **no** (a file) |
-| macOS | utun device and the routes through it | yes: utun goes with its control socket *(to verify with kill -9 on a Mac)* |
+| macOS | utun device and the routes through it | yes: utun goes with its control socket *(measured: the tun-macos CI job)* |
 | Windows | Wintun adapter (named, GUID from the name) | yes: Wintun removes it when the process that created it dies *(measured, see below)* |
 | Windows | routes and DNS on that adapter | yes: they go with the adapter *(measured)* |
 | Windows | strict_route WFP filters | yes: they are in a dynamic WFP session (`FWPM_SESSION_FLAG_DYNAMIC`) *(not yet observed)* |
@@ -46,7 +46,8 @@ marked *to verify*:
 So the sweep has three jobs:
 - on Linux: ip rules, routes, the nftables table and the fw4 drop-in;
 - on Windows: nothing for the TUN (measured; its WFP filters by design);
-- on macOS: possibly nothing (to verify).
+- on macOS: nothing (measured: after a kill -9 the routing table of both
+  families equals the one before the start, on every tun-macos CI run).
 
 ### A kill, and a reboot
 
@@ -56,12 +57,12 @@ as the leftovers it lists:
 | System | Left by a kill | Left by a reboot | Ledger kept in |
 |---|---|---|---|
 | Linux | ip rules, `inet sail_<tun>`, fw4 drop-in | the fw4 drop-in only (a file; rules and nftables are kernel state) | tmpfs `/run/sail` |
-| macOS | nothing expected (to verify) | nothing | tmpfs `/var/run/sail` |
+| macOS | nothing (measured) | nothing | none needed |
 | Windows | nothing of the TUN (measured) | nothing (measured) | none needed for the TUN |
 
-So on Linux and macOS a ledger clears on reboot just as the kernel state
-it describes does. On Windows nothing of the TUN outlives the process, so
-it needs no ledger.
+So on Linux a ledger clears on reboot just as the kernel state it
+describes does. On macOS and Windows nothing of the TUN outlives the
+process, so they need no ledger.
 
 Measured on Windows (2026-10-04, Windows 11, sail 0.16.0 windows-gnu,
 Wintun 0.14.1, a TUN with IPv4 and IPv6 addresses and auto_route):
@@ -87,10 +88,8 @@ So each instance writes down what it is about to create **before** it
 creates it, in a ledger file:
 
 - one file per instance, in a directory only root writes. By default it
-  is `/run/sail/` on Linux and OpenWrt, and there is none elsewhere yet:
-  macOS has nothing to sweep, and the Windows TUN does not write a ledger
-  until the adapter work above is settled (its directory will be
-  persistent, under `%ProgramData%`). The directory is made with the
+  is `/run/sail/` on Linux and OpenWrt, and there is none elsewhere:
+  macOS and Windows have nothing to sweep. The directory is made with the
   first entry, so an instance that changes nothing (an unprivileged one,
   say) needs none;
 - a host can choose the directory (`run_dir`: a path, or `false` for
@@ -141,8 +140,7 @@ other software's rules.
 - **macOS**: every route the route code (2.14) adds goes through the utun,
   with the utun's own address as gateway. When the utun is detached, the
   kernel purges the routes on that interface (if_detach, rt_if_remove).
-  So if the kill -9 test confirms it, there is nothing to sweep. If the test shows otherwise, the ledger lists the routes, and
-  the sweep deletes them through the route socket.
+  The tun-macos CI job confirms it on every run: nothing to sweep.
 - **Windows**: nothing to sweep for the TUN. An adapter
   `WintunCreateAdapter` made is removed when the handle to it closes,
   which the kernel does when the process dies, and its routes and DNS go
@@ -223,16 +221,15 @@ needs.
    way (measured above). Still to run: the same with strict_route and
    route_exclude_address, checking `netsh wfp show filters` and the
    routing table after the kill.
-6. **macOS (to verify):** kill -9 an instance with a TUN; `netstat -rn`
-   shows no route through a missing utun. If none is left, this test is
-   what the "nothing to sweep" claim rests on.
+6. **macOS (CI, tun-macos):** after a kill -9 the utun and every route
+   through it are gone, and the routing table of both families equals the
+   one before the start.
 
 ## Open questions
 
 - Windows: answered. A Wintun adapter, with its routes and DNS, survives
   neither a kill nor a reboot. The strict_route WFP filters after a kill
   are still to be observed.
-- macOS: the kill -9 check (`netstat -rn -f inet | grep utun`; `ifconfig |
-  grep utun`, both empty) still has to be run.
+- macOS: answered by the tun-macos CI job (test 6).
 - The ledger directory for the FFI embedder: a parameter of create, with
   the per-OS default above?
