@@ -250,6 +250,9 @@ def server_config(proto, work):
     elif proto == "ss":
         inbound = {"type": "shadowsocks", "listen": "0.0.0.0", "listen_port": 8388,
                    "method": SS_METHOD, "password": SS_KEY}
+    elif proto == "anytls":
+        inbound = {"type": "anytls", "listen": "0.0.0.0", "listen_port": 8443,
+                   "users": [{"name": "u", "password": PASSWORD}], "tls": tls}
     elif proto == "trojan":
         inbound = {"type": "trojan", "listen": "0.0.0.0", "listen_port": 8443,
                    "users": [{"password": PASSWORD}],
@@ -295,6 +298,9 @@ def client_config(proto, inbound="socks", server=SERVER_ADDR, auto_detect=False)
     elif proto == "ss":
         out = {"type": "shadowsocks", "server": server, "server_port": 8388,
                "method": SS_METHOD, "password": SS_KEY}
+    elif proto == "anytls":
+        out = {"type": "anytls", "server": server, "server_port": 8443,
+               "password": PASSWORD, "tls": insecure}
     elif proto == "trojan":
         out = {"type": "trojan", "server": server, "server_port": 8443,
                "password": PASSWORD,
@@ -530,8 +536,8 @@ class Run:
         if quick and not self.args.bulk_bytes:
             size //= 4
         plan = [
-            ("bulk_down", ["-streams 4", f"-bytes {size}", "-dir down"]),
-            ("bulk_up", ["-streams 4", f"-bytes {size}", "-dir up"]),
+            ("bulk_down", [f"-streams {self.args.streams}", f"-bytes {size}", "-dir down"]),
+            ("bulk_up", [f"-streams {self.args.streams}", f"-bytes {size}", "-dir up"]),
             ("echo", ["-conns 8", f"-rounds {50 if quick else 150}", "-size 4096"]),
             ("setup", [f"-n {self.args.setup_n or (50 if quick else 150)}"]),
         ]
@@ -1041,6 +1047,8 @@ def main():
                     help="client>server pairs, each sb, sail or a --sail-bin name, e.g. "
                          "sb>sb,sail>sb,sb>sail,sail>sail; rounds go outside, the order of "
                          "pairs and protocols rotates each round")
+    ap.add_argument("--streams", type=int, default=4,
+                    help="parallel streams of the bulk workloads (default 4)")
     ap.add_argument("--bulk-bytes-quic", type=int, default=None,
                     help="bulk bytes for hy2 and tuic, in place of --bulk-bytes")
     args = ap.parse_args()
