@@ -26,9 +26,18 @@ leaves the one before running (the journal says so), and connections open
 keep what they were made with. The unit's `ExecReload` first runs the same
 `--test` check as `ExecStartPre`, so a configuration that fails it fails
 `systemctl reload` without reaching the process, then sends `SIGHUP`.
-A reload never rebinds a listener: one that changes an inbound's `listen`,
-`listen_port` or other settings beyond its users and certificates is
-refused, and needs a restart.
+A reload never rebinds a listener: one that adds or removes an inbound, or
+changes an inbound's `listen`, `listen_port` or other settings beyond its
+users and TLS certificates, is refused as a whole, and needs a restart.
+
+| Edited | `systemctl reload` | Takes effect |
+|---|---|---|
+| DNS, outbounds, routing, an inbound's users or TLS certificates | applies it | at once, for new connections |
+| an inbound added, removed, or changed otherwise | succeeds, but the process refuses it and logs the error; the configuration before keeps running | only with `systemctl restart` |
+
+`systemctl reload` succeeding means the configuration passed `--test` and
+the signal was sent, not that it was applied: after an inbound edit, use
+`systemctl restart`, or check the journal (`journalctl -u sail`).
 
 ## Files and privilege modes
 
