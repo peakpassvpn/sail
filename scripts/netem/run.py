@@ -501,10 +501,13 @@ class Run:
         print(f"  FAIL {self.name}: {what}", flush=True)
 
     def check(self, scenario, workload, res):
-        """The absolute criteria: nothing corrupted, nothing crashed."""
+        """The absolute criteria: nothing corrupted, nothing crashed, and
+        on an unimpaired link nothing failed either."""
         for part in ([res] + [v for v in res.values() if isinstance(v, dict)]):
             if part.get("corrupt"):
                 self.fail(f"{scenario}/{workload}: {part['corrupt']} corrupted transfers")
+            if scenario == "baseline" and part.get("failed"):
+                self.fail(f"{scenario}/{workload}: {part['failed']} failed on an unimpaired link")
         if not self.procs["client"].alive():
             self.fail(f"{scenario}/{workload}: the client exited")
 
