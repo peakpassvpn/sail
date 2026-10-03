@@ -28,6 +28,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Result};
+use tracing::{info, warn};
 
 /// How long what was read is taken: Go's (net/dnsclient_unix.go).
 const REREAD: Duration = Duration::from_secs(5);
@@ -71,6 +72,12 @@ pub(super) enum Interface {
 }
 
 impl Interface {
+    /// Whether the dialer sends through an interface it names or follows,
+    /// rather than by the default route.
+    pub(super) fn names_one(&self) -> bool {
+        !matches!(self, Interface::Any)
+    }
+
     /// The interface's name now; none for the default route, or when
     /// there is no interface to send through.
     pub(super) fn now(&self) -> Option<String> {
@@ -130,21 +137,50 @@ impl SystemServers {
     /// left, with no fallback to the system's resolver or to a server on
     /// this host.
     pub(super) fn get(&self, own: &[String], interface: Option<&str>) -> Result<Vec<SocketAddr>> {
+        self.get_with(own, interface, servers)
+    }
+
+    /// `get`, reading the system's servers with `servers`.
+    fn get_with(
+        &self,
+        own: &[String],
+        interface: Option<&str>,
+        servers: impl FnOnce(Option<&str>) -> Result<Vec<Listed>>,
+    ) -> Result<Vec<SocketAddr>> {
         let servers = {
             let mut read = self.read.lock().unwrap_or_else(|e| e.into_inner());
             match read.as_ref() {
                 Some(r) if r.fresh(interface) => r.servers.clone(),
                 _ => {
-                    let servers: Vec<SocketAddr> = servers(interface)
-                        .into_iter()
-                        .filter_map(|listed| listed.address(interface))
-                        .collect();
-                    *read = Some(Read {
-                        at: Instant::now(),
-                        interface: interface.map(str::to_owned),
-                        servers: servers.clone(),
-                    });
-                    servers
+                    match servers(interface) {
+                        Ok(listed) => {
+                            let mut servers = Vec::new();
+                            for address in listed.iter().filter_map(|l| l.address(interface)) {
+                                if !servers.contains(&address) {
+                                    servers.push(address);
+                                }
+                            }
+                            if read.as_ref().is_none_or(|r| r.servers != servers) {
+                                tell(&servers, interface, own);
+                            }
+                            *read = Some(Read {
+                                at: Instant::now(),
+                                interface: interface.map(str::to_owned),
+                                servers: servers.clone(),
+                            });
+                            servers
+                        }
+                        // What was read of the same interface stays, rather than
+                        // no server at all.
+                        Err(e) => match read.as_mut() {
+                            Some(r) if r.interface.as_deref() == interface => {
+                                warn!("dns: reading the system's servers: {}; keeping those read before", e);
+                                r.at = Instant::now();
+                                r.servers.clone()
+                            }
+                            _ => return Err(anyhow!("reading the system's DNS servers: {}", e)),
+                        },
+                    }
                 }
             }
         };
@@ -177,7 +213,7 @@ pub(super) enum Zone {
 }
 
 impl Listed {
-    /// `fe80::1%en0`, `fe80::1%4`, `192.0.2.1`.
+    /// `fe80::1%en0`, `fe80::1%4`, `192.0.2.1`, `::ffff:192.0.2.1`.
     pub(super) fn parse(text: &str) -> Option<Listed> {
         let (ip, zone) = match text.split_once('%') {
             Some((ip, zone)) => (ip, Some(zone)),
@@ -198,8 +234,16 @@ impl Listed {
     /// with its zone. Not the site-local servers Windows lists for an
     /// adapter without any (fec0::/10).
     fn address(&self, interface: Option<&str>) -> Option<SocketAddr> {
-        let v6 = match self.ip {
-            IpAddr::V4(_) => return Some(SocketAddr::new(self.ip, 53)),
+        // An IPv4 server written as IPv6 is the IPv4 one.
+        let ip = match self.ip {
+            IpAddr::V6(v6) => v6.to_ipv4_mapped().map_or(self.ip, IpAddr::V4),
+            ip => ip,
+        };
+        if ip.is_unspecified() || ip.is_multicast() {
+            return None;
+        }
+        let v6 = match ip {
+            IpAddr::V4(_) => return Some(SocketAddr::new(ip, 53)),
             IpAddr::V6(v6) => v6,
         };
         let scope = match v6.segments()[0] & 0xffc0 {
@@ -220,6 +264,31 @@ impl Listed {
         Some(SocketAddr::V6(std::net::SocketAddrV6::new(
             v6, 53, 0, scope,
         )))
+    }
+}
+
+/// Logs the servers read when they change; and warns of one on this
+/// host (a forwarder such as dnsmasq) while sail has a TUN of its own: the
+/// forwarder's own queries go out through the default route, which such a
+/// TUN takes, unless it is left out of it. sing-box asks one on this host
+/// as resolv.conf names it, and so does sail.
+fn tell(servers: &[SocketAddr], interface: Option<&str>, own: &[String]) {
+    let on = interface.map(|i| format!(" on {}", i)).unwrap_or_default();
+    let list: Vec<String> = servers.iter().map(|s| s.ip().to_string()).collect();
+    info!(
+        "dns: the system's servers{}: {}",
+        on,
+        if list.is_empty() {
+            "none".into()
+        } else {
+            list.join(", ")
+        }
+    );
+    if !own.is_empty() && servers.iter().any(|s| s.ip().is_loopback()) {
+        warn!(
+            "dns: the system's DNS server is on this host (a forwarder): its own queries go into \
+             sail's TUN unless it is left out of it"
+        );
     }
 }
 
@@ -264,7 +333,7 @@ fn only_resolved_stub(listed: &[Listed]) -> bool {
 
 /// The servers of `interface`, where the system tells them by interface.
 #[cfg(target_os = "macos")]
-fn servers(interface: Option<&str>) -> Vec<Listed> {
+fn servers(interface: Option<&str>) -> Result<Vec<Listed>> {
     match interface {
         Some(interface) => macos::servers_of(interface),
         None => resolv_conf(),
@@ -272,24 +341,24 @@ fn servers(interface: Option<&str>) -> Vec<Listed> {
 }
 
 #[cfg(all(unix, not(target_os = "macos")))]
-fn servers(_: Option<&str>) -> Vec<Listed> {
+fn servers(_: Option<&str>) -> Result<Vec<Listed>> {
     resolv_conf()
 }
 
+/// resolv.conf's servers; an error when it cannot be read.
 #[cfg(unix)]
-fn resolv_conf() -> Vec<Listed> {
+fn resolv_conf() -> Result<Vec<Listed>> {
     let read = |path: &str| std::fs::read_to_string(path).map(|t| nameservers(&t));
-    match read("/etc/resolv.conf") {
-        Ok(ips) if only_resolved_stub(&ips) => {
-            read("/run/systemd/resolve/resolv.conf").unwrap_or(ips)
-        }
-        Ok(ips) => ips,
-        Err(_) => Vec::new(),
-    }
+    let listed = read("/etc/resolv.conf").map_err(|e| anyhow!("/etc/resolv.conf: {}", e))?;
+    Ok(if only_resolved_stub(&listed) {
+        read("/run/systemd/resolve/resolv.conf").unwrap_or(listed)
+    } else {
+        listed
+    })
 }
 
 #[cfg(windows)]
-fn servers(interface: Option<&str>) -> Vec<Listed> {
+fn servers(interface: Option<&str>) -> Result<Vec<Listed>> {
     use windows_sys::Win32::NetworkManagement::IpHelper::{
         GetAdaptersAddresses, GAA_FLAG_INCLUDE_GATEWAYS, GAA_FLAG_SKIP_ANYCAST,
         GAA_FLAG_SKIP_MULTICAST, IP_ADAPTER_ADDRESSES_LH,
@@ -319,7 +388,7 @@ fn servers(interface: Option<&str>) -> Vec<Listed> {
             0 => break,
             // ERROR_BUFFER_OVERFLOW: `size` is now what it needs.
             111 => continue,
-            _ => return Vec::new(),
+            code => return Err(anyhow!("GetAdaptersAddresses: error {}", code)),
         }
     }
     let mut ips = Vec::new();
@@ -379,7 +448,7 @@ fn servers(interface: Option<&str>) -> Vec<Listed> {
         }
     }
     ips.dedup();
-    ips
+    Ok(ips)
 }
 
 #[cfg(not(any(unix, windows)))]
@@ -518,5 +587,60 @@ mod tests {
         assert!(!read(0, some).fresh(Some("en1")));
         assert!(read(500, vec![]).fresh(Some("en0")));
         assert!(!read(1500, vec![]).fresh(Some("en0")));
+    }
+
+    /// The addresses taken: an IPv4 server written as IPv6 is the IPv4
+    /// one, and the unspecified and multicast ones are none.
+    #[test]
+    fn addresses_are_taken_as_servers_can_be() {
+        let address = |s: &str| Listed::parse(s).unwrap().address(None);
+        assert_eq!(
+            address("::ffff:192.0.2.1"),
+            Some("192.0.2.1:53".parse().unwrap())
+        );
+        assert_eq!(address("0.0.0.0"), None);
+        assert_eq!(address("::"), None);
+        assert_eq!(address("224.0.0.251"), None);
+        assert_eq!(address("ff02::fb"), None);
+        assert_eq!(address("127.0.0.1"), Some("127.0.0.1:53".parse().unwrap()));
+    }
+
+    /// The servers read are taken once each, in order; a read that fails
+    /// keeps those read before of the same interface, and is an error with
+    /// none read before, or for another interface.
+    #[test]
+    fn a_read_that_fails_keeps_those_read_before() {
+        let listed = |all: &[&str]| -> Result<Vec<Listed>> {
+            Ok(all.iter().map(|s| Listed::parse(s).unwrap()).collect())
+        };
+        let addr = |s: &str| -> SocketAddr { s.parse().unwrap() };
+        let servers = SystemServers::default();
+        let read = servers
+            .get_with(&[], Some("en0"), |_| {
+                listed(&["192.0.2.1", "::ffff:192.0.2.1", "192.0.2.2"])
+            })
+            .unwrap();
+        assert_eq!(read, [addr("192.0.2.1:53"), addr("192.0.2.2:53")]);
+        servers.forget();
+        let kept = servers.get_with(&[], Some("en0"), |_| Err(anyhow!("unreadable")));
+        assert!(kept.is_err(), "forgotten, nothing is kept");
+        servers
+            .get_with(&[], Some("en0"), |_| listed(&["192.0.2.1"]))
+            .unwrap();
+        // Stale, as after 5 s, and the read fails.
+        let age = |servers: &SystemServers| {
+            if let Some(r) = servers.read.lock().unwrap().as_mut() {
+                r.at -= Duration::from_secs(6);
+            }
+        };
+        age(&servers);
+        let kept = servers
+            .get_with(&[], Some("en0"), |_| Err(anyhow!("unreadable")))
+            .unwrap();
+        assert_eq!(kept, [addr("192.0.2.1:53")]);
+        age(&servers);
+        assert!(servers
+            .get_with(&[], Some("en1"), |_| Err(anyhow!("unreadable")))
+            .is_err());
     }
 }

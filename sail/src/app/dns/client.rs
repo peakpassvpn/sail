@@ -803,6 +803,12 @@ impl DnsClient {
                 let wire = Self::wire(server, request)?;
                 let mut last_err = None;
                 let interface = dialed.interface.now();
+                // The dialer sends through an interface and has none now: no
+                // server could be reached past the TUN, and the system's
+                // other servers are not those of the network it will be on.
+                if interface.is_none() && dialed.interface.names_one() {
+                    return Err(anyhow!("{}: no interface to send through", server));
+                }
                 let servers = dialed
                     .servers
                     .get(&dialed.own_interfaces, interface.as_deref())?;

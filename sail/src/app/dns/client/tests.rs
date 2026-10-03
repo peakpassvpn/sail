@@ -1955,6 +1955,29 @@ mod tests {
         assert!(took >= Duration::from_millis(1900) && took < Duration::from_millis(3500), "{:?}", took);
     }
 
+    /// A local server whose dialer follows the default interface, with no
+    /// interface now, answers SERVFAIL at once: the system's other servers
+    /// are not those of the network it will be on.
+    #[tokio::test]
+    async fn without_an_interface_a_local_server_fails_at_once() {
+        if !super::server::ASKS_ITSELF {
+            return;
+        }
+        let mut defaults = crate::net::DialDefaults::default();
+        defaults.route.auto_detect_interface = true;
+        defaults.env.auto_interface = Some(crate::net::interface::AutoInterface::new(vec![], || {
+            Err(std::io::Error::other("no default route"))
+        }));
+        let servers = serde_json::json!([{ "type": "local", "tag": "sys" }]);
+        let client = DnsClient::new(&dns(servers), std::sync::Arc::new(defaults), &Default::default())
+            .unwrap()
+            .into_arc();
+        let started = std::time::Instant::now();
+        let answer = exchange(&client, "a.example", RecordType::A).await;
+        assert_eq!(answer.response_code(), hickory_proto::op::ResponseCode::ServFail);
+        assert!(started.elapsed() < Duration::from_millis(500), "{:?}", started.elapsed());
+    }
+
     #[test]
     fn a_short_query_asks_fewer_servers() {
         use super::system::servers_asked;

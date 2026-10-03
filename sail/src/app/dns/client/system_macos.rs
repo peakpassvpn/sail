@@ -156,16 +156,16 @@ pub(super) fn select(services: &[Service], interface: &str) -> Vec<super::Listed
 
 /// The DNS servers of the services on `interface`, as the dynamic store
 /// has them; none when no service there has any.
-pub(super) fn servers_of(interface: &str) -> Vec<super::Listed> {
-    select(&services(), interface)
+pub(super) fn servers_of(interface: &str) -> anyhow::Result<Vec<super::Listed>> {
+    Ok(select(&services()?, interface))
 }
 
 /// The network services the dynamic store knows, with DNS servers set by
 /// hand or told.
-fn services() -> Vec<Service> {
+fn services() -> anyhow::Result<Vec<Service>> {
     // SAFETY: every object is checked for its type before it is read, and
     // those created or copied are owned and released once.
-    unsafe {
+    let services = unsafe {
         let store = Owned(SCDynamicStoreCreate(
             std::ptr::null(),
             string("sail").0,
@@ -173,7 +173,7 @@ fn services() -> Vec<Service> {
             std::ptr::null_mut(),
         ));
         if store.0.is_null() {
-            return Vec::new();
+            return Err(anyhow::anyhow!("the dynamic store cannot be opened"));
         }
         let copy = |key: &str| Owned(SCDynamicStoreCopyValue(store.0, string(key).0));
         let list = |pattern: &str| {
@@ -217,8 +217,9 @@ fn services() -> Vec<Service> {
                     supplemental: !strings(get(dns.0, "SupplementalMatchDomains")).is_empty(),
                 }
             })
-            .collect()
-    }
+            .collect::<Vec<_>>()
+    };
+    Ok(services)
 }
 
 #[cfg(test)]
@@ -255,7 +256,7 @@ mod tests {
             else {
                 continue;
             };
-            let read = servers_of(interface);
+            let read = servers_of(interface).unwrap();
             // Every address the service lists, before its IPv4 part.
             let dns_part = shown.split("<dictionary>").nth(1).unwrap_or("");
             for line in dns_part.lines() {
@@ -275,7 +276,7 @@ mod tests {
         }
         // A Mac with no network has nothing to compare.
         eprintln!("services compared: {checked}");
-        assert!(servers_of("no-such-interface0").is_empty());
+        assert!(servers_of("no-such-interface0").unwrap().is_empty());
     }
 
     fn service(interface: &str, manual: &[&str], learned: &[&str]) -> Service {
