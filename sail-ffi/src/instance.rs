@@ -174,7 +174,6 @@ impl Instance {
     }
 
     /// The instance, as Rust hosts hold it.
-    #[allow(dead_code)]
     pub fn core(&self) -> &embed::Instance {
         &self.core
     }

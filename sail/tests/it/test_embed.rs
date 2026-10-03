@@ -424,3 +424,40 @@ async fn a_datagram_to_a_link_local_address_keeps_its_zone() {
     }
     instance.stop().await.unwrap();
 }
+
+/// The state's changes come as events, and the status as a stream.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_state_comes_as_events_and_the_status_as_a_stream() {
+    use futures::StreamExt;
+    use sail::embed::{Event, Kinds};
+
+    let instance = Instance::new(options()).unwrap();
+    let mut events = Box::pin(instance.events(Kinds::STATE));
+    instance
+        .start(Config::Json(config(common::free_port(), 53)))
+        .await
+        .unwrap();
+    let mut status = Box::pin(instance.status(Duration::from_millis(100)));
+    let first = tokio::time::timeout(Duration::from_secs(5), status.next())
+        .await
+        .expect("a status in time")
+        .unwrap();
+    assert_eq!(first.up, 0, "no rate before a second item");
+    instance.stop().await.unwrap();
+    let mut seen = Vec::new();
+    while !matches!(seen.last(), Some(State::Stopped)) {
+        match tokio::time::timeout(Duration::from_secs(5), events.next())
+            .await
+            .expect("a state in time")
+            .unwrap()
+        {
+            Event::State(state) => seen.push(state),
+            other => panic!("unexpected {:?}", other),
+        }
+    }
+    assert!(
+        seen.iter().any(|s| matches!(s, State::Running { .. })),
+        "{:?}",
+        seen
+    );
+}

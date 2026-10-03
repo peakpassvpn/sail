@@ -402,11 +402,7 @@ fn produce(kind: u32, options: &Options, instance: &Arc<Instance>) -> Result<Pro
         SAIL_EVENT_NETWORK => {
             // Changes from this call on: taken now, not when the task
             // starts on the events thread.
-            let now = instance.manager().ok().map(|m| {
-                let mut changes = m.network().changes();
-                changes.borrow_and_update();
-                changes
-            });
+            let now = instance.manager().ok().map(|m| m.network().change_events());
             Box::new(move |sink| Box::pin(follow_network(sink, weak, now)))
         }
         other => return Err(Failure::invalid(format!("no event kind {}", other))),
@@ -415,12 +411,14 @@ fn produce(kind: u32, options: &Options, instance: &Arc<Instance>) -> Result<Pro
 
 /// Each change of network, while the instance runs; through stops and
 /// starts, the network of each run. `now`: the running instance's changes,
-/// as the subscription was made.
+/// as the subscription was made. A change missed by a slow host is
+/// skipped; the next carries the network as it is.
 async fn follow_network(
     mut out: impl Emit<json::NetworkEvent>,
     instance: Weak<Instance>,
-    mut now: Option<tokio::sync::watch::Receiver<Option<Arc<sail::net::network::NetworkChange>>>>,
+    mut now: Option<tokio::sync::broadcast::Receiver<Arc<sail::net::network::NetworkChange>>>,
 ) {
+    use tokio::sync::broadcast::error::RecvError;
     // How often a stopped instance is looked at again.
     let mut ticker = ticker(Duration::from_millis(250));
     while out.open() {
@@ -433,18 +431,18 @@ async fn follow_network(
                 let Some(manager) = manager else {
                     continue;
                 };
-                let mut changes = manager.network().changes();
-                // Those from now on: the last one before is no news.
-                changes.borrow_and_update();
-                changes
+                manager.network().change_events()
             }
         };
-        while changes.changed().await.is_ok() {
-            let change = changes.borrow_and_update().clone();
-            if let Some(change) = change {
-                if !out.emit(json::NetworkEvent::of(&change)).await {
-                    return;
+        loop {
+            match changes.recv().await {
+                Ok(change) => {
+                    if !out.emit(json::NetworkEvent::of(&change)).await {
+                        return;
+                    }
                 }
+                Err(RecvError::Lagged(_)) => continue,
+                Err(RecvError::Closed) => break,
             }
         }
     }
@@ -485,17 +483,15 @@ async fn follow_connections(
     instance: Weak<Instance>,
     every: Duration,
 ) {
-    let mut ticker = ticker(every);
-    while out.open() {
-        let Some(manager) = tick(&mut ticker, &instance).await else {
-            return;
-        };
-        let Some(manager) = manager else {
-            continue;
-        };
-        let connections = manager.connections().await;
+    use futures::StreamExt;
+    let Some(instance) = instance.upgrade() else {
+        return;
+    };
+    let mut lists = Box::pin(instance.core().watch_connections(every));
+    drop(instance);
+    while let Some(list) = lists.next().await {
         let connections = json::Connections {
-            connections: connections.iter().map(json::Connection::of).collect(),
+            connections: list.iter().map(json::Connection::of).collect(),
         };
         if !out.emit(connections).await {
             return;
@@ -504,42 +500,26 @@ async fn follow_connections(
 }
 
 /// The traffic each `every`, with its rate since the last, while the
-/// instance runs.
+/// instance runs: sail::embed's.
 pub(crate) async fn follow_status(
     mut out: impl Emit<json::Status>,
     instance: Weak<Instance>,
     every: Duration,
 ) {
-    let mut ticker = ticker(every);
-    let mut last: Option<(tokio::time::Instant, u64, u64)> = None;
-    while out.open() {
-        let Some(manager) = tick(&mut ticker, &instance).await else {
-            return;
-        };
-        let Some(manager) = manager else {
-            last = None;
-            continue;
-        };
-        let traffic = manager.traffic().await;
-        let now = tokio::time::Instant::now();
-        let (up, down) = match last {
-            Some((then, up0, down0)) => {
-                let secs = now.duration_since(then).as_secs_f64().max(f64::EPSILON);
-                (
-                    (traffic.up_total.saturating_sub(up0) as f64 / secs) as u64,
-                    (traffic.down_total.saturating_sub(down0) as f64 / secs) as u64,
-                )
-            }
-            None => (0, 0),
-        };
-        last = Some((now, traffic.up_total, traffic.down_total));
+    use futures::StreamExt;
+    let Some(instance) = instance.upgrade() else {
+        return;
+    };
+    let mut statuses = Box::pin(instance.core().status(every));
+    drop(instance);
+    while let Some(s) = statuses.next().await {
         let status = json::Status {
-            up,
-            down,
-            up_total: traffic.up_total,
-            down_total: traffic.down_total,
-            connections: traffic.connections,
-            memory: sail::control::resident_memory(),
+            up: s.up,
+            down: s.down,
+            up_total: s.up_total,
+            down_total: s.down_total,
+            connections: s.connections,
+            memory: s.memory,
         };
         if !out.emit(status).await {
             return;
@@ -547,52 +527,26 @@ pub(crate) async fn follow_status(
     }
 }
 
-/// The outbounds (or the groups only), when they change: at once when a
-/// group's selection or a member's checks do, else as looked at each
-/// `every`, while the instance runs.
+/// The outbounds (or the groups only), when they change, while the
+/// instance runs: sail::embed's.
 pub(crate) async fn follow_outbounds(
     mut out: impl Emit<json::Outbounds>,
     instance: Weak<Instance>,
     every: Duration,
     groups: bool,
 ) {
-    let mut ticker = ticker(every);
-    let mut last: Option<String> = None;
-    let mut changes: Option<sail::control::GroupChanges> = None;
-    while out.open() {
-        if let Some(changes) = changes.take() {
-            tokio::select! {
-                _ = ticker.tick() => {}
-                _ = changes.changed() => {}
-            }
-        } else {
-            ticker.tick().await;
-        }
-        let Some(manager) = instance.upgrade().map(|i| i.manager()) else {
-            return;
-        };
-        let Ok(manager) = manager else {
-            last = None;
-            continue;
-        };
-        // Before the groups are read: a change after is not missed.
-        changes = Some(manager.group_changes().await);
-        let list = if groups {
-            manager.groups().await
-        } else {
-            manager.outbounds().await
-        };
+    use futures::StreamExt;
+    let Some(instance) = instance.upgrade() else {
+        return;
+    };
+    let mut lists = Box::pin(instance.core().watch_outbounds(every, groups));
+    drop(instance);
+    while let Some(list) = lists.next().await {
         let outbounds = json::Outbounds {
             outbounds: list.iter().map(json::Outbound::of).collect(),
         };
-        let Ok(now) = serde_json::to_string(&outbounds) else {
-            continue;
-        };
-        if last.as_ref() != Some(&now) {
-            last = Some(now);
-            if !out.emit(outbounds).await {
-                return;
-            }
+        if !out.emit(outbounds).await {
+            return;
         }
     }
 }

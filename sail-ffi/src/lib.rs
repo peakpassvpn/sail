@@ -134,7 +134,7 @@ impl From<sail::embed::Error> for Failure {
         let code = match e.kind() {
             K::Config => SAIL_ERR_CONFIG,
             K::InvalidArgument => SAIL_ERR_INVALID_ARGUMENT,
-            K::NotRunning | K::State => SAIL_ERR_STATE,
+            K::NotRunning | K::State | K::TunNameTaken => SAIL_ERR_STATE,
             K::NotFound => SAIL_ERR_NOT_FOUND,
             K::Unsupported => SAIL_ERR_UNSUPPORTED,
             K::Timeout => SAIL_ERR_TIMEOUT,

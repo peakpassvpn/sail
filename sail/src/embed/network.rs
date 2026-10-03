@@ -158,6 +158,8 @@ impl NetworkEvent {
 pub struct Kinds(u32);
 
 impl Kinds {
+    /// The instance's state: each change of it.
+    pub const STATE: Kinds = Kinds(1 << 0);
     pub const NETWORK: Kinds = Kinds(1 << 1);
     /// Every kind there is, and those added later.
     pub const ALL: Kinds = Kinds(u32::MAX);
@@ -179,6 +181,8 @@ impl std::ops::BitOr for Kinds {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Event {
+    /// The instance's state changed to this.
+    State(super::State),
     Network(NetworkEvent),
     /// This subscriber fell behind on `kind`, and `missed` events of it
     /// are gone: read the snapshot again.
@@ -203,19 +207,33 @@ impl Instance {
     /// missed. A run's generations count from 1; after a start, read the
     /// snapshot again.
     pub fn events(&self, kinds: Kinds) -> impl Stream<Item = Event> + Send + 'static {
+        let mut streams: Vec<futures::stream::BoxStream<'static, Event>> = Vec::new();
+        if kinds.contains(Kinds::STATE) {
+            streams.push(Box::pin(self.state_events()));
+        }
+        if kinds.contains(Kinds::NETWORK) {
+            streams.push(Box::pin(self.network_events()));
+        }
+        futures::stream::select_all(streams)
+    }
+
+    /// Each change of state, from now on.
+    fn state_events(&self) -> impl Stream<Item = Event> + Send + 'static {
+        futures::stream::unfold(self.inner().states(), |mut states| async move {
+            states.changed().await.ok()?;
+            let state = states.borrow_and_update().clone();
+            Some((Event::State(state), states))
+        })
+    }
+
+    fn network_events(&self) -> impl Stream<Item = Event> + Send + 'static {
         let inner = self.inner().clone();
-        let network = kinds
-            .contains(Kinds::NETWORK)
-            .then(|| inner.manager().ok().map(|m| m.network().change_events()));
+        let network = Some(inner.manager().ok().map(|m| m.network().change_events()));
         let states = inner.states();
         futures::stream::unfold(
             (inner, network, states),
             |(inner, mut network, mut states)| async move {
-                let Some(mut subscribed) = network.take() else {
-                    // No kind this build tells yet: nothing, ever.
-                    std::future::pending::<()>().await;
-                    unreachable!();
-                };
+                let mut subscribed = network.take()?;
                 loop {
                     let Some(mut rx) = subscribed.take() else {
                         // Not running: the next run's, once it runs.

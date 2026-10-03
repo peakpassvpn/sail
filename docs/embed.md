@@ -198,6 +198,17 @@ that connections do not survive, as `Event::Network`:
 - **Restarts.** The subscription goes on through stops and starts. After a
   start, read the snapshot again.
 
+`events(kinds)` takes several kinds at once: `Kinds::STATE` gives each
+change of the instance's state as `Event::State`, `Kinds::NETWORK` the
+network's. More kinds come; match with `_ => {}`.
+
+A host that shows the instance polls snapshots instead of following
+events: `instance.status(every)` (the traffic and its rate),
+`instance.watch_connections(every)` and `instance.watch_outbounds(every,
+groups_only)`, the last at once on a group's change and else only when
+something differs. They are quiet while the instance does not run, and
+need a tokio runtime. The C ABI's subscriptions are these.
+
 `instance.tun_names()` gives each TUN inbound's device name, by tag. It
 is the name configured, or the one sail chose at start (`chosen`; on
 macOS one past the highest `utunN`) when none was. A host that opens the
@@ -263,6 +274,7 @@ Every start first sweeps what a killed instance left there.
 | `Io` | `io` | a system call failed |
 | `Panicked` | `panicked` | sail panicked. The instance has failed and may be started again |
 | `Internal` | `internal` | a bug: the message says what |
+| `TunNameTaken` | `tun_name_taken` | a TUN's device name is in use. A configured one: change it. One sail chose: each free name it tried was taken before it opened, and starting again may well succeed |
 
 ## Panics
 

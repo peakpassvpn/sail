@@ -23,6 +23,7 @@ mod error;
 mod instance;
 mod logs;
 mod network;
+mod streams;
 
 pub use crate::control::{
     ConnectionInfo, Delay, Failure, GroupInfo, InboundInfo, Mode, OutboundInfo, ProviderInfo,
@@ -40,6 +41,7 @@ pub use network::{
     Event, Interface, Kinds, NetworkChangeKind, NetworkChangeReason, NetworkEvent, NetworkKind,
     NetworkState, TunName,
 };
+pub use streams::Status;
 
 /// Undoes what an instance killed with its process left in the system
 /// (rules, routes, a TUN), as the ledgers under `run_dir` list them, with

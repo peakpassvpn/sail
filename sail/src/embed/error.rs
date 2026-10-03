@@ -42,6 +42,10 @@ pub enum ErrorKind {
     Panicked,
     /// sail failed where it should not have; the message says how.
     Internal,
+    /// A TUN's device name is in use: one configured, or, when none was,
+    /// each one sail chose as free taken before it opened (a start again
+    /// may well succeed). See `tun_name_taken`.
+    TunNameTaken,
 }
 
 impl ErrorKind {
@@ -61,6 +65,7 @@ impl ErrorKind {
             ErrorKind::Io => "io",
             ErrorKind::Panicked => "panicked",
             ErrorKind::Internal => "internal",
+            ErrorKind::TunNameTaken => "tun_name_taken",
         }
     }
 }
@@ -112,6 +117,15 @@ impl std::error::Error for Error {}
 
 impl From<crate::Error> for Error {
     fn from(e: crate::Error) -> Self {
+        #[cfg(feature = "inbound-tun")]
+        if let crate::Error::Config(e) = &e {
+            if e.chain().any(|e| {
+                e.downcast_ref::<crate::protocol::tun::inbound::TunNameTaken>()
+                    .is_some()
+            }) {
+                return Error::new(ErrorKind::TunNameTaken, format!("{:#}", e));
+            }
+        }
         let kind = match &e {
             crate::Error::Config(_) | crate::Error::NoConfigFile => ErrorKind::Config,
             crate::Error::Io(_) => ErrorKind::Io,
