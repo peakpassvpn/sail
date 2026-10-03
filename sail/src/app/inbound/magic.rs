@@ -59,7 +59,14 @@ async fn serve_unmuxed(
     nat_manager: Arc<NatManager>,
 ) {
     match uot::version(&sess.destination) {
-        None => dispatcher.dispatch_stream(sess, stream).await,
+        // Routed in a task of its own: the layers that brought the stream
+        // here end, and their state with them, which an idle connection
+        // would otherwise keep for as long as it lives. What counts and
+        // closes it, its place, its user's admission, its counter, its
+        // span, goes with the session.
+        None => {
+            tokio::spawn(async move { dispatcher.dispatch_stream(sess, stream).await });
+        }
         Some(2) => {
             let handshake_timeout = dispatcher.env().options.inbound.handshake_timeout;
             serve_uot(sess, stream, inbound_tag, nat_manager, handshake_timeout).await

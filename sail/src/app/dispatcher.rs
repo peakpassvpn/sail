@@ -441,7 +441,13 @@ impl Dispatcher {
             Routed::Outbound(tag) => tag,
             Routed::HijackDns => {
                 if let Err(e) =
-                    super::router::hijack_dns::serve_stream(&self.dns_client, lhs, &sess).await
+                    // Boxed, as the dial: a connection keeps no room for it.
+                    Box::pin(super::router::hijack_dns::serve_stream(
+                        &self.dns_client,
+                        lhs,
+                        &sess,
+                    ))
+                    .await
                 {
                     debug!("hijack-dns: {}", e);
                 }
@@ -500,7 +506,16 @@ impl Dispatcher {
             // Where it is dialled as a name, `override_destination`.
             let at = &*net::dial_domain::session(at, &h, &connect);
             let stream =
-                match crate::net::connect_stream_routed(at, self.dns_client.clone(), &h).await {
+                // Boxed: the dial is the largest thing the session awaits,
+                // and unboxed, a relayed connection would keep room for it
+                // for as long as it lives.
+                match Box::pin(crate::net::connect_stream_routed(
+                    at,
+                    self.dns_client.clone(),
+                    &h,
+                ))
+                .await
+                {
                     Ok(s) => s,
                     Err(e) => {
                         debug!(
@@ -1431,5 +1446,23 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(sess.sniffed_protocol, None);
+    }
+
+    /// A relayed connection's routing runs in a task of its own, which
+    /// keeps its state for as long as the connection lives: the dial and
+    /// the DNS hijack are boxed, so that what it keeps is what relaying
+    /// needs. In a test build, unoptimized, 9,000 bytes unboxed and 6,368
+    /// boxed (a release build keeps less: 8,152 unboxed).
+    #[test]
+    fn a_routed_stream_keeps_little_while_it_lives() {
+        fn size<A, B, C, F: std::future::Future>(_: impl FnOnce(A, B, C) -> F) -> usize {
+            std::mem::size_of::<F>()
+        }
+        let routed = size(
+            |d: std::sync::Arc<super::Dispatcher>,
+             s: crate::session::Session,
+             lhs: crate::adapter::AnyStream| async move { d.dispatch_stream(s, lhs).await },
+        );
+        assert!(routed <= 7 * 1024, "{} bytes", routed);
     }
 }

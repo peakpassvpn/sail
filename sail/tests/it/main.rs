@@ -8,6 +8,7 @@
 //! a single test thread.
 
 mod common;
+mod test_connection_life;
 mod test_group_common;
 
 mod test_amux_trojan;

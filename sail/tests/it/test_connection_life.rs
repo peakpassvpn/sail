@@ -1,0 +1,186 @@
+//! A relayed connection's life, which the task routing it holds once the
+//! inbound has handed it over: it is closed when asked, counted against
+//! its user while it lives and no longer, and runs on when its inbound is
+//! removed.
+
+#![cfg(all(
+    feature = "inbound-socks",
+    feature = "inbound-trojan",
+    feature = "outbound-direct",
+    feature = "outbound-trojan"
+))]
+
+use std::io::{Read, Write};
+use std::net::{TcpListener, TcpStream};
+use std::time::{Duration, Instant};
+
+use anyhow::{ensure, Result};
+
+use crate::common;
+
+fn echo_server() -> u16 {
+    let echo = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = echo.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        for s in echo.incoming() {
+            let Ok(mut s) = s else { return };
+            std::thread::spawn(move || {
+                let mut buf = [0u8; 64];
+                while let Ok(n) = s.read(&mut buf) {
+                    if n == 0 || s.write_all(&buf[..n]).is_err() {
+                        break;
+                    }
+                }
+            });
+        }
+    });
+    port
+}
+
+/// A SOCKS5 connection through `proxy` to 127.0.0.1:`port`, past its
+/// reply.
+fn connect(proxy: u16, port: u16) -> std::io::Result<TcpStream> {
+    let mut s = TcpStream::connect(("127.0.0.1", proxy))?;
+    s.set_read_timeout(Some(Duration::from_secs(5)))?;
+    s.write_all(&[5, 1, 0])?;
+    let mut reply = [0u8; 2];
+    s.read_exact(&mut reply)?;
+    let mut request = vec![5, 1, 0, 1, 127, 0, 0, 1];
+    request.extend(port.to_be_bytes());
+    s.write_all(&request)?;
+    let mut reply = [0u8; 10];
+    s.read_exact(&mut reply)?;
+    if reply[1] != 0 {
+        return Err(std::io::Error::other(format!("SOCKS REP {}", reply[1])));
+    }
+    Ok(s)
+}
+
+/// Whether `s` relays a byte to the echo server and back; false when it
+/// is closed, at once or within its read timeout.
+fn echoes(s: &mut TcpStream) -> bool {
+    let mut b = [0u8; 1];
+    s.write_all(b"x").is_ok() && matches!(s.read(&mut b), Ok(1)) && b == *b"x"
+}
+
+/// Whether `s` is closed: a read ends, with nothing.
+fn closed(s: &mut TcpStream) -> bool {
+    let mut b = [0u8; 1];
+    matches!(s.read(&mut b), Ok(0) | Err(_))
+}
+
+fn until(what: &str, mut f: impl FnMut() -> bool) -> Result<()> {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !f() {
+        ensure!(Instant::now() < deadline, "{} within 10s", what);
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    Ok(())
+}
+
+fn runtime() -> tokio::runtime::Runtime {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+}
+
+/// A SOCKS inbound named `in` to direct.
+fn socks_to_direct(rt: &tokio::runtime::Runtime) -> Result<(sail::RuntimeId, u16)> {
+    common::retry_port_clash(|| {
+        let [socks] = common::free_ports();
+        let config = serde_json::json!({
+            "inbounds": [{ "type": "socks", "tag": "in", "listen": "127.0.0.1", "listen_port": socks }],
+            "outbounds": [{ "type": "direct" }],
+        });
+        Ok((
+            common::run_sail_instances(rt, vec![config.to_string()])?[0],
+            socks,
+        ))
+    })
+}
+
+#[test]
+fn a_relayed_connection_is_closed_when_asked() -> Result<()> {
+    let echo = echo_server();
+    let rt = runtime();
+    let (id, socks) = socks_to_direct(&rt)?;
+    let result = (|| {
+        let mut a = connect(socks, echo)?;
+        ensure!(echoes(&mut a), "relayed");
+        let stats = sail::runtime_manager(id).unwrap().stat_manager();
+        ensure!(stats.close_all() == 1, "one connection to close");
+        ensure!(closed(&mut a), "closed when asked");
+        until("no connection left", || stats.live() == 0)
+    })();
+    sail::shutdown(id);
+    result
+}
+
+#[test]
+fn a_relayed_connection_outlives_its_inbound() -> Result<()> {
+    let echo = echo_server();
+    let rt = runtime();
+    let (id, socks) = socks_to_direct(&rt)?;
+    let result = (|| {
+        let mut a = connect(socks, echo)?;
+        ensure!(echoes(&mut a), "relayed");
+        let manager = sail::runtime_manager(id).unwrap();
+        rt.block_on(manager.remove_inbound("in"))?;
+        until("the inbound stops accepting", || {
+            TcpStream::connect(("127.0.0.1", socks)).is_err()
+        })?;
+        // The connections it accepted go on, as they did before.
+        ensure!(echoes(&mut a), "relayed after its inbound went");
+        Ok(())
+    })();
+    sail::shutdown(id);
+    result
+}
+
+/// A user's `max_connections` counts a connection for as long as it is
+/// relayed, and no longer: were the count given back when the inbound's
+/// part ended, a second connection would be let in.
+#[test]
+fn a_user_s_connection_counts_while_it_is_relayed() -> Result<()> {
+    let echo = echo_server();
+    let rt = runtime();
+    let (ids, socks) = common::retry_port_clash(|| {
+        let [trojan, socks] = common::free_ports();
+        let server = serde_json::json!({
+            "inbounds": [{ "type": "trojan", "tag": "t", "listen": "127.0.0.1", "listen_port": trojan,
+                           "users": [{ "name": "alice", "password": "a" }] }],
+            "outbounds": [{ "type": "direct" }],
+            "user_limits": { "alice": { "max_connections": 1 } },
+        });
+        let client = serde_json::json!({
+            "inbounds": [{ "type": "socks", "listen": "127.0.0.1", "listen_port": socks }],
+            "outbounds": [{ "type": "trojan", "server": "127.0.0.1", "server_port": trojan,
+                            "password": "a" }],
+        });
+        Ok((
+            common::run_sail_instances(&rt, vec![server.to_string(), client.to_string()])?,
+            socks,
+        ))
+    })?;
+    let result = (|| {
+        let server = sail::runtime_manager(ids[0]).unwrap().stat_manager();
+        let mut a = connect(socks, echo)?;
+        ensure!(echoes(&mut a), "alice's first connection is relayed");
+        ensure!(server.live() == 1, "and counted");
+        let mut b = connect(socks, echo)?;
+        ensure!(
+            !echoes(&mut b),
+            "a second one is refused while the first lives"
+        );
+        drop(a);
+        until("the first connection ends", || server.live() == 0)?;
+        let mut c = connect(socks, echo)?;
+        ensure!(echoes(&mut c), "then one is relayed again");
+        Ok(())
+    })();
+    for id in ids {
+        sail::shutdown(id);
+    }
+    result
+}
