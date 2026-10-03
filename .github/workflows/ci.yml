@@ -1,8 +1,10 @@
 name: ci
 
 # Day-to-day checks. A ci/* branch runs four jobs in parallel (lint,
-# test, features, fuzz); master adds the cross jobs, one per target, a
-# native aarch64 test run and a native Windows MSVC build and test run.
+# test, features, fuzz), and the bindings' tests (Kotlin on Linux, Swift on
+# macOS) when it touches what they test; master adds the cross jobs, one
+# per target, a native aarch64 test run and a native Windows MSVC build and
+# test run, and always runs the bindings' tests.
 # Apple builds run at release. Public-repository runners are free, so jobs
 # are split for wall time.
 on: [push, pull_request, workflow_dispatch]
@@ -427,3 +429,103 @@ jobs:
           args=()
           for test in "${skip[@]}"; do args+=(--skip "$test"); done
           cargo test --locked -p sail --target x86_64-pc-windows-msvc -- --exact "${args[@]}"
+
+  # Whether the bindings' tests run: on master, when dispatched, and on a
+  # branch whose changes since master reach them (the bindings, the C ABI,
+  # sail::embed, the JSON snapshot the models are checked against, the
+  # Swift package's manifest, this file). Other branches skip both jobs.
+  bindings-paths:
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.paths.outputs.run }}
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: what changed
+        id: paths
+        run: |
+          if [ "$GITHUB_REF" = refs/heads/master ] || [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            echo run=true >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+          base=$(git merge-base HEAD origin/master)
+          git diff --name-only "$base" HEAD | tee changed.txt
+          if grep -qE '^(bindings/|sail-ffi/|sail/src/embed|sail/src/control/json_snapshot\.json$|Package\.swift$|\.github/workflows/ci\.yml$)' changed.txt; then
+            echo run=true >>"$GITHUB_OUTPUT"
+          else
+            echo run=false >>"$GITHUB_OUTPUT"
+          fi
+
+  # The Kotlin binding's tests, on a desktop JVM, against libsail_jni built
+  # for this host (jni/build-host.sh).
+  bindings-kotlin:
+    needs: bindings-paths
+    if: needs.bindings-paths.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    # A hung Gradle daemon or swift test fails the job, rather than hold
+    # the runner for GitHub's six hours.
+    timeout-minutes: 30
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: install rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+
+      - name: cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      # Gradle's own cache: saved from master only, as rust-cache's.
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 9.8.0
+          cache-read-only: ${{ github.ref != 'refs/heads/master' }}
+
+      - name: libsail_jni for this host
+        run: bindings/kotlin/jni/build-host.sh
+
+      - name: test
+        working-directory: bindings/kotlin
+        run: gradle --no-daemon test
+
+  # The Swift binding's tests, on a standard macOS runner, against
+  # sail-ffi's static library (bindings/swift/test.sh).
+  bindings-swift:
+    needs: bindings-paths
+    if: needs.bindings-paths.outputs.run == 'true'
+    runs-on: macos-15
+    # A hung Gradle daemon or swift test fails the job, rather than hold
+    # the runner for GitHub's six hours.
+    timeout-minutes: 30
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: install rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+
+      - name: cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+
+      - name: test
+        run: bindings/swift/test.sh
