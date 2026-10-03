@@ -698,4 +698,39 @@ mod tests {
             assert!(err.to_string().contains("no route"), "{}", err);
         });
     }
+
+    /// What came in as several frames is read in one read, as far as the
+    /// buffer holds it: a read a frame made a write a frame downstream.
+    #[test]
+    fn a_read_takes_every_frame_queued() {
+        runtime().block_on(async {
+            let (a, b) = tokio::io::duplex(64 * 1024);
+            let (server, mut accept) = Session::server(
+                Box::new(b),
+                Arc::new(PaddingScheme::parse(b"stop=1").unwrap()),
+                Tuning::default(),
+                "test",
+            );
+            tokio::spawn(async move {
+                while let Some(stream) = accept.recv().await {
+                    let mut stream = server.stream(stream);
+                    stream.report(None).await.unwrap();
+                    for i in 0..3u8 {
+                        stream.write_all(&[i; 1000]).await.unwrap();
+                    }
+                    tokio::time::sleep(Duration::from_secs(5)).await;
+                }
+            });
+            let client = Session::client(Box::new(a), cell(), Tuning::default(), "test");
+            let mut stream = client.open_stream(b"x").await.unwrap();
+            while client.core.received() < 3000 {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            let mut buf = vec![0u8; 64 * 1024];
+            let n = stream.read(&mut buf).await.unwrap();
+            assert_eq!(n, 3000);
+            assert!(buf[..1000].iter().all(|b| *b == 0));
+            assert!(buf[2000..3000].iter().all(|b| *b == 2));
+        });
+    }
 }

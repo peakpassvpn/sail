@@ -874,12 +874,21 @@ impl AsyncRead for Stream {
         if slot.stalled {
             return Poll::Ready(Err(stalled(shared)));
         }
-        if let Some(front) = slot.recv.front_mut() {
-            let n = front.len().min(buf.remaining());
-            buf.put_slice(&front[..n]);
-            front.advance(n);
-            if front.is_empty() {
-                slot.recv.pop_front();
+        if !slot.recv.is_empty() {
+            // All that is queued, as far as `buf` holds it: a read of one
+            // frame's data at a time made a write of each downstream.
+            let mut n = 0;
+            while let Some(front) = slot.recv.front_mut() {
+                let take = front.len().min(buf.remaining());
+                if take == 0 {
+                    break;
+                }
+                buf.put_slice(&front[..take]);
+                front.advance(take);
+                n += take;
+                if front.is_empty() {
+                    slot.recv.pop_front();
+                }
             }
             let now = Instant::now();
             let was_full = slot.inbox >= shared.tuning.inbox;

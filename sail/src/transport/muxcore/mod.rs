@@ -213,10 +213,16 @@ pub trait Shaper: Send {
 /// Reads a protocol's frames off what the connection has given so far.
 pub trait Decoder: Send {
     /// The next event in `buf`, taking what it read from it; `None` if more
-    /// has to be read first. Data comes out as it arrives, a frame's in as
-    /// many pieces as it was read in.
+    /// has to be read first. A frame's data comes out whole, or in pieces of
+    /// `PIECE` where it is longer (`Framing`).
     fn decode(&mut self, buf: &mut BytesMut) -> io::Result<Option<Event>>;
 }
+
+/// The most of a frame's data a decoder holds back until the rest has
+/// come: a frame comes in as many pieces as it was read in, as TLS records
+/// of 16 KiB do, and a stream that was given each piece as it came made a
+/// write of each downstream, four to sing-box's one.
+pub const PIECE: usize = 64 << 10;
 
 /// Where a decoder is between frames: the events a frame's header gave,
 /// the data that follows it, and the events after that data.
@@ -225,6 +231,8 @@ pub struct Framing {
     before: std::collections::VecDeque<Event>,
     /// The stream, and how much of its frame's data is still to come.
     data: Option<(u32, usize)>,
+    /// The frame's data read so far and not given out, less than `PIECE`.
+    piece: BytesMut,
     /// Data to be skipped, for frames of no use.
     skip: usize,
     after: Vec<Event>,
@@ -272,9 +280,21 @@ impl Framing {
                 return Some(None);
             }
             let n = left.min(buf.len());
-            let data = Bytes::copy_from_slice(&buf[..n]);
+            let done = n == left;
+            let data = if self.piece.is_empty() && (done || n >= PIECE) {
+                Bytes::copy_from_slice(&buf[..n])
+            } else {
+                self.piece.extend_from_slice(&buf[..n]);
+                if !done && self.piece.len() < PIECE {
+                    // All of `buf` taken: the rest is still to be read.
+                    buf.advance(n);
+                    self.data = Some((id, left - n));
+                    return Some(None);
+                }
+                self.piece.split().freeze()
+            };
             buf.advance(n);
-            if n == left {
+            if done {
                 self.data = None;
                 self.before.extend(self.after.drain(..));
             } else {
@@ -290,6 +310,51 @@ impl Framing {
 mod tests {
     use super::*;
     use crate::runtime::options::{Profile, RuntimeOptions};
+
+    /// Data with nothing more to come, as `next` gives it out.
+    fn drain(framing: &mut Framing, buf: &mut BytesMut) -> Vec<Event> {
+        let mut events = Vec::new();
+        while let Some(Some(event)) = framing.next(buf) {
+            events.push(event);
+        }
+        events
+    }
+
+    #[test]
+    fn a_frame_read_in_pieces_comes_out_whole() {
+        let mut framing = Framing::default();
+        framing.frame(&[], Some((3, 30_000)), &[Event::Fin(3)]);
+        let mut events = Vec::new();
+        for piece in [16_384, 13_000, 616] {
+            let mut buf = BytesMut::from(&vec![7u8; piece][..]);
+            events.extend(drain(&mut framing, &mut buf));
+            assert!(buf.is_empty());
+        }
+        assert_eq!(
+            events,
+            vec![
+                Event::Data(3, Bytes::from(vec![7u8; 30_000])),
+                Event::Fin(3)
+            ]
+        );
+    }
+
+    #[test]
+    fn a_long_frame_comes_out_in_pieces_of_64_kib() {
+        let mut framing = Framing::default();
+        framing.frame(&[], Some((1, PIECE + 100)), &[]);
+        let mut lens = Vec::new();
+        for _ in 0..5 {
+            let mut buf = BytesMut::from(&vec![0u8; 16_384][..]);
+            for event in drain(&mut framing, &mut buf) {
+                if let Event::Data(_, data) = event {
+                    lens.push(data.len());
+                }
+            }
+        }
+        // The fifth read holds the frame's last 100 bytes and what follows.
+        assert_eq!(lens, vec![PIECE, 100]);
+    }
 
     #[test]
     fn windows_grow_to_16_mib_or_8_on_small_devices() {
