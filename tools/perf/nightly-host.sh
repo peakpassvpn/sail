@@ -21,10 +21,15 @@
 #  2. Build master's sail-cli as shipped for Linux, x86_64 musl with
 #     mimalloc, in the release profile without LTO (fat LTO does not fit
 #     the host's memory): `new`. Kept by commit, so a commit is built once.
+#     The musl toolchain is the one scripts/install_cross_toolchain.sh
+#     installs, installed beforehand: never in the window, where a slow
+#     download would eat the night. Without it, the host's own build,
+#     glibc and its allocator, which every summary then says. Builds,
+#     previous and reference are kept per kind, never compared across.
 #  3. Measure from MEASURE_AT on cores CLIENT_CPU and SERVER_CPU: `new`
 #     against the previous night's build (`base`), and against the pinned
 #     reference, the calibration night's build, replaced only by hand
-#     (`echo <sha> > $PERF_ROOT/reference`). The first night, with neither,
+#     (`echo <sha> > $PERF_ROOT/reference-<kind>`). The first night, with neither,
 #     is the calibration: new against itself, the spread is the noise.
 #  4. Write status.txt (ran / skipped: why / failed: why) and, when it ran,
 #     summary.json and report-*.md; keep the last KEEP runs.
@@ -43,14 +48,28 @@ ROUNDS=${ROUNDS:-4}
 CALIBRATION_ROUNDS=${CALIBRATION_ROUNDS:-6}
 MAX_LOAD=${MAX_LOAD:-1.0}
 KEEP=${KEEP:-14}
-TARGET=x86_64-unknown-linux-musl
-PROFILE="x86_64 musl, mimalloc, release profile, lto=false"
+SRC=$(cd "$(dirname "$0")/../.." && pwd)
+MUSL_TARGET=x86_64-unknown-linux-musl
+musl_ready() {
+  local tc
+  tc=$(ls -d "${SAIL_CROSS_DIR:-$HOME/.sail-cross}"/musl-*/"$MUSL_TARGET"/bin/"$MUSL_TARGET"-g++ 2>/dev/null | head -1)
+  # The checkout's toolchain (rust-toolchain.toml), the one that builds.
+  [ -n "$tc" ] && (cd "$SRC" && rustup target list --installed 2>/dev/null) | grep -qx "$MUSL_TARGET"
+}
+if musl_ready; then
+  KIND=musl
+  TARGET=$MUSL_TARGET
+  PROFILE="x86_64 musl, mimalloc, release profile, lto=false"
+else
+  KIND=glibc
+  TARGET=$(rustc -vV | sed -n 's/^host: //p')
+  PROFILE="x86_64 glibc, no LTO: the host's build and allocator, not the shipped musl/mimalloc binary"
+fi
 JOB=sail-5.4-nightly
 # The standing entry that reserves the window; not a job that blocks.
 WINDOW=sail-5.4-nightly-window
 LOCKS=("netns-nc$NETEM_NS" "netns-ns$NETEM_NS" "netns-${SERVER_NAME}c" "netns-${SERVER_NAME}s")
 
-SRC=$(cd "$(dirname "$0")/../.." && pwd)
 STAMP=$(date -u +%Y-%m-%dT%H%MZ)
 RUN=$PERF_ROOT/runs/$STAMP
 mkdir -p "$RUN" "$PERF_ROOT/bin"
@@ -119,17 +138,19 @@ JOBFILE
 # 2. The build: exclusive, as a sail build here is.
 NEW=$(git -C "$SRC" rev-parse --short=8 HEAD)
 register "build, exclusive" "building sail-cli $NEW ($PROFILE)" "3.7G, build" "0-3"
-built() { [ -x "$PERF_ROOT/bin/$1/sail" ]; }
+BIN=$PERF_ROOT/bin/$KIND
+built() { [ -x "$BIN/$1/sail" ]; }
 if ! built "$NEW"; then
   echo "building $NEW"
-  if ! (cd "$SRC" && scripts/install_cross_toolchain.sh "$TARGET" >/dev/null &&
-    CARGO_BUILD_JOBS=4 CARGO_PROFILE_RELEASE_LTO=false CARGO_TARGET_DIR="$PERF_ROOT/target" \
-      scripts/cross.sh "$TARGET" build --locked --release -p sail-cli); then
+  build=(cargo build --locked --release -p sail-cli --target "$TARGET")
+  [ "$KIND" = musl ] && build=(scripts/cross.sh "$TARGET" build --locked --release -p sail-cli)
+  if ! (cd "$SRC" && CARGO_BUILD_JOBS=4 CARGO_PROFILE_RELEASE_LTO=false \
+    CARGO_TARGET_DIR="$PERF_ROOT/target" "${build[@]}"); then
     status "failed: the build of $NEW failed (see log); no measurement"
     exit 1
   fi
-  mkdir -p "$PERF_ROOT/bin/$NEW"
-  cp "$PERF_ROOT/target/$TARGET/release/sail" "$PERF_ROOT/bin/$NEW/sail"
+  mkdir -p "$BIN/$NEW"
+  cp "$PERF_ROOT/target/$TARGET/release/sail" "$BIN/$NEW/sail"
 fi
 # netgen, the load generator, by the hash of its sources.
 netgen_hash=$(cd "$SRC/scripts/netem/netgen" && cat ./*.go go.mod go.sum 2>/dev/null | sha256sum | cut -c1-16)
@@ -152,11 +173,11 @@ if awk -v l="$load" -v m="$MAX_LOAD" 'BEGIN { exit !(l > m) }'; then
   exit 0
 fi
 
-BASE=$(cat "$PERF_ROOT/last" 2>/dev/null || true)
-REF=$(cat "$PERF_ROOT/reference" 2>/dev/null || true)
+BASE=$(cat "$PERF_ROOT/last-$KIND" 2>/dev/null || true)
+REF=$(cat "$PERF_ROOT/reference-$KIND" 2>/dev/null || true)
 if [ -z "$REF" ]; then
   REF=$NEW
-  echo "$REF" >"$PERF_ROOT/reference"
+  echo "$REF" >"$PERF_ROOT/reference-$KIND"
 fi
 built "$BASE" || BASE=$NEW
 built "$REF" || REF=$NEW
@@ -175,13 +196,13 @@ compare() {
       local sha=$NEW
       [ "$which" = base ] && sha=$against
       (cd "$RUN/work/netem" && python3 run.py --work "$dir/results/$which/r$round" \
-        --sail "$PERF_ROOT/bin/$sha/sail" --netgen "$NETGEN" \
+        --sail "$BIN/$sha/sail" --netgen "$NETGEN" \
         --protocols direct,trojan --clients sail-mobile,sail-server --only baseline,rate10m \
         --cpus "$CLIENT_CPU" --server-cpus "$SERVER_CPU") || return 1
     done
   done
   (cd "$RUN/work/server-accept" && python3 run.py --work "$dir/results/server" \
-    --sail "$PERF_ROOT/bin/$NEW/sail" --sail-base "$PERF_ROOT/bin/$against/sail" \
+    --sail "$BIN/$NEW/sail" --sail-base "$BIN/$against/sail" \
     --servers sail,sail-base --singbox "$SINGBOX" --netgen "$NETGEN" \
     --protocols ss2022,trojan --shapes idle,bulk --rounds "$rounds" --conns 10000 --rate 1000 \
     --server-cores "$SERVER_CPU" --load-cores "$CLIENT_CPU" --name "$SERVER_NAME" --net "$SERVER_NET") || return 1
@@ -201,7 +222,7 @@ else
     pairs+=(reference)
   fi
 fi
-echo "$NEW" >"$PERF_ROOT/last"
+echo "$NEW" >"$PERF_ROOT/last-$KIND"
 
 # 4. The reports, and what the host was.
 verdict=ok
@@ -224,4 +245,4 @@ rm -rf "$RUN/work"
 for pair in "${pairs[@]}"; do
   find "$RUN/$pair" -type f ! -name summary.json -delete
 done
-status "ran: new $NEW, base $BASE, reference $REF; ${pairs[*]}; $verdict"
+status "ran ($KIND): new $NEW, base $BASE, reference $REF; ${pairs[*]}; $verdict"
