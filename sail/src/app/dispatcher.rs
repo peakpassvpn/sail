@@ -286,6 +286,33 @@ fn outbound_path(sess: &Session, tag: &str) -> String {
         .join(">")
 }
 
+impl Dispatcher {
+    /// Tells of a connection that failed (control::events): connecting, or
+    /// the outbound's handshake, as its error says. `Dial` means "connect,
+    /// or timed out": a handshake that times out (the outbound's own, a
+    /// TLS one) is `TimedOut` too, until the dispatcher sees how far an
+    /// attempt got. A relay that fails later is not told: most end so.
+    fn tell_failed(&self, sess: &Session, outbound_tag: &str, e: &io::Error) {
+        use crate::control::events::{DialFailure, DialStage};
+        use io::ErrorKind as K;
+        let stage = match e.kind() {
+            K::ConnectionRefused
+            | K::TimedOut
+            | K::HostUnreachable
+            | K::NetworkUnreachable
+            | K::NotFound
+            | K::AddrNotAvailable => DialStage::Dial,
+            _ => DialStage::Handshake,
+        };
+        self.env.events.dial_failed(DialFailure::new(
+            outbound_path(sess, outbound_tag),
+            crate::app::logger::destination(&sess.destination).to_string(),
+            e.kind(),
+            stage,
+        ));
+    }
+}
+
 fn log_request(sess: &Session, outbound_tag: &str, handshake_time: Option<u128>) {
     use crate::app::logger;
     use crate::config::model::LogRedact;
@@ -609,6 +636,7 @@ impl Dispatcher {
                     outbound_path(&sess, h.tag()),
                     e
                 );
+                self.tell_failed(&sess, h.tag(), &e);
                 log_request(&sess, h.tag(), None);
                 refuse(&sess, &mut lhs, &e).await;
             }
@@ -740,6 +768,7 @@ impl Dispatcher {
         let (rhs, counted) = match connected.await {
             Ok(connected) => connected,
             Err(e) => {
+                self.tell_failed(&sess, h.tag(), &e);
                 log_request(&sess, h.tag(), None);
                 return Err(e);
             }
@@ -777,6 +806,7 @@ impl Dispatcher {
         let d = match connected.await {
             Ok(d) => d,
             Err(e) => {
+                self.tell_failed(&sess, h.tag(), &e);
                 log_request(&sess, h.tag(), None);
                 return Err(e);
             }
@@ -942,6 +972,7 @@ impl Dispatcher {
                     outbound_path(&sess, h.tag()),
                     e
                 );
+                self.tell_failed(&sess, h.tag(), &e);
                 log_request(&sess, h.tag(), None);
                 Err(e)
             }

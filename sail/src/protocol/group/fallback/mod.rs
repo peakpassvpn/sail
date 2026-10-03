@@ -229,6 +229,8 @@ struct Choosing {
     min_dwell: Duration,
     /// When the group went to the member it is on.
     since: Mutex<Instant>,
+    /// Where its switches are told.
+    events: crate::control::events::EventHub,
 }
 
 impl Choosing {
@@ -238,6 +240,7 @@ impl Choosing {
         pinned: Option<Arc<str>>,
         cache_file: Option<Arc<CacheFile>>,
         min_dwell: Duration,
+        events: crate::control::events::EventHub,
     ) -> Self {
         Self {
             tag: tag.to_owned(),
@@ -246,6 +249,7 @@ impl Choosing {
             cache_file,
             min_dwell,
             since: Mutex::new(Instant::now()),
+            events,
         }
     }
 
@@ -330,6 +334,24 @@ impl Choosing {
                 return;
             }
         }
+        let reason = {
+            use crate::control::events::SwitchReason as R;
+            if choice.unpin {
+                R::MemberDown
+            } else if pin_holds {
+                R::Pinned
+            } else if !up.iter().any(|&u| u) {
+                R::AllDown
+            } else {
+                match &cause {
+                    Cause::Round if current_at.is_some_and(|i| !up[i]) => R::TestFailed,
+                    Cause::Round => R::Recovered,
+                    Cause::Failed(_) => R::MemberDown,
+                    Cause::Merged => R::MembersChanged,
+                    Cause::Hand => R::Unpinned,
+                }
+            }
+        };
         let why = if choice.unpin {
             "the member pinned is down".to_string()
         } else if pin_holds {
@@ -363,6 +385,15 @@ impl Choosing {
         );
         self.selected.set(next.clone());
         *self.since.lock().unwrap_or_else(|e| e.into_inner()) = Instant::now();
+        // TODO: the enclosing groups' tags before its own, when a group
+        // knows them; its tag alone until then.
+        self.events
+            .group_switched(crate::control::events::GroupSwitch::new(
+                self.tag.clone(),
+                Some(current.name.to_string()),
+                next.name.to_string(),
+                reason,
+            ));
     }
 
     /// Logs why, after a round, the group stays on the member at
@@ -614,6 +645,7 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         pinned,
         cache_file,
         min_dwell,
+        ctx.env.events.clone(),
     ));
     let on_tested = on_tested(choosing.clone());
     let (checker, abort_handle) = Checker::new(
@@ -951,7 +983,14 @@ mod tests {
         fn new(fail_after: u32, recover_after: u32, min_dwell: Duration) -> Self {
             let members = crate::protocol::group::members::tests::outbounds(&["a", "b", "c"]);
             let selected = Arc::new(Selection::new("a", MemberKey::outbound("a")));
-            let choosing = Arc::new(Choosing::new("fb", selected.clone(), None, None, min_dwell));
+            let choosing = Arc::new(Choosing::new(
+                "fb",
+                selected.clone(),
+                None,
+                None,
+                min_dwell,
+                Default::default(),
+            ));
             let checker = health::tests::checker(
                 members.clone(),
                 Debounce {

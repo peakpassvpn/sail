@@ -199,6 +199,7 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
     let on_tested = {
         let selected = selected.clone();
         let tag = ctx.tag.to_owned();
+        let events = ctx.env.events.clone();
         Box::new(
             move |_: &Checker, snapshot: &Snapshot, latencies: &[Option<Duration>]| {
                 let current = selected.get();
@@ -212,6 +213,19 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
                             tag, current.name, next.name
                         );
                         selected.set(next.clone());
+                        use crate::control::events::{GroupSwitch, SwitchReason as R};
+                        let reason = match latencies.get(at) {
+                            None => R::MembersChanged,
+                            Some(None) => R::TestFailed,
+                            Some(Some(_)) => R::Faster,
+                        };
+                        // TODO: the enclosing groups' tags, as the fallback's.
+                        events.group_switched(GroupSwitch::new(
+                            tag.clone(),
+                            Some(current.name.to_string()),
+                            next.name.to_string(),
+                            reason,
+                        ));
                     }
                 }
             },
