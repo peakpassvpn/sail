@@ -166,6 +166,84 @@ A subscription made before a change sees that change. `states()` and
 reload changes (groups, providers, rule-sets) comes as events, with the
 same rule: subscribe first, then read `outbounds()` and the rest.
 
+## The network
+
+`instance.network()` is the network now: the default interface (name and
+index; none when offline), its kind, gateway and addresses, and whether
+it is metered, constrained or behind a captive portal, with a
+`generation`. `instance.events(Kinds::NETWORK)` gives each change of it
+that connections do not survive, as `Event::Network`:
+
+| `change` | when |
+|---|---|
+| `InterfaceChanged` | another default interface: its name or index differs |
+| `Moved` | the same interface on another network: its gateway, kind or addresses (IPv6 by /64) differ; or the host, or a wake, says the network changed |
+| `Offline` | the default interface is gone |
+| `Restored` | a default interface is back after none |
+
+- **Roams.** A roam to another access point with the same addresses is no
+  change, and no event.
+- **Settled.** Every change is settled before it is told: sail's detection
+  waits until the system has been quiet for 100 ms (1 s at most) before it
+  looks. A state the host pushes (`set_network_state`) is taken as given.
+- **Old and new.** Each event carries the old and the new state, the
+  `reason` (default interface, detected, host, wake) and the generation.
+  Generations count from 1 in each run.
+- **Pairing with the snapshot.** Subscribe first, then read `network()`,
+  then skip the events whose generation is the snapshot's or lower. None is
+  missed, and none is taken twice.
+- **Falling behind.** A subscriber that falls more than 64 changes behind
+  gets `Event::Lagged { kind: Kinds::NETWORK, missed }`; it should then
+  read the snapshot again.
+- **Restarts.** The subscription goes on through stops and starts. After a
+  start, read the snapshot again.
+
+`instance.tun_names()` gives each TUN inbound's device name, by tag. It
+is the name configured, or the one sail chose at start (`chosen`; on
+macOS one past the highest `utunN`) when none was. A host that opens the
+device itself (Android, iOS) has no entry. A chosen name that another
+program takes before the device opens fails the start ("chosen at start
+as free, was taken before it opened"); starting again chooses another.
+
+## Dialling
+
+`dial_tcp` and `dial_udp` go through the outbound named, whatever the
+rules say. Through the direct outbound, two things hold:
+
+- **The zone reaches the kernel unchanged.** A link-local IPv6 address
+  given with its scope (`SocketAddrV6::new(ip, port, 0, ifindex)`, the
+  index from `if_nametoindex`) keeps it all the way to the socket.
+  `sail/tests/it/test_embed.rs` sends to a link-local address of the
+  machine: lo0's on macOS, the Ethernet's on Linux. sail does not parse
+  "fe80::1%en0": a host turns the name into its index.
+- **The socket is the direct outbound's.** It is bound and marked as that
+  outbound's dialer says (`bind_interface`, `auto_detect_interface`'s
+  default interface, `routing_mark`, `network_strategy`), as a direct
+  connection the rules route is.
+
+So a zone that names an interface other than the one the socket is bound
+to fails to send. To reach a link-local server on another interface, dial
+through a direct outbound whose `bind_interface` is that interface.
+
+A UDP socket's family is the first destination's. An IPv6 one also sends
+to IPv4 addresses, and an IPv4 one cannot reach IPv6. On a network with
+NAT64 and no IPv4, IPv4 destinations go through its prefix.
+
+## Leftovers after a kill
+
+An instance that changes the system (a TUN, its routes and rules) writes
+down each change under its run directory, and undoes it when it stops.
+Every start first sweeps what a killed instance left there.
+
+- **Where.** `Options::run_dir(RunDir)` chooses the directory: `Default`
+  (`/run/sail` on Linux; none elsewhere yet), `Dir(path)`, or `Off`.
+- **Without an instance.** `sail::embed::sweep(&run_dir)` sweeps with no
+  instance, as a desktop service does at its start, and returns one line
+  per thing undone.
+- **What is left alone.** An instance that changes nothing never creates
+  the directory. An entry whose TUN is still up in this network namespace
+  belongs to a live instance and is left.
+
 ## Errors
 
 `Error` has a kind and a message. The kinds are:

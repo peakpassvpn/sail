@@ -22,11 +22,13 @@ mod dial;
 mod error;
 mod instance;
 mod logs;
+mod network;
 
 pub use crate::control::{
     ConnectionInfo, Delay, Failure, GroupInfo, InboundInfo, Mode, OutboundInfo, ProviderInfo,
     RuleSetInfo, SourceKind, SubscriptionInfo, Traffic,
 };
+pub use crate::platform::sweep::RunDir;
 pub use crate::runtime::platform::{ConnectionOwner, ConnectionQuery};
 pub use crate::runtime::{Platform, TunRequest};
 pub use crate::session::{Network, SocksAddr as Address};
@@ -34,6 +36,20 @@ pub use dial::{DialDatagram, DialStream};
 pub use error::{Error, ErrorKind};
 pub use instance::{ids_held, Instance};
 pub use logs::{LogBatch, LogFilter, LogLine};
+pub use network::{
+    Event, Interface, Kinds, NetworkChangeKind, NetworkChangeReason, NetworkEvent, NetworkKind,
+    NetworkState, TunName,
+};
+
+/// Undoes what an instance killed with its process left in the system
+/// (rules, routes, a TUN), as the ledgers under `run_dir` list them, with
+/// no instance: a desktop service does it at its start. Every start does
+/// it too. One line per thing undone; failures are logged, not returned.
+/// An entry of a TUN still up in this network namespace is left, as a live
+/// instance's.
+pub fn sweep(run_dir: &RunDir) -> Vec<String> {
+    crate::platform::sweep::sweep(run_dir)
+}
 
 /// The stack of each worker thread, unless the options say: tokio's.
 const STACK_SIZE: usize = 2 * 1024 * 1024;
@@ -100,6 +116,19 @@ impl Options {
     #[doc(hidden)]
     pub fn settings(mut self, settings: crate::runtime::StartSettings) -> Self {
         self.settings = settings;
+        self
+    }
+
+    /// Where the ledgers of what an instance changes in the system are
+    /// kept, for the sweep after a kill: the system's by default (Linux's
+    /// `/run/sail`; none elsewhere yet), a directory, or none. An instance
+    /// that changes nothing (no TUN, no routes) creates nothing there.
+    pub fn run_dir(mut self, run_dir: RunDir) -> Self {
+        self.settings.run_dir = match run_dir {
+            RunDir::Dir(dir) => Some(crate::runtime::RunDirSetting::Dir(dir)),
+            RunDir::Off => Some(crate::runtime::RunDirSetting::Off),
+            _ => None,
+        };
         self
     }
 

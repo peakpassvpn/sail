@@ -163,7 +163,7 @@ impl Instance {
         Ok(Instance(Arc::new(Handle(inner))))
     }
 
-    fn inner(&self) -> &Arc<Inner> {
+    pub(super) fn inner(&self) -> &Arc<Inner> {
         &self.0 .0
     }
 
@@ -331,6 +331,19 @@ impl Instance {
 }
 
 impl Inner {
+    /// What controls the instance, while it runs.
+    pub(super) fn manager(&self) -> Result<Arc<RuntimeManager>, Error> {
+        lock(&self.life)
+            .manager
+            .clone()
+            .ok_or_else(Error::not_running)
+    }
+
+    /// The state, as each change is followed.
+    pub(super) fn states(&self) -> tokio::sync::watch::Receiver<State> {
+        self.state.subscribe()
+    }
+
     fn publish(&self, life: &Life) {
         let state = match life.phase {
             Phase::Idle => State::Idle,

@@ -251,3 +251,176 @@ fn the_build_names_its_release_and_commit() {
         assert_eq!(build.commit, String::from_utf8_lossy(&head.stdout).trim());
     }
 }
+
+/// Network changes, as a host pushes them, come as events in order, each
+/// named, and pair with the snapshot by generation.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn network_changes_come_as_events_that_pair_with_the_snapshot() {
+    use futures::StreamExt;
+    use sail::embed::{Event, Kinds, NetworkChangeKind};
+
+    let instance = Instance::new(options()).unwrap();
+    instance
+        .start(Config::Json(config(common::free_port(), 53)))
+        .await
+        .unwrap();
+    let wifi = r#"{"interface": "en0", "type": "wifi", "gateway": "192.168.1.1",
+                   "addresses": ["192.168.1.2/24"]}"#;
+    instance.set_network_state(wifi).unwrap();
+
+    // Subscribe, then read: the events after the snapshot's generation.
+    let mut events = Box::pin(instance.events(Kinds::NETWORK));
+    let snapshot = instance.network().unwrap();
+    assert_eq!(
+        snapshot.interface.as_ref().map(|i| i.name.as_str()),
+        Some("en0")
+    );
+    assert!(!snapshot.offline());
+
+    let moved = r#"{"interface": "en0", "type": "wifi", "gateway": "10.0.0.1",
+                    "addresses": ["10.0.0.2/24"]}"#;
+    let ethernet = r#"{"interface": "en1", "type": "ethernet", "gateway": "10.0.0.1",
+                       "addresses": ["10.0.0.3/24"]}"#;
+    for state in [moved, "{}", wifi, ethernet] {
+        instance.set_network_state(state).unwrap();
+    }
+    let mut seen = Vec::new();
+    while seen.len() < 4 {
+        let event = tokio::time::timeout(Duration::from_secs(5), events.next())
+            .await
+            .expect("an event in time")
+            .expect("the stream goes on");
+        match event {
+            Event::Network(e) if e.generation <= snapshot.generation => {}
+            Event::Network(e) => seen.push((e.generation, e.change)),
+            other => panic!("unexpected {:?}", other),
+        }
+    }
+    let g = snapshot.generation;
+    assert_eq!(
+        seen,
+        [
+            (g + 1, NetworkChangeKind::Moved),
+            (g + 2, NetworkChangeKind::Offline),
+            (g + 3, NetworkChangeKind::Restored),
+            (g + 4, NetworkChangeKind::InterfaceChanged),
+        ]
+    );
+    let now = instance.network().unwrap();
+    assert_eq!(now.generation, g + 4);
+    assert_eq!(now.interface.map(|i| i.name), Some("en1".to_string()));
+
+    // A subscriber that falls behind is told how far.
+    let mut slow = Box::pin(instance.events(Kinds::NETWORK));
+    for i in 0..70 {
+        instance
+            .set_network_state(if i % 2 == 0 { wifi } else { ethernet })
+            .unwrap();
+    }
+    let first = tokio::time::timeout(Duration::from_secs(5), slow.next())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        matches!(first, Event::Lagged { kind, missed } if kind == Kinds::NETWORK && missed > 0),
+        "{:?}",
+        first
+    );
+    instance.stop().await.unwrap();
+}
+
+/// An instance that changes nothing in the system writes no ledger: its
+/// run directory is not even made. A sweep of an empty one undoes nothing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_instance_that_changes_nothing_leaves_its_run_dir_unmade() {
+    let dir = std::env::temp_dir().join(format!("sail-run-dir-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let instance = Instance::new(options().run_dir(sail::embed::RunDir::Dir(dir.clone()))).unwrap();
+    instance
+        .start(Config::Json(config(common::free_port(), 53)))
+        .await
+        .unwrap();
+    instance.stop().await.unwrap();
+    assert!(!dir.exists(), "no ledger, no directory");
+    assert!(sail::embed::sweep(&sail::embed::RunDir::Dir(dir.clone())).is_empty());
+    assert!(sail::embed::sweep(&sail::embed::RunDir::Off).is_empty());
+}
+
+/// An IPv6 link-local address of this machine, with its interface as the
+/// scope: lo0's fe80::1 on macOS, the runner's Ethernet's on Linux. None
+/// where there is none.
+#[cfg(unix)]
+fn link_local() -> Option<std::net::SocketAddrV6> {
+    let mut found = None;
+    // SAFETY: getifaddrs's list is read, then freed once.
+    unsafe {
+        let mut addrs: *mut libc::ifaddrs = std::ptr::null_mut();
+        if libc::getifaddrs(&mut addrs) != 0 {
+            return None;
+        }
+        let mut cur = addrs;
+        while !cur.is_null() {
+            let a = &*cur;
+            if !a.ifa_addr.is_null()
+                && i32::from((*a.ifa_addr).sa_family) == libc::AF_INET6
+                && a.ifa_flags & libc::IFF_UP as u32 != 0
+            {
+                let sin6 = &*(a.ifa_addr as *const libc::sockaddr_in6);
+                let ip = std::net::Ipv6Addr::from(sin6.sin6_addr.s6_addr);
+                let index = libc::if_nametoindex(a.ifa_name);
+                if ip.segments()[0] & 0xffc0 == 0xfe80 && index != 0 {
+                    found = Some(std::net::SocketAddrV6::new(ip, 0, 0, index));
+                    break;
+                }
+            }
+            cur = a.ifa_next;
+        }
+        libc::freeifaddrs(addrs);
+    }
+    found
+}
+
+/// A datagram to a link-local address goes out with its zone: the scope id
+/// a host gives reaches the kernel unchanged, through the direct outbound.
+/// Runs wherever an interface has an IPv6 link-local address, which needs
+/// no root: lo0 on macOS, the runner's Ethernet on Linux CI.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_datagram_to_a_link_local_address_keeps_its_zone() {
+    let Some(local) = link_local() else {
+        eprintln!("no IPv6 link-local address here: nothing to test");
+        return;
+    };
+    let echo = tokio::net::UdpSocket::bind(std::net::SocketAddr::V6(local))
+        .await
+        .unwrap();
+    let to = echo.local_addr().unwrap();
+    tokio::spawn(async move {
+        let mut buf = [0u8; 1500];
+        while let Ok((n, from)) = echo.recv_from(&mut buf).await {
+            let _ = echo.send_to(&buf[..n], from).await;
+        }
+    });
+
+    let instance = Instance::new(options()).unwrap();
+    instance
+        .start(Config::Json(config(common::free_port(), 53)))
+        .await
+        .unwrap();
+    let datagram = instance
+        .dial_udp("direct", Address::from(to), Duration::from_secs(5))
+        .await
+        .unwrap();
+    datagram.send(b"scoped").await.unwrap();
+    let mut buf = [0u8; 64];
+    let (n, from) = tokio::time::timeout(Duration::from_secs(5), datagram.recv_from(&mut buf))
+        .await
+        .expect("an answer over the link-local address")
+        .unwrap();
+    assert_eq!(&buf[..n], b"scoped");
+    match from {
+        Address::Ip(std::net::SocketAddr::V6(v6)) => assert_eq!(*v6.ip(), *local.ip()),
+        other => panic!("from {:?}", other),
+    }
+    instance.stop().await.unwrap();
+}
