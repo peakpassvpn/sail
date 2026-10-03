@@ -1013,7 +1013,8 @@ def main():
                     help="of the workloads, bulk down and up only")
     ap.add_argument("--netgen-cpus", default=None, metavar="LIST",
                     help="CPUs for the traffic tool at both ends, apart from the client's "
-                         "and the server's")
+                         "and the server's; at least 4 for multi-Gbit cells (with 2, every "
+                         "pair stopped near 3.3 Gbit/s on netgen's own CPU)")
     ap.add_argument("--server-profile", default="server",
                     help="the runtime profile of a sail server (default server)")
     ap.add_argument("--end-settle", type=float, default=10, metavar="SECONDS",
