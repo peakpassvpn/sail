@@ -138,7 +138,9 @@ pub(crate) fn serve(
     info!("clash_api: serving on {}", addr);
     Ok(Box::pin(async move {
         #[cfg(feature = "http-client")]
-        tokio::spawn(async move { ui::download_if_empty(&clash).await });
+        crate::runtime::scope::spawn("clash ui download", async move {
+            ui::download_if_empty(&clash).await
+        });
         #[cfg(not(feature = "http-client"))]
         drop(clash);
         if let Err(e) = axum::serve(listener, app).await {

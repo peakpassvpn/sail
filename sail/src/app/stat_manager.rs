@@ -989,7 +989,10 @@ impl StatManager {
             loop {
                 interval.tick().await;
                 let (sm, cache_file) = (sm.clone(), cache_file.clone());
-                let _ = tokio::task::spawn_blocking(move || sm.store(&cache_file)).await;
+                let _ = crate::runtime::scope::spawn_blocking("stats store", move || {
+                    sm.store(&cache_file)
+                })
+                .await;
             }
         })
     }

@@ -92,7 +92,7 @@ impl NeighborResolver {
                 Ok(mut events) => {
                     let me = me.clone();
                     tasks.push(
-                        tokio::spawn(async move {
+                        crate::runtime::scope::spawn_essential("neighbor events", async move {
                             while let Some(event) = events.recv().await {
                                 let Some(me) = me.upgrade() else { return };
                                 me.apply(event);
@@ -106,7 +106,7 @@ impl NeighborResolver {
             if !lease_files.is_empty() {
                 let me = me.clone();
                 tasks.push(
-                    tokio::spawn(async move {
+                    crate::runtime::scope::spawn_essential("neighbor lease watch", async move {
                         let mut seen = stamps(&lease_files);
                         loop {
                             tokio::time::sleep(LEASE_POLL).await;

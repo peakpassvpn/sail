@@ -24,9 +24,11 @@ pub(super) async fn file(State(clash): State<Arc<Clash>>, path: Option<Path<Stri
     let Some(file) = resolve(root, &wanted) else {
         return ApiError::not_found().into_response();
     };
-    match tokio::task::spawn_blocking(move || std::fs::read(&file).map(|body| (file, body)))
-        .await
-        .unwrap_or_else(|e| Err(std::io::Error::other(e)))
+    match crate::runtime::scope::spawn_blocking("clash ui read", move || {
+        std::fs::read(&file).map(|body| (file, body))
+    })
+    .await
+    .unwrap_or_else(|e| Err(std::io::Error::other(e)))
     {
         Ok((file, body)) => (
             StatusCode::OK,
@@ -160,7 +162,7 @@ pub(super) async fn download(clash: &Clash) -> anyhow::Result<()> {
     }
     let count = files.len();
     let placed = root.clone();
-    tokio::task::spawn_blocking(move || place(&placed, files))
+    crate::runtime::scope::spawn_blocking("clash ui place", move || place(&placed, files))
         .await
         .map_err(|e| anyhow!("{}", e))??;
     tracing::info!(
