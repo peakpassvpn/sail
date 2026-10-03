@@ -888,6 +888,20 @@ impl RuntimeManager {
         self.remove_inbound_closing(tag).await.map(|_| ())
     }
 
+    /// Stops listening for the inbound `tag` and removes it, leaving the
+    /// connections it accepted going on: for tests that check a relayed
+    /// connection does not depend on its inbound's tasks. `remove_inbound`
+    /// is the real operation, which disconnects them too.
+    #[doc(hidden)]
+    pub async fn stop_listening(&self, tag: &str) -> Result<(), Error> {
+        let _update = self.update.lock().await;
+        self.inbound_manager
+            .lock()
+            .map_err(|_| Error::RuntimeManager)?
+            .remove(tag)
+            .map_err(Error::Config)
+    }
+
     /// `remove_inbound`, and how many connections it disconnected.
     pub async fn remove_inbound_closing(&self, tag: &str) -> Result<usize, Error> {
         let _update = self.update.lock().await;

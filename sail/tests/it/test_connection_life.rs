@@ -1,7 +1,7 @@
 //! A relayed connection's life, which the task routing it holds once the
 //! inbound has handed it over: it is closed when asked, counted against
-//! its user while it lives and no longer, and runs on when its inbound is
-//! removed.
+//! its user while it lives and no longer, and runs on when its inbound
+//! stops listening, and ends when the inbound is removed.
 
 #![cfg(all(
     feature = "inbound-socks",
@@ -126,12 +126,48 @@ fn a_relayed_connection_outlives_its_inbound() -> Result<()> {
         let mut a = connect(socks, echo)?;
         ensure!(echoes(&mut a), "relayed");
         let manager = sail::runtime_manager(id).unwrap();
-        rt.block_on(manager.remove_inbound("in"))?;
+        // Its listener's tasks end; the relay, a task of its own, does not
+        // depend on them. (remove_inbound disconnects it besides: below.)
+        rt.block_on(manager.stop_listening("in"))?;
         until("the inbound stops accepting", || {
             TcpStream::connect(("127.0.0.1", socks)).is_err()
         })?;
-        // The connections it accepted go on, as they did before.
-        ensure!(echoes(&mut a), "relayed after its inbound went");
+        ensure!(echoes(&mut a), "relayed after its inbound's tasks went");
+        Ok(())
+    })();
+    sail::shutdown(id);
+    result
+}
+
+/// Removing an inbound disconnects the connections it accepted, at once;
+/// another inbound's go on.
+#[test]
+fn a_relayed_connection_ends_when_its_inbound_is_removed() -> Result<()> {
+    let echo = echo_server();
+    let rt = runtime();
+    let (id, removed, kept) = common::retry_port_clash(|| {
+        let [removed, kept] = common::free_ports();
+        let config = serde_json::json!({
+            "inbounds": [
+                { "type": "socks", "tag": "removed", "listen": "127.0.0.1", "listen_port": removed },
+                { "type": "socks", "tag": "kept", "listen": "127.0.0.1", "listen_port": kept },
+            ],
+            "outbounds": [{ "type": "direct" }],
+        });
+        Ok((
+            common::run_sail_instances(&rt, vec![config.to_string()])?[0],
+            removed,
+            kept,
+        ))
+    })?;
+    let result = (|| {
+        let mut a = connect(removed, echo)?;
+        let mut b = connect(kept, echo)?;
+        ensure!(echoes(&mut a) && echoes(&mut b), "relayed");
+        let manager = sail::runtime_manager(id).unwrap();
+        rt.block_on(manager.remove_inbound("removed"))?;
+        ensure!(closed(&mut a), "its inbound's connection ends");
+        ensure!(echoes(&mut b), "another inbound's goes on");
         Ok(())
     })();
     sail::shutdown(id);
