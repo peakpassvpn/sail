@@ -93,6 +93,9 @@ install_musl() {
 		local eh
 		eh=$(find "$dir/$tc/lib/gcc/$tc" -name libgcc_eh.a | head -n 1)
 		[ -n "$eh" ] || { echo "no libgcc_eh.a in $dir/$tc" >&2; exit 1; }
+		# The archive's directories are read-only; as a user (not root,
+		# as in a CI runner) the link needs its own written to.
+		chmod u+w "$(dirname "$eh")"
 		ln -sf libgcc_eh.a "$(dirname "$eh")/libunwind.a"
 		;;
 	esac
