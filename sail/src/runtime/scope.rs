@@ -211,7 +211,7 @@ impl TaskScope {
         F: Future + Send + 'static,
         F::Output: Send + 'static,
     {
-        self.spawn_as(TaskClass::Contained, name, fut)
+        self.spawn_as(TaskClass::Contained, None, name, fut)
     }
 
     /// Spawns `fut` as essential work on the current runtime.
@@ -220,16 +220,54 @@ impl TaskScope {
         F: Future + Send + 'static,
         F::Output: Send + 'static,
     {
-        self.spawn_as(TaskClass::Essential, name, fut)
+        self.spawn_as(TaskClass::Essential, None, name, fut)
     }
 
-    fn spawn_as<F>(&self, class: TaskClass, name: &'static str, fut: F) -> JoinHandle<F::Output>
+    /// Spawns `fut` as contained work on `handle`'s runtime: from where no
+    /// runtime is entered, a host's executor among them.
+    pub fn spawn_on<F>(
+        &self,
+        handle: &tokio::runtime::Handle,
+        name: &'static str,
+        fut: F,
+    ) -> JoinHandle<F::Output>
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        self.spawn_as(TaskClass::Contained, Some(handle), name, fut)
+    }
+
+    /// Spawns `fut` as essential work on `handle`'s runtime.
+    pub fn spawn_essential_on<F>(
+        &self,
+        handle: &tokio::runtime::Handle,
+        name: &'static str,
+        fut: F,
+    ) -> JoinHandle<F::Output>
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        self.spawn_as(TaskClass::Essential, Some(handle), name, fut)
+    }
+
+    fn spawn_as<F>(
+        &self,
+        class: TaskClass,
+        handle: Option<&tokio::runtime::Handle>,
+        name: &'static str,
+        fut: F,
+    ) -> JoinHandle<F::Output>
     where
         F: Future + Send + 'static,
         F::Output: Send + 'static,
     {
         let (id, task) = self.task(class, name, fut);
-        let handle = tokio::spawn(task);
+        let handle = match handle {
+            Some(handle) => handle.spawn(task),
+            None => tokio::spawn(task),
+        };
         if let Some(entry) = lock(&self.0.shards[(id as usize) % SHARDS]).get_mut(&id) {
             entry.1 = Some(handle.abort_handle());
         }
@@ -440,6 +478,19 @@ where
     match here() {
         Some(scope) => scope.spawn_essential(name, fut),
         None => unscoped(name, fut),
+    }
+}
+
+/// Spawns `fut` in the current scope as `class` says: for a task whose
+/// lifetime its caller knows, not the spawning code.
+pub fn spawn_of<F>(class: TaskClass, name: &'static str, fut: F) -> JoinHandle<F::Output>
+where
+    F: Future + Send + 'static,
+    F::Output: Send + 'static,
+{
+    match class {
+        TaskClass::Contained => spawn(name, fut),
+        TaskClass::Essential => spawn_essential(name, fut),
     }
 }
 

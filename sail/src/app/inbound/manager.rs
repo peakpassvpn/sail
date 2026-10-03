@@ -219,7 +219,12 @@ impl InboundManager {
             .into_iter()
             .map(|runner| {
                 let (task, handle) = abortable(runner);
-                tokio::spawn(task);
+                // The instance's scope, whoever adds it: the start, the
+                // API, a test driving the manager directly.
+                self.dispatcher
+                    .env()
+                    .scope
+                    .spawn_essential("inbound listener", task);
                 handle
             })
             .collect();

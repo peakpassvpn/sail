@@ -15,6 +15,7 @@ use tracing::{debug, info, trace, warn, Instrument};
 use crate::app::dispatcher::Dispatcher;
 use crate::app::nat_manager::{NatManager, UdpPacket};
 use crate::net::accept::AcceptBackoff;
+use crate::runtime::scope::TaskClass;
 use crate::session::{Network, Session, SocksAddr};
 use crate::Runner;
 use crate::{adapter::*, net::*};
@@ -44,17 +45,20 @@ pub fn get_network_listen_addr(tag: &str, kind: Network) -> Option<SocketAddr> {
 }
 
 // Handle an inbound datagram, which is similar to a UDP socket, managed by NAT
-// manager.
+// manager. `lives` is how long it lives: as long as its inbound (an inbound's
+// own UDP socket, essential) or one connection (a TCP-carried association,
+// contained); its uplink task is of that class.
 pub(super) async fn handle_inbound_datagram(
     inbound_tag: String,
     socket: Box<dyn InboundDatagram>,
     sess: Option<Session>,
     nat_manager: Arc<NatManager>,
+    lives: TaskClass,
 ) {
     let mut sess = sess.unwrap_or_default();
     sess.network = Network::Udp;
     let span = sess.span();
-    handle_inbound_datagram_inner(inbound_tag, socket, sess, nat_manager)
+    handle_inbound_datagram_inner(inbound_tag, socket, sess, nat_manager, lives)
         .instrument(span)
         .await
 }
@@ -64,6 +68,7 @@ async fn handle_inbound_datagram_inner(
     socket: Box<dyn InboundDatagram>,
     sess: Session,
     nat_manager: Arc<NatManager>,
+    lives: TaskClass,
 ) {
     // Left-hand side socket, it's usually encapsulated with inbound protocol
     // layers.
@@ -78,7 +83,9 @@ async fn handle_inbound_datagram_inner(
     let (l_tx, mut l_rx): (TokioSender<UdpPacket>, TokioReceiver<UdpPacket>) =
         tokio_channel(nat_manager.env().options.udp.uplink_channel_size);
 
-    tokio::spawn(
+    crate::runtime::scope::spawn_of(
+        lives,
+        "inbound datagram uplink",
         async move {
             while let Some(pkt) = l_rx.recv().await {
                 let Some(dst_addr) = pkt.dst_addr.as_socket_addr() else {
@@ -125,11 +132,13 @@ async fn handle_inbound_datagram_inner(
 }
 
 // Handle an inbound transport.
+/// `lives`: how long a datagram transport lives (`handle_inbound_datagram`).
 async fn handle_inbound_transport(
     transport: AnyInboundTransport,
     handler: AnyInboundHandler,
     dispatcher: Arc<Dispatcher>,
     nat_manager: Arc<NatManager>,
+    lives: TaskClass,
 ) {
     match transport {
         // A reliable transport.
@@ -149,11 +158,12 @@ async fn handle_inbound_transport(
         InboundTransport::Datagram(socket, sess) => {
             let span = sess.as_ref().map(|x| x.span());
             if let Some(span) = span {
-                handle_inbound_datagram(handler.tag().clone(), socket, sess, nat_manager)
+                handle_inbound_datagram(handler.tag().clone(), socket, sess, nat_manager, lives)
                     .instrument(span)
                     .await;
             } else {
-                handle_inbound_datagram(handler.tag().clone(), socket, sess, nat_manager).await;
+                handle_inbound_datagram(handler.tag().clone(), socket, sess, nat_manager, lives)
+                    .await;
             }
         }
         // A multiplexed transport.
@@ -163,7 +173,8 @@ async fn handle_inbound_transport(
                     BaseInboundTransport::Stream(stream, mut sess) => {
                         sess.inbound_tag = handler.tag().clone();
                         let span = sess.span();
-                        tokio::spawn(
+                        crate::runtime::scope::spawn(
+                            "inbound stream",
                             super::magic::serve_stream(
                                 sess,
                                 stream,
@@ -175,12 +186,16 @@ async fn handle_inbound_transport(
                         );
                     }
                     BaseInboundTransport::Datagram(socket, sess) => {
-                        tokio::spawn(handle_inbound_datagram(
-                            handler.tag().clone(),
-                            socket,
-                            sess,
-                            nat_manager.clone(),
-                        ));
+                        crate::runtime::scope::spawn(
+                            "inbound datagram",
+                            handle_inbound_datagram(
+                                handler.tag().clone(),
+                                socket,
+                                sess,
+                                nat_manager.clone(),
+                                TaskClass::Contained,
+                            ),
+                        );
                     }
                     _ => (),
                 }
@@ -235,9 +250,15 @@ async fn handle_inbound_tcp_stream(
         if let InboundTransport::Stream(_, sess) = &mut transport {
             sess.handshake = Some(place);
         }
-        handle_inbound_transport(transport, handler, dispatcher, nat_manager)
-            .instrument(tracing::Span::current())
-            .await;
+        handle_inbound_transport(
+            transport,
+            handler,
+            dispatcher,
+            nat_manager,
+            TaskClass::Contained,
+        )
+        .instrument(tracing::Span::current())
+        .await;
         Ok(())
     }
     .instrument(span)
@@ -291,7 +312,7 @@ async fn handle_tcp_listen(
         let dispatcher_cloned = dispatcher.clone();
         let nat_manager_cloned = nat_manager.clone();
         let removed = until_removed(removed_rx.clone());
-        tokio::spawn(async move {
+        crate::runtime::scope::spawn("inbound tcp", async move {
             // Handle each TCP stream, for as long as its inbound is there.
             tokio::select! {
                 result = handle_inbound_tcp_stream(
@@ -334,7 +355,15 @@ async fn handle_udp_listen(
         .datagram()?
         .handle(Box::new(SimpleInboundDatagram(socket)))
         .await?;
-    handle_inbound_transport(transport, handler, dispatcher, nat_manager).await;
+    // The inbound's own socket: what carries its UDP lives as long as it.
+    handle_inbound_transport(
+        transport,
+        handler,
+        dispatcher,
+        nat_manager,
+        TaskClass::Essential,
+    )
+    .await;
     Ok(())
 }
 

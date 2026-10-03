@@ -334,9 +334,12 @@ impl Instance {
         let manager = self.manager()?;
         let (tx, rx) = tokio::sync::oneshot::channel();
         let task = task(manager.clone());
-        manager.handle().spawn(async move {
-            let _ = tx.send(task.await);
-        });
+        manager
+            .env
+            .scope
+            .spawn_on(manager.handle(), "host call", async move {
+                let _ = tx.send(task.await);
+            });
         rx.await.map_err(|_| Error::state("the instance stopped"))
     }
 
