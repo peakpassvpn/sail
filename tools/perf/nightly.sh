@@ -17,7 +17,9 @@
 #                              PERF_OWNER=<who the registry names as running it>
 #
 # It runs only when no registered job holds its CPUs and the host is
-# quiet, registers itself for the run, and removes what it made.
+# quiet, registers itself for the run, and removes what it made. The
+# nightly runs are tools/perf/nightly-host.sh's, on the host itself, from a
+# timer there; this is for a run by hand between two commits.
 set -euo pipefail
 # shellcheck source=/dev/null
 . "$HOME/.config/sail/perf-host"
