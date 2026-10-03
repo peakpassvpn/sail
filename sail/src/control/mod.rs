@@ -72,6 +72,9 @@ pub struct ConnectionInfo {
     pub start: u32,
     /// The members the groups took to get here, the last first, then the
     /// outbound the rules picked, as Mihomo lists them.
+    /// (`["m", "G", "F"]`). The events tell the same outbounds the other
+    /// way round, outermost first: `RoutedConnection::chain` is
+    /// `["F", "G", "m"]`.
     pub chains: Vec<String>,
     /// The rule that matched; none for `final`.
     pub rule: Option<String>,

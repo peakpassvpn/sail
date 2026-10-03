@@ -106,9 +106,15 @@ pub struct RoutedConnection {
     /// The rule as the log and the connections list tell it.
     pub rule_text: Option<String>,
     pub action: RouteAction,
-    /// The members the groups took, the last first, then the outbound the
-    /// rules named: its first is the outbound that carried it. Empty
-    /// where none was asked.
+    /// The outbounds it went through, outermost first: the outbound the
+    /// rules named, then the member each group on the way took, down to
+    /// the outbound that carried it, which is the last. For a rule that
+    /// names the group `F`, which took the group `G`, which took the
+    /// member `m`: `["F", "G", "m"]`, as `DialFailure::chain` joins them
+    /// (`F>G>m`) and the log's `out=` names them. For a dial that failed,
+    /// the last is the member tried last. Empty where no outbound was
+    /// asked. The connections list's `chains` (`ConnectionInfo`), which is
+    /// the Clash API's, is the other way round: `["m", "G", "F"]`.
     pub chain: Vec<String>,
     /// The address its TCP connection out was made to: the destination's
     /// for a direct outbound, the server's for a proxy. None where none

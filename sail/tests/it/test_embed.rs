@@ -791,3 +791,84 @@ async fn dns_queries_are_told_and_none_is_built_unheard() {
     assert_eq!(instance.dns_built().unwrap(), built);
     instance.stop().await.unwrap();
 }
+
+/// The outbounds a connection went through are told outermost first, the
+/// one that carried it last, by `Event::Routed` and `Event::DialFailed`
+/// alike, for a rule that names a group whose member is a group; the
+/// connections list has them the other way round, as the Clash API does.
+#[cfg(feature = "outbound-select")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_chain_is_told_outermost_first_by_routed_and_dial_failed_alike() {
+    use futures::StreamExt;
+    use sail::embed::{Event, Kinds};
+
+    let (echo, serve) = common::run_tcp_echo_server("127.0.0.1:0").await.unwrap();
+    tokio::spawn(serve);
+    let [socks, dead] = common::free_ports();
+    let config = serde_json::json!({
+        "log": { "level": "info" },
+        "dns": {
+            "servers": [{ "tag": "upstream", "type": "udp", "server": "127.0.0.1", "server_port": 53 }],
+        },
+        "inbounds": [{
+            "type": "socks", "tag": "socks-in",
+            "listen": "127.0.0.1", "listen_port": socks,
+        }],
+        "outbounds": [
+            { "type": "direct", "tag": "m" },
+            { "type": "selector", "tag": "G", "outbounds": ["m"] },
+            { "type": "selector", "tag": "F", "outbounds": ["G"] },
+        ],
+        "route": {
+            "rules": [{ "port": [echo.port(), dead], "outbound": "F" }],
+            "final": "m",
+        },
+    })
+    .to_string();
+    let instance = Instance::new(options()).unwrap();
+    instance.start(Config::Json(config)).await.unwrap();
+    let mut events = Box::pin(instance.events(Kinds::ROUTE | Kinds::DIAL));
+    async fn next(events: &mut (impl futures::Stream<Item = Event> + Unpin)) -> Event {
+        tokio::time::timeout(Duration::from_secs(5), events.next())
+            .await
+            .expect("an event in time")
+            .unwrap()
+    }
+
+    // One that connects, held open: listed, and told.
+    let mut held = socks_asked(socks, echo.port()).await;
+    assert_eq!(socks_reply(&mut held).await, 0);
+    round_trip(&mut held, b"x").await;
+    match next(&mut events).await {
+        Event::Routed(routed) => {
+            assert_eq!(routed.chain, ["F", "G", "m"], "{:?}", routed);
+            assert!(matches!(routed.connect, Some(Ok(_))), "{:?}", routed);
+        }
+        other => panic!("unexpected {:?}", other),
+    }
+    let listed = instance.connections().await.unwrap();
+    let listed = listed
+        .iter()
+        .find(|c| c.inbound_tag == "socks-in")
+        .expect("the connection held is listed");
+    assert_eq!(listed.chains, ["m", "G", "F"], "the Clash API's order");
+
+    // One whose dial fails: both events, in whichever order they come.
+    let mut refused = socks_asked(socks, dead).await;
+    assert_ne!(socks_reply(&mut refused).await, 0);
+    let (mut routed, mut failed) = (None, None);
+    while routed.is_none() || failed.is_none() {
+        match next(&mut events).await {
+            Event::Routed(event) => routed = Some(event),
+            Event::DialFailed { failure, .. } => failed = Some(failure),
+            other => panic!("unexpected {:?}", other),
+        }
+    }
+    let (routed, failed) = (routed.unwrap(), failed.unwrap());
+    assert_eq!(routed.chain, ["F", "G", "m"], "{:?}", routed);
+    assert!(matches!(routed.connect, Some(Err(_))), "{:?}", routed);
+    assert_eq!(failed.chain, "F>G>m", "{:?}", failed);
+    assert_eq!(failed.chain, routed.chain.join(">"));
+    drop(held);
+    instance.stop().await.unwrap();
+}

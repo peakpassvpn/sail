@@ -229,9 +229,15 @@ failed, a reject, a drop, a hijacked DNS query. Its fields:
   rule and one naming rule-sets too; none for `route.final` and for the
   host's own `dial`. `rule_text` is the rule as the log tells it.
 - `action`: `Outbound`, `Reject`, `Drop` or `HijackDns`.
-- `chain`: the outbounds it went through, outermost first, as the log's
-  `out=` names them (`sel>hk-ss`); for a failure, the member tried. Its
-  last is the outbound that carried it.
+- `chain`: the outbounds it went through, outermost first: the outbound
+  the rules named, then the member each group on the way took, down to
+  the outbound that carried it, which is the last. For a rule that names
+  the group `F`, which took the group `G`, which took the member `m`, it
+  is `["F", "G", "m"]`: the order of `DialFailed`'s `chain` (`F>G>m`) and
+  of the log's `out=`. For a dial that failed, the last is the member
+  tried last. `connections()` and `watch_connections` list the same
+  outbounds the other way round, as the Clash API does: their `chains`
+  is `["m", "G", "F"]`.
 - `target`: the address its TCP connection out was made to, the
   destination's for a direct outbound and the server's for a proxy.
 - `connect`: how long the dial and the outbound's handshake took, or the
