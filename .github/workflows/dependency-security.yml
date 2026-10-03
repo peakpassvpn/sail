@@ -8,6 +8,7 @@ on:
       - "**/Cargo.toml"
       - "THIRD_PARTY_LICENSES.md"
       - "tools/security/**"
+      - "tools/licences/**"
       - ".github/workflows/dependency-security.yml"
   pull_request:
     paths:
@@ -16,6 +17,7 @@ on:
       - "**/Cargo.toml"
       - "THIRD_PARTY_LICENSES.md"
       - "tools/security/**"
+      - "tools/licences/**"
       - ".github/workflows/dependency-security.yml"
   workflow_dispatch:
 

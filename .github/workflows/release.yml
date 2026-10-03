@@ -108,11 +108,46 @@ jobs:
         id: epoch
         run: echo "epoch=$(git log -1 --format=%ct)" >>"$GITHUB_OUTPUT"
 
+  # THIRD_PARTY_LICENSES.md for every archive: each crate's license and its
+  # text, and the native code built in (scripts/release/notices.sh).
+  notices:
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.TOOLCHAIN }}
+
+      - name: cache cargo-about
+        id: about
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/cargo-about
+          key: cargo-about-0.9.2-${{ runner.os }}
+
+      - name: install cargo-about
+        if: steps.about.outputs.cache-hit != 'true'
+        run: cargo install --locked --version 0.9.2 cargo-about
+
+      - name: generate
+        run: |
+          mkdir -p notices
+          scripts/release/notices.sh notices/THIRD_PARTY_LICENSES.md
+          wc -c notices/THIRD_PARTY_LICENSES.md
+          grep -c '^## ' notices/THIRD_PARTY_LICENSES.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: notices
+          path: notices/
+
   # The CLI per target, and a router build (every feature, the
   # dist-router profile, -router in its name) for the targets routers run:
   # OpenWrt's packages install those.
   cli:
-    needs: check
+    needs: [check, notices]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -144,6 +179,11 @@ jobs:
 
       - name: install cross toolchain
         run: scripts/install_cross_toolchain.sh ${{ matrix.target }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: notices
+          path: .
 
       - name: build
         run: scripts/release/build-cli.sh ${{ matrix.target }} "${{ inputs.version }}" out ${{ matrix.variant }}
@@ -185,12 +225,17 @@ jobs:
           path: libs/
 
   aar:
-    needs: [check, android-lib]
+    needs: [check, android-lib, notices]
     runs-on: ubuntu-latest
     env:
       SOURCE_DATE_EPOCH: ${{ needs.check.outputs.epoch }}
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: notices
+          path: .
 
       - uses: dtolnay/rust-toolchain@master
         with:
@@ -334,7 +379,7 @@ jobs:
           cmp "first/ship/sail-$VERSION-$T.tar.gz" "again/ship/sail-$VERSION-$T.tar.gz"
 
   assemble:
-    needs: [check, cli, reproducible, aar, apple]
+    needs: [check, notices, cli, reproducible, aar, apple]
     # Apple's may be skipped, in a dry run; nothing may fail.
     if: ${{ !cancelled() && !contains(needs.*.result, 'failure') }}
     runs-on: ubuntu-latest
@@ -367,6 +412,11 @@ jobs:
         with:
           name: apple
           path: built/apple
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: notices
+          path: .
 
       - name: gather
         run: |

@@ -37,6 +37,10 @@ jobs:
           fi
 
       # The version is rust-toolchain.toml's; keep them in step.
+      # The licences the release's notices accept are cargo-deny's.
+      - name: licences
+        run: python3 tools/licences/check.py
+
       - name: install rust toolchain
         uses: dtolnay/rust-toolchain@master
         with:

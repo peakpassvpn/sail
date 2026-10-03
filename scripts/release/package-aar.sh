@@ -75,6 +75,10 @@ for abi in $ABIS; do
 	echo "package-aar: $abi libsail_jni.so $(wc -c <"$so") bytes, symbols $(wc -c <"$out/symbols/libsail_jni-$abi.so.debug") bytes"
 done
 
+# The licenses, sail's and those of what it is built from, beside the
+# library, as in every other archive of the release.
+cp "$ROOT/LICENSE" "$ROOT/THIRD_PARTY_LICENSES.md" "$work/aar/"
+
 # Put back together with fixed order and times.
 aar=sail-$version.aar
 (
