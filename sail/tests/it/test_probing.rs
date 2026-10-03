@@ -199,11 +199,15 @@ fn a_connection_is_counted_among_the_handshakes_until_it_is_a_session() -> Resul
         // closed at once.
         socks_connect(&mut a, echo).await?;
         tokio::time::sleep(Duration::from_millis(200)).await;
+        let refused = Instant::now();
         let mut c = tokio::net::TcpStream::connect(("127.0.0.1", port)).await?;
         ensure!(
             closed_within(&mut c, Duration::from_millis(400)).await,
             "one more than the handshakes allowed was let in while another waited for a session"
         );
+        // How long a refusal at the cap takes here: what the check that D
+        // is not refused waits by.
+        let refusal = refused.elapsed();
         // A is refused a session's place; the handshake place is free
         // again, and D is let in.
         ensure!(
@@ -212,7 +216,7 @@ fn a_connection_is_counted_among_the_handshakes_until_it_is_a_session() -> Resul
         );
         let mut d = tokio::net::TcpStream::connect(("127.0.0.1", port)).await?;
         ensure!(
-            !closed_within(&mut d, Duration::from_millis(400)).await,
+            !closed_within(&mut d, Duration::from_millis(500).max(refusal * 10)).await,
             "the handshake place was not given back"
         );
         drop(b);
