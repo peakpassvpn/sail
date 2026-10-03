@@ -139,6 +139,14 @@ fn sockaddrs(addrs: i32, mut bytes: &[u8]) -> [Option<IpAddr>; RTAX_MAX as usize
                     octets.copy_from_slice(&bytes[8..24]);
                     Some(IpAddr::from(octets))
                 }
+                // A netmask cut short, as for IPv4.
+                libc::AF_INET6 => {
+                    let mut octets = [0u8; 16];
+                    for (i, byte) in bytes.iter().take(usize::from(len)).skip(8).enumerate() {
+                        octets[i] = *byte;
+                    }
+                    Some(IpAddr::from(octets))
+                }
                 _ => None,
             };
         }
@@ -192,11 +200,73 @@ fn default_routes(mut dump: &[u8]) -> Vec<DefaultRoute> {
 /// The routing table of IPv4, as the kernel dumps it.
 #[cfg(target_os = "macos")]
 fn dump_ipv4() -> io::Result<Vec<u8>> {
+    dump(libc::AF_INET)
+}
+
+/// The routes of a table dump to exactly `dst`: their gateways (an IP
+/// address, or none for an interface's own route) and interfaces.
+fn routes_to(mut dump: &[u8], dst: (IpAddr, u8)) -> Vec<(Option<IpAddr>, u16)> {
+    let want = masked(dst.0, dst.1);
+    let full = if want.is_ipv6() { 128 } else { 32 };
+    let mut routes = Vec::new();
+    while dump.len() >= HEADER {
+        let len = usize::from(u16::from_ne_bytes([dump[0], dump[1]]));
+        if len < HEADER || len > dump.len() {
+            break;
+        }
+        // SAFETY: at least a header's bytes; read unaligned.
+        let header: libc::rt_msghdr =
+            unsafe { std::ptr::read_unaligned(dump.as_ptr() as *const libc::rt_msghdr) };
+        let found = sockaddrs(header.rtm_addrs, &dump[HEADER..len]);
+        // A netmask may come with no address family (0 or 255, as BSD
+        // writes masks), which `sockaddrs` does not read: with none read,
+        // the destination alone decides. A host route has no netmask.
+        let length = found[2].map(|mask| match mask {
+            IpAddr::V4(m) => u32::from(m).count_ones() as u8,
+            IpAddr::V6(m) => u128::from(m).count_ones() as u8,
+        });
+        let host = header.rtm_flags & libc::RTF_HOST != 0;
+        let fits = match length {
+            Some(length) => length == dst.1,
+            None => !host || dst.1 == full,
+        };
+        if found[0] == Some(want) && fits {
+            routes.push((found[1], header.rtm_index));
+        }
+        dump = &dump[len..];
+    }
+    routes
+}
+
+/// What routes to `dst` now, in words: "via 192.168.1.1 on en0".
+#[cfg(target_os = "macos")]
+fn describe_route_to(dst: (IpAddr, u8)) -> String {
+    let family = if dst.0.is_ipv6() {
+        libc::AF_INET6
+    } else {
+        libc::AF_INET
+    };
+    let routes = dump(family).map(|d| routes_to(&d, dst)).unwrap_or_default();
+    match routes.first() {
+        Some((gateway, index)) => {
+            let on = interface_name(*index).unwrap_or_else(|_| format!("interface {}", index));
+            match gateway {
+                Some(gateway) => format!("via {} on {}", gateway, on),
+                None => format!("on {}", on),
+            }
+        }
+        None => "of unknown gateway".into(),
+    }
+}
+
+/// The routing table of `family`, as the kernel dumps it.
+#[cfg(target_os = "macos")]
+fn dump(family: i32) -> io::Result<Vec<u8>> {
     let mut mib = [
         libc::CTL_NET,
         libc::PF_ROUTE,
         0,
-        libc::AF_INET,
+        family,
         libc::NET_RT_DUMP,
         0,
     ];
@@ -301,14 +371,30 @@ impl RouteSocket {
     }
 
     /// Adds the route to `dst` through `gateway`. One already there -- left
-    /// by a run that died, or another VPN's -- is replaced, as sing-tun does.
-    pub(crate) fn add(&self, dst: (IpAddr, u8), gateway: IpAddr) -> io::Result<()> {
+    /// by a run that died, another VPN's, or the kernel's for an address's
+    /// own network -- is replaced, as sing-tun does (tun_darwin.go
+    /// setRoutes); returns what was there, in words, when one was.
+    pub(crate) fn add(&self, dst: (IpAddr, u8), gateway: IpAddr) -> io::Result<Option<String>> {
         match self.send(Change::Add, dst, gateway) {
             Err(e) if errno(&e) == Some(libc::EEXIST) => {
+                let replaced = describe_route_to(dst);
                 let _ = self.send(Change::Delete, dst, gateway);
-                self.send(Change::Add, dst, gateway)
+                match self.send(Change::Add, dst, gateway) {
+                    Ok(()) => Ok(Some(replaced)),
+                    // The table has changed all the same: say so.
+                    Err(e) => Err(io::Error::new(
+                        e.kind(),
+                        Failed {
+                            errno: errno(&e).unwrap_or(0),
+                            message: format!(
+                                "{}, after deleting the route that was there ({})",
+                                e, replaced
+                            ),
+                        },
+                    )),
+                }
             }
-            other => other,
+            other => other.map(|()| None),
         }
     }
 
@@ -330,24 +416,7 @@ impl RouteSocket {
             )
         };
         if written < 0 {
-            let e = io::Error::last_os_error();
-            return Err(io::Error::new(
-                e.kind(),
-                Failed {
-                    errno: e.raw_os_error().unwrap_or(0),
-                    message: format!(
-                        "{} route {}/{} via {}: {}",
-                        match change {
-                            Change::Add => "adding",
-                            Change::Delete => "deleting",
-                        },
-                        dst.0,
-                        dst.1,
-                        gateway,
-                        e
-                    ),
-                },
-            ));
+            return Err(failed(io::Error::last_os_error(), change, dst, gateway));
         }
         Ok(())
     }
@@ -368,6 +437,28 @@ impl std::fmt::Display for Failed {
 }
 
 impl std::error::Error for Failed {}
+
+/// `e`, the kernel's answer to `change`, with what was being changed; its
+/// errno kept.
+fn failed(e: io::Error, change: Change, dst: (IpAddr, u8), gateway: IpAddr) -> io::Error {
+    io::Error::new(
+        e.kind(),
+        Failed {
+            errno: e.raw_os_error().unwrap_or(0),
+            message: format!(
+                "{} route {}/{} via {}: {}",
+                match change {
+                    Change::Add => "adding",
+                    Change::Delete => "deleting",
+                },
+                dst.0,
+                dst.1,
+                gateway,
+                e
+            ),
+        },
+    )
+}
 
 /// The errno an error of a route change carries.
 pub(crate) fn errno(e: &io::Error) -> Option<i32> {
@@ -455,6 +546,24 @@ impl RouteMonitor {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_route_change_s_errno_survives_its_words() {
+        for errno_ in [libc::EEXIST, libc::ESRCH] {
+            let e = super::failed(
+                io::Error::from_raw_os_error(errno_),
+                Change::Add,
+                ("10.0.0.0".parse().unwrap(), 8),
+                "172.19.0.1".parse().unwrap(),
+            );
+            assert_eq!(super::errno(&e), Some(errno_));
+            assert!(
+                e.to_string()
+                    .starts_with("adding route 10.0.0.0/8 via 172.19.0.1: "),
+                "{e}"
+            );
+        }
+    }
+
     /// Opens on this Mac without changing its routes: whether a change
     /// wakes it is seen in the network tests, never by changing a route
     /// here.

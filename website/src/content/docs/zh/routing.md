@@ -272,7 +272,7 @@ fallback 组的 `url` 也可以写成列表（Sail 扩展）。每轮测试会�
 
 在 Linux 上，`auto_route` 不改主路由表：TUN 的路由放在表 2022（`iproute2_table_index`），从优先级 9000（`iproute2_rule_index`）开始的 ip 规则把流量引过去。设备消失时内核会一并删掉这些路由，崩溃留下的规则会在下次启动时清掉。`route_address`、`route_exclude_address` 及其规则集形式、`include_interface`/`exclude_interface`、`include_uid`/`exclude_uid` 和 `strict_route` 决定接管哪些流量，含义和 sing-box 相同。配置了 `route_address` 或 `route_exclude_address` 时，列出的前缀会优先于局域网自己的路由，所以局域网需要显式排除。
 
-在 macOS 上，`auto_route` 经 utun 添加比默认路由更具体的路由：1.0.0.0/8、2.0.0.0/7 … 128.0.0.0/1，IPv6 同样按这种方式对半切分；配置了 `route_address` 时改为添加这些前缀。`route_exclude_address` 及其规则集形式会在这些路由中挖出空洞。默认路由本身始终不变，utun 消失时这些路由也随之消失。`strict_route`、网卡列表和 uid 列表在 macOS 上不起作用，与 sing-box 相同。
+在 macOS 上，`auto_route` 经 utun 添加比默认路由更具体的路由：1.0.0.0/8、2.0.0.0/7 … 128.0.0.0/1，IPv6 同样按这种方式对半切分；配置了 `route_address` 时改为添加这些前缀。`route_exclude_address` 及其规则集形式会在这些路由中挖出空洞。默认路由本身始终不变，utun 消失时这些路由也随之消失。`strict_route`、网卡列表和 uid 列表在 macOS 上不起作用，与 sing-box 相同。如果这些前缀中已有路由（其他 VPN 的、手动添加的静态路由，或内核为 utun 自身网段添加的路由），sail 会像 sing-box 一样替换它，并输出一条警告，写明被替换的是哪条路由；sail 停止时不会恢复被替换的路由。
 
 在 Windows 上，`auto_route` 经 wintun 网卡以跃点数 0 添加 0.0.0.0/0 和 ::/0：它们靠跃点数优先于默认路由，但不替换默认路由。网卡的 DNS 指向 TUN 地址的下一个地址。`route_address`、`route_exclude_address` 及其规则集形式选择路由的方式与其他系统相同。`strict_route` 会添加防火墙规则，阻止 DNS 走其他网卡。
 

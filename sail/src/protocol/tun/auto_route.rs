@@ -584,7 +584,19 @@ mod backend {
         }
 
         pub(super) fn add(&self, prefix: (IpAddr, u8)) -> io::Result<()> {
-            self.socket.add(prefix, self.gateway(prefix.0.is_ipv6())?)
+            let replaced = self.socket.add(prefix, self.gateway(prefix.0.is_ipv6())?)?;
+            // The kernel's route to the utun's own network is replaced on
+            // every start; any other was someone's, and stays gone.
+            if let Some(was) = replaced.filter(|_| !self.is_own(prefix)) {
+                tracing::warn!(
+                    "auto_route: replaced the route to {}/{} ({}) with sail's; it is not put back \
+                     when sail stops",
+                    prefix.0,
+                    prefix.1,
+                    was
+                );
+            }
+            Ok(())
         }
 
         pub(super) fn delete(&self, prefix: (IpAddr, u8)) -> io::Result<()> {
