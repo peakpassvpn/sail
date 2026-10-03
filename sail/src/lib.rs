@@ -1903,6 +1903,25 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
         Err(e) => warn!("cannot watch SIGHUP: {}", e),
     }
 
+    // The network it starts on, settled before it runs: a host reading
+    // network() from then has the interface, or an explicit offline, at
+    // generation 1. Detection gets 1 s (a judgment value): past it, offline,
+    // and the interface found later is told as a change. A phone's host
+    // pushes the state instead.
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        let detected = rt.block_on(async {
+            tokio::time::timeout(
+                std::time::Duration::from_secs(1),
+                tokio::task::spawn_blocking(platform::network::detect),
+            )
+            .await
+        });
+        runtime_manager
+            .network()
+            .settle_first(detected.ok().and_then(|joined| joined.ok()));
+    }
+
     // Running from here, unless a stop came while it started: checked and
     // done under the registry's lock, as `shutdown` looks, so that no stop
     // falls between.

@@ -518,3 +518,19 @@ async fn removing_an_inbound_closes_its_connections_only() {
     round_trip(&mut again, b"again").await;
     instance.stop().await.unwrap();
 }
+
+/// The network is settled when start returns: the interface (or an
+/// explicit offline) at generation 1, before any change.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_network_is_settled_when_start_returns() {
+    let instance = Instance::new(options()).unwrap();
+    instance
+        .start(Config::Json(config(common::free_port(), 53)))
+        .await
+        .unwrap();
+    let network = instance.network().unwrap();
+    assert!(network.generation >= 1, "{:?}", network);
+    // CI's runners and a developer's machine have a default route.
+    assert!(network.interface.is_some(), "{:?}", network);
+    instance.stop().await.unwrap();
+}

@@ -189,6 +189,12 @@ that connections do not survive, as `Event::Network`:
 - **Old and new.** Each event carries the old and the new state, the
   `reason` (default interface, detected, host, wake) and the generation.
   Generations count from 1 in each run.
+- **Settled at start.** When `start()` returns, `network()` is settled:
+  the default interface, or explicitly offline, at generation 1, with no
+  event for it. Detection gets 1 s during the start; past that the
+  snapshot says offline and the interface found later comes as
+  `Restored`. On Android and iOS the host pushes the state, and the
+  generation is 0 until its first push.
 - **Pairing with the snapshot.** Subscribe first, then read `network()`,
   then skip the events whose generation is the snapshot's or lower. None is
   missed, and none is taken twice.
