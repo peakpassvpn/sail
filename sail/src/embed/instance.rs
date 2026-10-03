@@ -356,10 +356,14 @@ impl Instance {
         let dialer = self.inner().dialer(within).await?;
         let (tx, rx) = tokio::sync::oneshot::channel();
         let task = task(dialer.clone(), within.saturating_sub(asked.elapsed()));
-        // In the instance's scope: what the dial spawns is the instance's.
-        dialer.handle().spawn(dialer.env().scope.enter(async move {
-            let _ = tx.send(task.await);
-        }));
+        // The instance's task, as a host call's is: what the dial spawns
+        // is the instance's, and a stop waits for it.
+        dialer
+            .env()
+            .scope
+            .spawn_on(dialer.handle(), "host dial", async move {
+                let _ = tx.send(task.await);
+            });
         rx.await.map_err(|_| Error::state("the instance stopped"))
     }
 
