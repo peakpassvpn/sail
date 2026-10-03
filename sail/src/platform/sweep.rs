@@ -606,7 +606,9 @@ fn undo(item: &Item) -> anyhow::Result<bool> {
     }
 }
 
-#[cfg(test)]
+// The tests start processes, read their pids and look up devices as Unix
+// does; nothing on Windows writes a ledger yet.
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 
