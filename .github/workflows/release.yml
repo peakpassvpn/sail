@@ -108,19 +108,30 @@ jobs:
         id: epoch
         run: echo "epoch=$(git log -1 --format=%ct)" >>"$GITHUB_OUTPUT"
 
+  # The CLI per target, and a router build (every feature, the
+  # dist-router profile, -router in its name) for the targets routers run:
+  # OpenWrt's packages install those.
   cli:
     needs: check
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        target:
-          - x86_64-unknown-linux-musl
-          - aarch64-unknown-linux-musl
-          - armv7-unknown-linux-musleabihf
-          - arm-unknown-linux-musleabi
-          - i686-unknown-linux-musl
-          - x86_64-pc-windows-gnu
+        include:
+          - { target: x86_64-unknown-linux-musl }
+          - { target: aarch64-unknown-linux-musl }
+          - { target: armv7-unknown-linux-musleabihf }
+          - { target: arm-unknown-linux-musleabi }
+          - { target: i686-unknown-linux-musl }
+          - { target: x86_64-pc-windows-gnu }
+          - { target: x86_64-unknown-linux-musl, variant: router }
+          - { target: aarch64-unknown-linux-musl, variant: router }
+          - { target: armv7-unknown-linux-musleabihf, variant: router }
+          - { target: armv7-unknown-linux-musleabi, variant: router }
+          - { target: arm-unknown-linux-musleabi, variant: router }
+          - { target: i686-unknown-linux-musl, variant: router }
+          - { target: mipsel-unknown-linux-musl, variant: router }
+    name: cli (${{ matrix.target }}${{ matrix.variant && format(', {0}', matrix.variant) || '' }})
     env:
       SOURCE_DATE_EPOCH: ${{ needs.check.outputs.epoch }}
     steps:
@@ -135,11 +146,11 @@ jobs:
         run: scripts/install_cross_toolchain.sh ${{ matrix.target }}
 
       - name: build
-        run: scripts/release/build-cli.sh ${{ matrix.target }} "${{ inputs.version }}" out
+        run: scripts/release/build-cli.sh ${{ matrix.target }} "${{ inputs.version }}" out ${{ matrix.variant }}
 
       - uses: actions/upload-artifact@v4
         with:
-          name: cli-${{ matrix.target }}
+          name: cli-${{ matrix.target }}${{ matrix.variant && format('-{0}', matrix.variant) || '' }}
           path: out/
 
   android-lib:
@@ -286,9 +297,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target:
-          - x86_64-unknown-linux-musl
-          - aarch64-unknown-linux-musl
+        include:
+          - { target: x86_64-unknown-linux-musl }
+          - { target: aarch64-unknown-linux-musl }
+          # Its std built from source by a pinned nightly.
+          - { target: mipsel-unknown-linux-musl, variant: router }
+    name: reproducible (${{ matrix.target }}${{ matrix.variant && format(', {0}', matrix.variant) || '' }})
     env:
       SOURCE_DATE_EPOCH: ${{ needs.check.outputs.epoch }}
     steps:
@@ -303,16 +317,16 @@ jobs:
         run: scripts/install_cross_toolchain.sh ${{ matrix.target }}
 
       - name: build again
-        run: scripts/release/build-cli.sh ${{ matrix.target }} "${{ inputs.version }}" again
+        run: scripts/release/build-cli.sh ${{ matrix.target }} "${{ inputs.version }}" again ${{ matrix.variant }}
 
       - uses: actions/download-artifact@v4
         with:
-          name: cli-${{ matrix.target }}
+          name: cli-${{ matrix.target }}${{ matrix.variant && format('-{0}', matrix.variant) || '' }}
           path: first
 
       - name: compare
         env:
-          T: ${{ matrix.target }}
+          T: ${{ matrix.target }}${{ matrix.variant && format('-{0}', matrix.variant) || '' }}
           VERSION: ${{ inputs.version }}
         run: |
           echo "first: $(cat "first/$T.sha256")  again: $(cat "again/$T.sha256")"

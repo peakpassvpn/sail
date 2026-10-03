@@ -2,13 +2,14 @@
 # Packages a built sail for a release: strips it, keeps its symbols apart,
 # and puts it in an archive with what runs it.
 #
-#   scripts/release/package-cli.sh <target> <version> <built file> <out dir>
+#   scripts/release/package-cli.sh <target> <version> <built file> <out dir> [variant]
 #
-# Writes to <out dir>:
-#   ship/sail-<version>-<target>.tar.gz (.zip for Windows)
-#   symbols/sail-<target>.debug or .dSYM
+# Writes to <out dir>, <name> being <target>, or <target>-<variant> for a
+# variant (router):
+#   ship/sail-<version>-<name>.tar.gz (.zip for Windows)
+#   symbols/sail-<name>.debug or .dSYM
 #   ids.txt       "<archive> <build ID>", for manifest.py
-#   <target>.sha256  the stripped file's hash, which the reproducibility
+#   <name>.sha256    the stripped file's hash, which the reproducibility
 #                    check compares
 #
 # Linux archives carry packaging/systemd and its guide; the Windows one
@@ -23,6 +24,7 @@ target=$1
 version=$2
 built=$3
 out=$4
+variant=${5:-}
 
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 
@@ -34,7 +36,8 @@ sha256() {
 tar=$(command -v gtar || command -v tar)
 "$tar" --version 2>/dev/null | grep -q 'GNU tar' ||
 	{ echo "package-cli: GNU tar needed (gtar on macOS)" >&2; exit 1; }
-name=sail-$version-$target
+build=$target${variant:+-$variant}
+name=sail-$version-$build
 stage=$(mktemp -d)/$name
 mkdir -p "$stage" "$out/ship" "$out/symbols"
 out=$(cd "$out" && pwd)
@@ -46,9 +49,9 @@ esac
 cp "$built" "$stage/$exe"
 id=$("$ROOT/scripts/release/split-symbols.sh" "$stage/$exe" "$out/symbols")
 for f in "$out/symbols"/"$exe"*; do
-	mv "$f" "$out/symbols/sail-$target${f##*/"$exe"}"
+	mv "$f" "$out/symbols/sail-$build${f##*/"$exe"}"
 done
-sha256 "$stage/$exe" >"$out/$target.sha256"
+sha256 "$stage/$exe" >"$out/$build.sha256"
 
 cp "$ROOT/LICENSE" "$ROOT/THIRD_PARTY_LICENSES.md" "$stage/"
 case $target in
