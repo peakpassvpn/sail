@@ -71,6 +71,10 @@ struct Life {
     started_at: Option<SystemTime>,
     /// The last run's tasks, for what its stop could not end.
     scope: Option<crate::runtime::scope::TaskScope>,
+    /// What the run starting or running runs with, from when the network
+    /// it starts on is settled: its network is read from here before it
+    /// runs.
+    env: Option<Arc<crate::runtime::RuntimeEnv>>,
 }
 
 pub(super) struct Inner {
@@ -86,6 +90,9 @@ pub(super) struct Inner {
     changed: Condvar,
     /// The state, for those who wait or follow.
     state: tokio::sync::watch::Sender<State>,
+    /// What dials through the outbounds of the run starting or running,
+    /// from when they are built: before it runs. None otherwise.
+    dialer: tokio::sync::watch::Sender<Option<crate::control::Dialer>>,
     /// Each change of state, in order, for its events: a watch keeps only
     /// the last.
     transitions: tokio::sync::broadcast::Sender<State>,
@@ -163,9 +170,11 @@ impl Instance {
                 stop: false,
                 started_at: None,
                 scope: None,
+                env: None,
             }),
             changed: Condvar::new(),
             state,
+            dialer: tokio::sync::watch::channel(None).0,
             transitions: tokio::sync::broadcast::channel(16).0,
             me: me.clone(),
         });
@@ -331,6 +340,25 @@ impl Instance {
         rx.await.map_err(|_| Error::state("the instance stopped"))
     }
 
+    /// Runs `task` on the instance's runtime with what dials through its
+    /// outbounds and what is left of `within`, and waits for it, from any
+    /// executor: while it runs, and while it starts, where a call made
+    /// before the outbounds are built waits for them (`Inner::dialer`).
+    pub(super) async fn with_dialer<T: Send + 'static>(
+        &self,
+        within: Duration,
+        task: impl FnOnce(crate::control::Dialer, Duration) -> BoxFuture<'static, T>,
+    ) -> Result<T, Error> {
+        let asked = std::time::Instant::now();
+        let dialer = self.inner().dialer(within).await?;
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let task = task(dialer.clone(), within.saturating_sub(asked.elapsed()));
+        dialer.handle().spawn(async move {
+            let _ = tx.send(task.await);
+        });
+        rx.await.map_err(|_| Error::state("the instance stopped"))
+    }
+
     /// `with_manager`, blocking this thread; on one of the instance's own,
     /// a WrongThread error.
     #[doc(hidden)]
@@ -352,6 +380,52 @@ impl Inner {
     /// What the instance runs with of the host's.
     pub(super) fn host(&self) -> &Host {
         &self.host
+    }
+
+    /// What dials through the instance's outbounds: at once while it runs,
+    /// and while it starts once they are built. A dial asked for earlier
+    /// in a start waits for that, `within` at most, and is told
+    /// `NotRunning` if the start fails or is stopped meanwhile. Any other
+    /// state: `NotRunning`. It waits on no runtime, the host's nor sail's:
+    /// the host may call from any executor.
+    pub(super) async fn dialer(&self, within: Duration) -> Result<crate::control::Dialer, Error> {
+        let mut dialers = self.dialer.subscribe();
+        let mut states = self.state.subscribe();
+        let mut expiry = None;
+        loop {
+            if let Some(dialer) = dialers.borrow_and_update().clone() {
+                return Ok(dialer);
+            }
+            if !matches!(*states.borrow_and_update(), State::Starting) {
+                return Err(Error::not_running());
+            }
+            let (expired, _waiting) = expiry.get_or_insert_with(|| expires(within));
+            tokio::select! {
+                biased;
+                changed = dialers.changed() => {
+                    if changed.is_err() {
+                        return Err(Error::not_running());
+                    }
+                }
+                changed = states.changed() => {
+                    if changed.is_err() {
+                        return Err(Error::not_running());
+                    }
+                }
+                _ = expired => {
+                    return Err(Error::new(
+                        ErrorKind::Timeout,
+                        "the instance was still building its outbounds",
+                    ));
+                }
+            }
+        }
+    }
+
+    /// The network of the run starting or running, from when the one it
+    /// starts on is settled.
+    pub(super) fn network(&self) -> Result<Arc<crate::runtime::RuntimeEnv>, Error> {
+        lock(&self.life).env.clone().ok_or_else(Error::not_running)
     }
 
     /// What controls the instance, while it runs.
@@ -477,6 +551,18 @@ impl Inner {
         }
     }
 
+    /// Told by the core, on the thread starting it, that the network it
+    /// starts on is settled.
+    fn settled(&self, env: Arc<crate::runtime::RuntimeEnv>) {
+        lock(&self.life).env = Some(env);
+    }
+
+    /// Told by the core, on the thread starting it, that its outbounds
+    /// are built: those who wait to dial go on.
+    fn dialable(&self, dialer: crate::control::Dialer) {
+        self.dialer.send_replace(Some(dialer));
+    }
+
     /// Told by the core, on the thread starting it, that it runs.
     fn running(&self, manager: Arc<RuntimeManager>) {
         let mut life = lock(&self.life);
@@ -496,6 +582,10 @@ impl Inner {
     fn finished(&self, result: std::thread::Result<Result<(), crate::Error>>) {
         let mut life = lock(&self.life);
         life.manager = None;
+        life.env = None;
+        // Before the state is told: one who waits to dial sees no dialer,
+        // and the state the run ended in.
+        self.dialer.send_replace(None);
         life.thread_id = None;
         match result {
             Ok(Ok(())) => life.phase = Phase::Stopped,
@@ -635,6 +725,24 @@ impl Platform for Running {
         }
     }
 
+    fn settled(&self, env: &Arc<crate::runtime::RuntimeEnv>) {
+        if let Some(host) = &self.host {
+            host.settled(env);
+        }
+        if let Some(instance) = self.instance.upgrade() {
+            instance.settled(env.clone());
+        }
+    }
+
+    fn dialable(&self, dialer: &crate::control::Dialer) {
+        if let Some(host) = &self.host {
+            host.dialable(dialer);
+        }
+        if let Some(instance) = self.instance.upgrade() {
+            instance.dialable(dialer.clone());
+        }
+    }
+
     fn running(&self, manager: &Arc<RuntimeManager>) {
         if let Some(host) = &self.host {
             host.running(manager);
@@ -643,6 +751,42 @@ impl Platform for Running {
             instance.running(manager.clone());
         }
     }
+}
+
+/// Resolves `after` from now, on a thread of its own that ends then, or
+/// as soon as the guard returned with it is dropped: a timer for a wait
+/// that may run on any executor, or none of tokio's.
+fn expires(
+    after: Duration,
+) -> (
+    tokio::sync::oneshot::Receiver<()>,
+    std::sync::mpsc::Sender<()>,
+) {
+    let (expired, rx) = tokio::sync::oneshot::channel();
+    let (waiting, done) = std::sync::mpsc::channel::<()>();
+    // Shared, so that it is not dropped with a thread that never ran:
+    // dropped, it would read as expired.
+    let expired = Arc::new(Mutex::new(Some(expired)));
+    let timer = std::thread::Builder::new()
+        .name("sail-dial-wait".into())
+        .spawn({
+            let expired = expired.clone();
+            move || {
+                if let Err(std::sync::mpsc::RecvTimeoutError::Timeout) = done.recv_timeout(after) {
+                    if let Some(expired) = lock(&expired).take() {
+                        let _ = expired.send(());
+                    }
+                }
+            }
+        });
+    // No thread to be had: it never expires, and the wait ends with the
+    // start, which is bounded.
+    if timer.is_err() {
+        if let Some(expired) = lock(&expired).take() {
+            std::mem::forget(expired);
+        }
+    }
+    (rx, waiting)
 }
 
 /// The runtime ids the instances alive hold: for tests that none leak.

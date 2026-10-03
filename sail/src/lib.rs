@@ -1701,13 +1701,49 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
 
     let mut tasks: Vec<Runner> = Vec::new();
 
+    // The network it starts on, settled before anything of the instance
+    // is built: a host reading it from then has the interface, or an
+    // explicit offline, at generation 1, before the first name the
+    // instance asks for. Its own TUNs, not opened yet, are left out by
+    // name all the same. Detection gets 1 s (a judgment value): past it,
+    // offline, and the interface found later is told as a change. A
+    // phone's host pushes the state instead.
+    env.network
+        .set_own_interfaces(own_interfaces(&config, &env.host));
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        let detected = rt.block_on(async {
+            tokio::time::timeout(
+                std::time::Duration::from_secs(1),
+                scope.spawn_blocking("network settle", platform::network::detect),
+            )
+            .await
+        });
+        env.network
+            .settle_first(detected.ok().and_then(|joined| joined.ok()));
+    }
+    if start.is_stopped() {
+        return Ok(());
+    }
+    if let Some(platform) = &env.host.platform {
+        platform.settled(&env);
+    }
+
     let dial_defaults = dial_defaults(&config, &env).map_err(Error::Config)?;
     let mut instance = app::instance::Instance::build(&config, env.clone(), dial_defaults)
         .map_err(Error::Config)?;
+    // Its outbounds are built: the host dials through them from here,
+    // before the names the start itself asks for (rule-sets, providers)
+    // and while those the groups' first checks ask for are answered.
+    if let Some(platform) = &env.host.platform {
+        platform.dialable(&control::Dialer::new(
+            &instance.dispatcher,
+            env.clone(),
+            rt.handle().clone(),
+        ));
+    }
     // The LAN devices, when a rule or DNS server asks for them.
     env.neighbors.start_if_needed(&config);
-    env.network
-        .set_own_interfaces(own_interfaces(&config, &env.host));
     // The API server joins them, when it is compiled in.
     // Bound before anything starts: an address in use fails the start.
     #[cfg(feature = "clash-api")]
@@ -1915,25 +1951,6 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
             }))
         }
         Err(e) => warn!("cannot watch SIGHUP: {}", e),
-    }
-
-    // The network it starts on, settled before it runs: a host reading
-    // network() from then has the interface, or an explicit offline, at
-    // generation 1. Detection gets 1 s (a judgment value): past it, offline,
-    // and the interface found later is told as a change. A phone's host
-    // pushes the state instead.
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    {
-        let detected = rt.block_on(async {
-            tokio::time::timeout(
-                std::time::Duration::from_secs(1),
-                scope.spawn_blocking("network settle", platform::network::detect),
-            )
-            .await
-        });
-        runtime_manager
-            .network()
-            .settle_first(detected.ok().and_then(|joined| joined.ok()));
     }
 
     // Running from here, unless a stop came while it started: checked and

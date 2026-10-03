@@ -238,8 +238,8 @@ impl Instance {
     /// the events whose generation is this one's or lower: none is then
     /// missed nor taken twice.
     pub fn network(&self) -> Result<NetworkState, Error> {
-        let manager = self.manager()?;
-        let now = manager.network().snapshot_with_generation();
+        let env = self.inner().network()?;
+        let now = env.network.snapshot_with_generation();
         Ok(NetworkState::of(&now.state, now.generation))
     }
 

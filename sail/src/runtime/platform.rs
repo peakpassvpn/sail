@@ -78,6 +78,20 @@ pub trait Platform: Send + Sync {
         Ok(None)
     }
 
+    /// Told, while the instance starts and on the thread starting it, that
+    /// the network it starts on is settled (`env.network`): before its
+    /// outbounds are built, so before anything of it asks for a name.
+    fn settled(&self, env: &Arc<crate::runtime::RuntimeEnv>) {
+        let _ = env;
+    }
+
+    /// Told, while the instance starts and on the thread starting it, that
+    /// its outbounds are built: `dialer` dials through them from now on,
+    /// before the instance runs.
+    fn dialable(&self, dialer: &crate::control::Dialer) {
+        let _ = dialer;
+    }
+
     /// Told once the instance runs, on the thread that started it, with
     /// what controls it; a stop asked for from here on stops it.
     fn running(&self, manager: &Arc<crate::RuntimeManager>) {

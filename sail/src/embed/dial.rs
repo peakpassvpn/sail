@@ -111,16 +111,16 @@ impl Instance {
         timeout: Duration,
     ) -> Result<DialStream, Error> {
         let outbound = outbound.to_string();
-        self.with_manager(move |manager| {
+        self.with_dialer(timeout, move |dialer, timeout| {
             Box::pin(async move {
                 let Dialed::Stream(stream) =
-                    manager.dial(&outbound, Network::Tcp, to, timeout).await?
+                    dialer.dial(&outbound, Network::Tcp, to, timeout).await?
                 else {
                     unreachable!("a TCP dial gives a stream");
                 };
-                let relay = manager.env.options.relay.clone();
+                let relay = dialer.env().options.relay.clone();
                 let (host, ours) = tokio::io::duplex(relay.buffer_size.max(1) * 1024);
-                manager.env.scope.spawn(
+                dialer.env().scope.spawn(
                     "dial relay",
                     crate::control::relay_stream(ours, stream, relay),
                 );
@@ -140,9 +140,9 @@ impl Instance {
     ) -> Result<DialDatagram, Error> {
         let outbound = outbound.to_string();
         let dialled = to.clone();
-        self.with_manager(move |manager| {
+        self.with_dialer(timeout, move |dialer, timeout| {
             Box::pin(async move {
-                let Dialed::Datagram(datagram) = manager
+                let Dialed::Datagram(datagram) = dialer
                     .dial(&outbound, Network::Udp, dialled, timeout)
                     .await?
                 else {
@@ -152,7 +152,7 @@ impl Instance {
                 let (out_tx, mut out_rx) = mpsc::channel::<(Vec<u8>, Address)>(DATAGRAMS);
                 let (back_tx, back_rx) = mpsc::channel(DATAGRAMS);
                 let send = Arc::new(Mutex::new(send));
-                manager.env.scope.spawn("dial datagrams out", {
+                dialer.env().scope.spawn("dial datagrams out", {
                     let send = send.clone();
                     async move {
                         while let Some((data, to)) = out_rx.recv().await {
@@ -163,7 +163,7 @@ impl Instance {
                         let _ = send.lock().await.close().await;
                     }
                 });
-                manager.env.scope.spawn("dial datagrams back", async move {
+                dialer.env().scope.spawn("dial datagrams back", async move {
                     let mut buf = vec![0u8; LARGEST];
                     loop {
                         tokio::select! {

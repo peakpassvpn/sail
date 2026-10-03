@@ -189,11 +189,14 @@ that connections do not survive, as `Event::Network`:
 - **Old and new.** Each event carries the old and the new state, the
   `reason` (default interface, detected, host, wake) and the generation.
   Generations count from 1 in each run.
-- **Settled at start.** When `start()` returns, `network()` is settled:
-  the default interface, or explicitly offline, at generation 1, with no
-  event for it. Detection gets 1 s during the start; past that the
-  snapshot says offline and the interface found later comes as
-  `Restored`. On Android and iOS the host pushes the state, and the
+- **Settled at start.** The network is settled first thing in a start,
+  before anything of the instance is built, and `network()` answers from
+  then, in `Starting`: the default interface, or explicitly offline, at
+  generation 1, with no event for it. It is the machine's interface, never
+  a TUN of sail's own, which is not opened yet. Detection gets 1 s; past
+  that the snapshot says offline and the interface found later comes as
+  `Restored`. Before that point, as in any state but `Starting`,
+  `Running` and `Stopping`, `network()` is `NotRunning`. On Android and iOS the host pushes the state, and the
   generation is 0 until its first push.
 - **Pairing with the snapshot.** Subscribe first, then read `network()`,
   then skip the events whose generation is the snapshot's or lower. None is
@@ -301,7 +304,38 @@ as free, was taken before it opened"); starting again chooses another.
 ## Dialling
 
 `dial_tcp` and `dial_udp` go through the outbound named, whatever the
-rules say. Through the direct outbound, two things hold:
+rules say.
+
+**While the instance starts.** A host whose own service the instance
+asks during its start, a DNS server in the host's process that the
+configuration names, say, can serve it: the start goes in this order,
+and the calls work from the point named.
+
+1. The network is settled: `network()` answers.
+2. The outbounds are built: `dial_tcp` and `dial_udp` work, in
+   `Starting`, through every outbound and group.
+3. The instance asks for the names its start needs: remote rule-sets,
+   outbound providers, and the groups' first checks.
+4. The TUN is opened and routed, the inbounds listen, and it is `Running`.
+
+- A dial made in `Starting` before step 2 waits for it, within its own
+  timeout, and then dials; it is not refused. The groups' first checks
+  begin as the outbounds are built, a few milliseconds before step 2 is
+  told: a lookup they cause may wait that long. If the start fails or is
+  stopped meanwhile, the dial is `NotRunning`. The wait needs no runtime
+  of the host's.
+- One kind is not served that early: an endpoint (WireGuard), whose
+  tunnel is driven only once the instance is `Running`. A dial through
+  it made earlier waits for the endpoint, 10 s at most or the dial's own
+  timeout if that is shorter, and fails if the instance does not run by
+  then.
+- A direct dial made before the TUN is up stays out of it afterwards:
+  the socket is bound, marked or protected when it is dialled, as the
+  configuration says, and that is settled before the outbounds are built.
+- In `Idle`, `Stopped` and `Failed`, and once a run has ended, a dial is
+  `NotRunning`. The C ABI's `dial` works once the instance is `Running`.
+
+Through the direct outbound, two things hold:
 
 - **The zone reaches the kernel unchanged.** A link-local IPv6 address
   given with its scope (`SocketAddrV6::new(ip, port, 0, ifindex)`, the

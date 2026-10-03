@@ -11,6 +11,7 @@
 //! Apple's, which have no SOCK_SEQPACKET). The host closing its end ends
 //! the connection.
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use super::ControlError;
@@ -30,7 +31,82 @@ pub enum Dialed {
     Datagram(AnyOutboundDatagram),
 }
 
+/// What dials through an instance's outbounds, from when they are built:
+/// while the instance starts, before it runs, and for as long as it runs.
+/// It holds the dispatcher weakly: it keeps no instance alive, and once
+/// the run has ended its dials fail as those of a stopping instance.
+#[derive(Clone)]
+pub struct Dialer {
+    dispatcher: std::sync::Weak<crate::app::dispatcher::Dispatcher>,
+    env: Arc<crate::runtime::RuntimeEnv>,
+    handle: tokio::runtime::Handle,
+}
+
 impl RuntimeManager {
+    /// What dials through its outbounds.
+    pub fn dialer(&self) -> Dialer {
+        Dialer {
+            dispatcher: self.dispatcher.clone(),
+            env: self.env.clone(),
+            handle: self.handle().clone(),
+        }
+    }
+
+    /// Connects to `destination` through the outbound `outbound` alone,
+    /// whatever the rules say, within `timeout`: the outbound's handshake
+    /// done, its name resolved as a routed connection's would be.
+    pub async fn dial(
+        &self,
+        outbound: &str,
+        network: Network,
+        destination: SocksAddr,
+        timeout: Duration,
+    ) -> Result<Dialed, ControlError> {
+        self.dialer()
+            .dial(outbound, network, destination, timeout)
+            .await
+    }
+
+    /// `dial`, and one end of a socket pair sail relays through it on the
+    /// instance's runtime until either end closes: the host's to own and
+    /// close.
+    #[cfg(unix)]
+    pub async fn dial_fd(
+        &self,
+        outbound: &str,
+        network: Network,
+        destination: SocksAddr,
+        timeout: Duration,
+    ) -> Result<std::os::fd::OwnedFd, ControlError> {
+        self.dialer()
+            .dial_fd(outbound, network, destination, timeout)
+            .await
+    }
+}
+
+impl Dialer {
+    pub(crate) fn new(
+        dispatcher: &Arc<crate::app::dispatcher::Dispatcher>,
+        env: Arc<crate::runtime::RuntimeEnv>,
+        handle: tokio::runtime::Handle,
+    ) -> Self {
+        Dialer {
+            dispatcher: Arc::downgrade(dispatcher),
+            env,
+            handle,
+        }
+    }
+
+    /// The instance's runtime, which its dials run on.
+    pub fn handle(&self) -> &tokio::runtime::Handle {
+        &self.handle
+    }
+
+    /// What the instance runs with.
+    pub fn env(&self) -> &Arc<crate::runtime::RuntimeEnv> {
+        &self.env
+    }
+
     /// Connects to `destination` through the outbound `outbound` alone,
     /// whatever the rules say, within `timeout`: the outbound's handshake
     /// done, its name resolved as a routed connection's would be.

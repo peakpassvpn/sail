@@ -872,3 +872,202 @@ async fn a_chain_is_told_outermost_first_by_routed_and_dial_failed_alike() {
     drop(held);
     instance.stop().await.unwrap();
 }
+
+/// A DNS answer to `query`: 127.0.0.1 for an A question, none for any
+/// other.
+#[cfg(feature = "rule-set")]
+fn dns_answer(query: &[u8]) -> Vec<u8> {
+    let mut answer = query.to_vec();
+    // The question's end: its name, its type and class.
+    let mut at = 12;
+    while answer[at] != 0 {
+        at += 1 + answer[at] as usize;
+    }
+    let a = answer[at + 1..at + 3] == [0, 1];
+    answer.truncate(at + 5);
+    // A response, recursion available; one answer or none, nothing else.
+    answer[2] = 0x81;
+    answer[3] = 0x80;
+    answer[6..12].copy_from_slice(&[0, u8::from(a), 0, 0, 0, 0]);
+    if a {
+        answer.extend([0xc0, 0x0c, 0, 1, 0, 1, 0, 0, 0, 60, 0, 4, 127, 0, 0, 1]);
+    }
+    answer
+}
+
+/// A host's own DNS service, which the configuration names, is asked
+/// while the instance starts, for the name of a remote rule-set the start
+/// waits for. It answers by dialling back through the instance, and reads
+/// the network first: both work in `Starting`, so the start succeeds.
+/// A dial made as the start begins waits rather than being refused; once
+/// the run has ended, both say it does not run.
+#[cfg(feature = "rule-set")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_host_service_asked_during_the_start_dials_back_and_reads_the_network() {
+    use std::sync::{Arc, Mutex};
+
+    let (echo, serve) = common::run_tcp_echo_server("127.0.0.1:0").await.unwrap();
+    tokio::spawn(serve);
+
+    // What the host's service asks in its turn: answers every name.
+    let upstream = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let upstream_addr = upstream.local_addr().unwrap();
+    tokio::spawn(async move {
+        let mut buf = [0u8; 1500];
+        while let Ok((n, from)) = upstream.recv_from(&mut buf).await {
+            let _ = upstream.send_to(&dns_answer(&buf[..n]), from).await;
+        }
+    });
+
+    // The rule-set, at a name only that DNS knows.
+    let rules = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let rules_port = rules.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        use std::io::{BufRead, BufReader, Write};
+        for stream in rules.incoming() {
+            let Ok(mut stream) = stream else { continue };
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut line = String::new();
+            while reader.read_line(&mut line).is_ok() && line != "\r\n" && !line.is_empty() {
+                line.clear();
+            }
+            let body = r#"{ "version": 3, "rules": [{ "ip_cidr": "192.0.2.0/24" }] }"#;
+            let _ = write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+        }
+    });
+
+    let instance = Arc::new(Instance::new(options()).unwrap());
+
+    // The host's DNS service: for each query, the network and the state
+    // as it sees them, then the answer fetched through the instance.
+    struct Asked {
+        starting: bool,
+        interface: Result<bool, ErrorKind>,
+        dialled: Result<(), ErrorKind>,
+    }
+    let asked: Arc<Mutex<Vec<Asked>>> = Arc::default();
+    let service = Arc::new(tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap());
+    let service_port = service.local_addr().unwrap().port();
+    tokio::spawn({
+        let (instance, asked, service) = (instance.clone(), asked.clone(), service.clone());
+        async move {
+            let mut buf = [0u8; 1500];
+            while let Ok((n, from)) = service.recv_from(&mut buf).await {
+                let query = buf[..n].to_vec();
+                let (instance, asked, service) = (instance.clone(), asked.clone(), service.clone());
+                tokio::spawn(async move {
+                    let starting = instance.state() == State::Starting;
+                    let interface = instance
+                        .network()
+                        .map(|network| network.interface.is_some())
+                        .map_err(|e| e.kind());
+                    let answered = async {
+                        let upstream = instance
+                            .dial_udp(
+                                "direct",
+                                Address::from(upstream_addr),
+                                Duration::from_secs(2),
+                            )
+                            .await
+                            .map_err(|e| e.kind())?;
+                        upstream.send(&query).await.map_err(|_| ErrorKind::Io)?;
+                        let mut answer = [0u8; 1500];
+                        let (n, _) = tokio::time::timeout(
+                            Duration::from_secs(2),
+                            upstream.recv_from(&mut answer),
+                        )
+                        .await
+                        .map_err(|_| ErrorKind::Timeout)?
+                        .map_err(|_| ErrorKind::Io)?;
+                        let _ = service.send_to(&answer[..n], from).await;
+                        Ok(())
+                    };
+                    let dialled = answered.await;
+                    asked.lock().unwrap().push(Asked {
+                        starting,
+                        interface,
+                        dialled,
+                    });
+                });
+            }
+        }
+    });
+
+    let config = serde_json::json!({
+        "log": { "level": "info" },
+        "dns": {
+            "servers": [{ "tag": "host", "type": "udp", "server": "127.0.0.1", "server_port": service_port }],
+        },
+        "inbounds": [{
+            "type": "socks", "tag": "socks-in",
+            "listen": "127.0.0.1", "listen_port": common::free_port(),
+        }],
+        "outbounds": [{ "type": "direct", "tag": "direct" }],
+        "route": {
+            "rule_set": [{
+                "type": "remote", "tag": "s", "format": "source",
+                "url": format!("http://rules.test:{}/s.json", rules_port),
+            }],
+            "rules": [{ "rule_set": "s", "action": "reject" }],
+            "final": "direct",
+        },
+    })
+    .to_string();
+
+    // Not started: a dial is refused, and so is the network.
+    let idle = instance
+        .dial_tcp("direct", Address::from(echo), Duration::from_secs(5))
+        .await;
+    assert_eq!(idle.err().map(|e| e.kind()), Some(ErrorKind::NotRunning));
+    assert_eq!(
+        instance.network().unwrap_err().kind(),
+        ErrorKind::NotRunning
+    );
+
+    // A dial made as the start begins waits for the outbounds, and dials.
+    let (started, early) = tokio::join!(
+        instance.start(Config::Json(config)),
+        instance.dial_tcp("direct", Address::from(echo), Duration::from_secs(5)),
+    );
+    // The start waited for the rule-set, whose name the host's service
+    // resolved by dialling back: a refusal there fails the start.
+    started.expect("the start, which needs the rule-set's name resolved");
+    let mut early = early.expect("a dial made while it starts");
+    round_trip(&mut early, b"dialled while it started").await;
+
+    {
+        let asked = asked.lock().unwrap();
+        assert!(
+            !asked.is_empty(),
+            "the host's DNS was asked during the start"
+        );
+        for asked in asked.iter() {
+            assert_eq!(asked.dialled, Ok(()), "a dial back was refused");
+            assert_eq!(asked.interface, Ok(true), "the network was not settled");
+        }
+        assert!(
+            asked.iter().any(|asked| asked.starting),
+            "none was asked while it started"
+        );
+    }
+
+    // The run ended: what dialled through it dials no more.
+    instance.stop().await.unwrap();
+    let after = instance
+        .dial_udp(
+            "direct",
+            Address::from(upstream_addr),
+            Duration::from_secs(2),
+        )
+        .await;
+    assert_eq!(after.err().map(|e| e.kind()), Some(ErrorKind::NotRunning));
+    assert_eq!(
+        instance.network().unwrap_err().kind(),
+        ErrorKind::NotRunning
+    );
+}
