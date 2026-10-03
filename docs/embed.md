@@ -45,7 +45,10 @@ python3 path/to/sail/tools/embed-patch-check.py
 ```
 
 The check finds the sail that the lock file pins, wherever it is in the
-dependency graph. It names each entry that is missing or different, and
+dependency graph. It resolves the graph with all the workspace's features,
+so it finds sail behind an optional dependency too. Arguments after `--` go
+to `cargo metadata` in place of that: `embed-patch-check.py . -- --features
+rust-core` checks one feature set. It names each entry that is missing or different, and
 passes when every entry matches. Extra entries of the host's own are
 allowed.
 
@@ -94,6 +97,14 @@ Running on the host's own runtime is planned (stage E2), with the same API.
 - **The host's global filters apply first.** Let `sail` targets through at
   the levels the instances log at.
 
+## Certificates
+
+An inbound's certificate and key files, replaced on disk, are served from
+the next handshake on, with no reload, whether or not the configuration
+file is watched. This needs sail built with its `auto-reload` feature (on
+by default in sail-ffi). A Rust host that picks sail's features keeps it.
+
+
 ## Reload
 
 `reload(Some(config))` changes a running instance in place. It builds
@@ -117,6 +128,15 @@ an empty cache. That holds for connections carried over multiplexed
 sessions too: an AnyTLS outbound's, and a sing-mux (smux) one's, are
 tested. The rebuilt outbound opens new sessions for new connections, and
 the old sessions carry theirs until they close.
+
+The tests that hold this: `sail/tests/it/test_reload.rs`
+(`a_reload_of_the_dns_servers_keeps_connections_and_asks_the_new_ones`):
+a connection made before the reload goes on, a name looked up after it is
+asked of the new server, and the old server is asked nothing more. Also
+`sail/tests/it/test_embed.rs`, through `Instance::reload`, and
+`sail/tests/it/test_reload_sessions.rs`, over AnyTLS and sing-mux sessions,
+which close once their connections end. A TUN staying
+up across such a reload needs root and is not among sail's tests.
 
 ## A snapshot, then what follows
 

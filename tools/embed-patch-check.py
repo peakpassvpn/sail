@@ -8,12 +8,18 @@ quinn-proto and others), which crates from crates.io depend on too. This
 checks the copy against the sail the lock file pins, so that a sail update
 that moves a fork fails CI instead of building with the old one.
 
-    tools/embed-patch-check.py [WORKSPACE]
+    tools/embed-patch-check.py [WORKSPACE] [-- CARGO_METADATA_ARGS...]
 
 WORKSPACE is the directory of the depending workspace's Cargo.toml (the
 current one by default). Run it after `cargo fetch`: it reads sail's own
 workspace manifest from where Cargo checked sail out. Exits 1, naming each
 entry missing or different; entries sail has no use for may stay.
+
+The arguments after `--` go to `cargo metadata`, and choose the features
+the dependency graph is resolved with; `--all-features` when none are
+given, so that sail is found behind an optional dependency too (a feature
+of the host's that brings in the crate that brings in sail). To check one
+feature set: `-- --features rust-core`.
 """
 
 import json
@@ -45,10 +51,15 @@ def workspace_root(manifest_dir):
 
 
 def main():
-    workspace = sys.argv[1] if len(sys.argv) > 1 else "."
+    args = sys.argv[1:]
+    cargo_args = ["--all-features"]
+    if "--" in args:
+        at = args.index("--")
+        args, cargo_args = args[:at], args[at + 1:]
+    workspace = args[0] if args else "."
     ours = os.path.join(workspace, "Cargo.toml")
     run = subprocess.run(
-        ["cargo", "metadata", "--format-version", "1", "--manifest-path", ours],
+        ["cargo", "metadata", "--format-version", "1", "--manifest-path", ours, *cargo_args],
         capture_output=True,
         text=True,
     )
@@ -57,7 +68,8 @@ def main():
     metadata = json.loads(run.stdout)
     sails = [p for p in metadata["packages"] if p["name"] == "sail"]
     if not sails:
-        sys.exit("embed-patch-check: sail is not among the dependencies")
+        sys.exit("embed-patch-check: sail is not among the dependencies resolved with "
+                 + (" ".join(cargo_args) or "the default features"))
     if len(sails) > 1:
         sys.exit("embed-patch-check: more than one sail in the graph: "
                  + ", ".join(p["id"] for p in sails))
