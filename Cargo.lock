@@ -385,7 +385,7 @@ dependencies = [
 [[package]]
 name = "btls"
 version = "0.5.6"
-source = "git+https://github.com/peakpassvpn/btls.git?rev=3eb203a7ed44fd93d31056156a1ddfab5a6b9338#3eb203a7ed44fd93d31056156a1ddfab5a6b9338"
+source = "git+https://github.com/peakpassvpn/btls.git?rev=c0fb9dd9f610d0f76ae2b5afb30d65dce9b5e74c#c0fb9dd9f610d0f76ae2b5afb30d65dce9b5e74c"
 dependencies = [
  "bitflags 2.13.2",
  "btls-sys",
@@ -397,7 +397,7 @@ dependencies = [
 [[package]]
 name = "btls-sys"
 version = "0.5.6"
-source = "git+https://github.com/peakpassvpn/btls.git?rev=3eb203a7ed44fd93d31056156a1ddfab5a6b9338#3eb203a7ed44fd93d31056156a1ddfab5a6b9338"
+source = "git+https://github.com/peakpassvpn/btls.git?rev=c0fb9dd9f610d0f76ae2b5afb30d65dce9b5e74c#c0fb9dd9f610d0f76ae2b5afb30d65dce9b5e74c"
 dependencies = [
  "bindgen",
  "cmake",

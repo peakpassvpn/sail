@@ -27,8 +27,8 @@ sail = { path = "../sail", default-features = false, features = ["aead"] }
 
 # The workspace's, kept identical by tools/fuzz-check.sh.
 [patch.crates-io]
-btls = { git = "https://github.com/peakpassvpn/btls.git", rev = "3eb203a7ed44fd93d31056156a1ddfab5a6b9338" }
-btls-sys = { git = "https://github.com/peakpassvpn/btls.git", rev = "3eb203a7ed44fd93d31056156a1ddfab5a6b9338" }
+btls = { git = "https://github.com/peakpassvpn/btls.git", rev = "c0fb9dd9f610d0f76ae2b5afb30d65dce9b5e74c" }
+btls-sys = { git = "https://github.com/peakpassvpn/btls.git", rev = "c0fb9dd9f610d0f76ae2b5afb30d65dce9b5e74c" }
 quinn-proto = { git = "https://github.com/peakpassvpn/quinn.git", rev = "ac0737da7704788407daab3c5e6abd3dca7ae55e" }
 # tun-rs's netlink graph without paste (RUSTSEC-2024-0436); see
 # tools/security/policy.toml for when these go.
