@@ -802,7 +802,11 @@ impl DnsClient {
                 let dialed = local.dialed.as_ref().expect("dialed");
                 let wire = Self::wire(server, request)?;
                 let mut last_err = None;
-                for addr in dialed.servers.get(&dialed.own_interfaces)? {
+                let interface = dialed.interface.now();
+                for addr in dialed
+                    .servers
+                    .get(&dialed.own_interfaces, interface.as_deref())?
+                {
                     let asked = async {
                         let socket = self.dial_datagram(&dialed.dialer, addr).await?;
                         self.exchange_udp(socket, &wire, addr, server, time).await

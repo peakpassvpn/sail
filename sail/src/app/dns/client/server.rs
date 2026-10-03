@@ -363,11 +363,19 @@ impl Local {
 /// `default_mark`). The system's resolver would send the query out
 /// unbound, into such a TUN, whose `hijack-dns` hands it back here.
 /// sing-box's local server off Apple's systems always asks the servers
-/// through its dialer (dns/transport/local, `exchange`); Android's are the
-/// host's, which no file tells.
+/// through its dialer (dns/transport/local, `exchange`). On macOS sail
+/// asks those of the interface the dialer sends through, as the system's
+/// resolver scopes them. Not on iOS and Android, whose servers are the
+/// host's, and whose own sockets the host keeps out of the tunnel.
+pub(super) const ASKS_ITSELF: bool = cfg!(any(
+    target_os = "linux",
+    target_os = "macos",
+    target_os = "windows"
+));
+
 fn asks_through_default_dialer(defaults: &DialDefaults) -> bool {
     let route = &defaults.route;
-    !cfg!(any(target_vendor = "apple", target_os = "android"))
+    ASKS_ITSELF
         && (route.auto_detect_interface
             || route.bind_interface.is_some()
             || route.inet4_bind_address.is_some()
@@ -382,6 +390,9 @@ pub(super) struct LocalDialed {
     pub servers: super::system::SystemServers,
     /// sail's own TUNs, on whose networks no server is asked.
     pub own_interfaces: Vec<String>,
+    /// The interface the dialer sends through, whose servers are asked
+    /// where the system tells them by interface.
+    pub interface: super::system::Interface,
 }
 
 impl Server {
@@ -470,6 +481,16 @@ impl Server {
                         },
                         servers: Default::default(),
                         own_interfaces: defaults.env.own_interfaces.clone(),
+                        interface: match (
+                            &defaults.route.bind_interface,
+                            &defaults.env.auto_interface,
+                        ) {
+                            (Some(name), _) => super::system::Interface::Fixed(name.clone()),
+                            (None, Some(auto)) if defaults.route.auto_detect_interface => {
+                                super::system::Interface::Auto(auto.clone())
+                            }
+                            _ => super::system::Interface::Any,
+                        },
                     })
                 };
                 // A system without a hosts file has no names in it.

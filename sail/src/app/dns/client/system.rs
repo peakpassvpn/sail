@@ -9,8 +9,12 @@
 //!   systemd-resolved's stub (127.0.0.53, 127.0.0.54), the servers it
 //!   forwards to, in /run/systemd/resolve/resolv.conf: a detour could not
 //!   reach the stub, which listens on the host.
-//! - Windows: the DNS servers of the adapters that are up and have a
-//!   gateway, as IP Helper tells them.
+//! - macOS, where the dialer sends through an interface: that interface's
+//!   servers, as the dynamic store has them (system_macos.rs), not the
+//!   primary service's, which another VPN may be.
+//! - Windows: the DNS servers of the adapter the dialer sends through, or,
+//!   where it sends by the default route, of the adapters that are up and
+//!   have a gateway, as IP Helper tells them.
 //!
 //! Read again at most every 5 s, as Go's resolver reads resolv.conf, and
 //! after the network changed. Servers on sail's own TUNs' networks are
@@ -28,18 +32,56 @@ use anyhow::{anyhow, Result};
 /// How long what was read is taken: Go's (net/dnsclient_unix.go).
 const REREAD: Duration = Duration::from_secs(5);
 
-/// The servers, as last read.
+#[cfg(target_os = "macos")]
+#[path = "system_macos.rs"]
+mod macos;
+
+/// The interface whose servers are asked: the one the instance's dialer
+/// sends through, as it is when a query is asked.
+#[derive(Clone, Default)]
+pub(super) enum Interface {
+    /// The default route, whichever interface it takes.
+    #[default]
+    Any,
+    /// `route.default_interface`.
+    Fixed(String),
+    /// What `auto_detect_interface` follows.
+    Auto(std::sync::Arc<crate::net::interface::AutoInterface>),
+}
+
+impl Interface {
+    /// The interface's name now; none for the default route, or when
+    /// there is no interface to send through.
+    pub(super) fn now(&self) -> Option<String> {
+        match self {
+            Interface::Any => None,
+            Interface::Fixed(name) => Some(name.clone()),
+            Interface::Auto(auto) => auto.current(),
+        }
+    }
+}
+
+/// The servers, as last read, and the interface they are of.
 #[derive(Default)]
 pub(super) struct SystemServers {
-    read: Mutex<Option<(Instant, Vec<SocketAddr>)>>,
+    read: Mutex<Option<Read>>,
+}
+
+struct Read {
+    at: Instant,
+    interface: Option<String>,
+    servers: Vec<SocketAddr>,
 }
 
 impl SystemServers {
     /// Takes `servers` as the system's, for good.
     #[cfg(test)]
     pub(super) fn set(&self, servers: Vec<SocketAddr>) {
-        *self.read.lock().unwrap_or_else(|e| e.into_inner()) =
-            Some((Instant::now() + Duration::from_secs(86400), servers));
+        *self.read.lock().unwrap_or_else(|e| e.into_inner()) = Some(Read {
+            at: Instant::now() + Duration::from_secs(86400),
+            interface: None,
+            servers,
+        });
     }
 
     /// Forgets what was read: the network changed, and the next query
@@ -48,17 +90,20 @@ impl SystemServers {
         *self.read.lock().unwrap_or_else(|e| e.into_inner()) = None;
     }
 
-    /// The system's DNS servers now, but those on the networks of the
+    /// The system's DNS servers now, those of `interface` where the
+    /// system tells them by interface, but those on the networks of the
     /// interfaces `own` (sail's TUNs); an error at once when no other is
     /// left, with no fallback to the system's resolver or to a server on
     /// this host.
-    pub(super) fn get(&self, own: &[String]) -> Result<Vec<SocketAddr>> {
+    pub(super) fn get(&self, own: &[String], interface: Option<&str>) -> Result<Vec<SocketAddr>> {
         let servers = {
             let mut read = self.read.lock().unwrap_or_else(|e| e.into_inner());
             match read.as_ref() {
-                Some((at, servers)) if at.elapsed() < REREAD => servers.clone(),
+                Some(r) if r.at.elapsed() < REREAD && r.interface.as_deref() == interface => {
+                    r.servers.clone()
+                }
                 _ => {
-                    let servers: Vec<SocketAddr> = servers()
+                    let servers: Vec<SocketAddr> = servers(interface)
                         .into_iter()
                         .filter(|ip| match ip {
                             // A link-local server needs a scope the files do
@@ -68,7 +113,11 @@ impl SystemServers {
                         })
                         .map(|ip| SocketAddr::new(ip, 53))
                         .collect();
-                    *read = Some((Instant::now(), servers.clone()));
+                    *read = Some(Read {
+                        at: Instant::now(),
+                        interface: interface.map(str::to_owned),
+                        servers: servers.clone(),
+                    });
                     servers
                 }
             }
@@ -78,7 +127,10 @@ impl SystemServers {
             .filter(|s| !crate::net::interface::on_interfaces(own, s.ip()))
             .collect();
         if servers.is_empty() {
-            return Err(anyhow!("the system has no DNS server to ask"));
+            return Err(match interface {
+                Some(interface) => anyhow!("the system has no DNS server to ask on {}", interface),
+                None => anyhow!("the system has no DNS server to ask"),
+            });
         }
         Ok(servers)
     }
@@ -108,8 +160,22 @@ fn only_resolved_stub(ips: &[IpAddr]) -> bool {
     !ips.is_empty() && ips.iter().all(stub)
 }
 
+/// The servers of `interface`, where the system tells them by interface.
+#[cfg(target_os = "macos")]
+fn servers(interface: Option<&str>) -> Vec<IpAddr> {
+    match interface {
+        Some(interface) => macos::servers_of(interface),
+        None => resolv_conf(),
+    }
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn servers(_: Option<&str>) -> Vec<IpAddr> {
+    resolv_conf()
+}
+
 #[cfg(unix)]
-fn servers() -> Vec<IpAddr> {
+fn resolv_conf() -> Vec<IpAddr> {
     let read = |path: &str| std::fs::read_to_string(path).map(|t| nameservers(&t));
     match read("/etc/resolv.conf") {
         Ok(ips) if only_resolved_stub(&ips) => {
@@ -121,7 +187,7 @@ fn servers() -> Vec<IpAddr> {
 }
 
 #[cfg(windows)]
-fn servers() -> Vec<IpAddr> {
+fn servers(interface: Option<&str>) -> Vec<IpAddr> {
     use windows_sys::Win32::NetworkManagement::IpHelper::{
         GetAdaptersAddresses, GAA_FLAG_INCLUDE_GATEWAYS, GAA_FLAG_SKIP_ANYCAST,
         GAA_FLAG_SKIP_MULTICAST, IP_ADAPTER_ADDRESSES_LH,
@@ -162,8 +228,25 @@ fn servers() -> Vec<IpAddr> {
         while !adapter.is_null() {
             let a = &*adapter;
             adapter = a.Next;
-            if a.OperStatus != IfOperStatusUp || a.FirstGatewayAddress.is_null() {
+            if a.OperStatus != IfOperStatusUp {
                 continue;
+            }
+            match interface {
+                // The adapter the dialer sends through, by the name it
+                // goes by (its alias).
+                Some(interface) => {
+                    if a.FriendlyName.is_null() {
+                        continue;
+                    }
+                    let len = (0..).take_while(|&i| *a.FriendlyName.add(i) != 0).count();
+                    let name =
+                        String::from_utf16_lossy(std::slice::from_raw_parts(a.FriendlyName, len));
+                    if name != interface {
+                        continue;
+                    }
+                }
+                None if a.FirstGatewayAddress.is_null() => continue,
+                None => {}
             }
             let mut dns = a.FirstDnsServerAddress;
             while !dns.is_null() {
@@ -191,7 +274,7 @@ fn servers() -> Vec<IpAddr> {
 }
 
 #[cfg(not(any(unix, windows)))]
-fn servers() -> Vec<IpAddr> {
+fn servers(_: Option<&str>) -> Vec<IpAddr> {
     Vec::new()
 }
 
@@ -222,7 +305,7 @@ mod tests {
     /// link-local.
     #[test]
     fn the_host_s_servers_are_read() {
-        if let Ok(servers) = SystemServers::default().get(&[]) {
+        if let Ok(servers) = SystemServers::default().get(&[], None) {
             for server in servers {
                 assert_eq!(server.port(), 53);
                 assert!(
@@ -248,10 +331,13 @@ mod tests {
         let other: SocketAddr = "192.0.2.1:53".parse().unwrap();
         let servers = SystemServers::default();
         servers.set(vec![on, other]);
-        assert_eq!(servers.get(&[]).unwrap(), [on, other]);
-        assert_eq!(servers.get(std::slice::from_ref(&name)).unwrap(), [other]);
+        assert_eq!(servers.get(&[], None).unwrap(), [on, other]);
+        assert_eq!(
+            servers.get(std::slice::from_ref(&name), None).unwrap(),
+            [other]
+        );
         servers.set(vec![on]);
-        assert!(servers.get(&[name]).is_err());
+        assert!(servers.get(&[name], None).is_err());
     }
 
     /// After the network changed, the servers are read again.
@@ -260,8 +346,8 @@ mod tests {
         let set: SocketAddr = "192.0.2.1:53".parse().unwrap();
         let servers = SystemServers::default();
         servers.set(vec![set]);
-        assert_eq!(servers.get(&[]).unwrap(), [set]);
+        assert_eq!(servers.get(&[], None).unwrap(), [set]);
         servers.forget();
-        assert!(!servers.get(&[]).unwrap_or_default().contains(&set));
+        assert!(!servers.get(&[], None).unwrap_or_default().contains(&set));
     }
 }

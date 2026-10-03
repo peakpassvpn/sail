@@ -78,7 +78,7 @@ mod tests {
     /// Where the default dialer binds its sockets, a local server asks the
     /// system's servers through it, as one with dial fields does: the
     /// system's resolver would send the query into a TUN that takes the
-    /// default route. Not on Apple's systems or Android.
+    /// default route. On Linux, macOS and Windows.
     #[test]
     fn a_local_server_asks_through_a_default_dialer_that_binds() {
         let binds: [fn(&mut crate::net::dial::RouteDefaults); 3] = [
@@ -86,7 +86,7 @@ mod tests {
             |r| r.bind_interface = Some("eth0".into()),
             |r| r.routing_mark = Some(0x2024),
         ];
-        let asks = !cfg!(any(target_vendor = "apple", target_os = "android"));
+        let asks = super::server::ASKS_ITSELF;
         for (i, bind) in binds.into_iter().enumerate() {
             let mut defaults = crate::net::DialDefaults::default();
             bind(&mut defaults.route);
@@ -97,6 +97,14 @@ mod tests {
             let dialed =
                 matches!(&client.servers["local"].kind, Kind::Local(l) if l.dialed.is_some());
             assert_eq!(dialed, asks, "bind {}", i);
+            // The servers asked are those of the interface the dialer sends
+            // through, where it names one: default_interface's.
+            if let Kind::Local(local) = &client.servers["local"].kind {
+                if let Some(dialed) = &local.dialed {
+                    let expected = (i == 1).then(|| "eth0".to_string());
+                    assert_eq!(dialed.interface.now(), expected, "bind {}", i);
+                }
+            }
         }
     }
 
