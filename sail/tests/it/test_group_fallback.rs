@@ -159,7 +159,16 @@ fn a_member_whose_server_refuses_is_left_at_once() {
         assert_eq!(reached(&m, "fb", &sess).await.unwrap(), "b");
         assert_eq!(selected(&m, "fb"), "b");
         assert_eq!(latencies(&m, "fb")[0].1, None);
-        assert_eq!(b_requests.load(Ordering::Relaxed), requests + 1);
+        // The mark-down asks for a round of tests, held back until 2 s
+        // after the last (MIN_RETEST): here that is after this check, but on
+        // Windows, which tells a refusal only after 2 s of retries, the
+        // round may already be testing [b].
+        let asked = b_requests.load(Ordering::Relaxed) - requests;
+        assert!(
+            asked == 1 || (cfg!(windows) && asked == 2),
+            "[b] asked {} times",
+            asked
+        );
         // Those who watch the group heard of it.
         let heard = tokio::time::timeout(Duration::from_millis(10), changes.changed()).await;
         assert!(heard.is_ok());
