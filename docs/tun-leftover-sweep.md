@@ -39,13 +39,13 @@ marked *to verify*:
 | Linux | auto_redirect nftables table `inet sail_<tun>` | **no** |
 | OpenWrt | fw4 drop-in `/etc/nftables.d/0-sail-auto-redirect-<tun>.nft` | **no** (a file) |
 | macOS | utun device and the routes through it | yes: utun goes with its control socket *(to verify with kill -9 on a Mac)* |
-| Windows | Wintun adapter (named, GUID from the name) | **no** *(to verify)*: sail reopens it by name today |
-| Windows | routes and DNS on that adapter | **no**, while the adapter stays *(to verify)* |
-| Windows | strict_route WFP filters | yes: they are in a dynamic WFP session (`FWPM_SESSION_FLAG_DYNAMIC`) |
+| Windows | Wintun adapter (named, GUID from the name) | yes: Wintun removes it when the process that created it dies *(measured, see below)* |
+| Windows | routes and DNS on that adapter | yes: they go with the adapter *(measured)* |
+| Windows | strict_route WFP filters | yes: they are in a dynamic WFP session (`FWPM_SESSION_FLAG_DYNAMIC`) *(not yet observed)* |
 
 So the sweep has three jobs:
 - on Linux: ip rules, routes, the nftables table and the fw4 drop-in;
-- on Windows: the adapter, or at least its routes and DNS;
+- on Windows: nothing for the TUN (measured; its WFP filters by design);
 - on macOS: possibly nothing (to verify).
 
 ### A kill, and a reboot
@@ -57,11 +57,23 @@ as the leftovers it lists:
 |---|---|---|---|
 | Linux | ip rules, `inet sail_<tun>`, fw4 drop-in | the fw4 drop-in only (a file; rules and nftables are kernel state) | tmpfs `/run/sail` |
 | macOS | nothing expected (to verify) | nothing | tmpfs `/var/run/sail` |
-| Windows | adapter, its routes and DNS (to verify) | the adapter, possibly with its persistent routes and DNS (to verify) | persistent `%ProgramData%\sail\run` |
+| Windows | nothing of the TUN (measured) | nothing (measured) | none needed for the TUN |
 
 So on Linux and macOS a ledger clears on reboot just as the kernel state
-it describes does. On Windows the ledger persists, and lists what outlives
-a reboot.
+it describes does. On Windows nothing of the TUN outlives the process, so
+it needs no ledger.
+
+Measured on Windows (2026-10-04, Windows 11, sail 0.16.0 windows-gnu,
+Wintun 0.14.1, a TUN with IPv4 and IPv6 addresses and auto_route):
+after `Stop-Process -Force`, and after the session that started sail
+ended and took it with it, the adapter, its 0.0.0.0/0 and ::/0 routes
+(metric 0) and its DNS servers were gone within 3 s, and the default
+route was the Ethernet adapter's again; after a reboot with sail running
+there was no adapter, no device of it, no route and no DNS. A start after
+a kill created the adapter again with the same GUID. Not covered:
+strict_route and route_exclude_address (the WFP filters were not
+listed with `netsh wfp show filters` after a kill), and other Windows or
+Wintun versions.
 
 ## How leftovers are identified: a ledger
 
@@ -131,13 +143,11 @@ other software's rules.
   kernel purges the routes on that interface (if_detach, rt_if_remove).
   So if the kill -9 test confirms it, there is nothing to sweep. If the test shows otherwise, the ledger lists the routes, and
   the sweep deletes them through the route socket.
-- **Windows**: the adapter is found by the ledger's GUID (or the default
-  GUID) and deleted: opened, then closed, which removes an adapter
-  `WintunCreateAdapter` made. Its routes and DNS go with it. Creating it
-  again is quick, because the driver stays installed. Whether an adapter
-  survives a kill at all (Wintun may remove it on process death) is to be
-  measured on the Windows VM. The sweep works either way: an adapter
-  already gone is "already gone". WFP needs nothing.
+- **Windows**: nothing to sweep for the TUN. An adapter
+  `WintunCreateAdapter` made is removed when the handle to it closes,
+  which the kernel does when the process dies, and its routes and DNS go
+  with it (measured above); WFP's dynamic session goes with the process
+  too.
 - **Android/iOS**: the host's VPN service owns the device and routes, so
   sail has no sweep there and writes no ledger.
 
@@ -164,10 +174,9 @@ lose anything to the other's sweep:
   again at a later start. The kernel allows one device per name, so this
   is a reliable sign, unlike guessing about other processes or run
   directories.
-- **Windows** keeps a Wintun adapter after its process, so a device of
-  the name tells nothing there. Liveness there will be decided by pid,
-  start time and instance id, as for the rest, or by whether a process
-  holds the adapter open. That is part of the Windows work above.
+- **Windows** removes a Wintun adapter with its process, so an adapter
+  of the name means a live instance holds it, as a device of the name
+  does on Linux.
 
 ## Where it runs
 
@@ -209,18 +218,20 @@ needs.
    left, and swept once its run ends; a live process's left and a reused
    pid's swept; what is undone forgotten; rules and routes reading back
    as written; `run_dir` settings.
-5. **Windows VM:** kill -9 an instance with a TUN, then
-   create one: the adapter, its routes and its DNS end as the decision
-   above says.
+5. **Windows VM (done, 2026-10-04):** kill -9 an instance with a TUN, then
+   create one; reboot with one running: nothing of the TUN is left either
+   way (measured above). Still to run: the same with strict_route and
+   route_exclude_address, checking `netsh wfp show filters` and the
+   routing table after the kill.
 6. **macOS (to verify):** kill -9 an instance with a TUN; `netstat -rn`
    shows no route through a missing utun. If none is left, this test is
    what the "nothing to sweep" claim rests on.
 
 ## Open questions
 
-- Windows: does a Wintun adapter, with its routes and DNS, survive a kill,
-  and a reboot? To be measured on the VM. The sweep deletes the adapter in
-  either case.
+- Windows: answered. A Wintun adapter, with its routes and DNS, survives
+  neither a kill nor a reboot. The strict_route WFP filters after a kill
+  are still to be observed.
 - macOS: the kill -9 check (`netstat -rn -f inet | grep utun`; `ifconfig |
   grep utun`, both empty) still has to be run.
 - The ledger directory for the FFI embedder: a parameter of create, with
