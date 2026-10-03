@@ -18,7 +18,6 @@ accepted = [
   "Zlib",
 ]
 ignore-dev-dependencies = true
-no-clearly-defined = true
 
 [webpki-root-certs]
 accepted = ["CDLA-Permissive-2.0"]
