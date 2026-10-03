@@ -242,10 +242,10 @@ mod tests {
     #[tokio::test]
     async fn a_race_takes_the_first_member_to_answer_well() {
         use hickory_proto::op::ResponseCode;
-        // A port nothing listens on: no answer comes.
+        // A socket that never reads: no answer comes. Kept bound, so that no
+        // other test's server takes its port and answers in its place.
         let dead = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
         let dead_port = dead.local_addr().unwrap().port();
-        drop(dead);
         let servfail = failing_server(ResponseCode::ServFail).await;
         let refused = failing_server(ResponseCode::Refused).await;
         let (good, _) = counting_server(300, false).await;
@@ -2745,9 +2745,9 @@ mod tests {
         let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         rt.block_on(async {
             let (port, _) = counting_server(300, false).await;
+            // Bound and never read, so that no other server takes its port.
             let dead = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
             let dead_port = dead.local_addr().unwrap().port();
-            drop(dead);
             let client = race_client(serde_json::json!([
                 { "type": "udp", "tag": "up", "server": "127.0.0.1", "server_port": port }
             ]));
