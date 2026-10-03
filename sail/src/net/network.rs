@@ -409,6 +409,29 @@ impl Network {
         self.set(state, ChangeReason::HostPush);
     }
 
+    /// Settles the state sail starts on, before the instance runs: `state`
+    /// as detected, or no network (None, the empty state, offline). It is
+    /// known from then, at generation 1, and no change is told: a host
+    /// subscribes, then reads it; what detection finds later is told as
+    /// any change. Nothing when a state is known already, or the host
+    /// pushes the state (it is the host's to tell).
+    pub fn settle_first(&self, state: Option<NetworkState>) {
+        if self.pushed() {
+            return;
+        }
+        let mut state = state.unwrap_or_default();
+        self.leave_own_out(&mut state);
+        let _telling = self.telling.lock().unwrap_or_else(|e| e.into_inner());
+        if self.known.swap(true, Ordering::Relaxed) {
+            return;
+        }
+        let state = Arc::new(state);
+        self.state.send_modify(|current| {
+            current.state = state;
+            current.generation = 1;
+        });
+    }
+
     /// The state as sail detected it, unless the host pushes it, for
     /// `reason`; whether a change connections do not survive was told.
     pub(crate) fn detected(&self, state: NetworkState, reason: ChangeReason) -> bool {
@@ -425,15 +448,20 @@ impl Network {
         }
     }
 
-    /// Changes the state, telling subscribers only of a change, and of a
-    /// move when the connections do not survive it; whether that was told.
-    fn set(&self, mut state: NetworkState, reason: ChangeReason) -> bool {
+    /// Leaves sail's own interfaces out of `state`'s, but the default one.
+    fn leave_own_out(&self, state: &mut NetworkState) {
         if let Ok(own) = self.own.read() {
             let default = state.interface.clone();
             state
                 .interfaces
                 .retain(|i| default.as_ref() == Some(&i.name) || !own.contains(&i.name));
         }
+    }
+
+    /// Changes the state, telling subscribers only of a change, and of a
+    /// move when the connections do not survive it; whether that was told.
+    fn set(&self, mut state: NetworkState, reason: ChangeReason) -> bool {
+        self.leave_own_out(&mut state);
         let _telling = self.telling.lock().unwrap_or_else(|e| e.into_inner());
         let old = self.snapshot();
         // The first state known, at the start, moves nothing.
@@ -792,5 +820,59 @@ mod tests {
             slow.try_recv(),
             Err(broadcast::error::TryRecvError::Lagged(1))
         ));
+    }
+
+    /// The state sail starts on is known at once, at generation 1, with no
+    /// change told; what detection finds later is told from there.
+    #[test]
+    fn the_first_state_is_settled_before_the_instance_runs() {
+        let network = Network::default();
+        let mut events = network.change_events();
+        network.settle_first(Some(on("en0", &["192.168.1.2/24"])));
+        let current = network.snapshot_with_generation();
+        assert_eq!(
+            (current.generation, current.state.interface.as_deref()),
+            (1, Some("en0"))
+        );
+        assert!(events.try_recv().is_err(), "settling tells no change");
+        // Settled once: a second is nothing, and the same state detected
+        // is no change.
+        network.settle_first(Some(on("en1", &["10.0.0.2/24"])));
+        assert_eq!(network.snapshot().interface.as_deref(), Some("en0"));
+        assert!(!network.detected(on("en0", &["192.168.1.2/24"]), ChangeReason::State));
+        assert!(network.detected(on("en1", &["10.0.0.2/24"]), ChangeReason::DefaultInterface));
+        assert_eq!(events.try_recv().unwrap().generation, 2);
+    }
+
+    /// Settled with no network, sail starts offline, and the first link
+    /// is a change from it.
+    #[test]
+    fn settled_offline_the_first_link_is_a_change() {
+        let network = Network::default();
+        network.settle_first(None);
+        assert!(network.is_down());
+        assert_eq!(network.snapshot_with_generation().generation, 1);
+        let mut events = network.change_events();
+        assert!(network.detected(on("en0", &["192.168.1.2/24"]), ChangeReason::State));
+        let change = events.try_recv().unwrap();
+        assert_eq!(
+            (change.generation, change.old.interface.as_deref()),
+            (2, None)
+        );
+    }
+
+    /// Once a state is known, or the host pushes, settling is nothing.
+    #[test]
+    fn settling_leaves_a_known_or_pushed_state() {
+        let network = Network::default();
+        network.detected(on("en0", &["192.168.1.2/24"]), ChangeReason::State);
+        network.settle_first(None);
+        assert_eq!(network.snapshot().interface.as_deref(), Some("en0"));
+        assert_eq!(network.snapshot_with_generation().generation, 0);
+
+        let pushed = Network::default();
+        pushed.push(on("wlan0", &["10.1.0.2/24"]));
+        pushed.settle_first(Some(on("en0", &["192.168.1.2/24"])));
+        assert_eq!(pushed.snapshot().interface.as_deref(), Some("wlan0"));
     }
 }
