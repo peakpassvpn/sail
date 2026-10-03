@@ -142,6 +142,14 @@ impl BoringConnection {
     }
 
     fn new(ssl: Ssl) -> io::Result<Self> {
+        // BoringSSL frees the configuration the SSL copied from its context
+        // (its certificate, ALPS settings, verify parameters, ...) once the
+        // handshake is done, instead of holding it for the connection's
+        // life. Nothing reads or changes it after the handshake, and a
+        // client never renegotiates, which would keep it.
+        use foreign_types::ForeignType;
+        // SAFETY: `ssl` is a live SSL that no handshake has used yet.
+        unsafe { btls_sys::SSL_set_shed_handshake_config(ssl.as_ptr(), 1) };
         Ok(Self {
             ssl: SslStream::new(ssl, MemIo::default()).map_err(io::Error::other)?,
             handshaking: true,

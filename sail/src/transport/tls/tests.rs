@@ -106,6 +106,35 @@ async fn pair(
     )
 }
 
+/// Whether the SSL still holds its handshake configuration: setting ALPN
+/// fails once BoringSSL has freed it.
+fn holds_handshake_config(ssl: &btls::ssl::SslRef) -> bool {
+    use foreign_types::ForeignTypeRef;
+    let alpn = b"\x08http/1.1";
+    // SAFETY: a live SSL; the list is copied. Returns 0 on success.
+    unsafe { btls_sys::SSL_set_alpn_protos(ssl.as_ptr(), alpn.as_ptr(), alpn.len()) == 0 }
+}
+
+#[tokio::test]
+async fn test_idle_connection_frees_handshake_config() {
+    let server = server();
+    let client = TlsClient::new(&[], Some(&server.cert_pem), false, None, &test_roots()).unwrap();
+    let before = client.connection("localhost", None).unwrap();
+    assert!(holds_handshake_config(before.ssl()));
+
+    let (c, s) = pair(&server, &client, "localhost", None, None).await;
+    let (mut c, mut s) = (c.unwrap(), s.unwrap());
+    assert!(!holds_handshake_config(c.conn().ssl()), "client");
+    assert!(!holds_handshake_config(s.conn().ssl()), "server");
+    // What the handshake settled stays.
+    assert!(c.conn().ssl().peer_certificate().is_some());
+    c.write_all(b"ping").await.unwrap();
+    c.flush().await.unwrap();
+    let mut buf = [0; 4];
+    s.read_exact(&mut buf).await.unwrap();
+    assert_eq!(&buf, b"ping");
+}
+
 #[tokio::test]
 async fn test_round_trip_and_close() {
     let server = server();
