@@ -277,7 +277,7 @@ mod backend {
     use std::sync::atomic::{AtomicBool, Ordering};
 
     use anyhow::{anyhow, Result};
-    use tracing::{debug, warn};
+    use tracing::{debug, info, warn};
 
     use super::super::inbound::TunSettings;
     use crate::platform::auto_route::{self as plan, RuleOptions, RULE_SPAN};
@@ -465,27 +465,68 @@ mod backend {
         }
     }
 
-    /// Whether sail runs in the network namespace systemd-resolved serves,
-    /// the first process's. resolvectl names a link by its index in the
-    /// caller's namespace, but resolved, over the system bus that `ip netns
-    /// exec` shares, takes it as the host's: a TUN in a namespace of its
-    /// own is index 2, as the host's first interface is, and would get the
-    /// TUN's DNS. Where the first process's namespace cannot be read (no
-    /// root, but the capability to route), it is taken to be.
+    /// Whether sail runs in the network namespace systemd-resolved serves.
+    /// resolvectl names a link by its index in the caller's namespace, but
+    /// resolved, reached over a system bus that `ip netns exec` (or a
+    /// container with the host's bus) shares, takes it as its own: a TUN
+    /// in a namespace of its own is index 2, as the host's first interface
+    /// is, and would give that interface the TUN's DNS. So sail sets DNS
+    /// only in resolved's own namespace, as its process shows it, and in
+    /// the first process's; where resolved's cannot be told (no such
+    /// process to see, or no right to read it), it leaves DNS alone and
+    /// says so.
     fn in_the_host_s_namespace() -> bool {
-        use std::os::unix::fs::MetadataExt;
-        let ours = std::fs::metadata("/proc/self/ns/net");
-        let first = std::fs::metadata("/proc/1/ns/net");
-        match (ours, first) {
-            (Ok(ours), Ok(first)) => {
-                let same = (ours.dev(), ours.ino()) == (first.dev(), first.ino());
-                if !same {
-                    debug!("auto_route: in a network namespace of its own: the system's DNS is left as it is");
-                }
-                same
+        let resolved = resolved_pid().and_then(|pid| netns_of(&pid.to_string()));
+        match why_not(netns_of("self"), resolved, netns_of("1")) {
+            None => true,
+            Some(why) => {
+                info!(
+                    "auto_route: the TUN's DNS is not set through systemd-resolved: {}",
+                    why
+                );
+                false
             }
-            _ => true,
         }
+    }
+
+    type Netns = (u64, u64);
+
+    /// Why the TUN's DNS is not set, given the namespaces of sail, of
+    /// resolved and of the first process; None when it is.
+    fn why_not(
+        ours: Option<Netns>,
+        resolved: Option<Netns>,
+        first: Option<Netns>,
+    ) -> Option<&'static str> {
+        match (ours, resolved) {
+            (Some(ours), Some(resolved)) if ours != resolved => {
+                Some("sail is in a network namespace of its own, not systemd-resolved's")
+            }
+            (Some(ours), Some(_)) if first.is_some_and(|first| first != ours) => {
+                Some("sail is in a network namespace of its own, not the first process's")
+            }
+            (Some(_), Some(_)) => None,
+            _ => Some("systemd-resolved's network namespace cannot be told from here"),
+        }
+    }
+
+    /// The network namespace of process `pid` ("self" for this one), by its
+    /// handle's device and inode.
+    fn netns_of(pid: &str) -> Option<(u64, u64)> {
+        use std::os::unix::fs::MetadataExt;
+        let meta = std::fs::metadata(format!("/proc/{}/ns/net", pid)).ok()?;
+        Some((meta.dev(), meta.ino()))
+    }
+
+    /// systemd-resolved's process, as systemd tells it.
+    fn resolved_pid() -> Option<u32> {
+        let out = Command::new("systemctl")
+            .args(["show", "-p", "MainPID", "--value", "systemd-resolved"])
+            .stderr(Stdio::null())
+            .output()
+            .ok()?;
+        let pid: u32 = String::from_utf8_lossy(&out.stdout).trim().parse().ok()?;
+        (pid != 0).then_some(pid)
     }
 
     fn resolvectl(args: &[&str]) -> bool {
@@ -503,19 +544,32 @@ mod backend {
 
     #[cfg(test)]
     mod tests {
-        /// A test runs where the host's processes run, unless a namespace
-        /// test put it in its own; there, the TUN's DNS is set as on a
-        /// desktop. (tests/test_auto_redirect_linux.rs runs sail in a
-        /// namespace of its own, and checks that the host's DNS is left.)
+        /// The decision, by namespaces given as (device, inode).
+        /// (tests/test_auto_redirect_linux.rs runs sail in a namespace of
+        /// its own with the host's bus, and checks that the host's DNS is
+        /// left and that sail says why.)
         #[test]
-        fn the_host_s_namespace_is_told_from_another() {
-            let ours = std::fs::read_link("/proc/self/ns/net").unwrap();
-            let first = std::fs::read_link("/proc/1/ns/net");
-            let expected = match first {
-                Ok(first) => first == ours,
-                Err(_) => true,
-            };
-            assert_eq!(super::in_the_host_s_namespace(), expected);
+        fn dns_is_set_only_in_resolved_s_namespace() {
+            let host = Some((4, 1));
+            let other = Some((4, 2));
+            // resolved's and the first process's: set.
+            assert_eq!(super::why_not(host, host, host), None);
+            // The first process's unreadable (no root): resolved's decides.
+            assert_eq!(super::why_not(host, host, None), None);
+            // Not resolved's, though the first process's (a container
+            // with its own pid namespace and the host's bus): not set.
+            assert!(super::why_not(other, host, other)
+                .unwrap()
+                .contains("systemd-resolved's"));
+            // resolved's, not the first process's: not set.
+            assert!(super::why_not(host, host, other)
+                .unwrap()
+                .contains("first process's"));
+            // resolved's not to be told: not set.
+            assert!(super::why_not(host, None, host)
+                .unwrap()
+                .contains("cannot be told"));
+            assert!(super::why_not(None, host, host).is_some());
         }
     }
 }

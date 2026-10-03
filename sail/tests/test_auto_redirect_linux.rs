@@ -304,6 +304,12 @@ fn auto_redirect_takes_the_host_s_traffic_and_gives_it_back() -> Result<()> {
         before,
         host_dns()
     );
+    ensure!(
+        std::fs::read_to_string(&log)?
+            .lines()
+            .any(|line| line.contains("DNS is not set through systemd-resolved")),
+        "sail says why it left the system's DNS alone"
+    );
 
     ensure!(
         tcp(SERVER).as_deref() == Some(PEER4),
