@@ -246,20 +246,52 @@ pub enum DialStage {
     Transfer,
 }
 
-/// A connection that failed.
+impl DialStage {
+    /// The stage a failure of `kind` most likely is at, where nothing
+    /// tells how far the attempt got: `Dial` for "connect, or timed out"
+    /// (a handshake that times out is `TimedOut` too), else `Handshake`.
+    pub(crate) fn guessed(kind: std::io::ErrorKind) -> Self {
+        use std::io::ErrorKind as K;
+        match kind {
+            K::ConnectionRefused
+            | K::TimedOut
+            | K::HostUnreachable
+            | K::NetworkUnreachable
+            | K::NotFound
+            | K::AddrNotAvailable => DialStage::Dial,
+            _ => DialStage::Handshake,
+        }
+    }
+}
+
+/// An attempt to connect that failed: a group's member, or the
+/// connection.
+///
+/// A group that tries members in turn (fallback, smart, tryall) tells
+/// each member that fails, with `more_to_try` set while it, or a group
+/// around it, goes on to another member; the dispatcher tells a failed
+/// connection no group told of. So a connection's last failure, and only
+/// it, has `more_to_try` false, and its chain names the member that
+/// failed last.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct DialFailure {
-    /// The outbounds it went through, the groups' members first, as the
-    /// log's `out=` names them (`sel>hk-ss`).
+    /// The outbounds the attempt went through, outermost first, joined by
+    /// `>` as the log's `out=` names them: the outbound the rules routed
+    /// it to, then the member each group on the way took, down to the
+    /// member tried (`sel>hk-ss`; `F>G>m` for a group G in a group F).
     pub chain: String,
     /// Where it went, as `log.redact` lets the log say it.
     pub destination: String,
     pub kind: std::io::ErrorKind,
     pub stage: DialStage,
+    /// Whether the group goes on to try another member: false for the
+    /// failure that ends the connection.
+    pub more_to_try: bool,
 }
 
 impl DialFailure {
+    /// A failure that ends its connection; see `with_more_to_try`.
     pub fn new(
         chain: String,
         destination: String,
@@ -271,7 +303,13 @@ impl DialFailure {
             destination,
             kind,
             stage,
+            more_to_try: false,
         }
+    }
+
+    pub fn with_more_to_try(mut self, more_to_try: bool) -> Self {
+        self.more_to_try = more_to_try;
+        self
     }
 }
 

@@ -537,7 +537,10 @@ impl RuntimeManager {
             .iter()
             .map(|counter| {
                 let sess = &counter.sess;
+                // Mihomo's order: the member last, innermost, first, the
+                // outbound routed to last.
                 let mut chains = sess.chain.get();
+                chains.reverse();
                 chains.push(sess.outbound_tag.clone());
                 let names = Names::of(sess);
                 ConnectionInfo {

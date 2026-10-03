@@ -18,6 +18,8 @@ pub struct Handler {
     pub tags: Vec<String>,
     pub delay_base: u32,
     pub dns_client: SyncDnsClient,
+    /// Where its members' failures are told.
+    pub events: crate::control::events::EventHub,
 }
 
 #[async_trait]
@@ -36,8 +38,10 @@ impl OutboundDatagramHandler for Handler {
         _transport: Option<AnyOutboundTransport>,
     ) -> io::Result<AnyOutboundDatagram> {
         tracing::trace!("handling outbound datagram");
+        let attempts = super::Attempts::new(sess, self.actors.len());
         let mut tasks = Vec::new();
         for (i, a) in self.actors.iter().enumerate() {
+            let attempts = &attempts;
             let t = async move {
                 if self.delay_base > 0 {
                     tokio::time::sleep(std::time::Duration::from_millis(
@@ -45,13 +49,22 @@ impl OutboundDatagramHandler for Handler {
                     ))
                     .await;
                 }
-                crate::net::dial_domain::datagram_through(sess, self.dns_client.clone(), a)
+                let at = attempts.session(sess, i, &self.tags[i]);
+                match crate::net::dial_domain::datagram_through(&at, self.dns_client.clone(), a)
                     .await
-                    .map(|dgram| HandleResult { idx: i, dgram })
+                {
+                    Ok(dgram) => Ok(HandleResult { idx: i, dgram }),
+                    Err(e) => {
+                        attempts.failed(&self.events, i, &at, &e);
+                        Err(e)
+                    }
+                }
             };
             tasks.push(Box::pin(t));
         }
-        match select_ok(tasks).await {
+        let result = select_ok(tasks).await;
+        attempts.done(sess, result.as_ref().ok().map(|v| v.0.idx));
+        match result {
             Ok(v) => {
                 debug!(
                     "tryall handles [{}:{}] to [{}]",
@@ -59,7 +72,6 @@ impl OutboundDatagramHandler for Handler {
                     sess.destination,
                     self.actors[v.0.idx].tag()
                 );
-                sess.chain.push(&self.tags[v.0.idx]);
                 Ok(v.0.dgram)
             }
             Err(e) => Err(io::Error::other(format!(

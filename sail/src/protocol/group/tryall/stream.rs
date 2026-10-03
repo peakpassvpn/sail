@@ -18,6 +18,8 @@ pub struct Handler {
     pub tags: Vec<String>,
     pub delay_base: u32,
     pub dns_client: SyncDnsClient,
+    /// Where its members' failures are told.
+    pub events: crate::control::events::EventHub,
 }
 
 #[async_trait]
@@ -33,8 +35,10 @@ impl OutboundStreamHandler for Handler {
         _stream: Option<AnyStream>,
     ) -> io::Result<AnyStream> {
         tracing::trace!("handling outbound stream");
+        let attempts = super::Attempts::new(sess, self.actors.len());
         let mut tasks = Vec::new();
         for (i, a) in self.actors.iter().enumerate() {
+            let attempts = &attempts;
             let t = async move {
                 if self.delay_base > 0 {
                     tokio::time::sleep(std::time::Duration::from_millis(
@@ -42,13 +46,20 @@ impl OutboundStreamHandler for Handler {
                     ))
                     .await;
                 }
-                crate::net::dial_domain::stream(sess, self.dns_client.clone(), a)
-                    .await
-                    .map(|stream| HandleResult { idx: i, stream })
+                let at = attempts.session(sess, i, &self.tags[i]);
+                match crate::net::dial_domain::stream(&at, self.dns_client.clone(), a).await {
+                    Ok(stream) => Ok(HandleResult { idx: i, stream }),
+                    Err(e) => {
+                        attempts.failed(&self.events, i, &at, &e);
+                        Err(e)
+                    }
+                }
             };
             tasks.push(Box::pin(t));
         }
-        match select_ok(tasks).await {
+        let result = select_ok(tasks).await;
+        attempts.done(sess, result.as_ref().ok().map(|v| v.0.idx));
+        match result {
             Ok(v) => {
                 debug!(
                     "tryall handles [{}:{}] to [{}]",
@@ -56,7 +67,6 @@ impl OutboundStreamHandler for Handler {
                     sess.destination,
                     self.actors[v.0.idx].tag()
                 );
-                sess.chain.push(&self.tags[v.0.idx]);
                 Ok(v.0.stream)
             }
             Err(e) => Err(io::Error::other(format!(

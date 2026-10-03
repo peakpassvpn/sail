@@ -34,15 +34,15 @@ pub async fn connect(group: Arc<Group>, sess: &Session) -> io::Result<AnyOutboun
     let mut failed = Vec::new();
     let dns_client = group.dns_client.clone();
     let result = group
-        .try_members(sess, &snapshot, &order, &site, &mut failed, |a| {
+        .try_members(sess, &snapshot, &order, &site, &mut failed, true, |a| {
             let dns_client = dns_client.clone();
             async move { crate::net::dial_domain::datagram_through(sess, dns_client, &a).await }
         })
         .await;
     let verdict = Verdict::new(group.clone(), failed);
     let (i, took, datagram) = result?;
+    // In the chain since it was tried.
     let key = snapshot.members[i].key.clone();
-    sess.chain.push(&key.name);
     group.connected(&key, &site, took);
     let until = group.until(&key);
     let measured = Box::new(MeasuredDatagram {

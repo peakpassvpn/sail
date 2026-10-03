@@ -48,6 +48,7 @@ use super::attempt::{member_unreachable, Progress};
 use super::health::{self, Checker, Debounce, Probes, UrlPolicy};
 use super::members::{MemberKey, Members, Snapshot};
 use super::merge;
+use super::tell::Attempt;
 use crate::adapter::outbound::HandlerBuilder;
 use crate::adapter::registry::{
     parse_options, Options, OutboundContext, OutboundFactory, OutboundRegistry,
@@ -727,7 +728,9 @@ impl Group {
     /// Connects through the members of `snapshot` in turn, see
     /// `candidates`, until one connects; returns which, and what it
     /// connected. Every member but the last one tried has `dial_timeout`
-    /// to connect. `connect` tells how far it got, see `Progress`.
+    /// to connect. `connect` tells how far it got, see `Progress`. Each
+    /// member is in the session's chain while it is tried, and its
+    /// failure told (`tell::Attempt`).
     async fn connect<'a, T, F, Fut>(
         &'a self,
         sess: &'a Session,
@@ -756,8 +759,10 @@ impl Group {
                 sess.destination,
                 a.tag()
             );
+            let more = n + 1 < order.len();
+            let attempt = Attempt::start(sess, &snapshot.members[i].key.name, more);
             let progress = Arc::new(Progress::default());
-            let result = if n + 1 < order.len() {
+            let result = if more {
                 tokio::time::timeout(self.dial_timeout, connect(a, progress.clone()))
                     .await
                     .unwrap_or_else(|_| Err(io::Error::new(io::ErrorKind::TimedOut, "timed out")))
@@ -766,6 +771,7 @@ impl Group {
             };
             match result {
                 Ok(v) => {
+                    attempt.connected(sess);
                     self.checker.succeeded();
                     return Ok((&snapshot.members[i].key, v));
                 }
@@ -777,6 +783,12 @@ impl Group {
                         sess.destination,
                         a.tag(),
                         e
+                    );
+                    attempt.failed(
+                        &self.choosing.events,
+                        sess,
+                        &e,
+                        progress.failed_at(e.kind()),
                     );
                     // A member that cannot be reached is down now, and the
                     // next connection goes elsewhere, the tests asked to
@@ -845,7 +857,6 @@ impl OutboundStreamHandler for Group {
                 dial_domain::stream_done(&at, result)
             })
             .await?;
-        sess.chain.push(&member.name);
         Ok(match self.interrupt(member) {
             Some(selection) => super::interrupt::stream(stream, selection, member.clone()),
             None => stream,
@@ -884,7 +895,6 @@ impl OutboundDatagramHandler for Group {
                 dial_domain::datagram_done(sess, &at, result)
             })
             .await?;
-        sess.chain.push(&member.name);
         Ok(match self.interrupt(member) {
             Some(selection) => super::interrupt::datagram(datagram, selection, member.clone()),
             None => datagram,

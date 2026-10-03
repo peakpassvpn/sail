@@ -48,15 +48,15 @@ pub async fn connect(group: Arc<Group>, sess: &Session) -> io::Result<AnyStream>
     let mut failed = Vec::new();
     let dns_client = group.dns_client.clone();
     let result = group
-        .try_members(sess, &snapshot, &order, &site, &mut failed, |a| {
+        .try_members(sess, &snapshot, &order, &site, &mut failed, true, |a| {
             let dns_client = dns_client.clone();
             async move { dial(sess, dns_client, &a).await }
         })
         .await;
     let verdict = Verdict::new(group.clone(), failed);
     let (i, took, stream) = result?;
+    // In the chain since it was tried.
     let key = snapshot.members[i].key.clone();
-    sess.chain.push(&key.name);
     group.connected(&key, &site, took);
     let handshake = is_handshake(sess);
     let next = order
@@ -192,16 +192,26 @@ impl SmartStream {
             let mut failed = Vec::new();
             let dns_client = group.dns_client.clone();
             let result = group
-                .try_members(&sess, &snapshot, &candidates, &site, &mut failed, |a| {
-                    let dns_client = dns_client.clone();
-                    let (sess, replay) = (&sess, &replay);
-                    async move {
-                        let mut stream = dial(sess, dns_client, &a).await?;
-                        stream.write_all(replay).await?;
-                        stream.flush().await?;
-                        Ok(stream)
-                    }
-                })
+                // Up already: what fails now is not told, and the member
+                // taken replaces the one before in the chain.
+                .try_members(
+                    &sess,
+                    &snapshot,
+                    &candidates,
+                    &site,
+                    &mut failed,
+                    false,
+                    |a| {
+                        let dns_client = dns_client.clone();
+                        let (sess, replay) = (&sess, &replay);
+                        async move {
+                            let mut stream = dial(sess, dns_client, &a).await?;
+                            stream.write_all(replay).await?;
+                            stream.flush().await?;
+                            Ok(stream)
+                        }
+                    },
+                )
                 .await
                 .map(|(i, took, stream)| {
                     let next = candidates

@@ -91,6 +91,7 @@ use self::site::{Rank, Site, Tolerance};
 use super::interrupt::Until;
 use super::members::{MemberKey, MemberLatencies, Members, Snapshot, Tested};
 use super::merge;
+use super::tell::Attempt;
 use crate::adapter::outbound::HandlerBuilder;
 use crate::adapter::registry::{
     parse_options, Options, OutboundContext, OutboundFactory, OutboundRegistry,
@@ -291,6 +292,7 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         members: members.clone(),
         dns_client: ctx.dns_client.clone(),
         network: ctx.env.network.clone(),
+        events: ctx.env.events.clone(),
         stats: Mutex::new(HashMap::new()),
         sites: Mutex::new(LruCache::with_expiry_duration_and_capacity(
             site_ttl,
@@ -393,6 +395,8 @@ pub(super) struct Group {
     latencies: MemberLatencies,
     reported: Mutex<Option<Instant>>,
     probes: Probes,
+    /// Where its members' failures are told.
+    events: crate::control::events::EventHub,
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -735,6 +739,7 @@ impl Group {
     /// connects; each but the last has `timeout`. Returns the one that
     /// did, how long it took, and what it connected; those that failed
     /// are added to `failed`.
+    #[allow(clippy::too_many_arguments)]
     async fn try_members<T, F, Fut>(
         &self,
         sess: &Session,
@@ -742,6 +747,7 @@ impl Group {
         candidates: &[usize],
         site: &str,
         failed: &mut Vec<MemberKey>,
+        tell: bool,
         connect: F,
     ) -> io::Result<(usize, Duration, T)>
     where
@@ -755,9 +761,11 @@ impl Group {
                 "[{}] handles [{}:{}] to [{}]",
                 self.tag, sess.network, sess.destination, member.key.name
             );
+            let more = n + 1 < candidates.len();
+            let told = tell.then(|| Attempt::start(sess, &member.key.name, more));
             let start = Instant::now();
             let attempt = connect(member.handler.clone());
-            let result = if n + 1 < candidates.len() {
+            let result = if more {
                 tokio::time::timeout(self.timeout, attempt)
                     .await
                     .unwrap_or_else(|_| Err(io::Error::new(io::ErrorKind::TimedOut, "timed out")))
@@ -765,12 +773,21 @@ impl Group {
                 attempt.await
             };
             match result {
-                Ok(v) => return Ok((i, start.elapsed(), v)),
+                Ok(v) => {
+                    if let Some(told) = told {
+                        told.connected(sess);
+                    }
+                    return Ok((i, start.elapsed(), v));
+                }
                 Err(e) => {
                     debug!(
                         "[{}] failed to handle [{}:{}] through [{}]: {}",
                         self.tag, sess.network, sess.destination, member.key.name, e
                     );
+                    if let Some(told) = told {
+                        let stage = crate::control::events::DialStage::guessed(e.kind());
+                        told.failed(&self.events, sess, &e, stage);
+                    }
                     self.failed_site(&member.key, site);
                     failed.push(member.key.clone());
                     last_error = Some(e);

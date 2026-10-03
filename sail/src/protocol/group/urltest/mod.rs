@@ -363,6 +363,8 @@ impl OutboundStreamHandler for Group {
         let a = &member.handler;
         debug!("urltest handles [{}] to [{}]", sess.destination, a.tag());
         let progress = Progress::default();
+        // In the chain before it is dialled: a failure names it.
+        sess.chain.push(&member.key.name);
         let stream = self.failed(
             async {
                 let connect = a.stream()?.connect_addr();
@@ -378,7 +380,6 @@ impl OutboundStreamHandler for Group {
                     }
                     .await,
                 )?;
-                sess.chain.push(&member.key.name);
                 Ok(stream)
             }
             .await,
@@ -411,6 +412,8 @@ impl OutboundDatagramHandler for Group {
         let a = &member.handler;
         debug!("urltest handles [{}] to [{}]", sess.destination, a.tag());
         let progress = Progress::default();
+        // In the chain before it is dialled: a failure names it.
+        sess.chain.push(&member.key.name);
         let datagram = self.failed(
             async {
                 let connect = a.datagram()?.connect_addr();
@@ -427,7 +430,6 @@ impl OutboundDatagramHandler for Group {
                     }
                     .await,
                 )?;
-                sess.chain.push(&member.key.name);
                 Ok(datagram)
             }
             .await,

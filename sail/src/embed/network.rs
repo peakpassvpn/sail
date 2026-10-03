@@ -208,8 +208,10 @@ pub enum Event {
     Network(NetworkEvent),
     User(UserEvent),
     GroupSwitched(GroupSwitch),
-    /// `count` connections through `failure.chain` failed since the event
-    /// before for that chain; `failure` is the last of them.
+    /// `count` attempts through `failure.chain` failed since the event
+    /// before for that chain; `failure` is the last of them. A group's
+    /// member that failed is one, the group going on to another, see
+    /// `DialFailure::more_to_try`.
     DialFailed {
         failure: DialFailure,
         count: u64,

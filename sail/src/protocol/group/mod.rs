@@ -41,6 +41,12 @@ pub mod network;
 pub mod selector;
 #[cfg(feature = "outbound-smart")]
 pub mod smart;
+#[cfg(any(
+    feature = "outbound-fallback",
+    feature = "outbound-smart",
+    feature = "outbound-tryall"
+))]
+mod tell;
 #[cfg(feature = "outbound-tryall")]
 pub mod tryall;
 #[cfg(feature = "outbound-urltest")]

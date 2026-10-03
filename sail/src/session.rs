@@ -353,8 +353,8 @@ pub struct Session {
     /// written out: `None` for `route.final`.
     pub matched_rule: Option<std::sync::Arc<str>>,
     /// The members the groups the connection went through handed it to,
-    /// the innermost first: shared by the session's copies, as each group
-    /// adds its member once the member has taken the connection.
+    /// the outermost first: shared by the session's copies, as each group
+    /// adds its member before it dials the member.
     pub chain: Chain,
     /// The LAN device the source address is, as the neighbor table and
     /// DHCP leases know it: looked up before routing, when a rule or a DNS
@@ -376,32 +376,150 @@ pub struct Session {
     pub handshake: Option<crate::app::inbound::HandshakePlace>,
 }
 
-/// The members groups handed a connection to, the innermost first, as
-/// Mihomo's connections list them (with the outbound routed to last).
+/// The members groups handed a connection to, the outermost first: each
+/// group adds the member it tries before it dials it, so that the last is
+/// the member being tried, or the one that failed. Mihomo's connections
+/// list them the other way round, see `control`.
+///
+/// It also carries what the groups on the way tell of their members'
+/// failures (control::events): whether the connection's failures are
+/// told at all, whether a group gave up on it, having told the failure of
+/// its last member, and whether a group around the one trying a member
+/// has another member to try after it.
 #[derive(Debug, Clone, Default)]
-pub struct Chain(std::sync::Arc<std::sync::Mutex<Vec<String>>>);
+pub struct Chain(std::sync::Arc<std::sync::Mutex<Links>>);
+
+#[derive(Debug, Clone, Default)]
+struct Links {
+    tags: Vec<String>,
+    /// The connection's failures are told: the dispatcher tells them.
+    telling: bool,
+    /// How many groups gave up on the connection, its last member's
+    /// failure told.
+    ended: usize,
+    /// A group around the one trying a member goes on to another member
+    /// if this one fails.
+    more: bool,
+}
 
 impl Chain {
-    /// Adds `tag`, the member a group handed the connection to.
+    fn links(&self) -> std::sync::MutexGuard<'_, Links> {
+        self.0.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// A chain for a connection whose failures are told: the groups on
+    /// the way tell their members', the dispatcher the rest.
+    pub(crate) fn telling() -> Self {
+        let chain = Self::default();
+        chain.links().telling = true;
+        chain
+    }
+
+    /// Adds `tag`, the member a group hands the connection to.
     pub fn push(&self, tag: &str) {
-        self.0
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .push(tag.to_string());
+        self.links().tags.push(tag.to_string());
     }
 
     pub fn get(&self) -> Vec<String> {
-        self.0.lock().unwrap_or_else(|e| e.into_inner()).clone()
+        self.links().tags.clone()
     }
 
     /// Puts `to` where `from` was last added: a group went over to another
     /// member.
     pub fn replace(&self, from: &str, to: &str) {
-        let mut chain = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        match chain.iter().rposition(|t| t == from) {
-            Some(i) => chain[i] = to.to_string(),
-            None => chain.push(to.to_string()),
+        let mut links = self.links();
+        match links.tags.iter().rposition(|t| t == from) {
+            Some(i) => links.tags[i] = to.to_string(),
+            None => links.tags.push(to.to_string()),
         }
+    }
+
+    /// Where the chain is now, to be put back to with `truncate`.
+    #[cfg_attr(
+        not(any(feature = "outbound-fallback", feature = "outbound-smart")),
+        allow(dead_code)
+    )]
+    pub(crate) fn mark(&self) -> usize {
+        self.links().tags.len()
+    }
+
+    /// Puts the chain back to `mark`: what was added since goes.
+    pub(crate) fn truncate(&self, mark: usize) {
+        self.links().tags.truncate(mark);
+    }
+
+    #[cfg_attr(
+        not(any(
+            feature = "outbound-fallback",
+            feature = "outbound-smart",
+            feature = "outbound-tryall"
+        )),
+        allow(dead_code)
+    )]
+    pub(crate) fn tells(&self) -> bool {
+        self.links().telling
+    }
+
+    /// How many groups gave up on the connection: a group in them, or the
+    /// dispatcher, tells nothing more of it.
+    pub(crate) fn ended(&self) -> usize {
+        self.links().ended
+    }
+
+    /// A group gave up on the connection.
+    #[cfg_attr(
+        not(any(
+            feature = "outbound-fallback",
+            feature = "outbound-smart",
+            feature = "outbound-tryall"
+        )),
+        allow(dead_code)
+    )]
+    pub(crate) fn end(&self) {
+        self.links().ended += 1;
+    }
+
+    /// Whether a group around the one trying a member goes on to another.
+    #[cfg_attr(
+        not(any(
+            feature = "outbound-fallback",
+            feature = "outbound-smart",
+            feature = "outbound-tryall"
+        )),
+        allow(dead_code)
+    )]
+    pub(crate) fn more(&self) -> bool {
+        self.links().more
+    }
+
+    /// Sets `more`, returning what it was.
+    pub(crate) fn set_more(&self, more: bool) -> bool {
+        std::mem::replace(&mut self.links().more, more)
+    }
+
+    /// A chain of its own, as this one is but with no group given up: for an
+    /// attempt run beside others, as a tryall's are.
+    #[cfg_attr(not(feature = "outbound-tryall"), allow(dead_code))]
+    pub(crate) fn fork(&self) -> Self {
+        let links = self.links();
+        Self(std::sync::Arc::new(std::sync::Mutex::new(Links {
+            tags: links.tags.clone(),
+            telling: links.telling,
+            ended: 0,
+            more: links.more,
+        })))
+    }
+
+    /// Takes on the members of `fork`, if `members`, and the groups that
+    /// gave up in it.
+    #[cfg_attr(not(feature = "outbound-tryall"), allow(dead_code))]
+    pub(crate) fn join(&self, fork: &Chain, members: bool) {
+        let theirs = fork.links().clone();
+        let mut links = self.links();
+        if members {
+            links.tags = theirs.tags;
+        }
+        links.ended += theirs.ended;
     }
 }
 

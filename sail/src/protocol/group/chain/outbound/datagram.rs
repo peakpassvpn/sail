@@ -5,7 +5,7 @@ use tracing::Instrument;
 
 use crate::{adapter::*, session::Session};
 
-use super::plan::{Input, Kind, Plan};
+use super::plan::{dialing, Input, Kind, Plan};
 
 pub struct Handler {
     pub actors: Vec<AnyOutboundHandler>,
@@ -48,6 +48,15 @@ impl OutboundDatagramHandler for Handler {
         Plan::for_datagram(&self.actors, Input::Nothing).dial
     }
 
+    /// The actors the dial is for hear of it; the others, each before its
+    /// part of `handle`.
+    fn dialing(&self, sess: &Session) {
+        let plan = Plan::for_datagram(&self.actors, Input::Nothing);
+        for stage in &plan.stages[..plan.dialled] {
+            dialing(&self.actors[stage.index], stage.kind, sess);
+        }
+    }
+
     /// What the *first* actor accepts, which is what an enclosing chain is
     /// asking about when it decides whether it may convert a stream into a
     /// datagram before reaching this one. Not what this chain produces.
@@ -75,6 +84,9 @@ impl OutboundDatagramHandler for Handler {
         for stage in &plan.stages {
             let actor = &self.actors[stage.index];
             let sess = stage.session(sess);
+            if stage.index >= plan.dialled {
+                dialing(actor, stage.kind, &sess);
+            }
             carried = match stage.kind {
                 Kind::Datagram => {
                     let transport = match carried {

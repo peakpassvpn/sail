@@ -278,7 +278,8 @@ impl OutboundDatagram for HealthcheckUdpDatagram {
 
 #[inline]
 /// The outbound `tag` with the members the groups on the way took,
-/// `group>member`, so that a failure names the member it is in.
+/// outermost first, `group>member`, so that a failure names the member it
+/// is in.
 fn outbound_path(sess: &Session, tag: &str) -> String {
     std::iter::once(tag.to_string())
         .chain(sess.chain.get())
@@ -453,23 +454,18 @@ impl Dispatcher {
     /// or timed out": a handshake that times out (the outbound's own, a
     /// TLS one) is `TimedOut` too, until the dispatcher sees how far an
     /// attempt got. A relay that fails later is not told: most end so.
+    /// Nothing when a group on the way gave up on it, having told its
+    /// last member's failure.
     fn tell_failed(&self, sess: &Session, outbound_tag: &str, e: &io::Error) {
         use crate::control::events::{DialFailure, DialStage};
-        use io::ErrorKind as K;
-        let stage = match e.kind() {
-            K::ConnectionRefused
-            | K::TimedOut
-            | K::HostUnreachable
-            | K::NetworkUnreachable
-            | K::NotFound
-            | K::AddrNotAvailable => DialStage::Dial,
-            _ => DialStage::Handshake,
-        };
+        if sess.chain.ended() > 0 {
+            return;
+        }
         self.env.events.dial_failed(DialFailure::new(
             outbound_path(sess, outbound_tag),
             crate::app::logger::destination(&sess.destination).to_string(),
             e.kind(),
-            stage,
+            DialStage::guessed(e.kind()),
         ));
     }
 }
@@ -668,8 +664,9 @@ impl Dispatcher {
         };
         self.find_dial_domain(&mut sess).await;
         sess.outbound_tag = h.tag().clone();
-        // The groups on the way record the members they take here.
-        sess.chain = Default::default();
+        // The groups on the way record the members they take here, and
+        // tell their failures.
+        sess.chain = crate::session::Chain::telling();
 
         let handshake_start = tokio::time::Instant::now();
         let th = match h.stream() {
@@ -690,7 +687,13 @@ impl Dispatcher {
         let mut id = None;
         let mut asked: Option<SocksAddr> = None;
         let connect = th.connect_addr();
-        for to in net::destinations(&sess, &connect) {
+        let destinations = net::destinations(&sess, &connect);
+        let last = destinations.len().saturating_sub(1);
+        for (n, to) in destinations.into_iter().enumerate() {
+            // Each address its own attempt, its chain alone; a group's
+            // failure in it is not the connection's while one is left.
+            sess.chain.truncate(0);
+            sess.chain.set_more(n < last);
             let attempt;
             let at = if to == sess.destination {
                 &sess
@@ -943,7 +946,7 @@ impl Dispatcher {
             )
         })?;
         sess.outbound_tag = h.tag().clone();
-        sess.chain = Default::default();
+        sess.chain = crate::session::Chain::telling();
         let handshake_start = tokio::time::Instant::now();
         let connected = async {
             let stream =
@@ -1005,7 +1008,7 @@ impl Dispatcher {
             )
         })?;
         sess.outbound_tag = h.tag().clone();
-        sess.chain = Default::default();
+        sess.chain = crate::session::Chain::telling();
         let handshake_start = tokio::time::Instant::now();
         let connected = async {
             let transport =
@@ -1121,8 +1124,9 @@ impl Dispatcher {
         };
         self.find_dial_domain(&mut sess).await;
         sess.outbound_tag = h.tag().clone();
-        // The groups on the way record the members they take here.
-        sess.chain = Default::default();
+        // The groups on the way record the members they take here, and
+        // tell their failures.
+        sess.chain = crate::session::Chain::telling();
 
         let handshake_start = tokio::time::Instant::now();
 
@@ -1133,7 +1137,11 @@ impl Dispatcher {
         let mut handshake = Err(io::Error::other("nowhere to send"));
         let mut dialed = sess.destination.clone();
         let connect = dh.connect_addr();
-        for to in net::destinations(&sess, &connect) {
+        let destinations = net::destinations(&sess, &connect);
+        let last = destinations.len().saturating_sub(1);
+        for (n, to) in destinations.into_iter().enumerate() {
+            sess.chain.truncate(0);
+            sess.chain.set_more(n < last);
             let at = Session {
                 destination: to,
                 ..sess.clone()
@@ -1496,7 +1504,9 @@ async fn refuse<T: AsyncWrite + Unpin>(sess: &Session, lhs: &mut T, e: &io::Erro
 
 #[cfg(test)]
 mod tests {
-    /// A failure names the member a group took, not the group alone.
+    /// A failure names the member a group took, not the group alone: the
+    /// outermost first, as each group adds its member before dialling it,
+    /// a group in a group after the group.
     #[test]
     fn the_outbound_path_names_the_members_taken() {
         let sess = crate::session::Session::default();

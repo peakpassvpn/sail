@@ -152,6 +152,7 @@ fn group_of(members: Vec<Member>) -> Arc<Group> {
         members: Members::of(members),
         dns_client,
         network: Default::default(),
+        events: Default::default(),
         stats: Mutex::new(HashMap::new()),
         sites: Mutex::new(LruCache::with_expiry_duration_and_capacity(
             DEFAULT_SITE_TTL,

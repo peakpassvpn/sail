@@ -23,6 +23,7 @@ mod test_config_surge;
 mod test_control;
 mod test_corpus;
 mod test_detour;
+mod test_dial_failed;
 mod test_direct;
 mod test_dns_respect_rules;
 mod test_dns_server;

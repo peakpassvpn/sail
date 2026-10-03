@@ -26,15 +26,24 @@ pub(crate) enum Stage {
 
 /// The stage an attempt is at, as it moves on.
 #[derive(Default)]
-pub(crate) struct Progress(AtomicU8);
+pub(crate) struct Progress {
+    stage: AtomicU8,
+    /// Whether what the member asked for was dialled: `NOT_YET`,
+    /// `DIALLED`, or `NOTHING` when it dials by itself.
+    dial: AtomicU8,
+}
+
+const NOT_YET: u8 = 0;
+const DIALLED: u8 = 1;
+const NOTHING: u8 = 2;
 
 impl Progress {
     fn set(&self, stage: Stage) {
-        self.0.store(stage as u8, Ordering::Relaxed);
+        self.stage.store(stage as u8, Ordering::Relaxed);
     }
 
     pub(crate) fn get(&self) -> Stage {
-        match self.0.load(Ordering::Relaxed) {
+        match self.stage.load(Ordering::Relaxed) {
             1 => Stage::DialingServer,
             2 => Stage::Handshake,
             _ => Stage::Elsewhere,
@@ -47,12 +56,34 @@ impl Progress {
             OutboundConnect::Proxy(..) => Stage::DialingServer,
             _ => Stage::Elsewhere,
         });
+        let dial = match connect {
+            OutboundConnect::Unknown => NOTHING,
+            _ => NOT_YET,
+        };
+        self.dial.store(dial, Ordering::Relaxed);
     }
 
     /// The dial done, before the member's handshake.
     pub(crate) fn dialled(&self) {
         if self.get() == Stage::DialingServer {
             self.set(Stage::Handshake);
+        }
+        let _ = self
+            .dial
+            .compare_exchange(NOT_YET, DIALLED, Ordering::Relaxed, Ordering::Relaxed);
+    }
+
+    /// Where an attempt that failed with `kind` failed, for its
+    /// `DialFailure`: dialling until what the member asked for was
+    /// dialled, its handshake after; as the kind suggests for a member
+    /// that dials by itself.
+    #[cfg(feature = "outbound-fallback")]
+    pub(crate) fn failed_at(&self, kind: std::io::ErrorKind) -> crate::control::events::DialStage {
+        use crate::control::events::DialStage;
+        match self.dial.load(Ordering::Relaxed) {
+            NOT_YET => DialStage::Dial,
+            DIALLED => DialStage::Handshake,
+            _ => DialStage::guessed(kind),
         }
     }
 }

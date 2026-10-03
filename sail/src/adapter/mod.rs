@@ -98,6 +98,12 @@ pub trait OutboundStreamHandler: Send + Sync + Unpin {
     /// communicate with.
     fn connect_addr(&self) -> OutboundConnect;
 
+    /// Before what `connect_addr` asks for is dialled for `sess`: a group
+    /// whose `connect_addr` is its member's adds the member to the
+    /// session's chain, as the dial is the member's and its failure is to
+    /// name it.
+    fn dialing(&self, _sess: &Session) {}
+
     /// Handles a session with the given stream. On success, returns a
     /// stream wraps the incoming stream.
     async fn handle<'a>(
@@ -154,6 +160,12 @@ pub trait OutboundDatagramHandler: Send + Sync + Unpin {
     /// Returns the address which the underlying transport should
     /// communicate with.
     fn connect_addr(&self) -> OutboundConnect;
+
+    /// Before what `connect_addr` asks for is dialled for `sess`: a group
+    /// whose `connect_addr` is its member's adds the member to the
+    /// session's chain, as the dial is the member's and its failure is to
+    /// name it.
+    fn dialing(&self, _sess: &Session) {}
 
     /// Returns the transport type of this handler.
     fn transport_type(&self) -> DatagramTransportType;

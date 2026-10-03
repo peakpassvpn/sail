@@ -322,15 +322,9 @@ impl OutboundStreamHandler for Group {
             sess.destination,
             a.tag()
         );
-        self.failed(
-            async {
-                let stream =
-                    crate::net::dial_domain::stream(sess, self.dns_client.clone(), a).await?;
-                sess.chain.push(&member.key.name);
-                Ok(stream)
-            }
-            .await,
-        )
+        // In the chain before it is dialled: a failure names it.
+        sess.chain.push(&member.key.name);
+        self.failed(crate::net::dial_domain::stream(sess, self.dns_client.clone(), a).await)
     }
 }
 
@@ -357,15 +351,9 @@ impl OutboundDatagramHandler for Group {
             sess.destination,
             a.tag()
         );
+        sess.chain.push(&member.key.name);
         self.failed(
-            async {
-                let datagram =
-                    crate::net::dial_domain::datagram_through(sess, self.dns_client.clone(), a)
-                        .await?;
-                sess.chain.push(&member.key.name);
-                Ok(datagram)
-            }
-            .await,
+            crate::net::dial_domain::datagram_through(sess, self.dns_client.clone(), a).await,
         )
     }
 }

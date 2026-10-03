@@ -235,7 +235,9 @@ pub async fn connect_stream_outbound(
     dns_client: SyncDnsClient,
     handler: &AnyOutboundHandler,
 ) -> io::Result<Option<AnyStream>> {
-    connect_stream(sess, dns_client, handler.stream()?.connect_addr()).await
+    let th = handler.stream()?;
+    th.dialing(sess);
+    connect_stream(sess, dns_client, th.connect_addr()).await
 }
 
 /// `connect_stream_outbound`, for `handler`, the outbound the rules routed
@@ -245,7 +247,9 @@ pub async fn connect_stream_routed(
     dns_client: SyncDnsClient,
     handler: &AnyOutboundHandler,
 ) -> io::Result<Option<AnyStream>> {
-    let connect = routed(sess, handler, handler.stream()?.connect_addr(), false);
+    let th = handler.stream()?;
+    th.dialing(sess);
+    let connect = routed(sess, handler, th.connect_addr(), false);
     connect_stream(sess, dns_client, connect).await
 }
 
@@ -256,7 +260,9 @@ pub async fn connect_datagram_routed(
     dns_client: SyncDnsClient,
     handler: &AnyOutboundHandler,
 ) -> io::Result<Option<AnyOutboundTransport>> {
-    let connect = routed(sess, handler, handler.datagram()?.connect_addr(), true);
+    let dh = handler.datagram()?;
+    dh.dialing(sess);
+    let connect = routed(sess, handler, dh.connect_addr(), true);
     connect_datagram(sess, dns_client, connect).await
 }
 
@@ -328,7 +334,9 @@ pub async fn connect_datagram_outbound(
     dns_client: SyncDnsClient,
     handler: &AnyOutboundHandler,
 ) -> io::Result<Option<AnyOutboundTransport>> {
-    connect_datagram(sess, dns_client, handler.datagram()?.connect_addr()).await
+    let dh = handler.datagram()?;
+    dh.dialing(sess);
+    connect_datagram(sess, dns_client, dh.connect_addr()).await
 }
 
 async fn connect_datagram(

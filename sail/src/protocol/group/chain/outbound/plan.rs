@@ -82,6 +82,9 @@ pub(super) struct Plan {
     pub stages: Vec<Stage>,
     /// What the caller should dial before the first stage runs.
     pub dial: OutboundConnect,
+    /// The actors the caller's dial is for: those up to the first that
+    /// names what to dial (the rest leave it to the next).
+    pub dialled: usize,
 }
 
 impl Plan {
@@ -109,14 +112,32 @@ impl Plan {
                 next_hop: proxy_address(&resolved[index + 1]),
             })
             .collect();
+        let dialled = (0..actors.len())
+            .find(|&i| !matches!(connect_addr(&actors[i], kinds[i]), OutboundConnect::Next))
+            .map_or(actors.len(), |i| i + 1);
         Plan {
             stages,
             dial: resolved[0].clone(),
+            dialled,
         }
     }
 
     pub fn last(&self) -> usize {
         self.stages.len().saturating_sub(1)
+    }
+}
+
+/// Before `actor`'s part of the dial, or of the I/O, as `kind`: a group in
+/// it adds its member to the session's chain (`dialing`), as it would were
+/// it dialled on its own.
+pub(super) fn dialing(actor: &AnyOutboundHandler, kind: Kind, sess: &Session) {
+    // Asked of the handler the stage runs, else the other, as
+    // `connect_addr` is.
+    let (stream, datagram) = (actor.stream().ok(), actor.datagram().ok());
+    match (kind, stream, datagram) {
+        (Kind::Stream, Some(h), _) | (Kind::Datagram, Some(h), None) => h.dialing(sess),
+        (Kind::Datagram, _, Some(h)) | (Kind::Stream, None, Some(h)) => h.dialing(sess),
+        _ => {}
     }
 }
 
