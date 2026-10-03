@@ -10,6 +10,7 @@
 
 use std::io;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
@@ -27,7 +28,11 @@ use tokio::net::{TcpListener, TcpStream};
 type Tls<S> = TlsStream<BoringConnection, S>;
 
 /// Long enough for debug builds; a stall never ends.
-const DEADLINE: Duration = Duration::from_secs(20);
+/// A transfer that moves no byte for this long has stalled; a slow one, on
+/// a loaded machine, goes on.
+const STALL: Duration = Duration::from_secs(10);
+/// And none takes longer than this.
+const DEADLINE: Duration = Duration::from_secs(120);
 
 const CHUNK: usize = 64 * 1024;
 
@@ -142,8 +147,13 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for Half<S> {
 
 /// Writes `total` pattern bytes, requesting a TLS 1.3 KeyUpdate every
 /// `key_update_every` chunks, then closes.
-async fn send<S>(mut w: Half<Tls<S>>, seed: u8, total: u64, key_update_every: Option<u64>)
-where
+async fn send<S>(
+    mut w: Half<Tls<S>>,
+    seed: u8,
+    total: u64,
+    key_update_every: Option<u64>,
+    moved: Arc<AtomicUsize>,
+) where
     S: AsyncRead + AsyncWrite + Unpin,
 {
     let mut buf = vec![0; CHUNK];
@@ -164,6 +174,7 @@ where
             assert_eq!(ok, 1, "SSL_key_update");
         }
         w.write_all(&buf[..n]).await.unwrap();
+        moved.fetch_add(n, Ordering::Relaxed);
         pos += n as u64;
         chunks += 1;
     }
@@ -172,7 +183,7 @@ where
 }
 
 /// Reads `total` pattern bytes and then the peer's close_notify.
-async fn recv<S>(mut r: Half<Tls<S>>, seed: u8, total: u64)
+async fn recv<S>(mut r: Half<Tls<S>>, seed: u8, total: u64, moved: Arc<AtomicUsize>)
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
@@ -186,31 +197,71 @@ where
         for (i, b) in buf[..n].iter().enumerate() {
             assert_eq!(*b, pattern(seed, pos + i as u64), "byte {}", pos + i as u64);
         }
+        moved.fetch_add(n, Ordering::Relaxed);
         pos += n as u64;
     }
     assert_eq!(pos, total, "stream ended early");
 }
 
 /// Sends `total` bytes each way at once, with each end's reader and writer in
-/// tasks of their own. Panics if the transfer stalls.
+/// tasks of their own. Panics if the transfer stalls: no byte moved for
+/// `STALL`, telling how far each task got.
 async fn exchange<S>(c: Tls<S>, s: Tls<S>, total: u64, key_update_every: Option<u64>)
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
     let c = Arc::new(Mutex::new(c));
     let s = Arc::new(Mutex::new(s));
+    let moved: [Arc<AtomicUsize>; 4] = Default::default();
     let tasks = [
-        tokio::spawn(send(Half(c.clone()), 1, total, key_update_every)),
-        tokio::spawn(send(Half(s.clone()), 2, total, key_update_every)),
-        tokio::spawn(recv(Half(c), 2, total)),
-        tokio::spawn(recv(Half(s), 1, total)),
+        tokio::spawn(send(
+            Half(c.clone()),
+            1,
+            total,
+            key_update_every,
+            moved[0].clone(),
+        )),
+        tokio::spawn(send(
+            Half(s.clone()),
+            2,
+            total,
+            key_update_every,
+            moved[1].clone(),
+        )),
+        tokio::spawn(recv(Half(c), 2, total, moved[2].clone())),
+        tokio::spawn(recv(Half(s), 1, total, moved[3].clone())),
     ];
-    let all = futures::future::try_join_all(tasks);
-    match tokio::time::timeout(DEADLINE, all).await {
-        Ok(done) => {
-            done.unwrap();
+    let mut all = std::pin::pin!(futures::future::try_join_all(tasks));
+    let started = Instant::now();
+    let counts = || {
+        moved
+            .iter()
+            .map(|m| m.load(Ordering::Relaxed))
+            .collect::<Vec<_>>()
+    };
+    let (mut last, mut since) = (counts(), Instant::now());
+    loop {
+        match tokio::time::timeout(Duration::from_secs(1), &mut all).await {
+            Ok(done) => {
+                done.unwrap();
+                return;
+            }
+            Err(_) => {
+                let now = counts();
+                if now != last {
+                    (last, since) = (now, Instant::now());
+                }
+                assert!(
+                    since.elapsed() < STALL && started.elapsed() < DEADLINE,
+                    "split TLS transfer stalled after {:?}: bytes moved by the client's \
+                     writer, the server's writer, the client's reader, the server's reader: \
+                     {:?} of {} each",
+                    started.elapsed(),
+                    last,
+                    total
+                );
+            }
         }
-        Err(_) => panic!("split TLS transfer stalled"),
     }
 }
 
