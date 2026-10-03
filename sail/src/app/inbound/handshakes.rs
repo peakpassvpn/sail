@@ -6,7 +6,8 @@
 //! those in their handshake are not slowed by a flood of others.
 //!
 //! What never authenticates takes memory and a descriptor until the
-//! handshake deadline, 9 to 20 KiB each (measured): the limit keeps a flood
+//! handshake deadline, 25 to 37 KiB each in a musl build, which allocates
+//! with mimalloc, and 9 to 20 with glibc's (measured): the limit keeps a flood
 //! of them within a budget. sing-box has none; a sail extension.
 
 use std::collections::HashMap;

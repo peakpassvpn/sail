@@ -169,8 +169,9 @@ pub struct Inbound {
     pub max_connections: usize,
     /// Connections of one inbound in their handshake at once, those that
     /// never finish it included; 0, no limit. One more is closed at once.
-    /// What never authenticates takes 9 to 20 KiB until the handshake
-    /// deadline (measured). A sail extension: sing-box does not bound them.
+    /// What never authenticates takes 25 to 37 KiB until the handshake
+    /// deadline in a musl build (mimalloc), 9 to 20 with glibc (measured).
+    /// A sail extension: sing-box does not bound them.
     #[serde(default)]
     pub max_handshakes: usize,
     /// The most of them one source address may hold; 0, no limit, the
@@ -479,7 +480,8 @@ impl RuntimeOptions {
                     // 384 lived through both (measured); the most that did.
                     max_connections: 512,
                     // A judgment, from the above: half the sessions the
-                    // budget carries, at up to 20 KiB each (measured), 5 MiB.
+                    // budget carries, at up to 37 KiB each in a musl build
+                    // (measured), 9 MiB.
                     max_handshakes: 256,
                     ..desktop.inbound
                 },
@@ -529,7 +531,8 @@ impl RuntimeOptions {
                     // (`C.TCPTimeout`); the slowest whole setup measured,
                     // REALITY over 300 ms and 5% loss, took 4.7 s.
                     handshake_timeout: Duration::from_secs(15),
-                    // A judgment: at up to 20 KiB each (measured), 80 MiB
+                    // A judgment: at up to 37 KiB each in a musl build, 20
+                    // with glibc (measured), 150 or 80 MiB
                     // when full; 1000 new connections a second over a
                     // 300 ms path keep about 900 in their handshake.
                     max_handshakes: 4096,
