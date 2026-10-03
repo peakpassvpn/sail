@@ -304,12 +304,6 @@ fn auto_redirect_takes_the_host_s_traffic_and_gives_it_back() -> Result<()> {
         before,
         host_dns()
     );
-    ensure!(
-        std::fs::read_to_string(&log)?
-            .lines()
-            .any(|line| line.contains("DNS is not set through systemd-resolved")),
-        "sail says why it left the system's DNS alone"
-    );
 
     ensure!(
         tcp(SERVER).as_deref() == Some(PEER4),
@@ -570,6 +564,8 @@ fn a_sweep_leaves_another_live_instance_alone() -> Result<()> {
     let first_rules = rules_at(&(9000..=9010).chain([32768]).collect::<Vec<_>>())?;
     ensure!(!first_rules.is_empty(), "the first instance's rules");
 
+    let host_dns = || run("nsenter", "--net=/proc/1/ns/net resolvectl dns").ok();
+    let dns_before = host_dns();
     // Two: auto_route on sadtwo, indexes of its own, killed.
     let second = Sail::spawn(
         &two,
@@ -589,6 +585,20 @@ fn a_sweep_leaves_another_live_instance_alone() -> Result<()> {
             !rules_at(&seconds)?.is_empty()
         ))?,
         "the second instance did not route"
+    );
+    // auto_route sets a TUN's DNS through systemd-resolved, which a
+    // namespace's TUN must leave alone, saying why.
+    ensure!(
+        std::fs::read_to_string(&log_two)?
+            .lines()
+            .any(|line| line.contains("DNS is not set through systemd-resolved")),
+        "sail in a namespace says why it left the system's DNS alone"
+    );
+    ensure!(
+        host_dns() == dns_before,
+        "an auto_route TUN in a namespace changed the host's DNS: {:?} then {:?}",
+        dns_before,
+        host_dns()
     );
     second.crash()?;
     ensure!(!rules_at(&seconds)?.is_empty(), "a kill leaves its rules");
