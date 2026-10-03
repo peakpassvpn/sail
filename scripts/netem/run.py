@@ -85,6 +85,19 @@ CPUS = {}
 NETGEN_CPUS = {}
 
 
+def cpu_list(text):
+    """The CPUs of a taskset-style list, such as 0,1 or 4-7."""
+    cpus = set()
+    for part in filter(None, (text or "").split(",")):
+        lo, _, hi = part.partition("-")
+        cpus.update(range(int(lo), int(hi or lo) + 1))
+    return cpus
+
+
+def fmt_cpus(cpus):
+    return ",".join(map(str, sorted(cpus)))
+
+
 def in_ns_netgen(ns, cmd):
     cpus = NETGEN_CPUS.get(ns) or CPUS.get(ns)
     pin = f"taskset -c {cpus} " if cpus else ""
@@ -1058,6 +1071,22 @@ def main():
         known = {"sb", "sail", *args.sail_bins}
         if len(sides) != 2 or not set(sides) <= known:
             ap.error(f"--matrix {pair!r}: client>server, each of {sorted(known)}")
+    pinned = set()
+    for opt, value in (("--cpus", args.cpus), ("--server-cpus", args.server_cpus),
+                       ("--netgen-cpus", args.netgen_cpus)):
+        try:
+            pinned |= cpu_list(value)
+        except ValueError:
+            ap.error(f"{opt} {value!r}: CPUs like 0,1 or 4-7")
+    lease = os.environ.get("HOSTQ_CPUS")
+    if lease and not pinned <= cpu_list(lease):
+        # hostq leases a measurement at most 4 CPUs; a cell pinning more
+        # (a multi-Gbit cell: client, server and 4 for netgen) needs the
+        # whole host.
+        sys.exit(f"the CPUs pinned ({fmt_cpus(pinned)}) are not all in this hostq lease "
+                 f"({lease}): pin within the lease, or for more than 4 CPUs (a multi-Gbit "
+                 f"cell's netgen alone wants 4) reserve a whole-host window and run "
+                 f"with hostq run --whole-host")
     if args.netgen_cpus:
         NETGEN_CPUS[CLIENT_NS] = NETGEN_CPUS[SERVER_NS] = args.netgen_cpus
     if args.cpus:

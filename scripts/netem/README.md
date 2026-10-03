@@ -27,7 +27,7 @@ python3 run.py --protocols direct --clients sail-server --only baseline --quick 
 
 `--servers` 里的 `sail` 以 `--server-profile` 档位运行（默认 `server`）。2026-10-03 之前 sail 服务端不带 `--profile`，跑的是默认的桌面档位，那之前“sail 作服务端”的结果都属于桌面档位。每项负载除了客户端的 `cpu_s`，还记录协议服务端进程的 `server_cpu_s`（同一时段，/proc 的 utime+stime）。
 
-对比矩阵：`--matrix PAIRS` 依次跑客户端>服务端组合（每边取 `sb`、`sail` 或 `--sail-bin NAME=PATH` 给出的另一个 sail 二进制，如 `--matrix sb>sb,sail>sb,sb>sail,sail>sail`），轮次在最外层，每轮轮换组合与协议的顺序，邻居噪声落在各组合上大致均匀。配合使用：`--bulk-only` 只跑上下行大块；`--bulk-bytes-quic N` 给 hy2 和 tuic 单独的大块字节数；`--netgen-cpus LIST` 把两端的 netgen 绑到客户端与服务端之外的 CPU（多 Gbit 的格子至少给 4 个：只给 2 个时每个组合都卡在约 3.3 Gbit/s，瓶颈是 netgen 自己的 CPU）；`--end-settle S` 是运行结束前客户端的静置秒数（默认 10，用于静止 RSS；只看吞吐时可缩短）。
+对比矩阵：`--matrix PAIRS` 依次跑客户端>服务端组合（每边取 `sb`、`sail` 或 `--sail-bin NAME=PATH` 给出的另一个 sail 二进制，如 `--matrix sb>sb,sail>sb,sb>sail,sail>sail`），轮次在最外层，每轮轮换组合与协议的顺序，邻居噪声落在各组合上大致均匀。配合使用：`--bulk-only` 只跑上下行大块；`--bulk-bytes-quic N` 给 hy2 和 tuic 单独的大块字节数；`--netgen-cpus LIST` 把两端的 netgen 绑到客户端与服务端之外的 CPU（多 Gbit 的格子至少给 4 个：只给 2 个时每个组合都卡在约 3.3 Gbit/s，瓶颈是 netgen 自己的 CPU。测试机的 hostq 一次只给测量任务最多 4 个 CPU，超过的请求直接拒绝，所以这种格子要先预约整机窗口，再用 `hostq run --whole-host` 跑；在 hostq 租约里运行时，若绑定的 CPU 超出租约，run.py 一开始就报错退出）；`--end-settle S` 是运行结束前客户端的静置秒数（默认 10，用于静止 RSS；只看吞吐时可缩短）。
 
 长跑：`--soak HOURS` 代替上面的场景，客户端不重启，在基线、高延迟、丢包、限速、突发丢包之间轮换，每轮跑一组轻量的带校验负载后静置 60 秒、记录客户端的静止 RSS 与描述符；每小时向该次运行目录下的 `soak.jsonl` 追加一行，结束时按“第 2 小时到最后一小时静止 RSS 增长低于 10%”判定。`--cpus LIST` 把客户端一侧（被测客户端与 netgen）绑到这些 CPU 上（`taskset -c`），`--server-cpus LIST` 把服务端一侧绑到另一组 CPU；只给 `--cpus` 时两侧都绑到同一组，用于和另一个长跑共用主机。
 
