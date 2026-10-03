@@ -69,7 +69,9 @@ pub struct ClientOptions {
 impl ClientOptions {
     /// Checks the limits as sing-box does: `max_streams` excludes the
     /// other two. With none set, up to 4 connections, a new one while the
-    /// least busy carries 4 streams or more.
+    /// least busy carries 4 streams or more. `max_connections` alone, as
+    /// in sing-mux, means no `min_streams`: a busy connection takes no
+    /// stream while there are fewer than that many.
     pub fn new(
         protocol: Protocol,
         padding: bool,
@@ -97,7 +99,10 @@ impl ClientOptions {
         }
         let (max_connections, min_streams) = match max_streams {
             Some(_) => (0, 0),
-            None => (max_connections.unwrap_or(4), min_streams.unwrap_or(4)),
+            None => match max_connections {
+                Some(n) => (n, min_streams.unwrap_or(0)),
+                None => (4, min_streams.unwrap_or(4)),
+            },
         };
         Ok(ClientOptions {
             protocol,
@@ -615,6 +620,10 @@ mod tests {
     fn limits_are_checked_as_sing_box_does() {
         let o = options(None, None, None).unwrap();
         assert_eq!((o.max_connections, o.min_streams, o.max_streams), (4, 4, 0));
+        let o = options(Some(4), None, None).unwrap();
+        assert_eq!((o.max_connections, o.min_streams, o.max_streams), (4, 0, 0));
+        let o = options(Some(4), Some(2), None).unwrap();
+        assert_eq!((o.max_connections, o.min_streams, o.max_streams), (4, 2, 0));
         let o = options(None, None, Some(8)).unwrap();
         assert_eq!((o.max_connections, o.min_streams, o.max_streams), (0, 0, 8));
         assert!(options(Some(2), None, Some(8)).is_err());
@@ -910,6 +919,13 @@ mod tests {
         assert!(reuse(&o, 2, 1));
         assert!(!reuse(&o, 3, 1));
         assert!(reuse(&o, 50, 2));
+        // max_connections alone: a busy connection takes a stream only
+        // once there are that many.
+        let o = options(Some(4), None, None).unwrap();
+        assert!(reuse(&o, 0, 1));
+        assert!(!reuse(&o, 1, 1));
+        assert!(!reuse(&o, 1, 3));
+        assert!(reuse(&o, 1, 4));
         let o = options(None, None, Some(2)).unwrap();
         assert!(reuse(&o, 1, 10));
         assert!(!reuse(&o, 2, 1));

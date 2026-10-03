@@ -117,6 +117,8 @@ Hysteria2 入站对没有密码的访问者（例如主动探测）提供 `masqu
 | AMux | 是 | 是 | `multiplex` 设 `protocol: amux`，Sail 自有，计划移除 |
 | Obfs | 否 | 是 | Shadowsocks `obfs-local` 插件：HTTP 或 TLS 形态混淆 |
 
+`multiplex` 客户端按 sing-mux 的方式把流分到各条连接上，`max_connections`、`min_streams` 和 `max_streams` 都照配置取用，只有一处不同：三者都不设时，sing-mux 每遇到一条流发现其他连接都忙就新开一条连接，不设上限；sail 最多开 4 条，某条连接承载 4 条流后，新流放到最不忙的那条上（让路由器和手机配置的内存有上限）。只设 `max_connections` 可得到 sing-mux 的行为，连接数以它为上限；设 `max_streams: 1` 则每条流一条连接。
+
 sing-box 的 HTTP/2 传输（`transport` 类型 `http`）按设计拒绝，请改用 `grpc`、`ws` 或 `httpupgrade`。配置了 `tls.ech` 时，`min_version` 或 `max_version` 低于 TLS 1.3 属于配置错误，因为 sing-box 在这种情况下每次握手都会失败。浏览器指纹可选 `chrome`（默认）、`firefox`、`edge`、`safari`、`ios`、`android` 和 `random`，详见 [TLS 与指纹](/sail/zh/tls-fingerprints/)。
 
 并非所有协议都接受所有层。Sail 会在端点工厂中验证组合，不支持的组合会携带对应入站或出站标签报错。

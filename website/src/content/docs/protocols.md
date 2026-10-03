@@ -117,6 +117,8 @@ These are runtime options: `--set inbound.max_handshakes=8192`.
 | AMux | Yes | Yes | `multiplex` with `protocol: amux`, Sail's own; to be removed |
 | Obfs | No | Yes | Shadowsocks `obfs-local` plugin: HTTP or TLS-shaped obfuscation |
 
+A `multiplex` client spreads its streams over connections as sing-mux does, `max_connections`, `min_streams` and `max_streams` taken as given, with one difference: with none of them set, sing-mux opens a new connection for every stream that finds the others busy, without bound, while sail opens at most 4 and puts a new stream on the least busy one once it carries 4 (bounded memory on the router and mobile profiles). Set `max_connections` alone for sing-mux's behaviour up to that many connections, or `max_streams: 1` for one connection per stream.
+
 sing-box's HTTP/2 transport (`transport` type `http`) is refused by design: use `grpc`, `ws` or `httpupgrade`. With `tls.ech`, a `min_version` or `max_version` below TLS 1.3 is a configuration error, because sing-box fails every such handshake. Browser fingerprints are `chrome` (the default), `firefox`, `edge`, `safari`, `ios`, `android` and `random`; see [TLS and fingerprints](/sail/tls-fingerprints/).
 
 Not every endpoint accepts every layer. Sail validates shared fields against the protocol factory, so unsupported combinations fail with the tagged inbound or outbound in the error.
