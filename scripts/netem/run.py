@@ -1080,13 +1080,12 @@ def main():
             ap.error(f"{opt} {value!r}: CPUs like 0,1 or 4-7")
     lease = os.environ.get("HOSTQ_CPUS")
     if lease and not pinned <= cpu_list(lease):
-        # hostq leases a measurement at most 4 CPUs; a cell pinning more
-        # (a multi-Gbit cell: client, server and 4 for netgen) needs the
-        # whole host.
+        # Pinned outside the lease, the run would share CPUs with other
+        # jobs. A multi-Gbit cell wants 8: 2 each for client and server, 4
+        # for netgen.
         sys.exit(f"the CPUs pinned ({fmt_cpus(pinned)}) are not all in this hostq lease "
-                 f"({lease}): pin within the lease, or for more than 4 CPUs (a multi-Gbit "
-                 f"cell's netgen alone wants 4) reserve a whole-host window and run "
-                 f"with hostq run --whole-host")
+                 f"({lease}): pin within the lease, or ask for as many CPUs as the "
+                 f"cell pins (a multi-Gbit cell: 8, of them 4 for netgen)")
     if args.netgen_cpus:
         NETGEN_CPUS[CLIENT_NS] = NETGEN_CPUS[SERVER_NS] = args.netgen_cpus
     if args.cpus:
