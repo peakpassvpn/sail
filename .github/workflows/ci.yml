@@ -376,11 +376,10 @@ jobs:
       - name: test sail
         run: |
           skip=(
-            # A member whose server refuses counts differently: Windows
-            # retries a refused connection for about 2 s (not yet looked
-            # into).
+            # A member whose server refuses: Windows retries a refused
+            # connection for about 2 s, and the fallback's server [b] is asked
+            # once more than the test expects (3, not 2); not yet looked into.
             test_group_fallback::a_member_whose_server_refuses_is_left_at_once
-            test_group_load_balance::a_member_that_fails_its_test_is_skipped
             # The corpus's expected outcomes are Linux's, with variants for
             # macOS, and none for Windows (redirect, path separators).
             test_corpus::the_corpus_reads_as_expected

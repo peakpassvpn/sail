@@ -126,11 +126,24 @@ fn a_member_that_fails_its_test_is_skipped() {
         )
         .unwrap();
         a.stop().await;
-        // Once tested, every connection goes to the member left.
-        tokio::time::sleep(Duration::from_millis(800)).await;
+        // Once tested, every connection goes to the member left. The test
+        // round's end is waited for: a refused connection is told at once on
+        // Linux and macOS, but after about 2 s of retries on Windows.
         let sess = session("10.0.0.1", "example.com");
-        for _ in 0..6 {
-            assert_eq!(reached(&m, "lb", &sess).await.unwrap(), "b");
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+        let mut in_a_row = 0;
+        while in_a_row < 6 {
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "connections still go to the member down"
+            );
+            match reached(&m, "lb", &sess).await {
+                Ok(member) if member == "b" => in_a_row += 1,
+                _ => {
+                    in_a_row = 0;
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+            }
         }
     });
 }
