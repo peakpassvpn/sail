@@ -96,7 +96,7 @@ impl MuxManager {
         // Run the cleanup task, if it's not already running.
         if self.monitor_task.lock().await.is_some() {
             if let Some(task) = self.monitor_task.lock().await.take() {
-                tokio::spawn(task);
+                crate::runtime::scope::spawn_essential("amux idle check", task);
             }
         }
 

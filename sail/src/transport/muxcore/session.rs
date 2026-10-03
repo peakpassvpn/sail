@@ -539,7 +539,7 @@ impl Session {
             }
         });
         *shared.task.lock().unwrap_or_else(|e| e.into_inner()) = Some(task);
-        tokio::spawn(driver);
+        crate::runtime::scope::spawn("mux session", driver);
         shared.ping();
         (Session { shared }, accept_rx)
     }

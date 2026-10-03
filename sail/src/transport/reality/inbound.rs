@@ -814,7 +814,10 @@ impl InboundStreamHandler for Handler {
             Opening::Relay(to_client) => {
                 // Relayed outside the handshake deadline: the site may take
                 // as long as it takes.
-                tokio::spawn(relay(stream, target, to_client));
+                crate::runtime::scope::spawn(
+                    "reality fallback relay",
+                    relay(stream, target, to_client),
+                );
                 return Err(not_ours("no ClientHello"));
             }
         };
@@ -822,7 +825,10 @@ impl InboundStreamHandler for Handler {
         let Some((auth_key, hello)) =
             hello.and_then(|hello| Some((self.authenticate(&hello)?, hello)))
         else {
-            tokio::spawn(relay(stream, target, Vec::new()));
+            crate::runtime::scope::spawn(
+                "reality fallback relay",
+                relay(stream, target, Vec::new()),
+            );
             return Err(not_ours("not authenticated"));
         };
 
@@ -831,7 +837,10 @@ impl InboundStreamHandler for Handler {
         let flight = match self.read_reply(&mut target, &mut saved).await? {
             Reply::Tls13(flight) => flight,
             Reply::NotTls13 => {
-                tokio::spawn(relay(stream, target, saved));
+                crate::runtime::scope::spawn(
+                    "reality fallback relay",
+                    relay(stream, target, saved),
+                );
                 return Err(not_ours("the handshake server does not answer in TLS 1.3"));
             }
             Reply::Malformed | Reply::Incomplete => {

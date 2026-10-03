@@ -310,12 +310,12 @@ impl Checker {
     /// Spawns the test loop, once there is a runtime: a configuration can
     /// be built without one, to be checked.
     fn start(&self) {
-        let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+        if tokio::runtime::Handle::try_current().is_err() {
             return;
-        };
+        }
         let task = self.task.lock().ok().and_then(|mut slot| slot.take());
         if let Some(task) = task {
-            runtime.spawn(task);
+            crate::runtime::scope::spawn_essential("group health check", task);
         }
     }
 
@@ -546,7 +546,13 @@ impl Checker {
         let _round = self.round.lock().await;
         let started = SystemTime::now();
         let snapshot = self.members.load();
-        let tests = snapshot.members.iter().map(|m| self.test(&m.handler));
+        // A panic testing one member is that test's failure, not the
+        // loop's.
+        let tests = snapshot.members.iter().map(|m| async move {
+            crate::runtime::scope::contain("group health test", self.test(&m.handler))
+                .await
+                .flatten()
+        });
         let latencies = futures::future::join_all(tests).await;
         self.round_ended(snapshot, started, latencies)
     }

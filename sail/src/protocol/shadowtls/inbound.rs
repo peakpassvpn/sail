@@ -280,7 +280,7 @@ fn splice(
             tracing::debug!("shadowtls: relay to the handshake server: {}", e);
         }
     };
-    tokio::spawn(task.instrument(sess.span()));
+    crate::runtime::scope::spawn("shadowtls handshake relay", task.instrument(sess.span()));
 }
 
 #[async_trait]
@@ -311,7 +311,8 @@ impl InboundStreamHandler for Handler {
                 })?;
                 let mut consumed = hello.to_vec();
                 consumed.extend_from_slice(&records.into_inner());
-                tokio::spawn(
+                crate::runtime::scope::spawn(
+                    "shadowtls fallback relay",
                     fallback::relay(
                         other.dialer.clone(),
                         stream,

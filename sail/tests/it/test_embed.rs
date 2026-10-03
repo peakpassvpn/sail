@@ -1071,3 +1071,33 @@ async fn a_host_service_asked_during_the_start_dials_back_and_reads_the_network(
         ErrorKind::NotRunning
     );
 }
+
+/// A group's health check, spawned while the instance is built, on no
+/// task, is the instance's: in its scope while it runs, ended by its stop.
+#[cfg(feature = "outbound-urltest")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_groups_checks_built_at_start_are_the_instances() {
+    let mut config: serde_json::Value =
+        serde_json::from_str(&config(common::free_port(), 53)).unwrap();
+    config["outbounds"]
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::json!({
+            "type": "urltest", "tag": "auto", "outbounds": ["direct"],
+            "url": "http://127.0.0.1:9/", "interval": "1m",
+        }));
+    let instance = Instance::new(options()).unwrap();
+    instance
+        .start(Config::Json(config.to_string()))
+        .await
+        .unwrap();
+    let tasks = instance.tasks().unwrap();
+    assert!(
+        tasks.iter().any(|(name, _)| *name == "group health check"),
+        "{:?}",
+        tasks
+    );
+    instance.stop().await.unwrap();
+    let report = instance.stop_report().expect("a report after a stop");
+    assert!(report.clean(), "{:?}", report);
+}

@@ -123,7 +123,7 @@ impl InboundDatagramHandler for Server {
         let endpoint = endpoint(socket, Some(self.resource.load().server_config.clone()))?;
         let (accepted, accepted_rx) = mpsc::channel(ACCEPT_CHANNEL_SIZE);
         let resource = self.resource.clone();
-        tokio::spawn(async move {
+        crate::runtime::scope::spawn_essential("tuic accept", async move {
             // The connections, stopped when the inbound stops.
             let mut connections = JoinSet::new();
             loop {
@@ -138,20 +138,24 @@ impl InboundDatagramHandler for Server {
                 };
                 let generation = resource.load();
                 let accepted = accepted.clone();
-                connections.spawn(async move {
-                    let remote = incoming.remote_address();
-                    if let Err(e) = serve(
-                        generation.settings.clone(),
-                        incoming,
-                        generation.server_config.clone(),
-                        accepted,
-                        local_addr,
-                    )
-                    .await
-                    {
-                        debug!("tuic connection from {} failed: {}", remote, e);
-                    }
-                });
+                crate::runtime::scope::spawn_child(
+                    &mut connections,
+                    "tuic connection",
+                    async move {
+                        let remote = incoming.remote_address();
+                        if let Err(e) = serve(
+                            generation.settings.clone(),
+                            incoming,
+                            generation.server_config.clone(),
+                            accepted,
+                            local_addr,
+                        )
+                        .await
+                        {
+                            debug!("tuic connection from {} failed: {}", remote, e);
+                        }
+                    },
+                );
             }
             endpoint.close(quinn::VarInt::from_u32(0), b"");
         });
@@ -211,14 +215,18 @@ async fn serve(
         // `Authenticate` it must wait for comes only after it anyway.
         match connecting.into_0rtt() {
             Ok((conn, accepted)) => {
-                tasks.spawn(async move {
-                    let accepted = accepted.await;
-                    debug!(
-                        "tuic 0-RTT from {} {}",
-                        remote,
-                        if accepted { "accepted" } else { "not used" }
-                    );
-                });
+                crate::runtime::scope::spawn_child(
+                    &mut tasks,
+                    "tuic connection task",
+                    async move {
+                        let accepted = accepted.await;
+                        debug!(
+                            "tuic 0-RTT from {} {}",
+                            remote,
+                            if accepted { "accepted" } else { "not used" }
+                        );
+                    },
+                );
                 conn
             }
             Err(connecting) => {
@@ -248,14 +256,14 @@ async fn serve(
         accepted,
     });
 
-    tasks.spawn(heartbeat(
-        conn.conn.clone(),
-        conn.activity.clone(),
-        settings.heartbeat,
-    ));
+    crate::runtime::scope::spawn_child(
+        &mut tasks,
+        "tuic heartbeat",
+        heartbeat(conn.conn.clone(), conn.activity.clone(), settings.heartbeat),
+    );
     {
         let conn = conn.clone();
-        tasks.spawn(async move {
+        crate::runtime::scope::spawn_child(&mut tasks, "tuic connection task", async move {
             tokio::select! {
                 _ = tokio::time::sleep(conn.settings.auth_timeout) => {}
                 _ = conn.conn.closed() => return,
@@ -305,7 +313,7 @@ impl Conn {
             };
             let conn = self.clone();
             let counted = self.uni_streams.opened();
-            streams.spawn(async move {
+            crate::runtime::scope::spawn_child(&mut streams, "tuic stream", async move {
                 let _counted = counted;
                 if let Err(e) = conn.uni(recv).await {
                     debug!("tuic stream from {} failed: {}", conn.remote, e);
@@ -410,7 +418,7 @@ impl Conn {
             };
             let conn = self.clone();
             let counted = self.bidi_streams.opened();
-            streams.spawn(async move {
+            crate::runtime::scope::spawn_child(&mut streams, "tuic stream", async move {
                 if let Err(e) = conn.bi(send, recv, counted).await {
                     debug!("tuic stream from {} failed: {}", conn.remote, e);
                 }

@@ -256,9 +256,11 @@ impl Client {
             Ok(mut conns) => close(&mut conns),
             // A connection is being made: once it is, it goes too.
             Err(_) => {
-                if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+                if tokio::runtime::Handle::try_current().is_ok() {
                     let client = self.clone();
-                    runtime.spawn(async move { close(&mut *client.conns.lock().await) });
+                    crate::runtime::scope::spawn("mux reset", async move {
+                        close(&mut *client.conns.lock().await)
+                    });
                 }
             }
         }
@@ -267,7 +269,7 @@ impl Client {
     /// A new stream, before its request.
     async fn open_stream(&self, sess: &Session) -> io::Result<AnyStream> {
         if let Some(check) = self.cleanup.lock().ok().and_then(|mut c| c.take()) {
-            tokio::spawn(check);
+            crate::runtime::scope::spawn_essential("mux idle check", check);
         }
         let mut last = io::Error::other("mux: no connection");
         for _ in 0..2 {

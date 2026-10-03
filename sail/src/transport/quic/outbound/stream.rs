@@ -192,8 +192,10 @@ impl OutboundStreamHandler for Handler {
             Err(_) => {
                 // A stream is being opened: close them once it is.
                 let connections = self.manager.connections.clone();
-                if let Ok(runtime) = tokio::runtime::Handle::try_current() {
-                    runtime.spawn(async move { close(&mut *connections.write().await) });
+                if tokio::runtime::Handle::try_current().is_ok() {
+                    crate::runtime::scope::spawn("quic reset", async move {
+                        close(&mut *connections.write().await)
+                    });
                 }
             }
         }

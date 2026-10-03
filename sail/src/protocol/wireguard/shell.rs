@@ -176,8 +176,8 @@ impl WireGuard {
         });
         let (tx, rx) = mpsc::channel(INBOUND_QUEUE);
         let tasks = vec![
-            tokio::spawn(inner.clone().recv_loop(tx)),
-            tokio::spawn(inner.clone().timer_loop()),
+            crate::runtime::scope::spawn_essential("wireguard recv", inner.clone().recv_loop(tx)),
+            crate::runtime::scope::spawn_essential("wireguard timer", inner.clone().timer_loop()),
         ];
         (WireGuard { inner, tasks }, rx)
     }

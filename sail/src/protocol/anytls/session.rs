@@ -461,7 +461,7 @@ impl Session {
             .fetch_add(1, Ordering::Relaxed)
             .wrapping_add(1);
         let session = Arc::downgrade(self);
-        tokio::spawn(async move {
+        crate::runtime::scope::spawn("anytls synack watch", async move {
             tokio::time::sleep(SYNACK_TIMEOUT).await;
             if let Some(session) = session.upgrade() {
                 let current = session.proto.synack_generation.load(Ordering::Relaxed);

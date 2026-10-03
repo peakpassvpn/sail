@@ -354,8 +354,8 @@ mod imp {
             });
             // A configuration is checked without a runtime: nothing to
             // follow then.
-            if let Ok(runtime) = tokio::runtime::Handle::try_current() {
-                runtime.spawn(task);
+            if tokio::runtime::Handle::try_current().is_ok() {
+                crate::runtime::scope::spawn_essential("group merge", task);
             }
             abort_handle
         }

@@ -407,11 +407,11 @@ impl Group {
     /// Spawns the probe loop, once there is a runtime: a configuration
     /// can be built without one, to be checked.
     fn start(&self) {
-        let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+        if tokio::runtime::Handle::try_current().is_err() {
             return;
-        };
+        }
         if let Some(task) = lock(&self.probes.task).take() {
-            runtime.spawn(task);
+            crate::runtime::scope::spawn_essential("smart group probes", task);
         }
     }
 
@@ -837,14 +837,20 @@ async fn probe_loop(group: Weak<Group>, probe: HttpProbe) {
                     let probe = &probe;
                     let dns_client = g.dns_client.clone();
                     let timeout = g.timeout;
-                    async move {
+                    // A panic probing one member is that probe's failure,
+                    // not the loop's.
+                    crate::runtime::scope::contain("smart group probe", async move {
                         tokio::time::timeout(timeout, probe.run(dns_client, member))
                             .await
                             .ok()
                             .and_then(Result::ok)
-                    }
+                    })
                 });
-                let results = futures::future::join_all(probes).await;
+                let results: Vec<_> = futures::future::join_all(probes)
+                    .await
+                    .into_iter()
+                    .map(Option::flatten)
+                    .collect();
                 g.probed(&snapshot, &probed, &results);
             }
             g.probes.evaluated.send_replace(true);

@@ -174,7 +174,7 @@ impl InboundDatagramHandler for Handler {
         )?;
         let resource = self.resource.clone();
         let handshakes = Arc::new(Semaphore::new(resource.load().accept.concurrency.max(1)));
-        tokio::spawn(async move {
+        crate::runtime::scope::spawn_essential("quic accept", async move {
             loop {
                 let incoming = tokio::select! {
                     incoming = endpoint.accept() => incoming,
@@ -186,7 +186,7 @@ impl InboundDatagramHandler for Handler {
                 let generation = resource.load();
                 let stream_tx_c = stream_tx.clone();
                 let handshakes = handshakes.clone();
-                tokio::spawn(async move {
+                crate::runtime::scope::spawn("quic connection", async move {
                     let remote_addr = incoming.remote_address();
                     match incoming.accept_with(Arc::new(generation.server_config.clone())) {
                         Ok(connecting) => {

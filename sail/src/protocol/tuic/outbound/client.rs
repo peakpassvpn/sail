@@ -220,7 +220,7 @@ impl Client {
         let uuid = self.uuid;
         let password = self.password.clone();
         let (early, authed) = (zero_rtt.clone(), conn.clone());
-        tasks.spawn(async move {
+        crate::runtime::scope::spawn_child(&mut tasks, "tuic handshake", async move {
             if let Some(done) = handshake_done {
                 let accepted = done.await;
                 debug!(
@@ -235,9 +235,21 @@ impl Client {
                 authed.close(quinn::VarInt::from_u32(0), b"");
             }
         });
-        tasks.spawn(heartbeat(conn.clone(), activity.clone(), self.heartbeat));
-        tasks.spawn(read_datagrams(conn.clone(), associations.clone()));
-        tasks.spawn(accept_uni(conn.clone(), associations.clone()));
+        crate::runtime::scope::spawn_child(
+            &mut tasks,
+            "tuic heartbeat",
+            heartbeat(conn.clone(), activity.clone(), self.heartbeat),
+        );
+        crate::runtime::scope::spawn_child(
+            &mut tasks,
+            "tuic datagrams",
+            read_datagrams(conn.clone(), associations.clone()),
+        );
+        crate::runtime::scope::spawn_child(
+            &mut tasks,
+            "tuic uni streams",
+            accept_uni(conn.clone(), associations.clone()),
+        );
         Ok(Arc::new(ClientConn {
             conn,
             associations,
@@ -365,7 +377,7 @@ async fn accept_uni(conn: quinn::Connection, associations: Arc<Mutex<Association
             Some(_) = streams.join_next(), if !streams.is_empty() => continue,
         };
         let associations = associations.clone();
-        streams.spawn(async move {
+        crate::runtime::scope::spawn_child(&mut streams, "tuic stream", async move {
             let packet_read = async {
                 let cmd = read_command(&mut recv).await?;
                 if cmd != CMD_PACKET {
@@ -474,12 +486,12 @@ impl Drop for AssociationGuard {
         if self.conn.conn.close_reason().is_some() {
             return;
         }
-        let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+        if tokio::runtime::Handle::try_current().is_err() {
             return;
-        };
+        }
         let conn = self.conn.conn.clone();
         let assoc_id = self.assoc_id;
-        runtime.spawn(async move {
+        crate::runtime::scope::spawn("tuic dissociate", async move {
             let dissociate = async {
                 let mut send = conn.open_uni().await.map_err(io::Error::other)?;
                 send.write_all(&encode_dissociate(assoc_id)).await?;

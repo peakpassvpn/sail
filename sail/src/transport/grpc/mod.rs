@@ -65,7 +65,7 @@ fn keepalive(
     wanted: impl Fn() -> bool + Send + 'static,
     abort: futures::future::AbortHandle,
 ) {
-    tokio::spawn(async move {
+    crate::runtime::scope::spawn("grpc keepalive", async move {
         loop {
             tokio::time::sleep(interval).await;
             if !wanted() {
