@@ -1,8 +1,12 @@
-//! macOS: the DNS servers of one interface, from the dynamic store
-//! (`State:/Network/Service/<id>/DNS`), which `scutil --dns` shows as that
-//! interface's scoped resolver. Not the global one (`State:/Network/Global/DNS`,
-//! /etc/resolv.conf): that is the primary service's, which another VPN, or a
-//! host pointing the system at sail's own TUN, may be.
+//! macOS: the DNS servers of one interface, from the dynamic store: those
+//! of the services on it, set by hand (`Setup:/Network/Service/<id>/DNS`)
+//! or else told by the network (`State:/Network/Service/<id>/DNS`), which
+//! `scutil --dns` shows as that interface's scoped resolver. Not the
+//! global one (`State:/Network/Global/DNS`, /etc/resolv.conf): that is the
+//! primary service's, which another VPN, or a host pointing the system at
+//! sail's own TUN, may be. A split-DNS resolver (one with
+//! `SupplementalMatchDomains`) is left out: its servers answer only its
+//! domains.
 //!
 //! Public CoreFoundation and SystemConfiguration calls, declared here
 //! rather than through a crate.
@@ -111,9 +115,54 @@ unsafe fn strings(array: CFTypeRef) -> Vec<String> {
         .collect()
 }
 
+/// What the dynamic store has of one network service.
+#[derive(Clone, Debug, Default)]
+pub(super) struct Service {
+    /// The interface it is on.
+    pub interface: Option<String>,
+    /// Its DNS servers as set by hand (`Setup:`), which win, as they do
+    /// for macOS's own resolver.
+    pub manual: Vec<String>,
+    /// As the network told them (`State:`: DHCP, router advertisements).
+    pub learned: Vec<String>,
+    /// Its resolver answers only some domains (split DNS, a VPN's
+    /// `SupplementalMatchDomains`): not a general one, and left out.
+    pub supplemental: bool,
+}
+
+/// The servers of the services on `interface`: those set by hand where a
+/// service has any, else those the network told; none of a split-DNS
+/// resolver.
+pub(super) fn select(services: &[Service], interface: &str) -> Vec<super::Listed> {
+    let mut servers = Vec::new();
+    for service in services {
+        if service.supplemental || service.interface.as_deref() != Some(interface) {
+            continue;
+        }
+        let addresses = if service.manual.is_empty() {
+            &service.learned
+        } else {
+            &service.manual
+        };
+        // A link-local server carries its scope: fe80::1%en0.
+        for listed in addresses.iter().filter_map(|a| super::Listed::parse(a)) {
+            if !servers.contains(&listed) {
+                servers.push(listed);
+            }
+        }
+    }
+    servers
+}
+
 /// The DNS servers of the services on `interface`, as the dynamic store
 /// has them; none when no service there has any.
 pub(super) fn servers_of(interface: &str) -> Vec<super::Listed> {
+    select(&services(), interface)
+}
+
+/// The network services the dynamic store knows, with DNS servers set by
+/// hand or told.
+fn services() -> Vec<Service> {
     // SAFETY: every object is checked for its type before it is read, and
     // those created or copied are owned and released once.
     unsafe {
@@ -126,33 +175,49 @@ pub(super) fn servers_of(interface: &str) -> Vec<super::Listed> {
         if store.0.is_null() {
             return Vec::new();
         }
-        let pattern = string("State:/Network/Service/[^/]+/DNS");
-        let keys = Owned(SCDynamicStoreCopyKeyList(store.0, pattern.0));
         let copy = |key: &str| Owned(SCDynamicStoreCopyValue(store.0, string(key).0));
-        let mut servers = Vec::new();
-        for key in strings(keys.0) {
-            let dns = copy(&key);
-            // A scoped resolver names its interface; otherwise the service's
-            // addresses do.
-            let service = key.trim_end_matches("/DNS");
-            let name = to_string(get(dns.0, "InterfaceName")).or_else(|| {
-                ["IPv4", "IPv6"].iter().find_map(|family| {
-                    to_string(get(copy(&format!("{service}/{family}")).0, "InterfaceName"))
-                })
-            });
-            if name.as_deref() != Some(interface) {
-                continue;
-            }
-            for address in strings(get(dns.0, "ServerAddresses")) {
-                // A link-local server carries its scope: fe80::1%en0.
-                if let Some(listed) = super::Listed::parse(&address) {
-                    if !servers.contains(&listed) {
-                        servers.push(listed);
-                    }
+        let list = |pattern: &str| {
+            let keys = Owned(SCDynamicStoreCopyKeyList(store.0, string(pattern).0));
+            strings(keys.0)
+        };
+        // Every service with DNS servers, told or set by hand.
+        let mut ids: Vec<String> = Vec::new();
+        for prefix in ["State", "Setup"] {
+            for key in list(&format!("{prefix}:/Network/Service/[^/]+/DNS")) {
+                let id = key
+                    .trim_start_matches(&format!("{prefix}:/Network/Service/"))
+                    .trim_end_matches("/DNS")
+                    .to_owned();
+                if !ids.contains(&id) {
+                    ids.push(id);
                 }
             }
         }
-        servers
+        ids.iter()
+            .map(|id| {
+                let state = format!("State:/Network/Service/{id}");
+                let dns = copy(&format!("{state}/DNS"));
+                let setup = copy(&format!("Setup:/Network/Service/{id}/DNS"));
+                // A scoped resolver names its interface; otherwise the
+                // service's addresses do, or its configuration.
+                let interface = to_string(get(dns.0, "InterfaceName"))
+                    .or_else(|| {
+                        ["IPv4", "IPv6"].iter().find_map(|family| {
+                            to_string(get(copy(&format!("{state}/{family}")).0, "InterfaceName"))
+                        })
+                    })
+                    .or_else(|| {
+                        let setup = copy(&format!("Setup:/Network/Service/{id}/Interface"));
+                        to_string(get(setup.0, "DeviceName"))
+                    });
+                Service {
+                    interface,
+                    manual: strings(get(setup.0, "ServerAddresses")),
+                    learned: strings(get(dns.0, "ServerAddresses")),
+                    supplemental: !strings(get(dns.0, "SupplementalMatchDomains")).is_empty(),
+                }
+            })
+            .collect()
     }
 }
 
@@ -211,5 +276,62 @@ mod tests {
         // A Mac with no network has nothing to compare.
         eprintln!("services compared: {checked}");
         assert!(servers_of("no-such-interface0").is_empty());
+    }
+
+    fn service(interface: &str, manual: &[&str], learned: &[&str]) -> Service {
+        Service {
+            interface: Some(interface.into()),
+            manual: manual.iter().map(|s| s.to_string()).collect(),
+            learned: learned.iter().map(|s| s.to_string()).collect(),
+            supplemental: false,
+        }
+    }
+
+    fn ips(listed: &[super::super::Listed]) -> Vec<String> {
+        listed.iter().map(|l| l.ip.to_string()).collect()
+    }
+
+    /// Another VPN's tunnel is the primary service: the dialer's interface
+    /// still has its own servers, not the tunnel's.
+    #[test]
+    fn the_dialer_s_interface_has_its_own_servers_whatever_is_primary() {
+        let services = [
+            service("utun4", &[], &["198.51.100.2"]),
+            service("en0", &[], &["192.0.2.1", "2001:db8::1"]),
+            service("en1", &[], &["192.0.2.9"]),
+        ];
+        assert_eq!(ips(&select(&services, "en0")), ["192.0.2.1", "2001:db8::1"]);
+        assert!(select(&services, "en7").is_empty());
+    }
+
+    /// Servers set by hand win over those the network told, and are taken
+    /// where the network told none (a static address).
+    #[test]
+    fn servers_set_by_hand_win() {
+        let dhcp_and_manual = [service("en0", &["192.0.2.53"], &["192.0.2.1"])];
+        assert_eq!(ips(&select(&dhcp_and_manual, "en0")), ["192.0.2.53"]);
+        let static_only = [service("en0", &["192.0.2.53", "192.0.2.54"], &[])];
+        assert_eq!(
+            ips(&select(&static_only, "en0")),
+            ["192.0.2.53", "192.0.2.54"]
+        );
+    }
+
+    /// A split-DNS resolver on the same interface is not a general one;
+    /// a link-local server keeps its zone; one listed twice counts once.
+    #[test]
+    fn split_dns_is_left_out_and_link_local_keeps_its_zone() {
+        let mut split = service("en0", &[], &["192.0.2.99"]);
+        split.supplemental = true;
+        let services = [
+            split,
+            service("en0", &[], &["fe80::1%en0", "192.0.2.1", "192.0.2.1"]),
+        ];
+        let selected = select(&services, "en0");
+        assert_eq!(ips(&selected), ["fe80::1", "192.0.2.1"]);
+        assert_eq!(
+            selected[0].zone,
+            Some(super::super::Zone::Name("en0".into()))
+        );
     }
 }
