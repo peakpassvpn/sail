@@ -113,7 +113,7 @@ unsafe fn strings(array: CFTypeRef) -> Vec<String> {
 
 /// The DNS servers of the services on `interface`, as the dynamic store
 /// has them; none when no service there has any.
-pub(super) fn servers_of(interface: &str) -> Vec<IpAddr> {
+pub(super) fn servers_of(interface: &str) -> Vec<super::Listed> {
     // SAFETY: every object is checked for its type before it is read, and
     // those created or copied are owned and released once.
     unsafe {
@@ -145,9 +145,9 @@ pub(super) fn servers_of(interface: &str) -> Vec<IpAddr> {
             }
             for address in strings(get(dns.0, "ServerAddresses")) {
                 // A link-local server carries its scope: fe80::1%en0.
-                if let Ok(ip) = address.split('%').next().unwrap_or("").parse::<IpAddr>() {
-                    if !servers.contains(&ip) {
-                        servers.push(ip);
+                if let Some(listed) = super::Listed::parse(&address) {
+                    if !servers.contains(&listed) {
+                        servers.push(listed);
                     }
                 }
             }
@@ -199,7 +199,10 @@ mod tests {
                 };
                 if let Ok(ip) = value.split('%').next().unwrap().parse::<IpAddr>() {
                     if line.trim().starts_with(char::is_numeric) {
-                        assert!(read.contains(&ip), "{interface}: {ip} not in {read:?}");
+                        assert!(
+                            read.iter().any(|l| l.ip == ip),
+                            "{interface}: {ip} not in {read:?}"
+                        );
                     }
                 }
             }
