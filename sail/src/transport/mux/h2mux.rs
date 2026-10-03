@@ -84,7 +84,7 @@ impl H2Client {
                 closed.store(true, Ordering::Relaxed);
             })
         });
-        tokio::spawn(driver);
+        crate::runtime::scope::spawn("h2mux connection", driver);
         Ok(H2Client {
             send,
             tuning,
@@ -211,7 +211,7 @@ where
             }
         }
     });
-    tokio::spawn(task);
+    crate::runtime::scope::spawn("h2mux accept", task);
     (handle, rx)
 }
 

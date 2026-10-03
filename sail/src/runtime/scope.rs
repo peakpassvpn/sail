@@ -40,6 +40,29 @@ tokio::task_local! {
     static CURRENT: TaskScope;
 }
 
+std::thread_local! {
+    /// The scope of the instance `run()` is building on this thread.
+    static BUILDING: std::cell::RefCell<Option<TaskScope>> = const { std::cell::RefCell::new(None) };
+}
+
+/// While it is held, the thread that holds it builds the instance of its
+/// scope: what that build spawns through `sail::spawn` is the scope's.
+/// Held by `run()` on its start thread from the runtime's entry until the
+/// instance's root tasks run, which have the scope as their task-local.
+/// `Instance::build` is synchronous and runs on no task, so there is no
+/// task-local to find then; groups' health checks and probes, among
+/// others, spawn there. A reload builds inside the scope already, on one
+/// of its tasks. Not `Send`: it is the thread's.
+pub struct Building {
+    _not_send: std::marker::PhantomData<*const ()>,
+}
+
+impl Drop for Building {
+    fn drop(&mut self) {
+        BUILDING.with(|b| b.borrow_mut().take());
+    }
+}
+
 /// A task's class.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TaskClass {
@@ -123,9 +146,63 @@ impl TaskScope {
         CURRENT.scope(self.clone(), fut)
     }
 
-    /// The scope of the task running, if it is a scoped one.
+    /// The scope of the task running, if it is a scoped one; else that of
+    /// the instance this thread is building, if it is building one.
     pub fn current() -> Option<TaskScope> {
-        CURRENT.try_with(|s| s.clone()).ok()
+        CURRENT
+            .try_with(|s| s.clone())
+            .ok()
+            .or_else(|| BUILDING.with(|b| b.borrow().clone()))
+    }
+
+    /// Marks this thread as building this scope's instance, until the
+    /// guard drops. One at a time: a second is a mistake.
+    pub fn building(&self) -> Building {
+        BUILDING.with(|b| {
+            let mut b = b.borrow_mut();
+            assert!(b.is_none(), "a thread builds one instance at a time");
+            *b = Some(self.clone());
+        });
+        Building {
+            _not_send: std::marker::PhantomData,
+        }
+    }
+
+    /// Names of the tasks registered now, with how many of each.
+    pub fn tasks(&self) -> Vec<(&'static str, usize)> {
+        let mut by_name: HashMap<&'static str, usize> = HashMap::new();
+        for shard in &self.0.shards {
+            for (name, _) in lock(shard).values() {
+                *by_name.entry(name).or_default() += 1;
+            }
+        }
+        let mut tasks: Vec<_> = by_name.into_iter().collect();
+        tasks.sort();
+        tasks
+    }
+
+    /// `fut`, run in this scope as a child its owner ends: a `JoinSet`'s,
+    /// a connection's list of tasks. Not registered, as the owner is; a
+    /// stop names the owner. A panic in it is caught, and counted and
+    /// told, or fails the instance, as `class` says, then goes on to the
+    /// owner as tokio's `JoinError`.
+    fn child<F: Future>(
+        &self,
+        class: TaskClass,
+        name: &'static str,
+        fut: F,
+    ) -> impl Future<Output = F::Output> {
+        let scope = self.clone();
+        async move {
+            let run = CURRENT.scope(scope.clone(), fut);
+            match std::panic::AssertUnwindSafe(run).catch_unwind().await {
+                Ok(output) => output,
+                Err(panic) => {
+                    scope.panicked(class, name, &*panic);
+                    std::panic::resume_unwind(panic)
+                }
+            }
+        }
     }
 
     /// Spawns `fut` as contained work on the current runtime.
@@ -304,16 +381,8 @@ impl TaskScope {
         while !self.is_empty() && started.elapsed() < within {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
-        let mut left: HashMap<&'static str, usize> = HashMap::new();
-        for shard in &self.0.shards {
-            for (name, _) in lock(shard).values() {
-                *left.entry(name).or_default() += 1;
-            }
-        }
-        let mut tasks: Vec<_> = left.into_iter().collect();
-        tasks.sort();
         let report = StopReport {
-            tasks,
+            tasks: self.tasks(),
             waited: started.elapsed(),
         };
         *lock(&self.0.report) = Some(report.clone());
@@ -348,14 +417,14 @@ impl From<PoisonedLock> for std::io::Error {
 
 /// Spawns `fut` as contained work in the current task's scope. Where no
 /// scope is set (a thread of sail's own, a callback, the blocking pool),
-/// pass the scope and call its `spawn` instead: this fails a test build,
-/// and logs and spawns unscoped in a release one.
+/// pass the scope and call its `spawn` instead: it is warned of, counted
+/// (`unscoped_count`) and spawned unscoped.
 pub fn spawn<F>(name: &'static str, fut: F) -> JoinHandle<F::Output>
 where
     F: Future + Send + 'static,
     F::Output: Send + 'static,
 {
-    match TaskScope::current() {
+    match here() {
         Some(scope) => scope.spawn(name, fut),
         None => unscoped(name, fut),
     }
@@ -368,10 +437,111 @@ where
     F: Future + Send + 'static,
     F::Output: Send + 'static,
 {
-    match TaskScope::current() {
+    match here() {
         Some(scope) => scope.spawn_essential(name, fut),
         None => unscoped(name, fut),
     }
+}
+
+/// `fut` as contained work of the current scope, for an owner that ends
+/// it: a `JoinSet`'s or a connection's own tasks (`TaskScope::child`).
+/// Where no scope is set, as `spawn`.
+pub fn scoped<F: Future>(name: &'static str, fut: F) -> impl Future<Output = F::Output> {
+    in_scope(TaskClass::Contained, name, fut)
+}
+
+/// `fut` as essential work of the current scope, for an owner that ends
+/// it; as `scoped`.
+pub fn scoped_essential<F: Future>(name: &'static str, fut: F) -> impl Future<Output = F::Output> {
+    in_scope(TaskClass::Essential, name, fut)
+}
+
+fn in_scope<F: Future>(
+    class: TaskClass,
+    name: &'static str,
+    fut: F,
+) -> futures::future::Either<impl Future<Output = F::Output>, F> {
+    match here() {
+        Some(scope) => futures::future::Either::Left(scope.child(class, name, fut)),
+        None => {
+            unscoped_note(name);
+            futures::future::Either::Right(fut)
+        }
+    }
+}
+
+/// `fut` run in place, as contained work inside a longer task: one
+/// member's test in a group's round. A panic in it is caught, counted and
+/// told as a contained task's, and gives `None`; the task around it goes
+/// on.
+pub async fn contain<F: Future>(name: &'static str, fut: F) -> Option<F::Output> {
+    match std::panic::AssertUnwindSafe(fut).catch_unwind().await {
+        Ok(output) => Some(output),
+        Err(panic) => {
+            match here() {
+                Some(scope) => scope.panicked(TaskClass::Contained, name, &*panic),
+                None => tracing::error!("[{}] panicked: {}", name, message(&*panic)),
+            }
+            None
+        }
+    }
+}
+
+/// Spawns `fut` into `set` as contained work of the current scope, which
+/// the set ends (`scoped`).
+pub fn spawn_child<T, F>(
+    set: &mut tokio::task::JoinSet<T>,
+    name: &'static str,
+    fut: F,
+) -> AbortHandle
+where
+    T: Send + 'static,
+    F: Future<Output = T> + Send + 'static,
+{
+    set.spawn(scoped(name, fut))
+}
+
+/// Spawns `fut` into `set` as essential work of the current scope, which
+/// the set ends (`scoped_essential`).
+pub fn spawn_child_essential<T, F>(
+    set: &mut tokio::task::JoinSet<T>,
+    name: &'static str,
+    fut: F,
+) -> AbortHandle
+where
+    T: Send + 'static,
+    F: Future<Output = T> + Send + 'static,
+{
+    set.spawn(scoped_essential(name, fut))
+}
+
+/// Spawns `fut` as contained work in `scope`, a scope kept for a spawn
+/// from where none is set (a `Drop`, a stored handle); as `spawn` where it
+/// is none.
+pub fn spawn_in<F>(scope: Option<&TaskScope>, name: &'static str, fut: F) -> JoinHandle<F::Output>
+where
+    F: Future + Send + 'static,
+    F::Output: Send + 'static,
+{
+    match scope {
+        Some(scope) => scope.spawn(name, fut),
+        None => spawn(name, fut),
+    }
+}
+
+/// The scope to spawn in: the current one. In sail's own unit tests only
+/// (`cfg(test)` of this crate), where none is set, a process-wide scope of
+/// their own, so that a test driving a protocol directly needs none; the
+/// integration tests and every other crate are warned and counted
+/// (`unscoped_count`), and asserted from S2f.
+pub fn here() -> Option<TaskScope> {
+    let current = TaskScope::current();
+    #[cfg(test)]
+    let current = current.or_else(|| {
+        static TESTS: std::sync::OnceLock<TaskScope> = std::sync::OnceLock::new();
+        Some(TESTS.get_or_init(TaskScope::default).clone())
+    });
+    current
 }
 
 /// Spawns with no scope there is: a mistake, never silent.
@@ -380,19 +550,35 @@ where
     F: Future + Send + 'static,
     F::Output: Send + 'static,
 {
-    static UNSCOPED: AtomicU64 = AtomicU64::new(0);
-    let n = UNSCOPED.fetch_add(1, Ordering::Relaxed) + 1;
-    debug_assert!(
-        false,
-        "task [{}] spawned outside any instance's scope",
-        name
-    );
-    tracing::error!(
-        "task [{}] spawned outside any instance's scope ({} so far): a stop will not end it",
-        name,
-        n
-    );
+    unscoped_note(name);
     tokio::spawn(fut)
+}
+
+static UNSCOPED: AtomicU64 = AtomicU64::new(0);
+
+/// A task with no scope there is: a mistake, never silent. Each call site
+/// (a task's name) warns once, and every one is counted. Until every area
+/// spawns through the scope (E2 S2a–e) it is spawned as before; S2f turns
+/// this into an assertion, with the whole integration suite at zero.
+fn unscoped_note(name: &'static str) {
+    static WARNED: Mutex<Vec<&'static str>> = Mutex::new(Vec::new());
+    let n = UNSCOPED.fetch_add(1, Ordering::Relaxed) + 1;
+    let mut warned = lock(&WARNED);
+    if !warned.contains(&name) {
+        warned.push(name);
+        tracing::warn!(
+            "task [{}] spawned outside any instance's scope ({} so far): a stop will not end it",
+            name,
+            n
+        );
+    }
+}
+
+/// How many tasks were spawned outside any instance's scope, in this
+/// process: zero once every area spawns through it.
+#[doc(hidden)]
+pub fn unscoped_count() -> u64 {
+    UNSCOPED.load(Ordering::Relaxed)
 }
 
 #[cfg(test)]
@@ -471,6 +657,21 @@ mod tests {
         let report = scope.stop(Duration::from_secs(2)).await;
         assert!(report.clean(), "{:?}", report);
         assert!(scope.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_contained_part_of_a_task_is_caught_in_place() {
+        let scope = TaskScope::default();
+        let caught = scope
+            .enter(async {
+                let failed = contain("part", async { panic!("one member") }).await;
+                let fine = contain("part", async { 7 }).await;
+                (failed, fine)
+            })
+            .await;
+        assert_eq!(caught, (None::<()>, Some(7)));
+        assert_eq!(scope.faults(), 1);
+        assert!(scope.failure().is_none());
     }
 
     #[tokio::test]

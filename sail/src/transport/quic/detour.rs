@@ -52,7 +52,7 @@ impl DetourSocket {
         let (mut recv_half, mut send_half) = datagram.split();
         let (tx, mut send_rx) = mpsc::channel::<(Vec<u8>, SocksAddr)>(QUEUE);
         let (recv_tx, rx) = mpsc::channel::<Vec<u8>>(QUEUE);
-        let sender = tokio::spawn(async move {
+        let sender = crate::runtime::scope::spawn("quic detour send", async move {
             while let Some((packet, dst)) = send_rx.recv().await {
                 if let Err(e) = send_half.send_to(&packet, &dst).await {
                     debug!("send quic packet through outbound failed: {}", e);
@@ -61,7 +61,7 @@ impl DetourSocket {
             }
             let _ = send_half.close().await;
         });
-        let receiver = tokio::spawn(async move {
+        let receiver = crate::runtime::scope::spawn("quic detour recv", async move {
             let mut buf = vec![0u8; MAX_DATAGRAM];
             loop {
                 match recv_half.recv_from(&mut buf).await {

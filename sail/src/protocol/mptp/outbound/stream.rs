@@ -63,7 +63,8 @@ impl Handler {
 
             debug!("new sub-conn idx={} actor={}", i, &actor.tag());
 
-            tokio::spawn(
+            crate::runtime::scope::spawn(
+                "mptp sub-connection",
                 async move {
                     if let Ok(stream_handler) = actor.stream() {
                         // Try to connect if the actor requires a connection

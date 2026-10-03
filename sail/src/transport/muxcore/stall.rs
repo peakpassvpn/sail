@@ -87,8 +87,11 @@ impl<T: Stallable> Guarded<T> {
             done: false,
             stalled: false,
         }));
-        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
-            runtime.spawn(watch(Arc::downgrade(&entry), protocol, timeout, label));
+        if tokio::runtime::Handle::try_current().is_ok() {
+            crate::runtime::scope::spawn(
+                "stall watch",
+                watch(Arc::downgrade(&entry), protocol, timeout, label),
+            );
         }
         Guarded { entry, timeout }
     }

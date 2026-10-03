@@ -1560,6 +1560,9 @@ pub fn check_config(config: &config::Config, env: &runtime::RuntimeEnv) -> anyho
         .enable_all()
         .build()?;
     let _g = rt.enter();
+    // What they start is a throwaway scope's, ended with this runtime.
+    let scope = runtime::scope::TaskScope::default();
+    let _building = scope.building();
     // The interface auto_detect_interface would find is the start's to ask.
     let dial_defaults = Arc::new(net::DialDefaults::new(&config.route)?);
     app::instance::Instance::build(config, Arc::new(env.clone()), dial_defaults)?;
@@ -1728,6 +1731,11 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
     }
     let rt = new_runtime(&opts.runtime_opt, log)?;
     let _g = rt.enter();
+    // The build below is synchronous, on no task: what it spawns (groups'
+    // health checks, among others) finds the scope through this thread
+    // until the root tasks run, which carry it themselves. A reload builds
+    // on one of them, inside the scope already.
+    let building = scope.building();
 
     let mut tasks: Vec<Runner> = Vec::new();
 
@@ -2019,6 +2027,7 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
         let scope = scope.clone();
         async move { scope.failed().await }
     }));
+    drop(building);
     rt.block_on(scope.enter(futures::future::select_all(tasks)));
 
     runtime_manager.stop_watching();

@@ -105,7 +105,7 @@ impl Client {
         first: &[u8],
     ) -> io::Result<Stream> {
         if let Some(check) = self.cleanup.lock().ok().and_then(|mut c| c.take()) {
-            tokio::spawn(check);
+            crate::runtime::scope::spawn_essential("anytls idle check", check);
         }
         while let Some((seq, session)) = self.take_idle() {
             match session.open_stream(first).await {

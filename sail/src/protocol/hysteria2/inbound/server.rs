@@ -110,7 +110,7 @@ impl InboundDatagramHandler for DatagramHandler {
         let endpoint = endpoint_on(socket, Some(self.resource.load().server_config.clone()))?;
         let (tx, rx) = mpsc::channel(ACCEPT_QUEUE);
         let resource = self.resource.clone();
-        tokio::spawn(async move {
+        crate::runtime::scope::spawn_essential("hysteria2 accept", async move {
             // The connections, stopped when the inbound stops.
             let mut connections = JoinSet::new();
             loop {
@@ -130,12 +130,16 @@ impl InboundDatagramHandler for DatagramHandler {
                     local_addr,
                 };
                 let config = generation.server_config.clone();
-                connections.spawn(async move {
-                    let remote = incoming.remote_address();
-                    if let Err(e) = conn.serve(incoming, config).await {
-                        debug!("hysteria2 connection from {}: {}", remote, e);
-                    }
-                });
+                crate::runtime::scope::spawn_child(
+                    &mut connections,
+                    "hysteria2 connection",
+                    async move {
+                        let remote = incoming.remote_address();
+                        if let Err(e) = conn.serve(incoming, config).await {
+                            debug!("hysteria2 connection from {}: {}", remote, e);
+                        }
+                    },
+                );
             }
             endpoint.close(0u32.into(), b"");
         });
@@ -174,7 +178,11 @@ impl Conn {
         // What the connection runs, stopped with it: its streams' requests
         // among them.
         let mut tasks = JoinSet::new();
-        tasks.spawn(quic::drain_uni_streams(conn.clone()));
+        crate::runtime::scope::spawn_child(
+            &mut tasks,
+            "hysteria2 uni streams",
+            quic::drain_uni_streams(conn.clone()),
+        );
 
         let state = Arc::new(ConnState {
             server: self.server,
@@ -193,7 +201,7 @@ impl Conn {
             let accepted = tokio::select! {
                 accepted = conn.accept_bi() => accepted,
                 _ = state.start_udp.notified() => {
-                    tasks.spawn(state.clone().serve_datagrams());
+                    crate::runtime::scope::spawn_child(&mut tasks, "hysteria2 datagrams", state.clone().serve_datagrams());
                     continue;
                 }
                 Some(_) = tasks.join_next(), if !tasks.is_empty() => continue,
@@ -202,11 +210,15 @@ impl Conn {
                 Ok((send, recv)) => {
                     let state = state.clone();
                     let counted = state.streams.opened();
-                    tasks.spawn(async move {
-                        if let Err(e) = state.handle_stream(send, recv, counted).await {
-                            debug!("hysteria2 stream: {}", e);
-                        }
-                    });
+                    crate::runtime::scope::spawn_child(
+                        &mut tasks,
+                        "hysteria2 connection task",
+                        async move {
+                            if let Err(e) = state.handle_stream(send, recv, counted).await {
+                                debug!("hysteria2 stream: {}", e);
+                            }
+                        },
+                    );
                 }
                 Err(quinn::ConnectionError::ApplicationClosed(_))
                 | Err(quinn::ConnectionError::LocallyClosed)

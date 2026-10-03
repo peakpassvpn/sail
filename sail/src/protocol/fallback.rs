@@ -140,7 +140,8 @@ impl Fallback {
         let server = target.server.clone();
         let port = target.port;
         let message = format!("{}; relayed to the fallback {}:{}", why, server, port);
-        tokio::spawn(
+        crate::runtime::scope::spawn(
+            "fallback relay",
             relay(self.dialer.clone(), stream, consumed, server, port).instrument(sess.span()),
         );
         io::Error::new(io::ErrorKind::PermissionDenied, message)

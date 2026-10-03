@@ -41,6 +41,12 @@ const MAX_CONNECTIONS: usize = 8;
 /// one's window.
 const MAX_STREAMS: usize = 128;
 
+/// The pool's list, whatever a panic left it: what is done under it,
+/// a push, a take, a filter, leaves it whole.
+fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 /// How the connections are kept alive.
 pub struct Keepalive {
     /// Unset, no pings.
@@ -103,7 +109,7 @@ impl Pool {
     /// Ends every connection, and the calls on them, as sing-box closes its
     /// transport when the network changes; the layers beneath hear of it.
     pub fn network_changed(&self, change: &crate::net::network::NetworkChange) {
-        let connections = std::mem::take(&mut *self.connections.lock().unwrap());
+        let connections = std::mem::take(&mut *lock(&self.connections));
         for connection in connections {
             connection.state.closed.store(true, Ordering::Release);
             connection.abort.abort();
@@ -163,14 +169,14 @@ impl Pool {
         }
         let connection = Arc::new(self.dial(sess).await?);
         let slot = Slot::take(&connection.state);
-        self.connections.lock().unwrap().push(connection.clone());
+        lock(&self.connections).push(connection.clone());
         Ok((connection, slot))
     }
 
     /// The least busy live connection, with room for one more call unless
     /// `full` is allowed.
     fn pick(&self, full: bool) -> Option<(Arc<Connection>, Slot)> {
-        let mut connections = self.connections.lock().unwrap();
+        let mut connections = lock(&self.connections);
         connections.retain(|c| !c.state.closed.load(Ordering::Acquire));
         let connection = connections
             .iter()
@@ -182,7 +188,7 @@ impl Pool {
     }
 
     fn live(&self) -> usize {
-        let mut connections = self.connections.lock().unwrap();
+        let mut connections = lock(&self.connections);
         connections.retain(|c| !c.state.closed.load(Ordering::Acquire));
         connections.len()
     }
@@ -203,7 +209,7 @@ impl Pool {
         let (connection, abort) = abortable(connection);
         let ends = abort.clone();
         let ended = state.clone();
-        tokio::spawn(async move {
+        crate::runtime::scope::spawn("grpc connection", async move {
             if let Ok(Err(e)) = connection.await {
                 debug!("gun: connection ended: {}", e);
             }

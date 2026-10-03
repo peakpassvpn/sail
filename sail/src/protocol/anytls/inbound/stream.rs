@@ -125,13 +125,16 @@ impl InboundStreamHandler for Handler {
         // Holds the session only while a stream is being handed out: the
         // `Incoming` keeps it, and each stream its own.
         let weak = Arc::downgrade(&session);
-        tokio::spawn(async move {
+        crate::runtime::scope::spawn("anytls inbound session", async move {
             while let Some(stream) = streams.recv().await {
                 let Some(session) = weak.upgrade() else {
                     return;
                 };
                 let stream = session.stream(stream);
-                tokio::spawn(accept(stream, sess.clone(), tx.clone(), handshake_timeout));
+                crate::runtime::scope::spawn(
+                    "anytls inbound stream",
+                    accept(stream, sess.clone(), tx.clone(), handshake_timeout),
+                );
             }
         });
         Ok(InboundTransport::Incoming(Box::new(Incoming {

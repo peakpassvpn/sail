@@ -354,9 +354,12 @@ impl Request<'_> {
             .handshake::<_, Bytes>(upstream)
             .await
             .map_err(io::Error::other)?;
-        let _driver = AbortOnDrop(tokio::spawn(async move {
-            let _ = connection.await;
-        }));
+        let _driver = AbortOnDrop(crate::runtime::scope::spawn(
+            "hysteria2 masquerade h2",
+            async move {
+                let _ = connection.await;
+            },
+        ));
         let mut request = http::Request::builder()
             .method(self.method)
             .uri(format!("https://{}{}", self.host, self.target));

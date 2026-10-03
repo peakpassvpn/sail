@@ -207,7 +207,7 @@ impl Shared {
             return;
         };
         let tag = self.tag.clone();
-        tokio::spawn(async move {
+        crate::runtime::scope::spawn("wireguard rebind", async move {
             match bind.rebind().await {
                 Ok(()) => debug!("wireguard [{}]: bound anew", tag),
                 Err(e) => error!("wireguard [{}]: update bind: {}", tag, e),
@@ -414,7 +414,7 @@ impl Shared {
                         ..Default::default()
                     };
                     let dispatcher = dispatcher.clone();
-                    tokio::spawn(async move {
+                    crate::runtime::scope::spawn("wireguard stream", async move {
                         dispatcher.dispatch_stream(sess, conn.stream).await;
                     });
                 }
@@ -433,39 +433,59 @@ impl Shared {
         // aborts them all when the endpoint stops, or is dropped.
         let mut tasks = tokio::task::JoinSet::new();
         let stack_tag = self.tag.clone();
-        tasks.spawn(async move {
+        crate::runtime::scope::spawn_child_essential(&mut tasks, "wireguard stack", async move {
             if let Err(e) = runtime.run().await {
                 error!("wireguard [{}]: the stack failed: {}", stack_tag, e);
             }
             "stack"
         });
-        tasks.spawn(async move {
-            pump_in.await;
-            "tunnel to stack"
-        });
-        tasks.spawn(async move {
-            pump_out.await;
-            "stack to tunnel"
-        });
-        tasks.spawn(async move {
-            accept_loop.await;
-            "accept"
-        });
-        tasks.spawn(async move {
-            datagram_loop.await;
-            "datagrams"
-        });
+        crate::runtime::scope::spawn_child_essential(
+            &mut tasks,
+            "wireguard endpoint task",
+            async move {
+                pump_in.await;
+                "tunnel to stack"
+            },
+        );
+        crate::runtime::scope::spawn_child_essential(
+            &mut tasks,
+            "wireguard endpoint task",
+            async move {
+                pump_out.await;
+                "stack to tunnel"
+            },
+        );
+        crate::runtime::scope::spawn_child_essential(
+            &mut tasks,
+            "wireguard endpoint task",
+            async move {
+                accept_loop.await;
+                "accept"
+            },
+        );
+        crate::runtime::scope::spawn_child_essential(
+            &mut tasks,
+            "wireguard endpoint task",
+            async move {
+                datagram_loop.await;
+                "datagrams"
+            },
+        );
         if tracing::enabled!(tracing::Level::DEBUG) {
             let mut control = control.clone();
             let tag = self.tag.clone();
-            tasks.spawn(async move {
-                loop {
-                    tokio::time::sleep(Duration::from_secs(5)).await;
-                    if let Ok(s) = control.stats_snapshot().await {
-                        debug!("wireguard [{}]: stack {:?}", tag, s.stack);
+            crate::runtime::scope::spawn_child_essential(
+                &mut tasks,
+                "wireguard endpoint task",
+                async move {
+                    loop {
+                        tokio::time::sleep(Duration::from_secs(5)).await;
+                        if let Ok(s) = control.stats_snapshot().await {
+                            debug!("wireguard [{}]: stack {:?}", tag, s.stack);
+                        }
                     }
-                }
-            });
+                },
+            );
         }
         let stopped = tasks.join_next().await;
         self.running_tx.send_replace(None);
@@ -580,7 +600,11 @@ impl EndpointServer for Server {
             // On a task of its own, which is aborted when the runner is
             // dropped.
             let mut task = tokio::task::JoinSet::new();
-            task.spawn(shared.run(dispatcher, nat_manager));
+            crate::runtime::scope::spawn_child_essential(
+                &mut task,
+                "wireguard endpoint",
+                shared.run(dispatcher, nat_manager),
+            );
             if let Some(Ok(Err(e))) = task.join_next().await {
                 error!("wireguard [{}]: {:#}", tag, e);
             }

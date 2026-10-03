@@ -166,7 +166,7 @@ impl InboundStreamHandler for Handler {
                 }
             }
         });
-        tokio::spawn(serving);
+        crate::runtime::scope::spawn("grpc inbound connection", serving);
         if let (Some(interval), Some(ping_pong)) = (self.idle_timeout, ping_pong) {
             super::super::keepalive(ping_pong, interval, self.ping_timeout, || true, abort);
         }

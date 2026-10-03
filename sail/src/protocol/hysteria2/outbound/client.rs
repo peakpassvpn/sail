@@ -316,7 +316,10 @@ struct Tasks(Vec<AbortHandle>);
 impl Tasks {
     fn spawn<F: std::future::Future<Output = ()> + Send + 'static>(&mut self, task: F) {
         let (handle, registration) = AbortHandle::new_pair();
-        tokio::spawn(Abortable::new(task, registration));
+        crate::runtime::scope::spawn(
+            "hysteria2 connection task",
+            Abortable::new(task, registration),
+        );
         self.0.push(handle);
     }
 }

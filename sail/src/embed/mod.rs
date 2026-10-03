@@ -563,6 +563,13 @@ impl Instance {
         Ok(self.manager()?.env.scope.faults())
     }
 
+    /// The tasks of the instance's scope now, by name, with how many of
+    /// each.
+    #[doc(hidden)]
+    pub fn tasks(&self) -> Result<Vec<(&'static str, usize)>, Error> {
+        Ok(self.manager()?.env.scope.tasks())
+    }
+
     /// What the configurations it ran set that sail ignores, since last
     /// asked.
     pub fn take_warnings(&self) -> Result<Vec<String>, Error> {
