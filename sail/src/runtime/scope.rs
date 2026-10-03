@@ -25,6 +25,12 @@ use tokio::task::{AbortHandle, JoinHandle};
 /// Shards of the registry: spawns from many threads take different locks.
 const SHARDS: usize = 16;
 
+/// What the scope adds to a task's future, at most: the task-local's key
+/// and slot, the scope, the registration, the class and the name, and the
+/// combinators' states. The sum of these fields is about 70 bytes; the
+/// bound leaves room for padding.
+pub const TASK_OVERHEAD: usize = 128;
+
 /// How long a stop waits for the instance's tasks to end, unless the host
 /// says: a judgment value, to be measured (design-notes, E2).
 pub const STOP_WITHIN: Duration = Duration::from_secs(2);
@@ -145,30 +151,45 @@ impl TaskScope {
         F: Future + Send + 'static,
         F::Output: Send + 'static,
     {
+        let (id, task) = self.task(class, name, fut);
+        let handle = tokio::spawn(task);
+        if let Some(entry) = lock(&self.0.shards[(id as usize) % SHARDS]).get_mut(&id) {
+            entry.1 = Some(handle.abort_handle());
+        }
+        handle
+    }
+
+    /// `fut` registered as a task of `class` named `name`, wrapped to run
+    /// in the scope, its panic caught; and its id. Combinators, not an
+    /// async block: a block keeps `fut` and what wraps it apart, the task
+    /// twice its size or more (4 KiB more a held connection, measured). It
+    /// is `fut` and `TASK_OVERHEAD` at most.
+    fn task<F: Future>(
+        &self,
+        class: TaskClass,
+        name: &'static str,
+        fut: F,
+    ) -> (u64, impl Future<Output = F::Output>) {
         let id = self.0.next.fetch_add(1, Ordering::Relaxed);
-        let shard = &self.0.shards[(id as usize) % SHARDS];
-        lock(shard).insert(id, (name, None));
+        lock(&self.0.shards[(id as usize) % SHARDS]).insert(id, (name, None));
         let scope = self.clone();
         // Out of the registry however it ends: done, aborted, panicked, or
         // aborted before it ever ran, when the future drops unpolled.
         let registered = Registered(scope.clone(), id);
-        let task = async move {
-            let _registered = registered;
-            let run = CURRENT.scope(scope.clone(), fut);
-            match std::panic::AssertUnwindSafe(run).catch_unwind().await {
-                Ok(output) => output,
-                Err(panic) => {
-                    scope.panicked(class, name, &*panic);
-                    // As before for whoever awaits it: tokio's JoinError.
-                    std::panic::resume_unwind(panic)
+        let task = std::panic::AssertUnwindSafe(CURRENT.scope(scope.clone(), fut))
+            .catch_unwind()
+            .map(move |result| {
+                let _registered = registered;
+                match result {
+                    Ok(output) => output,
+                    Err(panic) => {
+                        scope.panicked(class, name, &*panic);
+                        // As before for whoever awaits it: tokio's JoinError.
+                        std::panic::resume_unwind(panic)
+                    }
                 }
-            }
-        };
-        let handle = tokio::spawn(task);
-        if let Some(entry) = lock(shard).get_mut(&id) {
-            entry.1 = Some(handle.abort_handle());
-        }
-        handle
+            });
+        (id, task)
     }
 
     /// Runs `f` on the blocking pool as contained work: counted in the
@@ -404,6 +425,33 @@ mod tests {
             .failure()
             .unwrap()
             .contains("[router] panicked: broken state"));
+    }
+
+    /// A scoped task is its future and `TASK_OVERHEAD` at most, whatever
+    /// the future's size: never two copies of it.
+    #[test]
+    fn a_scoped_task_is_its_future_and_a_few_words() {
+        let scope = TaskScope::default();
+        for n in [64usize, 4096] {
+            let fut = async move {
+                let held = vec![0u8; n];
+                let big = [7u8; 4096];
+                std::future::ready(()).await;
+                std::hint::black_box((&held, &big[..n.min(4096)]));
+            };
+            let size = std::mem::size_of_val(&fut);
+            let (_, task) = scope.task(TaskClass::Contained, "sized", fut);
+            let wrapped = std::mem::size_of_val(&task);
+            assert!(
+                wrapped <= size + TASK_OVERHEAD,
+                "{} bytes for a {}-byte future",
+                wrapped,
+                size
+            );
+            drop(task);
+        }
+        // Dropped unpolled, it left the registry.
+        assert!(scope.is_empty());
     }
 
     #[tokio::test]
