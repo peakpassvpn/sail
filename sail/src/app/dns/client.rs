@@ -803,13 +803,19 @@ impl DnsClient {
                 let wire = Self::wire(server, request)?;
                 let mut last_err = None;
                 let interface = dialed.interface.now();
-                for addr in dialed
+                let servers = dialed
                     .servers
-                    .get(&dialed.own_interfaces, interface.as_deref())?
-                {
+                    .get(&dialed.own_interfaces, interface.as_deref())?;
+                // In order, each with its share of the time left, so that
+                // one that does not answer leaves time for the next.
+                let asked = system::servers_asked(time, servers.len());
+                let deadline = tokio::time::Instant::now() + time;
+                for (i, addr) in servers.into_iter().take(asked).enumerate() {
+                    let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+                    let share = left / (asked - i) as u32;
                     let asked = async {
                         let socket = self.dial_datagram(&dialed.dialer, addr).await?;
-                        self.exchange_udp(socket, &wire, addr, server, time).await
+                        self.exchange_udp(socket, &wire, addr, server, share).await
                     }
                     .await;
                     match asked {

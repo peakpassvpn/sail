@@ -1870,6 +1870,49 @@ mod tests {
         assert_eq!(asked(&count), 1);
     }
 
+    /// The system's servers are asked in order, each with its share of
+    /// the query's time: one that does not answer leaves time for the
+    /// next, rather than taking it all.
+    #[tokio::test]
+    async fn a_local_server_s_servers_each_have_their_share_of_the_time() {
+        let silent = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let (port, count) = counting_server(60, false).await;
+        let config = crate::config::Config::from_json(
+            &serde_json::json!({ "dns": { "timeout": "4s", "servers": [
+                { "type": "local", "tag": "sys", "connect_timeout": "2s" }
+            ] } })
+            .to_string(),
+        )
+        .unwrap();
+        let client = DnsClient::new(&config.dns, Default::default(), &Default::default())
+            .unwrap()
+            .into_arc();
+        let Kind::Local(local) = &client.servers["sys"].kind else {
+            panic!("a local server");
+        };
+        local.dialed.as_ref().unwrap().servers.set(vec![
+            silent.local_addr().unwrap(),
+            std::net::SocketAddr::from(([127, 0, 0, 1], port)),
+        ]);
+        let started = std::time::Instant::now();
+        let answer = exchange(&client, "a.example", RecordType::A).await;
+        assert_eq!(answer_ips(&answer), ips(&["10.0.0.1"]));
+        assert_eq!(asked(&count), 1);
+        // Half of the 4 s went to the silent one, not all of it.
+        let took = started.elapsed();
+        assert!(took >= Duration::from_millis(1900) && took < Duration::from_millis(3500), "{:?}", took);
+    }
+
+    #[test]
+    fn a_short_query_asks_fewer_servers() {
+        use super::system::servers_asked;
+        assert_eq!(servers_asked(Duration::from_secs(10), 2), 2);
+        assert_eq!(servers_asked(Duration::from_secs(10), 5), 3);
+        assert_eq!(servers_asked(Duration::from_secs(2), 3), 2);
+        assert_eq!(servers_asked(Duration::from_millis(500), 3), 1);
+        assert_eq!(servers_asked(Duration::from_secs(5), 0), 0);
+    }
+
     #[tokio::test]
     async fn optimistic_gives_the_expired_answer_and_asks_again_behind() {
         let (port, count) = counting_server(1, false).await;

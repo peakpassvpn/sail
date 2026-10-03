@@ -35,6 +35,24 @@ const REREAD: Duration = Duration::from_secs(5);
 /// moment later (DHCP), with nothing changing that would say so.
 const REREAD_EMPTY: Duration = Duration::from_secs(1);
 
+/// The servers asked at most, as sing-box takes them from resolv.conf
+/// (`len(conf.servers) < 3`).
+const MAX_SERVERS: usize = 3;
+
+/// The least time a server is given: with a shorter query, fewer servers
+/// are asked rather than the query taking longer.
+const MIN_SHARE: Duration = Duration::from_secs(1);
+
+/// How many of `n` servers a query of `budget` asks, in order, each with
+/// an even share of the time left: at most three, each with a second at
+/// least, and one in any case. sing-box gives each server resolv.conf's
+/// `timeout` (5 s) instead, so that with a 10 s query a third is never
+/// asked.
+pub(super) fn servers_asked(budget: Duration, n: usize) -> usize {
+    let fit = (budget.as_millis() / MIN_SHARE.as_millis()) as usize;
+    n.min(MAX_SERVERS).min(fit.max(1))
+}
+
 #[cfg(target_os = "macos")]
 #[path = "system_macos.rs"]
 mod macos;
