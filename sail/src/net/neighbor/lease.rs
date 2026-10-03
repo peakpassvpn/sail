@@ -96,14 +96,17 @@ fn unix_now() -> i64 {
         .unwrap_or(0)
 }
 
-/// sing-box's parseLeaseFile: the format by the name's ending.
 fn read_lease_file(path: &Path, now: i64, leases: &mut Leases) {
     let Ok(content) = std::fs::read(path) else {
         return;
     };
     // Go compares the path as a string; the names looked for are ASCII.
-    let name = path.to_string_lossy();
-    let lines = lines(&content);
+    parse_lease_file(&path.to_string_lossy(), &content, now, leases);
+}
+
+/// sing-box's parseLeaseFile: the format by the name's ending.
+pub(crate) fn parse_lease_file(name: &str, content: &[u8], now: i64, leases: &mut Leases) {
+    let lines = lines(content);
     if name.ends_with("dhcpd_leases") {
         parse_bootpd_leases(&lines, now, leases);
     } else if name.ends_with("kea-leases4.csv") {

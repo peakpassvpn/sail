@@ -52,6 +52,33 @@ pub fn sniff(data: &[u8]) {
     let _ = std::hint::black_box(datagram.settle());
 }
 
+/// Read DHCP lease files, which the neighbor table takes from other
+/// programs: the content as each format the file's name can select, then
+/// a lookup by a host name read from it.
+pub fn dhcp_leases(data: &[u8]) {
+    use crate::net::neighbor::lease;
+    for name in [
+        "/var/db/dhcpd_leases",
+        "/var/lib/kea/kea-leases4.csv",
+        "/var/lib/kea/kea-leases6.csv",
+        "/var/lib/dhcp/dhcpd.leases",
+        "/tmp/dhcp.leases",
+    ] {
+        let mut leases = lease::Leases::default();
+        // At time 0 no lease has expired, so every line is read through.
+        lease::parse_lease_file(name, data, 0, &mut leases);
+        if let Some(hostname) = leases.ip_to_hostname.values().next() {
+            let _ = std::hint::black_box(lease::addresses_by_hostname(
+                hostname,
+                &leases.ip_to_hostname,
+                &leases.mac_to_hostname,
+                &leases.ip_to_mac,
+                &leases.ip_to_mac,
+            ));
+        }
+    }
+}
+
 /// Exercise synchronous TUIC and XUDP inbound wire decoders.
 pub fn inbound_protocol(data: &[u8]) {
     crate::protocol::tuic::fuzz_decode(data);

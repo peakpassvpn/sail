@@ -1,11 +1,12 @@
-# Fuzz targets for the parsers sniffing runs on what clients send, and for
-# share links, which come from subscriptions anyone may serve. From the
+# Fuzz targets for the parsers sniffing runs on what clients send, for
+# share links, which come from subscriptions anyone may serve, and for the
+# DHCP lease files other programs write. From the
 # repository root, with cargo-fuzz:
 #
 #     cargo +nightly fuzz run --fuzz-dir fuzz sniff_quic -- -max_total_time=60
 #
 # Targets: sniff_tls, sniff_http, sniff_dns, sniff_quic, sniff_any,
-# share_link.
+# share_link, dhcp_leases.
 
 [package]
 name = "sail-fuzz"
@@ -18,8 +19,9 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
-# The sniffers, and btls for QUIC's Initial packets.
-sail = { path = "../sail", default-features = false, features = ["aead"] }
+# The sniffers, btls for QUIC's Initial packets, and the entry points of
+# sail's fuzzing module.
+sail = { path = "../sail", default-features = false, features = ["aead", "fuzzing"] }
 
 # A workspace of its own: the targets build on nightly with sanitizers,
 # apart from sail's.
@@ -73,6 +75,13 @@ bench = false
 [[bin]]
 name = "share_link"
 path = "fuzz_targets/share_link.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "dhcp_leases"
+path = "fuzz_targets/dhcp_leases.rs"
 test = false
 doc = false
 bench = false
