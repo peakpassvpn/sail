@@ -38,8 +38,8 @@ pub use error::{Error, ErrorKind};
 pub use instance::{ids_held, Instance};
 pub use logs::{LogBatch, LogFilter, LogLine};
 pub use network::{
-    Event, Interface, Kinds, NetworkChangeKind, NetworkChangeReason, NetworkEvent, NetworkKind,
-    NetworkState, TunName,
+    DialFailure, DialStage, Event, GroupSwitch, Interface, Kinds, NetworkChangeKind,
+    NetworkChangeReason, NetworkEvent, NetworkKind, NetworkState, SwitchReason, TunName, UserEvent,
 };
 pub use streams::Status;
 
@@ -484,6 +484,33 @@ impl Instance {
             .with_manager(move |m| {
                 Box::pin(async move { m.remove_inbound_user(&tag, &name).await })
             })
+            .await??)
+    }
+
+    /// Adds an inbound, one entry of sing-box's `inbounds` as JSON, and
+    /// starts listening on it, without a reload. Its tag must be new.
+    pub async fn add_inbound(&self, inbound: serde_json::Value) -> Result<(), Error> {
+        let host = self.inner().host().clone();
+        let config = serde_json::json!({ "inbounds": [inbound] }).to_string();
+        let mut config = crate::config::from_string_for(&config, &host)
+            .map_err(|e| Error::new(ErrorKind::Config, format!("{:#}", e)))?;
+        let inbound = config
+            .inbounds
+            .pop()
+            .ok_or_else(|| Error::new(ErrorKind::Config, "no inbound given"))?;
+        Ok(self
+            .with_manager(move |m| Box::pin(async move { m.add_inbound(inbound).await }))
+            .await??)
+    }
+
+    /// Removes the inbound `tag`: it stops listening, and the connections
+    /// it accepted are disconnected at once, its UDP sessions and the
+    /// streams of its multiplexed connections among them. Connections of
+    /// other inbounds are not touched. How many were disconnected.
+    pub async fn remove_inbound(&self, tag: &str) -> Result<usize, Error> {
+        let tag = tag.to_string();
+        Ok(self
+            .with_manager(move |m| Box::pin(async move { m.remove_inbound_closing(&tag).await }))
             .await??)
     }
 

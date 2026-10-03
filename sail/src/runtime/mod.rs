@@ -192,6 +192,9 @@ pub struct RuntimeEnv {
     /// What this instance has changed in the system and not yet undone,
     /// for a sweep should it be killed.
     pub ledger: crate::platform::sweep::Ledger,
+    /// What the instance tells as it happens: groups switching, connections
+    /// failing (control::events).
+    pub events: crate::control::events::EventHub,
     /// The TUNs' names by inbound tag, as the start settled them; a reload
     /// keeps a chosen one.
     pub tun_names: Arc<std::sync::Mutex<std::collections::BTreeMap<String, TunName>>>,

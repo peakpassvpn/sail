@@ -461,3 +461,60 @@ async fn the_state_comes_as_events_and_the_status_as_a_stream() {
         seen
     );
 }
+
+/// An inbound added and removed while the instance runs: removing it closes
+/// its own connections at once, frees its port, and leaves the other
+/// inbounds' connections as they are.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn removing_an_inbound_closes_its_connections_only() {
+    let (echo, serve) = common::run_tcp_echo_server("127.0.0.1:0").await.unwrap();
+    tokio::spawn(serve);
+    let [kept_port, removed_port] = common::free_ports::<2>();
+    let instance = Instance::new(options()).unwrap();
+    instance
+        .start(Config::Json(config(kept_port, 53)))
+        .await
+        .unwrap();
+    let proxy = serde_json::json!({
+        "type": "socks", "tag": "system-proxy", "listen": "127.0.0.1", "listen_port": removed_port,
+    });
+    instance.add_inbound(proxy.clone()).await.unwrap();
+
+    let sess = Session {
+        destination: echo.into(),
+        ..Default::default()
+    };
+    let mut kept = common::new_socks_stream("127.0.0.1", kept_port, &sess, None, None)
+        .await
+        .unwrap();
+    let mut removed = common::new_socks_stream("127.0.0.1", removed_port, &sess, None, None)
+        .await
+        .unwrap();
+    round_trip(&mut kept, b"kept").await;
+    round_trip(&mut removed, b"removed").await;
+
+    assert_eq!(instance.remove_inbound("system-proxy").await.unwrap(), 1);
+    let mut buf = [0u8; 1];
+    let read = tokio::time::timeout(Duration::from_secs(5), removed.read(&mut buf))
+        .await
+        .expect("the removed inbound's connection ends at once");
+    assert!(matches!(read, Ok(0) | Err(_)));
+    round_trip(&mut kept, b"still here").await;
+    std::net::TcpListener::bind(("127.0.0.1", removed_port)).expect("its port is free");
+    assert_eq!(
+        instance
+            .remove_inbound("system-proxy")
+            .await
+            .unwrap_err()
+            .kind(),
+        ErrorKind::Config
+    );
+
+    // And back again.
+    instance.add_inbound(proxy).await.unwrap();
+    let mut again = common::new_socks_stream("127.0.0.1", removed_port, &sess, None, None)
+        .await
+        .unwrap();
+    round_trip(&mut again, b"again").await;
+    instance.stop().await.unwrap();
+}

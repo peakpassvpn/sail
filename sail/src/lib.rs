@@ -880,19 +880,39 @@ impl RuntimeManager {
         Ok(())
     }
 
-    /// Stops listening for the inbound `tag`, and removes it.
+    /// Stops listening for the inbound `tag`, removes it, and disconnects
+    /// the connections it accepted (its UDP sessions and the streams of
+    /// its multiplexed connections among them); those of other inbounds go
+    /// on. Removing an outbound leaves its connections going on.
     pub async fn remove_inbound(&self, tag: &str) -> Result<(), Error> {
+        self.remove_inbound_closing(tag).await.map(|_| ())
+    }
+
+    /// `remove_inbound`, and how many connections it disconnected.
+    pub async fn remove_inbound_closing(&self, tag: &str) -> Result<usize, Error> {
         let _update = self.update.lock().await;
-        let mut inbounds = self
-            .inbound_manager
+        // The lock goes before anything awaited.
+        self.inbound_manager
             .lock()
-            .map_err(|_| Error::RuntimeManager)?;
-        inbounds.remove(tag).map_err(Error::Config)?;
-        drop(inbounds);
+            .map_err(|_| Error::RuntimeManager)?
+            .remove(tag)
+            .map_err(Error::Config)?;
         #[cfg(feature = "auto-reload")]
         self.follow_certificates();
-        info!("removed inbound [{}]", tag);
-        Ok(())
+        // The listener has stopped. A connection still in its handshake, or
+        // one that carries streams, is not among these yet and goes on: see
+        // the follow-up in network_listener.
+        let mut closed = 0;
+        for connection in self.connections().await {
+            if connection.inbound_tag == tag && self.close_connection(connection.id).await {
+                closed += 1;
+            }
+        }
+        info!(
+            "removed inbound [{}]; {} of its connections closed",
+            tag, closed
+        );
+        Ok(closed)
     }
 
     pub fn blocking_reload(&self) -> Result<(), Error> {

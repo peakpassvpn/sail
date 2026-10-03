@@ -771,3 +771,77 @@ fn the_api_streams_what_happens_to_users() -> anyhow::Result<()> {
     }
     result
 }
+
+/// Removing an inbound through the API disconnects its own connections at
+/// once and frees its port; another inbound's connections go on.
+#[cfg(feature = "inbound-socks")]
+#[test]
+fn removing_an_inbound_disconnects_its_connections_only() -> anyhow::Result<()> {
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+    let (ids, api_port, kept_port, removed_port) = common::retry_port_clash(|| {
+        let [api_port, kept_port, removed_port] = common::free_ports();
+        let config = serde_json::json!({
+            "api": { "listen": format!("127.0.0.1:{}", api_port), "secret": SECRET },
+            "inbounds": [
+                { "type": "socks", "tag": "kept", "listen": "127.0.0.1", "listen_port": kept_port },
+                { "type": "socks", "tag": "removed", "listen": "127.0.0.1", "listen_port": removed_port },
+            ],
+            "outbounds": [{ "type": "direct" }],
+        });
+        Ok((
+            common::run_sail_instances(&rt, vec![config.to_string()])?,
+            api_port,
+            kept_port,
+            removed_port,
+        ))
+    })?;
+    let at = At::Port(api_port);
+    async fn round_trip(s: &mut sail::adapter::AnyStream, what: &[u8]) -> anyhow::Result<()> {
+        s.write_all(what).await?;
+        let mut back = vec![0u8; what.len()];
+        tokio::time::timeout(Duration::from_secs(5), s.read_exact(&mut back)).await??;
+        anyhow::ensure!(back == what, "an echo of what was sent");
+        Ok(())
+    }
+    let result = (|| {
+        let (mut kept, mut removed) = rt.block_on(async {
+            let (echo, serve) = common::run_tcp_echo_server("127.0.0.1:0").await?;
+            tokio::spawn(serve);
+            let sess = sail::session::Session {
+                destination: echo.into(),
+                ..Default::default()
+            };
+            let mut kept =
+                common::new_socks_stream("127.0.0.1", kept_port, &sess, None, None).await?;
+            let mut removed =
+                common::new_socks_stream("127.0.0.1", removed_port, &sess, None, None).await?;
+            round_trip(&mut kept, b"kept").await?;
+            round_trip(&mut removed, b"removed").await?;
+            anyhow::Ok((kept, removed))
+        })?;
+        let (status, _, _) = call(
+            &rt,
+            &at,
+            Some(SECRET),
+            "DELETE",
+            "/api/v1/runtime/inbounds/removed",
+            "",
+        )?;
+        anyhow::ensure!(status == 200, "removed: {}", status);
+        rt.block_on(async {
+            let mut buf = [0u8; 1];
+            let read = tokio::time::timeout(Duration::from_secs(5), removed.read(&mut buf)).await?;
+            anyhow::ensure!(
+                matches!(read, Ok(0) | Err(_)),
+                "its own connection ends at once"
+            );
+            round_trip(&mut kept, b"still here").await
+        })?;
+        std::net::TcpListener::bind(("127.0.0.1", removed_port))?;
+        Ok(())
+    })();
+    common::shutdown_instances(&rt, ids);
+    result
+}

@@ -15,6 +15,7 @@ use crate::session::{Network, SniffedFrom, SocksAddr};
 use crate::RuntimeManager;
 
 mod dial;
+pub mod events;
 mod inbounds;
 pub mod json;
 pub mod listen;

@@ -84,6 +84,9 @@ pub(super) struct Inner {
     changed: Condvar,
     /// The state, for those who wait or follow.
     state: tokio::sync::watch::Sender<State>,
+    /// Each change of state, in order, for its events: a watch keeps only
+    /// the last.
+    transitions: tokio::sync::broadcast::Sender<State>,
     me: Weak<Inner>,
 }
 
@@ -158,6 +161,7 @@ impl Instance {
             }),
             changed: Condvar::new(),
             state,
+            transitions: tokio::sync::broadcast::channel(16).0,
             me: me.clone(),
         });
         Ok(Instance(Arc::new(Handle(inner))))
@@ -331,6 +335,11 @@ impl Instance {
 }
 
 impl Inner {
+    /// What the instance runs with of the host's.
+    pub(super) fn host(&self) -> &Host {
+        &self.host
+    }
+
     /// What controls the instance, while it runs.
     pub(super) fn manager(&self) -> Result<Arc<RuntimeManager>, Error> {
         lock(&self.life)
@@ -342,6 +351,11 @@ impl Inner {
     /// The state, as each change is followed.
     pub(super) fn states(&self) -> tokio::sync::watch::Receiver<State> {
         self.state.subscribe()
+    }
+
+    /// Each change of state from now on, in order.
+    pub(super) fn transitions(&self) -> tokio::sync::broadcast::Receiver<State> {
+        self.transitions.subscribe()
     }
 
     fn publish(&self, life: &Life) {
@@ -359,6 +373,7 @@ impl Inner {
                     .unwrap_or_else(|| Error::new(ErrorKind::Internal, "the instance failed")),
             ),
         };
+        let _ = self.transitions.send(state.clone());
         self.state.send_replace(state);
         self.changed.notify_all();
     }
