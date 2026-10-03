@@ -9,6 +9,7 @@ pub mod cache_file;
 pub mod options;
 pub mod platform;
 pub(crate) mod resource;
+pub mod scope;
 #[cfg(feature = "auto-reload")]
 pub(crate) mod watch;
 
@@ -64,6 +65,9 @@ pub struct Host {
     /// configuration it runs has modes only with a Clash API, as in
     /// sing-box.
     pub clash_modes: bool,
+    /// How long a stop waits for the instance's tasks to end before it
+    /// reports what is left; `scope::STOP_WITHIN` when unset.
+    pub stop_within: Option<std::time::Duration>,
 }
 
 /// The base URL of a Sub-Store backend. It may carry a secret path, so it
@@ -195,6 +199,9 @@ pub struct RuntimeEnv {
     /// What the instance tells as it happens: groups switching, connections
     /// failing (control::events).
     pub events: crate::control::events::EventHub,
+    /// The instance's tasks (scope.rs): a stop ends them, a panic in one
+    /// is dealt with by its class.
+    pub scope: scope::TaskScope,
     /// The TUNs' names by inbound tag, as the start settled them; a reload
     /// keeps a chosen one.
     pub tun_names: Arc<std::sync::Mutex<std::collections::BTreeMap<String, TunName>>>,
@@ -345,6 +352,7 @@ impl StartSettings {
                 asset_sources: self.asset_sources,
                 log: None,
                 clash_modes: false,
+                stop_within: None,
                 run_dir: match self.run_dir {
                     None => crate::platform::sweep::RunDir::Default,
                     Some(RunDirSetting::Dir(dir)) => crate::platform::sweep::RunDir::Dir(dir),

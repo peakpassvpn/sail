@@ -69,6 +69,8 @@ struct Life {
     /// A stop was asked for this run.
     stop: bool,
     started_at: Option<SystemTime>,
+    /// The last run's tasks, for what its stop could not end.
+    scope: Option<crate::runtime::scope::TaskScope>,
 }
 
 pub(super) struct Inner {
@@ -123,6 +125,7 @@ impl Instance {
             threads,
             clash_modes,
             log,
+            stop_within,
         } = options;
         let profile: crate::runtime::Profile = match &settings.profile {
             Some(p) => p
@@ -130,9 +133,10 @@ impl Instance {
                 .map_err(|e| Error::new(ErrorKind::Config, format!("{:#}", e)))?,
             None => Default::default(),
         };
-        let (options, host) = settings
+        let (options, mut host) = settings
             .resolve()
             .map_err(|e| Error::new(ErrorKind::Config, format!("{:#}", e)))?;
+        host.stop_within = stop_within;
         let threads = threads.unwrap_or(match profile {
             // A phone's budget: one thread, as libbox's.
             crate::runtime::Profile::Mobile => Threads::One,
@@ -158,6 +162,7 @@ impl Instance {
                 thread_id: None,
                 stop: false,
                 started_at: None,
+                scope: None,
             }),
             changed: Condvar::new(),
             state,
@@ -229,7 +234,16 @@ impl Instance {
             .wait_for(|s| !matches!(s, State::Starting | State::Running { .. } | State::Stopping))
             .await;
         self.inner().join();
-        Ok(())
+        self.inner().leftovers()
+    }
+
+    /// What the last stop could not end within its bound: the tasks still
+    /// running, by name, and how long it waited. None before any stop.
+    pub fn stop_report(&self) -> Option<crate::runtime::scope::StopReport> {
+        lock(&self.inner().life)
+            .scope
+            .as_ref()
+            .and_then(|s| s.report())
     }
 
     /// Asks it to stop, and waits up to `wait` blocking this thread; zero
@@ -253,7 +267,7 @@ impl Instance {
             ));
         }
         self.inner().join();
-        Ok(())
+        self.inner().leftovers()
     }
 
     /// The state now.
@@ -474,6 +488,7 @@ impl Inner {
             life.phase = Phase::Running;
             life.started_at = Some(SystemTime::now());
         }
+        life.scope = Some(manager.env.scope.clone());
         life.manager = Some(manager);
         self.publish(&life);
     }
@@ -529,6 +544,21 @@ impl Inner {
             }
         }
         Some(states)
+    }
+
+    /// `Ok`, or a Timeout naming what the last stop could not end.
+    fn leftovers(&self) -> Result<(), Error> {
+        let report = lock(&self.life).scope.as_ref().and_then(|s| s.report());
+        match report {
+            Some(report) if !report.clean() => Err(Error::new(
+                ErrorKind::Timeout,
+                format!(
+                    "stopped, with tasks still running after {:?}: {:?}",
+                    report.waited, report.tasks
+                ),
+            )),
+            _ => Ok(()),
+        }
     }
 
     /// Joins the thread of a run that has ended; it ends right after it

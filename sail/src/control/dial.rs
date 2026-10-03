@@ -92,13 +92,17 @@ impl RuntimeManager {
                 ours.set_nonblocking(true).map_err(failed)?;
                 let ours = tokio::net::UnixStream::from_std(ours).map_err(failed)?;
                 let relay = self.env.options.relay.clone();
-                tokio::spawn(relay_stream(ours, stream, relay));
+                self.env
+                    .scope
+                    .spawn("dial relay", relay_stream(ours, stream, relay));
                 Ok(host.into())
             }
             Dialed::Datagram(datagram) => {
                 let (host, ours) = messages::pair().map_err(failed)?;
                 let ours = tokio::io::unix::AsyncFd::new(ours).map_err(failed)?;
-                tokio::spawn(messages::relay(ours, datagram, destination));
+                self.env
+                    .scope
+                    .spawn("dial relay", messages::relay(ours, datagram, destination));
                 Ok(host)
             }
         }

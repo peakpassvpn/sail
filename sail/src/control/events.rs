@@ -98,11 +98,39 @@ impl DialFailure {
     }
 }
 
+/// A task's panic the instance went on after: its class, what it said,
+/// and how many such panics the instance has had.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Fault {
+    pub task: &'static str,
+    pub class: crate::runtime::scope::TaskClass,
+    pub message: String,
+    pub count: u64,
+}
+
+impl Fault {
+    pub fn new(
+        task: &'static str,
+        class: crate::runtime::scope::TaskClass,
+        message: String,
+        count: u64,
+    ) -> Self {
+        Self {
+            task,
+            class,
+            message,
+            count,
+        }
+    }
+}
+
 /// The channels, one a kind; cheap to clone, every clone the same.
 #[derive(Clone)]
 pub struct EventHub {
     group: broadcast::Sender<GroupSwitch>,
     dial: broadcast::Sender<DialFailure>,
+    fault: broadcast::Sender<Fault>,
 }
 
 impl Default for EventHub {
@@ -110,6 +138,7 @@ impl Default for EventHub {
         Self {
             group: broadcast::channel(CAPACITY).0,
             dial: broadcast::channel(CAPACITY).0,
+            fault: broadcast::channel(CAPACITY).0,
         }
     }
 }
@@ -129,6 +158,15 @@ impl EventHub {
     /// Tells of a failed connection; nothing when no one listens.
     pub fn dial_failed(&self, failure: DialFailure) {
         let _ = self.dial.send(failure);
+    }
+
+    /// Tells of a contained panic.
+    pub fn fault(&self, fault: Fault) {
+        let _ = self.fault.send(fault);
+    }
+
+    pub fn faults(&self) -> broadcast::Receiver<Fault> {
+        self.fault.subscribe()
     }
 
     pub fn group_switches(&self) -> broadcast::Receiver<GroupSwitch> {

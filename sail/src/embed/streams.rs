@@ -24,6 +24,8 @@ pub struct Status {
     pub connections: usize,
     /// The process's resident memory, in bytes.
     pub memory: u64,
+    /// The panics of tasks the instance went on after, in this run.
+    pub faults: u64,
 }
 
 fn ticker(every: Duration) -> tokio::time::Interval {
@@ -65,6 +67,7 @@ impl Instance {
                         down_total: traffic.down_total,
                         connections: traffic.connections,
                         memory: crate::control::resident_memory(),
+                        faults: manager.env.scope.faults(),
                     };
                     let last = Some((now, traffic.up_total, traffic.down_total));
                     return Some((status, (inner, ticker, last)));

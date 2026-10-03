@@ -130,6 +130,7 @@ impl From<crate::Error> for Error {
             crate::Error::Config(_) | crate::Error::NoConfigFile => ErrorKind::Config,
             crate::Error::Io(_) => ErrorKind::Io,
             crate::Error::InUse(_) => ErrorKind::State,
+            crate::Error::Panicked(_) => ErrorKind::Panicked,
             _ => ErrorKind::Internal,
         };
         let message = match e {

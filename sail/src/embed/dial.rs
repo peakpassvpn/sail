@@ -120,7 +120,10 @@ impl Instance {
                 };
                 let relay = manager.env.options.relay.clone();
                 let (host, ours) = tokio::io::duplex(relay.buffer_size.max(1) * 1024);
-                tokio::spawn(crate::control::relay_stream(ours, stream, relay));
+                manager.env.scope.spawn(
+                    "dial relay",
+                    crate::control::relay_stream(ours, stream, relay),
+                );
                 Ok(DialStream(host))
             })
         })
@@ -149,7 +152,7 @@ impl Instance {
                 let (out_tx, mut out_rx) = mpsc::channel::<(Vec<u8>, Address)>(DATAGRAMS);
                 let (back_tx, back_rx) = mpsc::channel(DATAGRAMS);
                 let send = Arc::new(Mutex::new(send));
-                tokio::spawn({
+                manager.env.scope.spawn("dial datagrams out", {
                     let send = send.clone();
                     async move {
                         while let Some((data, to)) = out_rx.recv().await {
@@ -160,7 +163,7 @@ impl Instance {
                         let _ = send.lock().await.close().await;
                     }
                 });
-                tokio::spawn(async move {
+                manager.env.scope.spawn("dial datagrams back", async move {
                     let mut buf = vec![0u8; LARGEST];
                     loop {
                         tokio::select! {

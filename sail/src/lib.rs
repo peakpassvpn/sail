@@ -67,6 +67,9 @@ pub enum Error {
     RuntimeManager,
     #[error("runtime {0} is in use: it is starting or running")]
     InUse(RuntimeId),
+    /// An essential task panicked, or a lock a panic poisoned was met.
+    #[error("stopped after a panic: {0}")]
+    Panicked(String),
 }
 
 pub type Runner = futures::future::BoxFuture<'static, ()>;
@@ -300,7 +303,7 @@ impl RuntimeManager {
     /// told.
     fn detect_network(&self, reason: net::network::ChangeReason) -> tokio::task::JoinHandle<bool> {
         let network = self.network().clone();
-        tokio::task::spawn_blocking(move || {
+        self.env.scope.spawn_blocking("network detection", move || {
             !network.pushed() && network.detected(platform::network::detect(), reason)
         })
     }
@@ -1246,7 +1249,10 @@ async fn follow_default_interface(manager: Arc<RuntimeManager>) {
         // Take the notices of the change before looking.
         settle(&changed, SETTLE_QUIET, SETTLE_MAX).await;
         let moved = match manager.dial_defaults.load().env.auto_interface.clone() {
-            Some(auto) => tokio::task::spawn_blocking(move || auto.refresh())
+            Some(auto) => manager
+                .env
+                .scope
+                .spawn_blocking("default interface", move || auto.refresh())
                 .await
                 .unwrap_or(false),
             None => false,
@@ -1283,7 +1289,10 @@ async fn follow_nat64(manager: &RuntimeManager) {
             std::net::IpAddr::V4(_) => false,
         });
     let prefix = if v6_only {
-        tokio::task::spawn_blocking(net::nat64::discover)
+        manager
+            .env
+            .scope
+            .spawn_blocking("nat64 discovery", net::nat64::discover)
             .await
             .unwrap_or(None)
     } else {
@@ -1661,6 +1670,9 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
     // this one's place among those running ends with the run, however it
     // ends.
     let (ledger, _running) = platform::sweep::begin(&host.run_dir);
+    let events = control::events::EventHub::default();
+    let scope = runtime::scope::TaskScope::new(events.clone());
+    let stop_within = host.stop_within.unwrap_or(runtime::scope::STOP_WITHIN);
     let env = Arc::new(runtime::RuntimeEnv {
         options: opts.runtime,
         host,
@@ -1669,6 +1681,8 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
         ledger,
         #[cfg(feature = "inbound-tun")]
         tun_names: Arc::new(std::sync::Mutex::new(tun_names)),
+        events,
+        scope: scope.clone(),
         ..Default::default()
     });
 
@@ -1913,7 +1927,7 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
         let detected = rt.block_on(async {
             tokio::time::timeout(
                 std::time::Duration::from_secs(1),
-                tokio::task::spawn_blocking(platform::network::detect),
+                scope.spawn_blocking("network settle", platform::network::detect),
             )
             .await
         });
@@ -1947,11 +1961,24 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
         platform.running(&runtime_manager);
     }
 
-    rt.block_on(futures::future::select_all(tasks));
+    // An essential task's panic ends the run, as a stop does.
+    tasks.push(Box::pin({
+        let scope = scope.clone();
+        async move { scope.failed().await }
+    }));
+    rt.block_on(scope.enter(futures::future::select_all(tasks)));
 
     runtime_manager.stop_watching();
     instance.stop();
     drop(instance);
+    // The instance's tasks, ended within the bound; what is left is said.
+    let report = rt.block_on(scope.stop(stop_within));
+    if !report.clean() {
+        warn!(
+            "stopped with tasks still running after {:?}: {:?}",
+            report.waited, report.tasks
+        );
+    }
 
     let mut running = runtime_managers();
     if running
@@ -1966,7 +1993,10 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
 
     trace!("removed runtime {}", &rt_id);
 
-    Ok(())
+    match scope.failure() {
+        Some(why) => Err(Error::Panicked(why)),
+        None => Ok(()),
+    }
 }
 
 /// How long the system is quiet after a change of network before sail

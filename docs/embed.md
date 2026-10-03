@@ -284,15 +284,37 @@ Every start first sweeps what a killed instance left there.
 
 ## Panics
 
-A host built with `panic = "unwind"` keeps running when sail panics:
+Build a host with `panic = "unwind"` (Cargo's default). Under it no panic
+in sail takes the host down. Assert it at start:
+`assert!(sail::embed::PANICS_ARE_CAUGHT)`. Under `panic = "abort"` any
+panic ends the process, as in sail-cli's release build.
 
-- **On the instance's thread.** A panic there ends the run, and the
-  instance becomes `State::Failed` with `ErrorKind::Panicked`. Its runtime
-  goes with the thread, and `start()` begins clean again.
-- **Inside a BoringSSL callback.** A panic in a certificate check, an ALPN
-  choice or the REALITY or ShadowTLS hooks fails that handshake and nothing
-  else. Unwinding through C would abort the process even under unwind, so
-  sail catches it there.
-- **In one of the instance's tasks.** Tokio catches the panic and the
-  instance goes on without that task. Stage E2 turns this into a failed
-  instance too.
+Every task sail runs for an instance is in the instance's scope, of one of
+two classes:
+
+- **Contained:** work bound to one connection, stream, session, request
+  or probe. A panic there ends that task alone. It is logged, counted
+  (`faults()`, and `Status::faults`), and told as `Event::Fault` under
+  `Kinds::FAULT`, with the task's name, class, message and the running
+  count. The instance goes on; a host may rebuild it if they repeat.
+- **Essential:** what the instance cannot do its job without (listeners,
+  its DNS and outbound state, the TUN and netstack drivers, the network
+  monitor, group checks, updaters). A panic there fails the instance:
+  `State::Failed` with `ErrorKind::Panicked` and the task's name. A lock an
+  earlier panic poisoned fails it the same way, rather than cascading.
+
+The instance's start thread and the BoringSSL callbacks are caught as
+before. A failed instance is dropped and a new one made; nothing of it is
+left.
+
+## Stopping
+
+`stop()` aborts the instance's tasks and waits for them to end, for 2 s
+unless `Options::stop_within` says otherwise.
+
+- **Guaranteed:** async tasks end at their next poll after the abort.
+- **Reported only:** a blocking call (a DNS lookup on the blocking pool,
+  file I/O) or a host callback cannot be interrupted. One that outlasts
+  the bound is named in `stop()`'s `Timeout` error and in `stop_report()`
+  (the tasks still running by name and count, and how long the stop
+  waited).

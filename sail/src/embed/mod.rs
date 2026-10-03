@@ -92,6 +92,7 @@ pub struct Options {
     threads: Option<Threads>,
     clash_modes: bool,
     log: Option<Arc<crate::app::logger::InstanceLog>>,
+    stop_within: Option<Duration>,
 }
 
 impl Options {
@@ -163,6 +164,14 @@ impl Options {
     /// none.
     pub fn log_lines(mut self, lines: usize) -> Self {
         self.log_lines = lines;
+        self
+    }
+
+    /// How long a stop waits for the instance's tasks to end before it
+    /// says what is left (`stop()`'s Timeout, `stop_report()`): 2 s unless
+    /// set.
+    pub fn stop_within(mut self, within: Duration) -> Self {
+        self.stop_within = Some(within);
         self
     }
 
@@ -283,6 +292,15 @@ pub fn check(config: &Config, options: &Options) -> Result<Vec<String>, Error> {
 pub fn features() -> Vec<&'static str> {
     crate::control::features()
 }
+
+/// Whether a panic inside sail is caught, as docs/embed.md says (the
+/// instance fails, or the task alone ends; the host goes on): true when
+/// built with `panic = "unwind"`. With `panic = "abort"` any panic ends
+/// the process. A host asserts it at start.
+pub const PANICS_ARE_CAUGHT: bool = cfg!(panic = "unwind");
+
+pub use crate::control::events::Fault;
+pub use crate::runtime::scope::{StopReport, TaskClass};
 
 /// What this sail is: its release.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -537,6 +555,11 @@ impl Instance {
                 "this build has no tun inbound",
             ))
         }
+    }
+
+    /// The panics of tasks the instance went on after, in this run.
+    pub fn faults(&self) -> Result<u64, Error> {
+        Ok(self.manager()?.env.scope.faults())
     }
 
     /// What the configurations it ran set that sail ignores, since last

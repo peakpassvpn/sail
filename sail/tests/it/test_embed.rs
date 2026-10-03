@@ -534,3 +534,21 @@ async fn the_network_is_settled_when_start_returns() {
     assert!(network.interface.is_some(), "{:?}", network);
     instance.stop().await.unwrap();
 }
+
+/// A stop ends the instance's tasks within its bound and says so; a run
+/// with no panic has no faults; test builds catch panics.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_stop_reports_its_tasks_ended() {
+    const { assert!(sail::embed::PANICS_ARE_CAUGHT) };
+    let instance = Instance::new(options().stop_within(Duration::from_secs(2))).unwrap();
+    assert!(instance.stop_report().is_none(), "no stop yet");
+    instance
+        .start(Config::Json(config(common::free_port(), 53)))
+        .await
+        .unwrap();
+    assert_eq!(instance.faults().unwrap(), 0);
+    instance.stop().await.unwrap();
+    let report = instance.stop_report().expect("a report after a stop");
+    assert!(report.clean(), "{:?}", report);
+    assert!(report.waited <= Duration::from_secs(2));
+}

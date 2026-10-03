@@ -173,6 +173,8 @@ impl Kinds {
     /// Connections that failed, coalesced by chain: the first at once,
     /// then one a second with the count while they go on failing.
     pub const DIAL: Kinds = Kinds(1 << 4);
+    /// A task's panic the instance went on after (a contained one).
+    pub const FAULT: Kinds = Kinds(1 << 5);
     /// Every kind there is, and those added later.
     pub const ALL: Kinds = Kinds(u32::MAX);
 
@@ -204,6 +206,9 @@ pub enum Event {
         failure: DialFailure,
         count: u64,
     },
+    /// A task panicked and the instance went on: its name, class, message
+    /// and the instance's running count of such panics.
+    Fault(super::Fault),
     /// This subscriber fell behind on `kind`, and `missed` events of it
     /// are gone: read the snapshot again.
     Lagged {
@@ -243,6 +248,14 @@ impl Instance {
                 Kinds::GROUP,
                 |m| m.env.events.group_switches(),
                 |s: &GroupSwitch| Event::GroupSwitched(s.clone()),
+            )));
+        }
+        if kinds.contains(Kinds::FAULT) {
+            streams.push(Box::pin(per_run(
+                self.inner().clone(),
+                Kinds::FAULT,
+                |m| m.env.events.faults(),
+                |f: &super::Fault| Event::Fault(f.clone()),
             )));
         }
         if kinds.contains(Kinds::DIAL) {
