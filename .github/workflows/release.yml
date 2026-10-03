@@ -337,7 +337,7 @@ jobs:
 
   # The same commit built again on another runner must give the same bytes.
   reproducible:
-    needs: [check, cli]
+    needs: [check, notices, cli]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -360,6 +360,11 @@ jobs:
 
       - name: install cross toolchain
         run: scripts/install_cross_toolchain.sh ${{ matrix.target }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: notices
+          path: .
 
       - name: build again
         run: scripts/release/build-cli.sh ${{ matrix.target }} "${{ inputs.version }}" again ${{ matrix.variant }}
