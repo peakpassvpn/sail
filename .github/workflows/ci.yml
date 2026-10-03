@@ -7,6 +7,17 @@ name: ci
 # test run, and always runs the bindings' tests.
 # Apple builds run at release. Public-repository runners are free, so jobs
 # are split for wall time.
+# BoringSSL: each job links the one the btls fork publishes for the commit
+# Cargo.lock pins (scripts/prebuilt-boringssl.sh: release bssl-<commit>,
+# checked against its SHA256SUMS and build attestation), rather than
+# compile it. While that release is not there yet (after a pin bump), or
+# has no build for the target, the job compiles it from source with a
+# warning; an archive that does not check out fails the job. After a
+# build, `--check` reads from btls-sys's build output that it linked the
+# downloaded library, not one a cache kept from a source build. Compiled from
+# source, as the release ships it: check-32bit on every push (the compile
+# path, cross toolchain and CMake), test-aarch64 on master (sail's tests
+# against it), cross windows-gnu (no prebuilt build) and release.yml.
 on: [push, pull_request, workflow_dispatch]
 
 env:
@@ -47,6 +58,12 @@ jobs:
           toolchain: 1.98.1
           components: clippy, rustfmt
 
+      # The fork's BoringSSL, as the header says.
+      - name: prebuilt BoringSSL
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/prebuilt-boringssl.sh "$(rustc -vV | sed -n 's/^host:[[:space:]]*//p')"
+
       # Saved from master only: a ci/* branch restores master's cache, and
       # per-branch saves would push master's out of the 10 GB the repo gets.
       - name: cache
@@ -59,6 +76,9 @@ jobs:
 
       - name: lint
         run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: BoringSSL linked
+        run: scripts/prebuilt-boringssl.sh --check "$(rustc -vV | sed -n 's/^host:[[:space:]]*//p')"
 
       # include/sail.h is committed: it must be what cbindgen makes of the
       # source. The CLI is run, not linked (it is MPL-2.0); its binary is
@@ -118,6 +138,12 @@ jobs:
         with:
           toolchain: 1.98.1
 
+      # The fork's BoringSSL, as the header says.
+      - name: prebuilt BoringSSL
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/prebuilt-boringssl.sh "$(rustc -vV | sed -n 's/^host:[[:space:]]*//p')"
+
       - name: cache
         uses: Swatinem/rust-cache@v2
         with:
@@ -129,6 +155,9 @@ jobs:
       # tests run with it on; the features job builds sail without it.
       - name: test
         run: cargo test -p sail -p sail-netstack -p sail-ffi
+
+      - name: BoringSSL linked
+        run: scripts/prebuilt-boringssl.sh --check "$(rustc -vV | sed -n 's/^host:[[:space:]]*//p')"
 
   # Small builds, one feature set at a time, tests included, linted as the
   # full build is, so that cfg gates and feature dependencies stay right.
@@ -150,6 +179,12 @@ jobs:
         with:
           toolchain: 1.98.1
           components: clippy
+
+      # The fork's BoringSSL, as the header says.
+      - name: prebuilt BoringSSL
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/prebuilt-boringssl.sh "$(rustc -vV | sed -n 's/^host:[[:space:]]*//p')"
 
       - name: cache
         uses: Swatinem/rust-cache@v2
@@ -210,6 +245,12 @@ jobs:
         with:
           toolchain: 1.98.1
 
+      # The fork's BoringSSL, as the header says.
+      - name: prebuilt BoringSSL
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/prebuilt-boringssl.sh "$(rustc -vV | sed -n 's/^host:[[:space:]]*//p')"
+
       - name: cache
         uses: Swatinem/rust-cache@v2
         with:
@@ -234,6 +275,8 @@ jobs:
   # cross builds, which do not deny warnings, or a release build does.
   # cross.sh sets the target's own RUSTFLAGS, so -D warnings goes through
   # SAIL_RUSTFLAGS.
+  # BoringSSL from source, as the header says: the cross toolchain and
+  # CMake path the release's musl builds take, on every push.
   check-32bit:
     runs-on: ubuntu-latest
     env:
@@ -324,8 +367,18 @@ jobs:
       - name: install cross toolchain
         run: scripts/install_cross_toolchain.sh ${{ matrix.target }} ${{ matrix.run && '--run' || '' }}
 
+      # The fork's BoringSSL, as the header says; windows-gnu has none.
+      - name: prebuilt BoringSSL
+        if: ${{ matrix.target != 'x86_64-pc-windows-gnu' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/prebuilt-boringssl.sh ${{ matrix.target }}
+
       - name: build
         run: scripts/cross.sh ${{ matrix.target }} build -p ${{ matrix.package }}
+
+      - name: BoringSSL linked
+        run: scripts/prebuilt-boringssl.sh --check ${{ matrix.target }}
 
       - name: smoke
         if: ${{ matrix.run == 'smoke' }}
@@ -356,6 +409,9 @@ jobs:
 
       - name: test sail
         run: cargo test -p sail
+
+      - name: BoringSSL linked
+        run: scripts/prebuilt-boringssl.sh --check "$(rustc -vV | sed -n 's/^host:[[:space:]]*//p')"
 
   # Windows with the MSVC toolchain, natively: what an MSVC host app links
   # (sail-ffi's DLL and static library, or sail as a crate). The release's
@@ -388,6 +444,12 @@ jobs:
           toolchain: 1.98.1
           targets: x86_64-pc-windows-msvc
 
+      # The fork's BoringSSL, as the header says.
+      - name: prebuilt BoringSSL
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/prebuilt-boringssl.sh x86_64-pc-windows-msvc
+
       - name: cache
         uses: Swatinem/rust-cache@v2
         with:
@@ -402,10 +464,24 @@ jobs:
       - name: build sail-ffi
         run: cargo build --locked -p sail-ffi --target x86_64-pc-windows-msvc
 
+      - name: BoringSSL linked
+        run: scripts/prebuilt-boringssl.sh --check x86_64-pc-windows-msvc
+
       # BoringSSL without its assembly (OPENSSL_NO_ASM, or no NASM found)
-      # would be several times slower at AES-GCM and ChaCha20.
+      # would be several times slower at AES-GCM and ChaCha20: the
+      # prebuilt library defines the assembly's functions, or the one
+      # compiled here was configured with NASM.
       - name: BoringSSL has its assembly
         run: |
+          if [ -n "${BORING_BSSL_PATH_x86_64_pc_windows_msvc:-}" ]; then
+            lib="$BORING_BSSL_PATH_x86_64_pc_windows_msvc/lib/crypto.lib"
+            # Read once: grep -q ending a pipe early fails it under pipefail.
+            syms=$(llvm-nm "$lib" | tr -d '\r')
+            for f in gcm_ghash_avx ChaCha20_ctr32_avx2; do
+              grep -qE " T $f\$" <<<"$syms" || { echo "$lib does not define $f"; exit 1; }
+            done
+            exit 0
+          fi
           where nasm || true
           cache=$(find target/x86_64-pc-windows-msvc/debug/build -path '*btls-sys-*/out/build/CMakeCache.txt' | head -1)
           grep -E '^(OPENSSL_NO_ASM|CMAKE_ASM_NASM_COMPILER|CMAKE_GENERATOR)[:=]' "$cache" || true
@@ -479,6 +555,12 @@ jobs:
         with:
           toolchain: 1.98.1
 
+      # The fork's BoringSSL, as the header says.
+      - name: prebuilt BoringSSL
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/prebuilt-boringssl.sh "$(rustc -vV | sed -n 's/^host:[[:space:]]*//p')"
+
       - name: cache
         uses: Swatinem/rust-cache@v2
         with:
@@ -521,6 +603,12 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.98.1
+
+      # The fork's BoringSSL, as the header says.
+      - name: prebuilt BoringSSL
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/prebuilt-boringssl.sh "$(rustc -vV | sed -n 's/^host:[[:space:]]*//p')"
 
       - name: cache
         uses: Swatinem/rust-cache@v2
@@ -577,15 +665,11 @@ jobs:
         with:
           toolchain: 1.98.1
 
+      # The fork's BoringSSL, as the header says.
       - name: prebuilt BoringSSL
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          curl -fsSL -o "$RUNNER_TEMP/prebuilt-boringssl.sh" \
-            https://raw.githubusercontent.com/peakpassvpn/btls/sail/scripts/prebuilt-boringssl.sh
-          export BTLS_BORINGSSL_CACHE="$RUNNER_TEMP/bssl"
-          bash "$RUNNER_TEMP/prebuilt-boringssl.sh" Cargo.lock aarch64-apple-darwin >"$RUNNER_TEMP/pb.env"
-          sed -e 's/^export //' -e "s/'//g" "$RUNNER_TEMP/pb.env" >>"$GITHUB_ENV"
+        run: scripts/prebuilt-boringssl.sh aarch64-apple-darwin
 
       - name: build
         run: cargo build --locked -p sail-cli --target aarch64-apple-darwin
