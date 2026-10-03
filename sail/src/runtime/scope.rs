@@ -193,16 +193,16 @@ impl TaskScope {
         fut: F,
     ) -> impl Future<Output = F::Output> {
         let scope = self.clone();
-        async move {
-            let run = CURRENT.scope(scope.clone(), fut);
-            match std::panic::AssertUnwindSafe(run).catch_unwind().await {
+        // Combinators, as `task`, for its size.
+        std::panic::AssertUnwindSafe(CURRENT.scope(scope.clone(), fut))
+            .catch_unwind()
+            .map(move |result| match result {
                 Ok(output) => output,
                 Err(panic) => {
                     scope.panicked(class, name, &*panic);
                     std::panic::resume_unwind(panic)
                 }
-            }
-        }
+            })
     }
 
     /// Spawns `fut` as contained work on the current runtime.
@@ -557,17 +557,20 @@ where
 /// member's test in a group's round. A panic in it is caught, counted and
 /// told as a contained task's, and gives `None`; the task around it goes
 /// on.
-pub async fn contain<F: Future>(name: &'static str, fut: F) -> Option<F::Output> {
-    match std::panic::AssertUnwindSafe(fut).catch_unwind().await {
-        Ok(output) => Some(output),
-        Err(panic) => {
-            match here() {
-                Some(scope) => scope.panicked(TaskClass::Contained, name, &*panic),
-                None => tracing::error!("[{}] panicked: {}", name, message(&*panic)),
+pub fn contain<F: Future>(name: &'static str, fut: F) -> impl Future<Output = Option<F::Output>> {
+    // Combinators, as `TaskScope::task`, for its size.
+    std::panic::AssertUnwindSafe(fut)
+        .catch_unwind()
+        .map(move |result| match result {
+            Ok(output) => Some(output),
+            Err(panic) => {
+                match here() {
+                    Some(scope) => scope.panicked(TaskClass::Contained, name, &*panic),
+                    None => tracing::error!("[{}] panicked: {}", name, message(&*panic)),
+                }
+                None
             }
-            None
-        }
-    }
+        })
 }
 
 /// Spawns `fut` into `set` as contained work of the current scope, which
@@ -694,6 +697,26 @@ mod tests {
             .failure()
             .unwrap()
             .contains("[router] panicked: broken state"));
+    }
+
+    /// A child is its future and `TASK_OVERHEAD` at most, as a task.
+    #[test]
+    fn a_child_is_its_future_and_a_few_words() {
+        let scope = TaskScope::default();
+        let fut = async {
+            let big = [7u8; 4096];
+            std::future::ready(()).await;
+            std::hint::black_box(&big);
+        };
+        let size = std::mem::size_of_val(&fut);
+        let child = scope.child(TaskClass::Contained, "sized", fut);
+        assert!(std::mem::size_of_val(&child) <= size + TASK_OVERHEAD);
+        let contained = contain("sized", async {
+            let big = [7u8; 4096];
+            std::future::ready(()).await;
+            std::hint::black_box(&big);
+        });
+        assert!(std::mem::size_of_val(&contained) <= size + TASK_OVERHEAD);
     }
 
     /// A scoped task is its future and `TASK_OVERHEAD` at most, whatever
