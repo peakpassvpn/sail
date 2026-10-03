@@ -307,7 +307,11 @@ fn linux_queues(settings: &TunSettings, netstack: &Netstack) -> Result<Vec<TunRs
 #[derive(Deserialize, Debug)]
 #[serde(deny_unknown_fields)]
 struct TunInboundOptions {
-    /// The device's name; the system picks one without it.
+    /// The device's name, used as it is: a start fails if it is taken.
+    /// Without it, on macOS one past the highest utunN is chosen at start,
+    /// as sing-box chooses, and kept across reloads (a host reads it back);
+    /// another program can take it before the device opens, and the start
+    /// then fails, the next choosing again. Elsewhere utun233.
     #[serde(default)]
     interface_name: Option<String>,
     /// The device's addresses with their prefixes: one IPv4, one IPv6, or
@@ -550,8 +554,127 @@ fn uid_ranges(
     Ok(all)
 }
 
-/// sing-box leaves the name to the system; utun names suit macOS as well.
+/// The name of a TUN with none configured, where it is not chosen at start
+/// (macOS chooses one; see `resolve_names`).
 const DEFAULT_NAME: &str = "utun233";
+
+use crate::runtime::TunName;
+
+/// Settles the name of each TUN of `inbounds` before anything uses it, and
+/// writes it into the inbound's options, so that everything that reads the
+/// name (routing, the dialer's and DNS's own interfaces, the default
+/// interface's detection, the sweep's ledger) reads the same one. A TUN with
+/// no `interface_name` on macOS gets one past the highest utunN there is, as
+/// sing-box chooses (sing-tun's CalculateInterfaceName), or the one it had
+/// in `kept`, by tag, so that a reload keeps it; elsewhere the default.
+/// Returns the names by tag. A name chosen here can be taken by another
+/// program before the device opens: the start then fails, and the next
+/// start chooses again.
+pub(crate) fn resolve_names(
+    inbounds: &mut [crate::config::Inbound],
+    kept: &std::collections::BTreeMap<String, TunName>,
+    host: &crate::runtime::Host,
+) -> std::collections::BTreeMap<String, TunName> {
+    resolve_names_among(
+        inbounds,
+        kept,
+        host,
+        cfg!(target_os = "macos"),
+        &interface_names(),
+    )
+}
+
+fn resolve_names_among(
+    inbounds: &mut [crate::config::Inbound],
+    kept: &std::collections::BTreeMap<String, TunName>,
+    host: &crate::runtime::Host,
+    choose: bool,
+    existing: &[String],
+) -> std::collections::BTreeMap<String, TunName> {
+    let mut names = std::collections::BTreeMap::new();
+    let configured = |inbound: &crate::config::Inbound| {
+        inbound
+            .options
+            .get("interface_name")
+            .and_then(serde_json::Value::as_str)
+            .filter(|name| !name.is_empty())
+            .map(str::to_owned)
+    };
+    // Names configured, which a chosen one must not take.
+    let mut taken: Vec<String> = existing.to_vec();
+    taken.extend(
+        inbounds
+            .iter()
+            .filter(|i| i.protocol == "tun")
+            .filter_map(configured),
+    );
+    for inbound in inbounds.iter_mut().filter(|i| i.protocol == "tun") {
+        let name = match configured(inbound) {
+            Some(name) => TunName {
+                name,
+                chosen: false,
+            },
+            // The host opens the device and names it.
+            None if host_opens(host) => continue,
+            None => match kept.get(&inbound.tag) {
+                Some(kept) => kept.clone(),
+                None if choose => {
+                    let name = next_utun(&taken);
+                    taken.push(name.clone());
+                    TunName { name, chosen: true }
+                }
+                None => TunName {
+                    name: DEFAULT_NAME.into(),
+                    chosen: false,
+                },
+            },
+        };
+        inbound
+            .options
+            .insert("interface_name".into(), name.name.clone().into());
+        names.insert(inbound.tag.clone(), name);
+    }
+    names
+}
+
+/// One past the highest utunN among `taken`.
+fn next_utun(taken: &[String]) -> String {
+    let next = taken
+        .iter()
+        .filter_map(|name| name.strip_prefix("utun")?.parse::<u32>().ok())
+        .max()
+        .map_or(0, |n| n + 1);
+    format!("utun{}", next)
+}
+
+/// The names of the system's network interfaces.
+fn interface_names() -> Vec<String> {
+    #[cfg(unix)]
+    {
+        let mut names = Vec::new();
+        // SAFETY: if_nameindex returns an array ending with a zeroed entry,
+        // freed below and read only before.
+        unsafe {
+            let list = libc::if_nameindex();
+            if list.is_null() {
+                return names;
+            }
+            let mut entry = list;
+            while (*entry).if_index != 0 && !(*entry).if_name.is_null() {
+                names.push(
+                    std::ffi::CStr::from_ptr((*entry).if_name)
+                        .to_string_lossy()
+                        .into_owned(),
+                );
+                entry = entry.add(1);
+            }
+            libc::if_freenameindex(list);
+        }
+        names
+    }
+    #[cfg(not(unix))]
+    Vec::new()
+}
 
 /// sing-box's default: the device is memory, and larger packets are fewer.
 fn default_mtu() -> u32 {
@@ -1016,7 +1139,32 @@ fn open_device(
         }
     }
 
-    let tun = tun::create_as_async(&cfg).map_err(|e| anyhow!("create tun failed: {}", e))?;
+    let tun = tun::create_as_async(&cfg).map_err(|e| {
+        let chosen = dispatcher
+            .env()
+            .tun_names
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&inbound.tag)
+            .is_some_and(|name| name.chosen);
+        if chosen {
+            anyhow!(
+                "[{}] inbound: {}, chosen at start as free, was taken before it opened: {}; \
+                 starting again chooses another",
+                inbound.tag,
+                settings.name,
+                e
+            )
+        } else {
+            anyhow!(
+                "[{}] inbound: create tun {} failed: {}",
+                inbound.tag,
+                settings.name,
+                e
+            )
+        }
+    })?;
+    info!("[{}] inbound: tun {} is up", inbound.tag, settings.name);
     #[cfg(target_os = "macos")]
     if let Some(ipv6) = settings.ipv6.filter(|_| cfg_opened_here(&dispatcher)) {
         crate::platform::utun::add_ipv6_address(
@@ -1453,6 +1601,65 @@ mod tests {
         .unwrap_err()
         .to_string();
         assert!(err.contains("Linux only"), "{err}");
+    }
+
+    /// A name is settled before anything reads it: on macOS one past the
+    /// highest utunN, kept across reloads; a configured one as it is.
+    #[test]
+    fn a_tun_s_name_is_settled_at_start_and_kept() {
+        use std::collections::BTreeMap;
+        let host = crate::runtime::Host::default();
+        let unnamed = |tag: &str| Inbound {
+            tag: tag.into(),
+            ..tun(serde_json::json!({ "address": "172.19.0.1/30" }))
+        };
+        let named = |tag: &str, name: &str| Inbound {
+            tag: tag.into(),
+            ..tun(serde_json::json!({ "address": "172.19.0.1/30", "interface_name": name }))
+        };
+        let existing = [
+            "lo0".to_string(),
+            "utun3".into(),
+            "utun7".into(),
+            "en0".into(),
+        ];
+        let name_of = |i: &Inbound| i.options["interface_name"].as_str().unwrap().to_owned();
+
+        // Chosen past the highest, past a configured one too, and written in.
+        let mut inbounds = vec![unnamed("a"), named("b", "utun9"), unnamed("c")];
+        let names = resolve_names_among(&mut inbounds, &BTreeMap::new(), &host, true, &existing);
+        assert_eq!(name_of(&inbounds[0]), "utun10");
+        assert_eq!(name_of(&inbounds[1]), "utun9");
+        assert_eq!(name_of(&inbounds[2]), "utun11");
+        assert!(names["a"].chosen && !names["b"].chosen);
+
+        // A reload keeps a chosen name, though its utun now exists.
+        let mut existing = existing.to_vec();
+        existing.push("utun10".into());
+        let mut reloaded = vec![unnamed("a")];
+        let again = resolve_names_among(&mut reloaded, &names, &host, true, &existing);
+        assert_eq!(again["a"], names["a"]);
+
+        // Unset to configured: the configured one; and back: kept.
+        let mut configured = vec![named("a", "utun20")];
+        let names = resolve_names_among(&mut configured, &again, &host, true, &existing);
+        assert_eq!(
+            names["a"],
+            TunName {
+                name: "utun20".into(),
+                chosen: false
+            }
+        );
+        let mut unset = vec![unnamed("a")];
+        let names = resolve_names_among(&mut unset, &names, &host, true, &existing);
+        assert_eq!(name_of(&unset[0]), "utun20");
+        assert!(!names["a"].chosen);
+
+        // Elsewhere, the default, written in all the same.
+        let mut elsewhere = vec![unnamed("a")];
+        let names = resolve_names_among(&mut elsewhere, &BTreeMap::new(), &host, false, &existing);
+        assert_eq!(names["a"].name, DEFAULT_NAME);
+        assert_eq!(name_of(&elsewhere[0]), DEFAULT_NAME);
     }
 
     #[test]

@@ -536,6 +536,17 @@ impl RuntimeManager {
         }
     }
 
+    /// The TUNs' names by inbound tag, as the start settled them: the one
+    /// configured, or, with none, the one chosen at start (macOS) or the
+    /// default. A host reads the name a TUN got here.
+    pub fn tun_names(&self) -> std::collections::BTreeMap<String, runtime::TunName> {
+        self.env
+            .tun_names
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
     /// Reloads DNS, outbounds and routing from the configuration file. They
     /// are all built before any is replaced: a configuration that fails to
     /// build changes nothing. Connections already routed keep what they
@@ -567,6 +578,15 @@ impl RuntimeManager {
     /// Replaces what the instance runs with what `config` makes, keeping
     /// all that did not change; the changes lock is held.
     async fn apply(&self, config: config::Config) -> Result<(), Error> {
+        #[cfg(feature = "inbound-tun")]
+        let config = {
+            let mut config = config;
+            // A TUN whose name the start chose keeps it.
+            let mut names = self.env.tun_names.lock().unwrap_or_else(|e| e.into_inner());
+            *names =
+                protocol::tun::inbound::resolve_names(&mut config.inbounds, &names, &self.env.host);
+            config
+        };
         self.env.neighbors.start_if_needed(&config);
         self.env
             .network
@@ -1592,6 +1612,12 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
         .clone();
     // What this thread logs while it starts and runs the instance is its.
     let _log = app::logger::enter(Some(log.clone()));
+    // The TUNs' names, before anything reads them.
+    #[cfg(feature = "inbound-tun")]
+    let mut config = config;
+    #[cfg(feature = "inbound-tun")]
+    let tun_names =
+        protocol::tun::inbound::resolve_names(&mut config.inbounds, &Default::default(), &host);
     #[cfg(feature = "inbound-tun")]
     let listen_mark = auto_redirect_output_mark(&config, &host).map_err(Error::Config)?;
     // What a killed instance left goes before this one changes anything;
@@ -1604,6 +1630,8 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
         #[cfg(feature = "inbound-tun")]
         listen_mark,
         ledger,
+        #[cfg(feature = "inbound-tun")]
+        tun_names: Arc::new(std::sync::Mutex::new(tun_names)),
         ..Default::default()
     });
 

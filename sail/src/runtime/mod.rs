@@ -150,6 +150,15 @@ impl Host {
     }
 }
 
+/// A TUN's name as a start settled it (protocol::tun::inbound::resolve_names).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TunName {
+    pub name: String,
+    /// Chosen at start, as none was configured; else configured, or the
+    /// default.
+    pub chosen: bool,
+}
+
 /// Everything an instance runs with that is not its configuration.
 #[derive(Debug, Clone, Default)]
 pub struct RuntimeEnv {
@@ -183,6 +192,9 @@ pub struct RuntimeEnv {
     /// What this instance has changed in the system and not yet undone,
     /// for a sweep should it be killed.
     pub ledger: crate::platform::sweep::Ledger,
+    /// The TUNs' names by inbound tag, as the start settled them; a reload
+    /// keeps a chosen one.
+    pub tun_names: Arc<std::sync::Mutex<std::collections::BTreeMap<String, TunName>>>,
 }
 
 pub type SyncRuntimeEnv = Arc<RuntimeEnv>;
