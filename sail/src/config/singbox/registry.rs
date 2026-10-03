@@ -1504,7 +1504,17 @@ carries, a subscription's token, would go in the clear.
 
 As in sing-box, the addresses a `resolve` route action resolves the destination's domain to go \
 to whatever outbound the connection takes: a proxy's server is sent the address, which the \
-local DNS chose, not the domain, and so does not resolve it itself.",
+local DNS chose, not the domain, and so does not resolve it itself.
+
+A `local` server that asks the system's servers itself (where the default dialer binds its \
+sockets, as a TUN taking the default route has it) asks them in order, each with an even share \
+of the query's time left, at most three and a second each at least; sing-box gives each server \
+resolv.conf's timeout (5 s), so that with a 10 s query its third server is never asked. With no \
+interface to send through, it fails at once rather than asking the system's servers of no \
+network in particular, where sing-box falls back to 127.0.0.1 and ::1. On macOS, where sing-box \
+leaves names to the system's resolver, sail asks the servers of the interface its dialer sends \
+through, set by hand or else told by the network; those of a split-DNS resolver \
+(`SupplementalMatchDomains`) are not asked.",
     summary: "## Summary",
     area: "Section",
     total: "Fields",
@@ -1539,7 +1549,9 @@ const ZH: Words = Words {
 
 有意的差异：远程规则集与出站订阅的下载不跟随从 https 到 http 或到其他协议的重定向（sing-box 的客户端会跟随），否则请求携带的内容（如订阅令牌）会以明文传出。
 
-与 sing-box 一致，`resolve` 路由动作把目标域名解析出的地址交给连接所走的任一出站：代理服务器收到的是由本地 DNS 决定的地址，而不是域名，它不会自己再解析。",
+与 sing-box 一致，`resolve` 路由动作把目标域名解析出的地址交给连接所走的任一出站：代理服务器收到的是由本地 DNS 决定的地址，而不是域名，它不会自己再解析。
+
+在默认拨号器绑定套接字时（占用默认路由的 TUN 即如此），`local` 服务器自己询问系统的 DNS 服务器：按顺序询问，每个服务器平分查询剩余的时间，最多三个，每个至少一秒；sing-box 给每个服务器 resolv.conf 的超时（5 秒），因此在 10 秒的查询里它的第三个服务器永远不会被询问。没有可发送的接口时立即失败，而不去询问不属于任何网络的系统服务器（sing-box 此时回退到 127.0.0.1 和 ::1）。在 macOS 上 sing-box 把名字交给系统解析器，sail 则询问其拨号器所走接口的服务器：手动设置的优先，否则用网络告知的；分离 DNS 解析器（`SupplementalMatchDomains`）的服务器不询问。",
     summary: "## 汇总",
     area: "部分",
     total: "字段数",
