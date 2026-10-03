@@ -385,9 +385,9 @@ where
         };
         if fast && primary {
             // On after the race, as with the dial's own context in sing-box.
-            tokio::spawn(racer);
+            crate::runtime::scope::spawn("dial racer", racer);
         } else {
-            racers.spawn(racer);
+            crate::runtime::scope::spawn_child(racers, "dial racer", racer);
         }
     };
     for via in primaries {

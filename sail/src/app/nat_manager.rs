@@ -188,7 +188,7 @@ impl NatManager {
         let association = association.clone();
         let sessions = self.sessions.clone();
         let watched = self.watched.clone();
-        tokio::spawn(async move {
+        crate::runtime::scope::spawn("nat association watch", async move {
             association.ended().await;
             // Unwatched first: a session added from here on starts its own
             // watch, which finds the association ended at once.
@@ -305,7 +305,7 @@ impl NatManager {
     ) {
         // Runs the lazy task for session cleanup job, this task will run only once.
         if let Some(task) = self.timeout_check_task.lock().await.take() {
-            tokio::spawn(task);
+            crate::runtime::scope::spawn_essential("nat cleanup", task);
         }
 
         let (target_ch_tx, mut target_ch_rx) =
@@ -332,7 +332,8 @@ impl NatManager {
         // TCP stream would block the task.
         let raddr_cloned = raddr.clone();
         let span = sess.span();
-        tokio::spawn(
+        crate::runtime::scope::spawn(
+            "nat dispatch",
             async move {
                 // new socket to communicate with the target. A sniff rule
                 // reads the first datagrams off the uplink while routing;
@@ -415,17 +416,18 @@ impl NatManager {
                 .instrument(tracing::Span::current());
 
                 let (downlink_task, downlink_task_handle) = abortable(downlink_task);
-                tokio::spawn(downlink_task);
+                crate::runtime::scope::spawn("nat downlink", downlink_task);
 
                 // Runs a task to receive the abort signal.
-                tokio::spawn(async move {
+                crate::runtime::scope::spawn("nat downlink abort", async move {
                     let _ = downlink_abort_rx.await;
                     downlink_task_handle.abort();
                 });
 
                 // uplink
                 let raddr_uplink = raddr_cloned.clone();
-                tokio::spawn(
+                crate::runtime::scope::spawn(
+                    "nat uplink",
                     async move {
                         let mut sniffed = sniffed.into_iter();
                         loop {

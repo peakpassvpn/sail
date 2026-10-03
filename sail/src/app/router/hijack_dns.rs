@@ -128,7 +128,7 @@ impl OutboundDatagramSendHalf for SendHalf {
         let (dns, sess, answers) = (self.dns.clone(), self.sess.clone(), self.answers.clone());
         let (query, target) = (buf.to_vec(), target.clone());
         // Answered apart, so that a slow query holds up none after it.
-        tokio::spawn(async move {
+        crate::runtime::scope::spawn("hijacked dns query", async move {
             if let Some(reply) = answer(&dns, &query, &sess).await {
                 let _ = answers.send((fit_datagram(&query, reply), target)).await;
             }

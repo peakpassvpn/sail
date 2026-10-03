@@ -1384,7 +1384,7 @@ impl Dispatcher {
             source: sess.source,
             destination: sess.destination.to_string(),
         };
-        let answer = tokio::task::spawn_blocking(move || {
+        let answer = crate::runtime::scope::spawn_blocking("connection owner lookup", move || {
             let answer = platform.find_connection_owner(&query);
             (query, answer)
         })

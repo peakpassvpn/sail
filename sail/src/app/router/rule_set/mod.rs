@@ -368,17 +368,29 @@ impl RuleSets {
                 };
                 let now = std::time::SystemTime::now();
                 for remote in remotes.iter().filter(|r| r.due_in(now).is_zero()) {
-                    if let Err(e) = remote.update(&dispatcher).await {
-                        tracing::warn!(
+                    // A panic reading what was downloaded is that update's
+                    // failure, not the updater's: the rules in use stay.
+                    let updated = crate::runtime::scope::contain(
+                        "rule-set update",
+                        remote.update(&dispatcher),
+                    )
+                    .await;
+                    match updated {
+                        Some(Ok(_)) => {}
+                        Some(Err(e)) => tracing::warn!(
                             "rule-set [{}]: download failed, keeping the rules in use: {:#}",
                             remote.tag,
                             e
-                        );
+                        ),
+                        None => tracing::warn!(
+                            "rule-set [{}]: its update panicked, keeping the rules in use",
+                            remote.tag
+                        ),
                     }
                 }
             }
         };
-        let task = tokio::spawn(async move {
+        let task = crate::runtime::scope::spawn_essential("rule-set updater", async move {
             #[cfg(feature = "auto-reload")]
             tokio::join!(downloads, follow_files(locals));
             #[cfg(not(feature = "auto-reload"))]
@@ -528,7 +540,17 @@ async fn follow_files(locals: Vec<Arc<Local>>) {
             }
         }
         for i in changed {
-            locals[i].reload();
+            // As a download's: a panic reading the file keeps the rules.
+            let local = &locals[i];
+            if crate::runtime::scope::contain("rule-set reload", async { local.reload() })
+                .await
+                .is_none()
+            {
+                tracing::warn!(
+                    "rule-set [{}]: its reload panicked, keeping the rules in use",
+                    local.tag
+                );
+            }
         }
     }
     drop(watchers);

@@ -143,7 +143,7 @@ impl Providers {
             return None;
         }
         let providers = self.clone();
-        let task = tokio::spawn(async move {
+        let task = crate::runtime::scope::spawn_essential("provider updater", async move {
             let Some(network) = dispatcher.upgrade().map(|d| d.env().network.clone()) else {
                 return;
             };
