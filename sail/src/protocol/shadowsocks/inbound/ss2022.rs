@@ -35,7 +35,10 @@ impl InboundStreamHandler for StreamHandler {
     ) -> io::Result<AnyInboundTransport> {
         tracing::trace!("handling inbound ss2022 stream");
         let generation = self.resource.load();
-        let accepted = stream::accept(stream, &generation.config).await?;
+        let accepted = match stream::accept(stream, &generation.config).await {
+            Ok(accepted) => accepted,
+            Err(refused) => return Err(super::refuse(refused.inner, refused.error).await),
+        };
         sess.destination = accepted.destination;
         sess.user = accepted.user;
         Ok(InboundTransport::Stream(Box::new(accepted.stream), sess))

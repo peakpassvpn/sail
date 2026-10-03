@@ -181,8 +181,65 @@ pub struct Accepted<T> {
     pub user: Option<crate::user::UserRef>,
 }
 
-/// Reads and checks a request header from `inner`.
-pub async fn accept<T>(mut inner: T, config: &ServerConfig) -> io::Result<Accepted<T>>
+/// A request refused, and the stream it came on, still open.
+pub struct Refused<T> {
+    pub error: io::Error,
+    pub inner: T,
+}
+
+impl<T> std::fmt::Debug for Refused<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(&self.error, f)
+    }
+}
+
+impl<T> std::fmt::Display for Refused<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&self.error, f)
+    }
+}
+
+/// What a request header holds, once checked.
+struct Request {
+    method: Method,
+    psk: Vec<u8>,
+    salt: Vec<u8>,
+    dec: ChunkAead,
+    destination: SocksAddr,
+    user: Option<crate::user::UserRef>,
+    payload: Vec<u8>,
+}
+
+/// Reads and checks a request header from `inner`; one refused leaves the
+/// stream to the caller, which decides how it ends.
+pub async fn accept<T>(mut inner: T, config: &ServerConfig) -> Result<Accepted<T>, Refused<T>>
+where
+    T: AsyncRead + Unpin,
+{
+    match read_request(&mut inner, config).await {
+        Ok(request) => Ok(Accepted {
+            stream: Ss2022Stream {
+                inner,
+                method: request.method,
+                psk: request.psk,
+                request_salt: request.salt,
+                enc: None,
+                dec: Some(request.dec),
+                read_buf: BytesMut::new(),
+                plain: BytesMut::from(&request.payload[..]),
+                write_buf: Vec::new(),
+                write_pos: 0,
+                read_state: ReadState::Length,
+                write_state: WriteState::ResponseHeader,
+            },
+            destination: request.destination,
+            user: request.user,
+        }),
+        Err(error) => Err(Refused { error, inner }),
+    }
+}
+
+async fn read_request<T>(inner: &mut T, config: &ServerConfig) -> io::Result<Request>
 where
     T: AsyncRead + Unpin,
 {
@@ -240,24 +297,15 @@ where
         return Err(bad("request without padding or payload"));
     }
 
-    let stream = Ss2022Stream {
-        inner,
+    let payload = payload.to_vec();
+    Ok(Request {
         method,
         psk,
-        request_salt: salt,
-        enc: None,
-        dec: Some(dec),
-        read_buf: BytesMut::new(),
-        plain: BytesMut::from(payload),
-        write_buf: Vec::new(),
-        write_pos: 0,
-        read_state: ReadState::Length,
-        write_state: WriteState::ResponseHeader,
-    };
-    Ok(Accepted {
-        stream,
+        salt,
+        dec,
         destination,
         user,
+        payload,
     })
 }
 

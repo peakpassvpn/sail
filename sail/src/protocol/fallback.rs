@@ -23,6 +23,18 @@ use crate::{adapter::AnyStream, net::InboundDialer, session::Session};
 /// inbound's handshake deadline bounds the wait as before.
 pub const HEADER_TIMEOUT: Duration = Duration::from_secs(2);
 
+/// Says, for a server, that the inbound `tag` of `protocol` has no
+/// fallback: a fact of how it answers a prober, not a mistake.
+pub fn note_without(tag: &str, protocol: &str, env: &crate::runtime::RuntimeEnv) {
+    if env.options.profile == crate::runtime::options::Profile::Server {
+        tracing::info!(
+            "[{}] inbound: {} without a fallback: a wrong first byte closes the connection, as in sing-box",
+            tag,
+            protocol
+        );
+    }
+}
+
 /// Where a fallback goes, as sing-box writes it.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]

@@ -85,6 +85,9 @@ fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
         options.fallback_for_alpn,
         ctx.dial.default_dialer(),
     )?;
+    if fallback.is_none() {
+        crate::protocol::fallback::note_without(tag, "anytls", ctx.env);
+    }
     let mut users = HashMap::new();
     for user in options.users {
         let hash: [u8; 32] = Sha256::digest(user.password.as_bytes()).into();

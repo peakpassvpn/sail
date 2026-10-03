@@ -107,6 +107,9 @@ fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
         options.fallback_for_alpn,
         ctx.dial.default_dialer(),
     )?;
+    if fallback.is_none() {
+        crate::protocol::fallback::note_without(ctx.tag, "vless", ctx.env);
+    }
     let stream = Arc::new(StreamHandler::new(users, fallback));
     Ok(Arc::new(Handler::new(
         ctx.tag.to_owned(),

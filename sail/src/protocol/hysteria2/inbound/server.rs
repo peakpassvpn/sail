@@ -159,11 +159,13 @@ impl Conn {
             Side::Server,
             &congestion,
         )));
-        let conn = incoming
-            .accept_with(Arc::new(config))
-            .map_err(io::Error::other)?
-            .await
-            .map_err(io::Error::other)?;
+        let conn = crate::transport::quic::server_handshake(
+            incoming
+                .accept_with(Arc::new(config))
+                .map_err(io::Error::other)?,
+            self.server.tuning.server_handshake_timeout,
+        )
+        .await?;
         trace!(
             "hysteria2 accepted connection from {}",
             conn.remote_address()

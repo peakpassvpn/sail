@@ -55,6 +55,11 @@ pub struct ShadowedStream<T> {
 }
 
 impl<T> ShadowedStream<T> {
+    /// The stream it was made on, as it is now.
+    pub fn into_inner(self) -> T {
+        self.inner
+    }
+
     pub fn new(s: T, cipher: &str, password: &str, prefix: Option<Box<[u8]>>) -> io::Result<Self> {
         let cipher = AeadCipher::new(cipher)
             .map_err(|e| io::Error::other(format!("create AEAD cipher failed: {}", e)))?;

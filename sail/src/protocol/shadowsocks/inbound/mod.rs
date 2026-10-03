@@ -158,6 +158,28 @@ fn build_2022(
     )))
 }
 
+/// The most a client that fails to authenticate is read of before its
+/// connection is closed.
+pub(crate) const REFUSED_READ_LIMIT: u64 = 64 * 1024;
+
+/// Ends a connection refused for `error`: it is read, and what comes
+/// discarded, until the client closes it, `REFUSED_READ_LIMIT` bytes came,
+/// or the inbound's handshake deadline, which bounds this as the rest of
+/// the handshake. Closed at once, the connection would tell a prober that
+/// varies how much it sends the length of the header it failed at, which
+/// is how Shadowsocks servers are found (Frolov, Wampler and Wustrow, "How
+/// China Detects and Blocks Shadowsocks", IMC 2020). Outline's ss-server
+/// and Xray read on likewise; sing-box resets at once.
+pub(crate) async fn refuse<S>(mut stream: S, error: std::io::Error) -> std::io::Error
+where
+    S: tokio::io::AsyncRead + Unpin,
+{
+    use tokio::io::AsyncReadExt;
+    let mut limited = (&mut stream).take(REFUSED_READ_LIMIT);
+    let _ = tokio::io::copy(&mut limited, &mut tokio::io::sink()).await;
+    error
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -54,6 +54,9 @@ pub struct RuntimeOptions {
     pub stats: Stats,
     pub mux: Mux,
     pub lifecycle: Lifecycle,
+    /// The profile the options started from; not an option itself.
+    #[serde(skip)]
+    pub profile: Profile,
 }
 
 /// Forwarding a TCP connection.
@@ -176,6 +179,12 @@ pub struct Quic {
     pub client_keep_alive_interval: Duration,
     #[serde(with = "duration")]
     pub server_idle_timeout: Duration,
+    /// How long a client has to finish a QUIC handshake with an inbound;
+    /// the idle timeout applies from then on. quic-go's (sing-box's)
+    /// `DefaultHandshakeIdleTimeout`: a client that sends an Initial and
+    /// falls silent is dropped then, not after the idle timeout.
+    #[serde(with = "duration")]
+    pub server_handshake_timeout: Duration,
     /// Zero sends none.
     #[serde(with = "duration")]
     pub server_keep_alive_interval: Duration,
@@ -309,7 +318,15 @@ impl Default for Mux {
 impl RuntimeOptions {
     /// The options a profile starts from.
     pub fn profile(profile: Profile) -> Self {
+        RuntimeOptions {
+            profile,
+            ..Self::tuned(profile)
+        }
+    }
+
+    fn tuned(profile: Profile) -> Self {
         let desktop = RuntimeOptions {
+            profile: Profile::Desktop,
             relay: Relay {
                 buffer_size: 16,
                 buffer_max_size: 128,
@@ -347,6 +364,7 @@ impl RuntimeOptions {
                 client_idle_timeout: Duration::from_secs(15),
                 client_keep_alive_interval: Duration::from_secs(3),
                 server_idle_timeout: Duration::from_secs(120),
+                server_handshake_timeout: Duration::from_secs(5),
                 server_keep_alive_interval: Duration::ZERO,
                 hysteria2_receive_window: 64 << 10,
                 hysteria2_send_window: 16 << 10,
@@ -491,6 +509,10 @@ impl RuntimeOptions {
                 },
                 inbound: Inbound {
                     multiplex_accept_concurrency: 1024,
+                    // sing-box's for a TLS or REALITY handshake
+                    // (`C.TCPTimeout`); the slowest whole setup measured,
+                    // REALITY over 300 ms and 5% loss, took 4.7 s.
+                    handshake_timeout: Duration::from_secs(15),
                     ..desktop.inbound
                 },
                 quic: Quic {
@@ -563,6 +585,29 @@ mod duration {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn handshakes_are_bounded_as_sing_box_bounds_them() {
+        // TLS and REALITY's (sing-box's C.TCPTimeout) for a server; QUIC's
+        // as quic-go's handshake idle timeout, on every profile.
+        let server = RuntimeOptions::profile(Profile::Server);
+        assert_eq!(server.inbound.handshake_timeout, Duration::from_secs(15));
+        assert_eq!(server.profile, Profile::Server);
+        for profile in [
+            Profile::Mobile,
+            Profile::Desktop,
+            Profile::Server,
+            Profile::Router,
+        ] {
+            let options = RuntimeOptions::profile(profile);
+            assert_eq!(
+                options.quic.server_handshake_timeout,
+                Duration::from_secs(5)
+            );
+            assert_eq!(options.profile, profile);
+        }
+    }
+
     use super::*;
 
     #[test]

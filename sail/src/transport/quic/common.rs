@@ -648,6 +648,65 @@ mod tests {
         Ok(sni?)
     }
 
+    /// A client that sends its Initial and falls silent is dropped once the
+    /// handshake's time is up, not held until the idle timeout.
+    #[tokio::test]
+    async fn a_silent_client_is_dropped_at_the_handshake_timeout() {
+        let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
+        let pem = cert.cert.pem();
+        let server = endpoint(
+            std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap(),
+            Some(
+                server_config(server_crypto(&pem, &cert.key_pair.serialize_pem(), &[]).unwrap())
+                    .unwrap(),
+            ),
+        )
+        .unwrap();
+        // The path: the client's first datagram gets through, nothing after.
+        let path = tokio::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0))
+            .await
+            .unwrap();
+        let path_addr = path.local_addr().unwrap();
+        let server_addr = server.local_addr().unwrap();
+        tokio::spawn(async move {
+            let mut buf = [0u8; 2048];
+            let (n, _) = path.recv_from(&mut buf).await.unwrap();
+            path.send_to(&buf[..n], server_addr).await.unwrap();
+            while path.recv_from(&mut buf).await.is_ok() {}
+        });
+        let client = endpoint(
+            std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap(),
+            None,
+        )
+        .unwrap();
+        let roots = crate::transport::tls::tests::test_roots();
+        let crypto = client_crypto(Some(&pem), false, &[b"h3".to_vec()], &roots).unwrap();
+        let _connecting = client
+            .connect_with(
+                quinn::ClientConfig::new(Arc::new(crypto)),
+                path_addr,
+                "localhost",
+            )
+            .unwrap();
+        let incoming = tokio::time::timeout(std::time::Duration::from_secs(5), server.accept())
+            .await
+            .expect("the Initial reaches the server")
+            .unwrap();
+        let started = std::time::Instant::now();
+        let handshake = crate::transport::quic::server_handshake(
+            incoming.accept().unwrap(),
+            std::time::Duration::from_millis(300),
+        )
+        .await;
+        let error = handshake.expect_err("a silent client completed a handshake");
+        assert_eq!(error.kind(), std::io::ErrorKind::TimedOut, "{error}");
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(2),
+            "the handshake waited {:?}",
+            started.elapsed()
+        );
+    }
+
     #[tokio::test]
     async fn client_certificate_when_the_server_asks() {
         use quinn_btls::QuicSslContext;

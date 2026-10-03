@@ -44,6 +44,8 @@ pub struct Handler {
 
 pub(crate) struct Resources {
     server_config: quinn::ServerConfig,
+    /// How long a client has to finish its handshake.
+    handshake_timeout: std::time::Duration,
     core: AnyInboundHandler,
     accept: crate::protocol::group::chain::inbound::Accept,
 }
@@ -72,6 +74,7 @@ impl Handler {
         )));
         let generation = Arc::new(Resources {
             server_config,
+            handshake_timeout: env.options.quic.server_handshake_timeout,
             core,
             accept: (&env.options.inbound).into(),
         });
@@ -88,9 +91,9 @@ async fn handle_conn(
     generation: Arc<Resources>,
     handshakes: Arc<Semaphore>,
 ) -> Result<()> {
-    let (conn, _) = conn
-        .into_0rtt()
-        .map_err(|_| anyhow!("convert 0rtt failed"))?;
+    // The server takes no 0-RTT data, so nothing comes before the
+    // handshake is done; one not done in time is dropped.
+    let conn = crate::transport::quic::server_handshake(conn, generation.handshake_timeout).await?;
     let send_timeout = ACCEPT_QUEUE_TIMEOUT;
     trace!("quic handling connection from {}", remote_addr);
     let streams = futures::stream::unfold(conn, move |conn| async move {

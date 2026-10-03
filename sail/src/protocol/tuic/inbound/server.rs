@@ -61,6 +61,8 @@ struct Settings {
     auth_timeout: Duration,
     zero_rtt: bool,
     heartbeat: Duration,
+    /// How long a client has to finish its handshake, without 0-RTT.
+    handshake_timeout: Duration,
 }
 
 pub struct Server {
@@ -101,6 +103,7 @@ impl Server {
                     auth_timeout,
                     zero_rtt,
                     heartbeat,
+                    handshake_timeout: tuning.server_handshake_timeout,
                 }),
             }),
         })
@@ -218,10 +221,15 @@ async fn serve(
                 });
                 conn
             }
-            Err(connecting) => connecting.await?,
+            Err(connecting) => {
+                crate::transport::quic::server_handshake(connecting, settings.handshake_timeout)
+                    .await?
+            }
         }
     } else {
-        connecting.await?
+        // With 0-RTT the authentication's own deadline bounds a silent
+        // client; without, the handshake's does.
+        crate::transport::quic::server_handshake(connecting, settings.handshake_timeout).await?
     };
     trace!("tuic connection from {}", remote);
     let bidi_streams = crate::transport::quic::StreamLimit::bidi(&conn);

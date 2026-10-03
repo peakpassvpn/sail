@@ -68,6 +68,9 @@ fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
         options.fallback_for_alpn,
         ctx.dial.default_dialer(),
     )?;
+    if fallback.is_none() {
+        crate::protocol::fallback::note_without(ctx.tag, "trojan", ctx.env);
+    }
     let users = options
         .users
         .into_iter()
