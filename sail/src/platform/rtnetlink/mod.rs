@@ -38,9 +38,7 @@ pub use socket::Netlink;
 
 /// An address family: which of the kernel's two routing worlds -- its
 /// tables and rules are per family -- something belongs to.
-#[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Hash, serde_derive::Serialize, serde_derive::Deserialize,
-)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Family {
     V4,
     V6,
@@ -100,9 +98,7 @@ impl std::fmt::Display for Family {
 /// An address and a prefix length: `10.0.0.0/8`, or `0.0.0.0/0` for
 /// everything. The address is sent as it is; the kernel refuses host bits
 /// past the length in a route.
-#[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Hash, serde_derive::Serialize, serde_derive::Deserialize,
-)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Prefix {
     pub addr: IpAddr,
     pub len: u8,
@@ -125,9 +121,7 @@ impl std::fmt::Display for Prefix {
 }
 
 /// What a route does with what it matches (`rtm_type`).
-#[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Hash, serde_derive::Serialize, serde_derive::Deserialize,
-)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum RouteKind {
     /// Sends it on, through `oif` or to `gateway`.
     Unicast,
@@ -169,7 +163,7 @@ impl RouteKind {
 /// A route: `ip route add [kind] <dst> [via <gateway>] [dev <oif>]
 /// table <table> [metric <metric>]`. Its family is `dst`'s; a gateway must
 /// be of the same.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, serde_derive::Serialize, serde_derive::Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Route {
     pub dst: Prefix,
     pub gateway: Option<IpAddr>,
@@ -221,9 +215,7 @@ impl Route {
 }
 
 /// What a rule does with a packet it matches (the rule's action).
-#[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Hash, serde_derive::Serialize, serde_derive::Deserialize,
-)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum RuleAction {
     /// `lookup <table>`: look the route up in that table; if it has none
     /// (or throws), go on with the next rule.
@@ -241,7 +233,7 @@ pub enum RuleAction {
 /// [from <src>] [to <dst>] [iif <iif>] [oif <oif>] [fwmark <mark>/<mask>]
 /// [uidrange <a>-<b>] [ipproto <proto>] [sport <a>-<b>] [dport <a>-<b>]
 /// <action> [suppress_prefixlength <n>]`.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, serde_derive::Serialize, serde_derive::Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Rule {
     pub family: Family,
     pub priority: u32,

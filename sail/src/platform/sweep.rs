@@ -71,15 +71,178 @@ pub(crate) enum Item {
     /// An ip rule, deleted as it was added: every attribute given, so
     /// that only that rule matches.
     #[cfg(any(target_os = "linux", test))]
-    Rule(crate::platform::rtnetlink::Rule),
+    Rule(#[serde(with = "written::rule")] crate::platform::rtnetlink::Rule),
     /// A route that names no device (a throw or unreachable one), which
     /// does not go when the TUN does.
     #[cfg(any(target_os = "linux", test))]
-    Route(crate::platform::rtnetlink::Route),
+    Route(#[serde(with = "written::route")] crate::platform::rtnetlink::Route),
     /// An `inet` nftables table.
     NftTable(String),
     /// A file sail wrote.
     File(PathBuf),
+}
+
+/// Rules and routes as a ledger writes them: the netlink types stay free
+/// of serde, as the configuration reference reads every type that is
+/// deserialized as configuration.
+#[cfg(any(target_os = "linux", test))]
+mod written {
+    use std::net::IpAddr;
+
+    use serde_derive::{Deserialize, Serialize};
+
+    use crate::platform::rtnetlink::{Family, Prefix, Route, RouteKind, Rule, RuleAction};
+
+    fn prefix(p: Option<Prefix>) -> Option<(IpAddr, u8)> {
+        p.map(|p| (p.addr, p.len))
+    }
+
+    fn from_prefix(p: Option<(IpAddr, u8)>) -> Option<Prefix> {
+        p.map(|(addr, len)| Prefix::new(addr, len))
+    }
+
+    #[derive(Serialize, Deserialize)]
+    struct LedgerRule {
+        v6: bool,
+        priority: u32,
+        invert: bool,
+        /// lookup TABLE, goto PRIORITY, nop, unreachable.
+        action: (String, u32),
+        src: Option<(IpAddr, u8)>,
+        dst: Option<(IpAddr, u8)>,
+        iif: Option<String>,
+        oif: Option<String>,
+        fwmark: Option<(u32, u32)>,
+        uid_range: Option<(u32, u32)>,
+        ip_proto: Option<u8>,
+        sport: Option<(u16, u16)>,
+        dport: Option<(u16, u16)>,
+        suppress_prefixlength: Option<u32>,
+    }
+
+    #[derive(Serialize, Deserialize)]
+    struct LedgerRoute {
+        dst: (IpAddr, u8),
+        gateway: Option<IpAddr>,
+        oif: Option<u32>,
+        table: u32,
+        /// unicast, throw, unreachable, blackhole, prohibit.
+        kind: String,
+        metric: Option<u32>,
+    }
+
+    pub(super) mod rule {
+        use super::*;
+
+        pub(in super::super) fn serialize<S: serde::Serializer>(
+            r: &Rule,
+            s: S,
+        ) -> Result<S::Ok, S::Error> {
+            let action = match r.action {
+                RuleAction::Lookup(t) => ("lookup".into(), t),
+                RuleAction::Goto(p) => ("goto".into(), p),
+                RuleAction::Nop => ("nop".into(), 0),
+                RuleAction::Unreachable => ("unreachable".into(), 0),
+            };
+            serde::Serialize::serialize(
+                &LedgerRule {
+                    v6: r.family == Family::V6,
+                    priority: r.priority,
+                    invert: r.invert,
+                    action,
+                    src: prefix(r.src),
+                    dst: prefix(r.dst),
+                    iif: r.iif.clone(),
+                    oif: r.oif.clone(),
+                    fwmark: r.fwmark,
+                    uid_range: r.uid_range,
+                    ip_proto: r.ip_proto,
+                    sport: r.sport,
+                    dport: r.dport,
+                    suppress_prefixlength: r.suppress_prefixlength,
+                },
+                s,
+            )
+        }
+
+        pub(in super::super) fn deserialize<'de, D: serde::Deserializer<'de>>(
+            d: D,
+        ) -> Result<Rule, D::Error> {
+            let r: LedgerRule = serde::Deserialize::deserialize(d)?;
+            let action = match (r.action.0.as_str(), r.action.1) {
+                ("lookup", t) => RuleAction::Lookup(t),
+                ("goto", p) => RuleAction::Goto(p),
+                ("nop", _) => RuleAction::Nop,
+                ("unreachable", _) => RuleAction::Unreachable,
+                (other, _) => return Err(serde::de::Error::custom(format!("rule action {other}"))),
+            };
+            let family = if r.v6 { Family::V6 } else { Family::V4 };
+            Ok(Rule {
+                invert: r.invert,
+                src: from_prefix(r.src),
+                dst: from_prefix(r.dst),
+                iif: r.iif,
+                oif: r.oif,
+                fwmark: r.fwmark,
+                uid_range: r.uid_range,
+                ip_proto: r.ip_proto,
+                sport: r.sport,
+                dport: r.dport,
+                suppress_prefixlength: r.suppress_prefixlength,
+                ..Rule::new(family, r.priority, action)
+            })
+        }
+    }
+
+    pub(super) mod route {
+        use super::*;
+
+        pub(in super::super) fn serialize<S: serde::Serializer>(
+            r: &Route,
+            s: S,
+        ) -> Result<S::Ok, S::Error> {
+            let kind = match r.kind {
+                RouteKind::Unicast => "unicast",
+                RouteKind::Throw => "throw",
+                RouteKind::Unreachable => "unreachable",
+                RouteKind::Blackhole => "blackhole",
+                RouteKind::Prohibit => "prohibit",
+            };
+            serde::Serialize::serialize(
+                &LedgerRoute {
+                    dst: (r.dst.addr, r.dst.len),
+                    gateway: r.gateway,
+                    oif: r.oif,
+                    table: r.table,
+                    kind: kind.into(),
+                    metric: r.metric,
+                },
+                s,
+            )
+        }
+
+        pub(in super::super) fn deserialize<'de, D: serde::Deserializer<'de>>(
+            d: D,
+        ) -> Result<Route, D::Error> {
+            let r: LedgerRoute = serde::Deserialize::deserialize(d)?;
+            let kind = match r.kind.as_str() {
+                "unicast" => RouteKind::Unicast,
+                "throw" => RouteKind::Throw,
+                "unreachable" => RouteKind::Unreachable,
+                "blackhole" => RouteKind::Blackhole,
+                "prohibit" => RouteKind::Prohibit,
+                other => return Err(serde::de::Error::custom(format!("route kind {other}"))),
+            };
+            Ok(Route {
+                dst: Prefix::new(r.dst.0, r.dst.1),
+                gateway: r.gateway,
+                oif: r.oif,
+                table: r.table,
+                kind,
+                metric: r.metric,
+            })
+        }
+    }
 }
 
 /// A ledger file.
