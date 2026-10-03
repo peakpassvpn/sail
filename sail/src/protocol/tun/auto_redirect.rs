@@ -301,12 +301,15 @@ impl AddressSets {
                     continue;
                 };
                 let changed = changed.clone();
-                watchers.push(AbortOnDrop(tokio::spawn(async move {
-                    while version.changed().await.is_ok() {
-                        // A refill is due already if the channel is full.
-                        let _ = changed.try_send(());
-                    }
-                })));
+                watchers.push(AbortOnDrop(crate::runtime::scope::spawn_essential(
+                    "auto_redirect rule-set watch",
+                    async move {
+                        while version.changed().await.is_ok() {
+                            // A refill is due already if the channel is full.
+                            let _ = changed.try_send(());
+                        }
+                    },
+                )));
             }
             drop(changed);
             loop {
@@ -470,7 +473,9 @@ async fn serve(listener: tokio::net::TcpListener, tag: String, dispatcher: Arc<D
             }
         };
         let dispatcher = dispatcher.clone();
-        tokio::spawn(async move { dispatcher.dispatch_stream(sess, stream).await });
+        crate::runtime::scope::spawn("auto_redirect stream", async move {
+            dispatcher.dispatch_stream(sess, stream).await
+        });
     }
 }
 

@@ -521,6 +521,22 @@ fn in_scope<F: Future>(
     }
 }
 
+/// The instance's lock `m`, named `name`, from the current scope
+/// (`TaskScope::lock`): on poison the instance fails and the caller gets
+/// an error to give up with. Where no scope is set, the error alone.
+pub fn instance_lock<'a, T>(
+    m: &'a Mutex<T>,
+    name: &str,
+) -> Result<MutexGuard<'a, T>, PoisonedLock> {
+    match here() {
+        Some(scope) => scope.lock(m, name),
+        None => m.lock().map_err(|_| {
+            tracing::error!("lock [{}] poisoned by an earlier panic", name);
+            PoisonedLock(name.to_string())
+        }),
+    }
+}
+
 /// Runs `f` on the blocking pool as contained work of the current scope;
 /// as `spawn` where there is none.
 pub fn spawn_blocking<F, R>(name: &'static str, f: F) -> JoinHandle<R>

@@ -100,7 +100,7 @@ pub(crate) async fn serve(queue: Queue, tag: String, dispatcher: Arc<Dispatcher>
             continue;
         };
         let (queue, dispatcher, tag) = (queue.clone(), dispatcher.clone(), tag.clone());
-        tokio::spawn(async move {
+        crate::runtime::scope::spawn("tun prematch", async move {
             let _permit = permit;
             let decision = judge(&dispatcher, network, flow.source, flow.destination, tag).await;
             give(&queue, id, verdict(flow.protocol, decision, marks));
