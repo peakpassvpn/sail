@@ -29,14 +29,21 @@ use super::network_listener::handle_inbound_datagram;
 /// Serves a stream an inbound accepted: routes it, or serves it if it asks
 /// for a magic destination.
 pub async fn serve_stream(
-    sess: Session,
+    mut sess: Session,
     stream: AnyStream,
     inbound_tag: String,
     dispatcher: Arc<Dispatcher>,
     nat_manager: Arc<NatManager>,
 ) {
+    // What is served here rather than routed, a mux connection or UDP
+    // over TCP, is past its handshake: what it carries takes places among
+    // the sessions, each its own.
+    if uot::version(&sess.destination).is_some() {
+        sess.handshake = None;
+    }
     #[cfg(feature = "mux")]
     if crate::transport::mux::is_magic(&sess.destination) {
+        sess.handshake = None;
         serve_mux(sess, stream, inbound_tag, dispatcher, nat_manager).await;
         return;
     }

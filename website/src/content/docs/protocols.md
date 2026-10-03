@@ -90,6 +90,18 @@ A Hysteria2 inbound serves anyone without a password, such as an active prober, 
 
 Known gaps: request and response bodies are buffered (up to 1 MB and 8 MB) rather than streamed, `file://` and `type: file` sites are not supported, and chunked responses are not passed through as chunked.
 
+### Probing and connections that never authenticate
+
+How an inbound answers a client that is not one of its own, and what such clients may cost it. Where sail departs from sing-box, it says so.
+
+- **Shadowsocks** (2022 and AEAD): a request that fails is read on, and what comes discarded, until the client closes, 64 KiB came, or the handshake deadline; then it is closed. sing-box resets the connection at the failure, which tells a prober that varies how much it sends the length of the header, the way Shadowsocks servers are found (Frolov, Wampler and Wustrow, "How China Detects and Blocks Shadowsocks", IMC 2020). Outline's ss-server and Xray read on as sail does.
+- **Trojan, VLESS, AnyTLS**: with `fallback` (or `fallback_for_alpn`), what fails to authenticate goes to the fallback server with the bytes read of it, so a prober meets that server. Without one, a wrong first byte closes the connection, as in sing-box; a server says so at start.
+- **REALITY, ShadowTLS**: what is not a client's goes to the handshake server, as in sing-box. **Hysteria2**: `masquerade` answers it, 404 by default. **TUIC**: closed after `auth_timeout`, 3 s.
+- **Handshake deadline**: a server (`--profile server`) gives a TCP inbound's whole handshake 15 s (`inbound.handshake_timeout`), sing-box's for TLS and REALITY; the slowest setup measured over a 300 ms path with 5% loss took 4.7 s. A QUIC handshake has 5 s (`quic.server_handshake_timeout`), as in quic-go: a client that sends an Initial and falls silent is dropped then.
+- **Handshakes at once**, a sail extension (sing-box has no limit): an inbound has at most `inbound.max_handshakes` connections in their handshake, those being read on included: 4096 on a server, 256 on a router, 1024 otherwise; 0, no limit. One more is closed at once. One that never authenticates takes 9 to 20 KiB until the deadline (measured). `inbound.max_handshakes_per_source` limits one source address; off (0) by default, since behind a carrier's NAT many clients share an address. A connection counts here until it has its place under `inbound.max_connections`, never under both.
+
+These are runtime options: `--set inbound.max_handshakes=8192`.
+
 ## Transports and security
 
 | Layer | Inbound | Outbound | Purpose |

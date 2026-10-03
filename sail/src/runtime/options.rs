@@ -167,6 +167,16 @@ pub struct Inbound {
     /// refused. A sail extension: neither sing-box nor Mihomo bounds them.
     #[serde(default)]
     pub max_connections: usize,
+    /// Connections of one inbound in their handshake at once, those that
+    /// never finish it included; 0, no limit. One more is closed at once.
+    /// What never authenticates takes 9 to 20 KiB until the handshake
+    /// deadline (measured). A sail extension: sing-box does not bound them.
+    #[serde(default)]
+    pub max_handshakes: usize,
+    /// The most of them one source address may hold; 0, no limit, the
+    /// default: behind a carrier's NAT many clients share an address.
+    #[serde(default)]
+    pub max_handshakes_per_source: usize,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -358,6 +368,9 @@ impl RuntimeOptions {
                 tcp_abort_on_close: false,
                 tcp_send_buffer: 0,
                 max_connections: 0,
+                // A judgment: a client's local inbounds see few at once.
+                max_handshakes: 1024,
+                max_handshakes_per_source: 0,
             },
             quic: Quic {
                 max_concurrent_streams: 1024,
@@ -465,6 +478,9 @@ impl RuntimeOptions {
                     // was killed at 500 a second, 768 at 1000, and 512 and
                     // 384 lived through both (measured); the most that did.
                     max_connections: 512,
+                    // A judgment, from the above: half the sessions the
+                    // budget carries, at up to 20 KiB each (measured), 5 MiB.
+                    max_handshakes: 256,
                     ..desktop.inbound
                 },
                 quic: Quic {
@@ -513,6 +529,10 @@ impl RuntimeOptions {
                     // (`C.TCPTimeout`); the slowest whole setup measured,
                     // REALITY over 300 ms and 5% loss, took 4.7 s.
                     handshake_timeout: Duration::from_secs(15),
+                    // A judgment: at up to 20 KiB each (measured), 80 MiB
+                    // when full; 1000 new connections a second over a
+                    // 300 ms path keep about 900 in their handshake.
+                    max_handshakes: 4096,
                     ..desktop.inbound
                 },
                 quic: Quic {

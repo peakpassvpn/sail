@@ -409,17 +409,23 @@ impl Dispatcher {
         self.dispatch_stream_inner(sess, lhs).instrument(span).await
     }
 
-    async fn dispatch_stream_inner<T>(&self, sess: Session, lhs: T)
+    async fn dispatch_stream_inner<T>(&self, mut sess: Session, lhs: T)
     where
         T: 'static + AsyncRead + AsyncWrite + Unpin + Send + Sync,
     {
+        // Its place among its inbound's handshakes, taken before any copy
+        // of the session is made, and held until it has one among the
+        // sessions, or is refused one.
+        let handshake = sess.handshake.take();
         if !admitted(&sess) {
             return;
         }
         // Its place, held as long as it lives; without one, it is refused
         // as a general failure (SOCKS REP 1): the limit is sail's own, not
         // the destination refusing.
-        let Ok(_place) = self.enter().await else {
+        let entered = self.enter().await;
+        drop(handshake);
+        let Ok(_place) = entered else {
             let mut lhs = lhs;
             let e = io::Error::other("connection limit reached");
             refuse(&sess, &mut lhs, &e).await;
@@ -769,13 +775,15 @@ impl Dispatcher {
     /// long the session lasts idle when a rule says.
     pub async fn dispatch_datagram(
         &self,
-        sess: Session,
+        mut sess: Session,
         sniffer: &mut dyn Sniffer,
     ) -> io::Result<(Box<dyn OutboundDatagram>, Option<std::time::Duration>)> {
+        // As a stream's: held until the session has its place, or none.
+        let handshake = sess.handshake.take();
         // Its place, held by the datagram as long as the session lives.
-        let place = self
-            .enter()
-            .await
+        let entered = self.enter().await;
+        drop(handshake);
+        let place = entered
             .map_err(|()| io::Error::other("refused: inbound.max_connections sessions live"))?;
         let (datagram, idle) = self.dispatch_datagram_inner(sess, sniffer).await?;
         let datagram = match place {

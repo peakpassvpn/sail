@@ -189,12 +189,14 @@ async fn handle_inbound_transport(
     }
 }
 
-// Handle an accepted inbound TCP stream.
+// Handle an accepted inbound TCP stream, which holds `place` among its
+// inbound's handshakes until it is a session or is closed.
 async fn handle_inbound_tcp_stream(
     stream: TcpStream,
     handler: AnyInboundHandler,
     dispatcher: Arc<Dispatcher>,
     nat_manager: Arc<NatManager>,
+    place: super::HandshakePlace,
 ) -> io::Result<()> {
     // A connection without addresses has already gone away.
     let source = stream.peer_addr()?;
@@ -217,12 +219,21 @@ async fn handle_inbound_tcp_stream(
     }
     async move {
         // Transforms the TCP stream into an inbound transport.
-        let transport = timeout(
+        let mut transport = timeout(
             dispatcher.env().options.inbound.handshake_timeout,
             handler.stream()?.handle(sess, Box::new(stream)),
         )
         .instrument(tracing::Span::current())
         .await??;
+        // A stream to be routed keeps its place until the dispatcher has
+        // given it one among the sessions. Anything else, a UDP
+        // association or a connection that carries many, is past its
+        // handshake: the place is given back here, and what it carries
+        // takes places among the sessions, each its own. The protocol's
+        // handler never held it, so none can keep it.
+        if let InboundTransport::Stream(_, sess) = &mut transport {
+            sess.handshake = Some(place);
+        }
         handle_inbound_transport(transport, handler, dispatcher, nat_manager)
             .instrument(tracing::Span::current())
             .await;
@@ -256,16 +267,23 @@ async fn handle_tcp_listen(
         handler.tag(),
         listen_addr
     ));
+    let handshakes =
+        super::handshakes::Handshakes::new(handler.tag(), &dispatcher.env().options.inbound);
     loop {
-        let stream = match listener.accept().await {
-            Ok((stream, _)) => {
+        let (stream, source) = match listener.accept().await {
+            Ok(accepted) => {
                 backoff.succeeded();
-                stream
+                accepted
             }
             Err(e) => {
                 backoff.failed(e).await?;
                 continue;
             }
+        };
+        // One more than the inbound may have in their handshake is closed
+        // at once: kept waiting, it would take what the limit spares.
+        let Some(place) = handshakes.enter(source.ip()) else {
+            continue;
         };
         let handler_cloned = handler.clone();
         let dispatcher_cloned = dispatcher.clone();
@@ -277,6 +295,7 @@ async fn handle_tcp_listen(
                 handler_cloned,
                 dispatcher_cloned,
                 nat_manager_cloned,
+                place,
             )
             .await
             {

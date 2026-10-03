@@ -90,6 +90,18 @@ Hysteria2 入站对没有密码的访问者（例如主动探测）提供 `masqu
 
 已知缺口：请求体和响应体会先缓冲（上限分别为 1 MB 和 8 MB），不做流式转发；不支持 `file://` 和 `type: file`；chunked 响应不会按 chunked 原样转发。
 
+### 探测与始终不认证的连接
+
+入站怎样回应不是自己客户端的连接，以及这类连接最多消耗多少。与 sing-box 不同的地方会写明。
+
+- **Shadowsocks**（2022 与 AEAD）：请求失败后继续读取并丢弃，直到对方关闭、读满 64 KiB 或到达握手超时，然后才关闭。sing-box 在失败处立即重置连接，探测者改变发送的长度就能得知协议头的长度，Shadowsocks 服务器正是这样被发现的（Frolov、Wampler、Wustrow，“How China Detects and Blocks Shadowsocks”，IMC 2020）。Outline 的 ss-server 和 Xray 与 sail 的做法相同。
+- **Trojan、VLESS、AnyTLS**：配置了 `fallback`（或 `fallback_for_alpn`）时，认证失败的连接连同已读到的字节转给回落服务器，探测者面对的是那台服务器。没有配置时，第一个错误字节即关闭连接，与 sing-box 相同；服务端启动时会说明这一点。
+- **REALITY、ShadowTLS**：不是自己客户端的连接转给握手服务器，与 sing-box 相同。**Hysteria2**：由 `masquerade` 回应，默认 404。**TUIC**：`auth_timeout`（3 秒）后关闭。
+- **握手超时**：服务端（`--profile server`）给 TCP 入站的整个握手 15 秒（`inbound.handshake_timeout`），即 sing-box 对 TLS 与 REALITY 的取值；实测往返 300 ms、丢包 5% 的链路上最慢的建连为 4.7 秒。QUIC 握手 5 秒（`quic.server_handshake_timeout`），与 quic-go 相同：只发了 Initial 就沉默的客户端到时即被丢弃。
+- **同时握手的连接数**，Sail 扩展（sing-box 没有限制）：每个入站同时处于握手中的连接至多 `inbound.max_handshakes` 个，正在被继续读取的也算在内：服务端 4096，路由器 256，其余 1024；0 为不限。超出的立即关闭。始终不认证的连接在超时前各占 9 至 20 KiB（实测）。`inbound.max_handshakes_per_source` 限制单个来源地址，默认关闭（0），因为运营商 NAT 后面许多客户端共用一个地址。一个连接在取得 `inbound.max_connections` 下的名额之前计在这里，不会同时计入两边。
+
+以上是运行时选项：`--set inbound.max_handshakes=8192`。
+
 ## 传输层与安全
 
 | 层 | 入站 | 出站 | 用途 |

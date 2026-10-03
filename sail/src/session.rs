@@ -366,6 +366,14 @@ pub struct Session {
     /// The answer the inbound owes its client once the outbound connects,
     /// as a SOCKS inbound gives it: shared by the session's copies.
     pub reply: Option<std::sync::Arc<crate::adapter::reply::Reply>>,
+    /// The connection's place among its inbound's handshakes, from the
+    /// listener to the dispatcher, which gives it back once the session
+    /// has its place among the sessions: held by one or the other from
+    /// accept on. No copy of the session carries it. Public only because
+    /// a session is made with `..Default::default()` outside the crate;
+    /// nothing outside can make a place, so there it is always `None`.
+    #[doc(hidden)]
+    pub handshake: Option<crate::app::inbound::HandshakePlace>,
 }
 
 /// The members groups handed a connection to, the innermost first, as
@@ -523,6 +531,7 @@ impl Clone for Session {
             neighbor: self.neighbor.clone(),
             owner: self.owner.clone(),
             reply: self.reply.clone(),
+            handshake: None,
         }
     }
 }
@@ -559,6 +568,7 @@ impl Default for Session {
             neighbor: None,
             owner: None,
             reply: None,
+            handshake: None,
         }
     }
 }
