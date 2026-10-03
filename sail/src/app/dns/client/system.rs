@@ -16,8 +16,8 @@
 //!   where it sends by the default route, of the adapters that are up and
 //!   have a gateway, as IP Helper tells them.
 //!
-//! Read again at most every 5 s, as Go's resolver reads resolv.conf, and
-//! after the network changed. Servers on sail's own TUNs' networks are
+//! Read again at most every 5 s, as Go's resolver reads resolv.conf, every
+//! second while none is found, and after the network changed. Servers on sail's own TUNs' networks are
 //! left out: auto_route gives a TUN a DNS server of its own (resolved's,
 //! the adapter's), which a query sent past the TUN cannot reach. So are
 //! the site-local servers Windows lists for an adapter without any
@@ -31,6 +31,9 @@ use anyhow::{anyhow, Result};
 
 /// How long what was read is taken: Go's (net/dnsclient_unix.go).
 const REREAD: Duration = Duration::from_secs(5);
+/// How long a read that found no server is taken: the servers may come a
+/// moment later (DHCP), with nothing changing that would say so.
+const REREAD_EMPTY: Duration = Duration::from_secs(1);
 
 #[cfg(target_os = "macos")]
 #[path = "system_macos.rs"]
@@ -73,6 +76,19 @@ struct Read {
     servers: Vec<SocketAddr>,
 }
 
+impl Read {
+    /// Whether it is taken as it is for `interface`: of that interface,
+    /// and read within 5 s, or within a second if it found no server.
+    fn fresh(&self, interface: Option<&str>) -> bool {
+        let keep = if self.servers.is_empty() {
+            REREAD_EMPTY
+        } else {
+            REREAD
+        };
+        self.at.elapsed() < keep && self.interface.as_deref() == interface
+    }
+}
+
 impl SystemServers {
     /// Takes `servers` as the system's, for good.
     #[cfg(test)]
@@ -99,9 +115,7 @@ impl SystemServers {
         let servers = {
             let mut read = self.read.lock().unwrap_or_else(|e| e.into_inner());
             match read.as_ref() {
-                Some(r) if r.at.elapsed() < REREAD && r.interface.as_deref() == interface => {
-                    r.servers.clone()
-                }
+                Some(r) if r.fresh(interface) => r.servers.clone(),
                 _ => {
                     let servers: Vec<SocketAddr> = servers(interface)
                         .into_iter()
@@ -349,5 +363,22 @@ mod tests {
         assert_eq!(servers.get(&[], None).unwrap(), [set]);
         servers.forget();
         assert!(!servers.get(&[], None).unwrap_or_default().contains(&set));
+    }
+
+    /// A read that found no server is read again after a second, one that
+    /// found some after 5 s, and one of another interface at once.
+    #[test]
+    fn what_was_read_is_taken_for_a_while() {
+        let read = |age: u64, servers: Vec<SocketAddr>| Read {
+            at: Instant::now() - Duration::from_millis(age),
+            interface: Some("en0".into()),
+            servers,
+        };
+        let some = vec!["192.0.2.1:53".parse().unwrap()];
+        assert!(read(1500, some.clone()).fresh(Some("en0")));
+        assert!(!read(6000, some.clone()).fresh(Some("en0")));
+        assert!(!read(0, some).fresh(Some("en1")));
+        assert!(read(500, vec![]).fresh(Some("en0")));
+        assert!(!read(1500, vec![]).fresh(Some("en0")));
     }
 }
