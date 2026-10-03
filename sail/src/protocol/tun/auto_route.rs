@@ -556,6 +556,8 @@ mod backend {
         socket: RouteSocket,
         ipv4: Option<IpAddr>,
         ipv6: Option<IpAddr>,
+        /// The utun's own networks, as its addresses and prefixes give them.
+        own: Vec<cidr::IpCidr>,
     }
 
     impl Backend {
@@ -565,6 +567,12 @@ mod backend {
                     .map_err(|e| anyhow!("auto_route: routing socket: {}", e))?,
                 ipv4: settings.ipv4.map(|i| i.address().into()),
                 ipv6: settings.ipv6.map(|i| i.address().into()),
+                own: settings
+                    .ipv4
+                    .map(|i| cidr::IpCidr::V4(i.network()))
+                    .into_iter()
+                    .chain(settings.ipv6.map(|i| cidr::IpCidr::V6(i.network())))
+                    .collect(),
             })
         }
 
@@ -580,8 +588,27 @@ mod backend {
         }
 
         pub(super) fn delete(&self, prefix: (IpAddr, u8)) -> io::Result<()> {
-            self.socket
+            match self
+                .socket
                 .delete(prefix, self.gateway(prefix.0.is_ipv6())?)
+            {
+                // The utun's own network goes with its address: gone
+                // already is as wanted.
+                Err(e)
+                    if crate::platform::route_socket::errno(&e) == Some(libc::ESRCH)
+                        && self.is_own(prefix) =>
+                {
+                    Ok(())
+                }
+                other => other,
+            }
+        }
+
+        /// Whether `prefix` is one of the utun's own networks.
+        fn is_own(&self, (address, len): (IpAddr, u8)) -> bool {
+            self.own
+                .iter()
+                .any(|net| net.network_length() == len && net.contains(&address))
         }
 
         /// The routes are there: names cached before them resolved to

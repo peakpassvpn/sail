@@ -304,7 +304,7 @@ impl RouteSocket {
     /// by a run that died, or another VPN's -- is replaced, as sing-tun does.
     pub(crate) fn add(&self, dst: (IpAddr, u8), gateway: IpAddr) -> io::Result<()> {
         match self.send(Change::Add, dst, gateway) {
-            Err(e) if e.raw_os_error() == Some(libc::EEXIST) => {
+            Err(e) if errno(&e) == Some(libc::EEXIST) => {
                 let _ = self.send(Change::Delete, dst, gateway);
                 self.send(Change::Add, dst, gateway)
             }
@@ -333,21 +333,49 @@ impl RouteSocket {
             let e = io::Error::last_os_error();
             return Err(io::Error::new(
                 e.kind(),
-                format!(
-                    "{} route {}/{} via {}: {}",
-                    match change {
-                        Change::Add => "adding",
-                        Change::Delete => "deleting",
-                    },
-                    dst.0,
-                    dst.1,
-                    gateway,
-                    e
-                ),
+                Failed {
+                    errno: e.raw_os_error().unwrap_or(0),
+                    message: format!(
+                        "{} route {}/{} via {}: {}",
+                        match change {
+                            Change::Add => "adding",
+                            Change::Delete => "deleting",
+                        },
+                        dst.0,
+                        dst.1,
+                        gateway,
+                        e
+                    ),
+                },
             ));
         }
         Ok(())
     }
+}
+
+/// A change the kernel refused: its words, and its errno, which a caller
+/// reads with `errno`.
+#[derive(Debug)]
+struct Failed {
+    errno: i32,
+    message: String,
+}
+
+impl std::fmt::Display for Failed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for Failed {}
+
+/// The errno an error of a route change carries.
+pub(crate) fn errno(e: &io::Error) -> Option<i32> {
+    e.raw_os_error().or_else(|| {
+        e.get_ref()
+            .and_then(|inner| inner.downcast_ref::<Failed>())
+            .map(|failed| failed.errno)
+    })
 }
 
 /// Tells of changes to routes, interfaces and addresses: any message on a
