@@ -208,11 +208,14 @@ impl RouteSets {
                     continue;
                 };
                 let changed = changed.clone();
-                watchers.push(AbortOnDrop(tokio::spawn(async move {
-                    while version.changed().await.is_ok() {
-                        let _ = changed.try_send(());
-                    }
-                })));
+                watchers.push(AbortOnDrop(crate::runtime::scope::spawn_essential(
+                    "auto_route rule-set watch",
+                    async move {
+                        while version.changed().await.is_ok() {
+                            let _ = changed.try_send(());
+                        }
+                    },
+                )));
             }
             drop(changed);
             loop {

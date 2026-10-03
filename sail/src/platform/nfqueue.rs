@@ -533,7 +533,10 @@ mod linux {
         /// usable; call again.
         pub async fn recv(&self) -> io::Result<Queued> {
             loop {
-                if let Some(queued) = self.pending.lock().unwrap().pop_front() {
+                if let Some(queued) =
+                    crate::runtime::scope::instance_lock(&self.pending, "nfqueue pending")?
+                        .pop_front()
+                {
                     return Ok(queued);
                 }
                 let mut ready = self.socket.readable().await?;
@@ -546,7 +549,7 @@ mod linux {
 
         /// Reads one datagram and keeps its packets.
         fn read(&self, socket: &Socket) -> io::Result<()> {
-            let mut buf = self.buf.lock().unwrap();
+            let mut buf = crate::runtime::scope::instance_lock(&self.buf, "nfqueue buffer")?;
             let n = loop {
                 // SAFETY: buf is valid for its length.
                 let n = unsafe {
@@ -571,7 +574,8 @@ mod linux {
                     format!("nfqueue {}: a {}-byte datagram was cut", self.num, n),
                 ));
             }
-            let mut pending = self.pending.lock().unwrap();
+            let mut pending =
+                crate::runtime::scope::instance_lock(&self.pending, "nfqueue pending")?;
             keep(self.num, &buf[..n], &mut pending, None)
         }
 

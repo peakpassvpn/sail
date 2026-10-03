@@ -169,7 +169,7 @@ impl<T: Send + 'static> BlockingWait<T> {
     async fn wait(&mut self, wait: impl FnOnce() -> T + Send + 'static) -> io::Result<T> {
         let waiting = self
             .waiting
-            .get_or_insert_with(|| tokio::task::spawn_blocking(wait));
+            .get_or_insert_with(|| crate::runtime::scope::spawn_blocking("tun blocking io", wait));
         // Awaiting the handle by reference is cancel-safe: dropped here,
         // the same thread is awaited next time.
         let result = waiting.await;

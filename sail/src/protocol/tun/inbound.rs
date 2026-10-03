@@ -195,13 +195,16 @@ fn run<I: sail_netstack::PacketIo + 'static>(
         let datagram_dispatcher = dispatcher.clone();
         let accept_loop = async move {
             while let Some(accepted) = accepted.recv().await {
-                tokio::spawn(handle_stream(
-                    accepted.stream,
-                    accepted.connection.source,
-                    accepted.connection.destination,
-                    inbound_tag.clone(),
-                    dispatcher.clone(),
-                ));
+                crate::runtime::scope::spawn(
+                    "tun stream",
+                    handle_stream(
+                        accepted.stream,
+                        accepted.connection.source,
+                        accepted.connection.destination,
+                        inbound_tag.clone(),
+                        dispatcher.clone(),
+                    ),
+                );
             }
         };
         let datagram_loop = handle_datagrams(
