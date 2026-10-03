@@ -10,8 +10,8 @@
 //! - macOS: the IPv4 default route (the routing socket), the kind from the
 //!   interface's functional type. No SSID: CoreWLAN asks for the user's
 //!   location.
-//! - Windows: the adapter with a gateway and the lowest metric (IP
-//!   Helper), its kind from its interface type, the SSID and BSSID from
+//! - Windows: the adapter with a gateway and the lowest metric, not a
+//!   virtual one such as a TUN (IP Helper), its kind from its interface type, the SSID and BSSID from
 //!   the WLAN service.
 //! - Elsewhere, nothing: the host pushes it.
 //!

@@ -1,5 +1,5 @@
-//! Windows: the adapter up with a gateway and the lowest metric, IPv4's
-//! first, from IP Helper (`GetAdaptersAddresses`), its kind from its
+//! Windows: the adapter up, not virtual, with a gateway and the lowest
+//! metric, IPv4's first, from IP Helper (`GetAdaptersAddresses`), its kind from its
 //! interface type; a Wi-Fi network's SSID and BSSID from the WLAN service
 //! (`WlanQueryInterface`). Windows 11 24H2 answers the WLAN service only
 //! to apps the user lets see their location: the SSID is then unknown.
@@ -13,7 +13,8 @@ use windows_sys::Win32::Foundation::{ERROR_BUFFER_OVERFLOW, ERROR_SUCCESS, HANDL
 use windows_sys::Win32::NetworkManagement::IpHelper::{
     GetAdaptersAddresses, GAA_FLAG_INCLUDE_GATEWAYS, GAA_FLAG_SKIP_ANYCAST,
     GAA_FLAG_SKIP_DNS_SERVER, GAA_FLAG_SKIP_MULTICAST, IF_TYPE_ETHERNET_CSMACD, IF_TYPE_IEEE80211,
-    IF_TYPE_SOFTWARE_LOOPBACK, IF_TYPE_WWANPP, IF_TYPE_WWANPP2, IP_ADAPTER_ADDRESSES_LH,
+    IF_TYPE_PROP_VIRTUAL, IF_TYPE_SOFTWARE_LOOPBACK, IF_TYPE_WWANPP, IF_TYPE_WWANPP2,
+    IP_ADAPTER_ADDRESSES_LH,
 };
 use windows_sys::Win32::NetworkManagement::Ndis::IfOperStatusUp;
 use windows_sys::Win32::NetworkManagement::WiFi::{
@@ -83,11 +84,23 @@ pub(super) fn detect() -> NetworkState {
 }
 
 /// The adapter the default route goes through: up, with a gateway, of the
-/// lowest metric -- an IPv4 gateway's first.
-fn default(adapters: Vec<Adapter>) -> Option<Adapter> {
+/// lowest metric -- an IPv4 gateway's first. Not a virtual one (a TUN,
+/// wintun's or another VPN's), as `ip_helper::default_interface` and
+/// sing-tun pick it: auto_route's 0/0 through wintun at metric 0 would
+/// win otherwise, its on-link route listed as a gateway of 0.0.0.0, and
+/// the TUN coming up would read as the network moving. An unspecified
+/// gateway is none.
+fn default(mut adapters: Vec<Adapter>) -> Option<Adapter> {
+    for a in &mut adapters {
+        a.gateways.retain(|g| !g.is_unspecified());
+    }
     adapters
         .into_iter()
-        .filter(|a| a.if_type != IF_TYPE_SOFTWARE_LOOPBACK && !a.gateways.is_empty())
+        .filter(|a| {
+            a.if_type != IF_TYPE_SOFTWARE_LOOPBACK
+                && a.if_type != IF_TYPE_PROP_VIRTUAL
+                && !a.gateways.is_empty()
+        })
         .min_by_key(|a| {
             let v4 = a.gateways.iter().any(|g| g.is_ipv4());
             (!v4, if v4 { a.metric.0 } else { a.metric.1 })
@@ -305,6 +318,16 @@ mod tests {
             adapter("v6 only", IF_TYPE_ETHERNET_CSMACD, (1, 1), &["fe80::1"]),
         ];
         assert_eq!(default(adapters).unwrap().name, "Ethernet");
+
+        // auto_route's 0/0 through wintun, at metric 0, on-link: not the
+        // default, nor is another VPN's adapter, nor an on-link gateway.
+        let adapters = vec![
+            adapter("Wi-Fi", IF_TYPE_IEEE80211, (35, 35), &["10.0.0.1"]),
+            adapter("wintun", IF_TYPE_PROP_VIRTUAL, (0, 0), &["0.0.0.0", "::"]),
+            adapter("vpn", IF_TYPE_PROP_VIRTUAL, (1, 1), &["10.8.0.1"]),
+            adapter("on-link", IF_TYPE_ETHERNET_CSMACD, (2, 2), &["0.0.0.0"]),
+        ];
+        assert_eq!(default(adapters).unwrap().name, "Wi-Fi");
         assert_eq!(kind(IF_TYPE_IEEE80211), NetworkType::Wifi);
         assert_eq!(kind(IF_TYPE_WWANPP2), NetworkType::Cellular);
         assert_eq!(kind(53), NetworkType::Other);
