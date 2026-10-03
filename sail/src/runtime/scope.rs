@@ -470,6 +470,22 @@ fn in_scope<F: Future>(
     }
 }
 
+/// Runs `f` on the blocking pool as contained work of the current scope;
+/// as `spawn` where there is none.
+pub fn spawn_blocking<F, R>(name: &'static str, f: F) -> JoinHandle<R>
+where
+    F: FnOnce() -> R + Send + 'static,
+    R: Send + 'static,
+{
+    match here() {
+        Some(scope) => scope.spawn_blocking(name, f),
+        None => {
+            unscoped_note(name);
+            tokio::task::spawn_blocking(f)
+        }
+    }
+}
+
 /// `fut` run in place, as contained work inside a longer task: one
 /// member's test in a group's round. A panic in it is caught, counted and
 /// told as a contained task's, and gives `None`; the task around it goes

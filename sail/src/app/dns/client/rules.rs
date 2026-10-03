@@ -940,7 +940,7 @@ impl DnsClient {
             return;
         }
         let (tag, request, options) = (tag.to_owned(), request.clone(), options.clone());
-        tokio::spawn(async move {
+        crate::runtime::scope::spawn("dns optimistic refresh", async move {
             let asked = match me.server(&tag) {
                 Ok(server) => {
                     let server = server.clone();

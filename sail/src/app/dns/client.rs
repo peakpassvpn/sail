@@ -876,7 +876,7 @@ impl DnsClient {
                     _ => return Err(anyhow!("the system resolver answers no {} query", ty)),
                 };
                 let addr = format!("{}:0", host);
-                let ips = tokio::task::spawn_blocking(move || {
+                let ips = crate::runtime::scope::spawn_blocking("dns system resolver", move || {
                     use std::net::ToSocketAddrs;
                     addr.to_socket_addrs()
                         .map(|iter| iter.map(|x| x.ip()).collect::<Vec<_>>())

@@ -336,7 +336,7 @@ async fn connect_h3(conn: quinn::Connection) -> Result<H3> {
     let (mut driver, send_request) = h3::client::new(h3_quinn::Connection::new(conn))
         .await
         .map_err(|e| anyhow!("http/3 connection failed: {}", e))?;
-    let driver = tokio::spawn(async move {
+    let driver = crate::runtime::scope::spawn("dns http/3 connection", async move {
         let e = futures::future::poll_fn(|cx| driver.poll_close(cx)).await;
         debug!("http/3 connection closed: {}", e);
     })
