@@ -208,6 +208,46 @@ that connections do not survive, as `Event::Network`:
 change of the instance's state as `Event::State`, `Kinds::NETWORK` the
 network's. More kinds come; match with `_ => {}`.
 
+`Kinds::ROUTE` gives every connection once, as `Event::Routed`: a TCP
+connection, a UDP session or a stream of a multiplexed connection, when
+the rules have decided of it and, where they sent it to an outbound, when
+its dial has ended, well or not. It tells what a polled list of the
+connections open cannot: a connection shorter than the poll, a dial that
+failed, a reject, a drop, a hijacked DNS query. Its fields:
+
+- `id`: as `connections()` lists it; none where it never opened.
+- `network`, `inbound` (the tag), `source`, `destination`.
+- `request_destination`: what the outbound was asked to reach, after the
+  rules' overrides and the name `override_destination` has it dialled as.
+- `domain` and `domain_source`: the destination's own name (`Request`),
+  the name a fake IP stands for (`FakeIp`, TCP only), a sniffed TLS
+  server name or HTTP Host (`Sniffed`), or the DNS answers sail gave for
+  the address (`ReverseMapping`).
+- `sniffed_protocol`.
+- `rule`: the index of the rule that decided in the configuration's
+  `route.rules`, from 0, each entry of the list counted once, a logical
+  rule and one naming rule-sets too; none for `route.final` and for the
+  host's own `dial`. `rule_text` is the rule as the log tells it.
+- `action`: `Outbound`, `Reject`, `Drop` or `HijackDns`.
+- `chain`: the outbounds it went through, outermost first, as the log's
+  `out=` names them (`sel>hk-ss`); for a failure, the member tried. Its
+  last is the outbound that carried it.
+- `target`: the address its TCP connection out was made to, the
+  destination's for a direct outbound and the server's for a proxy.
+- `connect`: how long the dial and the outbound's handshake took, or the
+  kind of error they failed with.
+
+These addresses and the domain are whole: `log.redact` governs sail's
+log, not what it tells its host, which redacts what it passes on as it
+sees fit. (`DialFailed`'s destination is redacted, as the log's is.)
+
+The events are built only while a subscription to `Kinds::ROUTE` is
+held; without one a connection costs one load of a counter. A subscriber
+may fall 1024 events behind; further behind it gets
+`Event::Lagged { kind: Kinds::ROUTE, missed }` and goes on from the oldest
+kept. The struct and its enums are `#[non_exhaustive]`: fields and
+variants are added.
+
 A host that shows the instance polls snapshots instead of following
 events: `instance.status(every)` (the traffic and its rate),
 `instance.watch_connections(every)` and `instance.watch_outbounds(every,

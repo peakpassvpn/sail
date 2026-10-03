@@ -502,6 +502,7 @@ impl Dialer {
             Kind::Socket(_) => {
                 let (stream, egress) = self.tcp_out(dns, &to.host(), to.port()).await?;
                 record(sess, egress);
+                record_peer(sess, &stream);
                 Ok(Box::new(stream))
             }
             Kind::Detour(detour) => detour.stream(dns, sess, to).await,
@@ -536,6 +537,7 @@ impl Dialer {
         let (stream, egress) =
             super::happy::connect(&addrs, order, |addr| self.tcp_to_out(addr)).await?;
         record(sess, egress);
+        record_peer(sess, &stream);
         Ok(Box::new(stream))
     }
 
@@ -846,6 +848,14 @@ impl Racing {
 fn record(sess: Option<&Session>, egress: Egress) {
     if let Some(sess) = sess {
         sess.state.get::<BoundInterface>().set(egress);
+    }
+}
+
+/// Records on `sess`, if there is one, the address its TCP connection out
+/// was made to.
+fn record_peer(sess: Option<&Session>, stream: &TcpStream) {
+    if let (Some(sess), Ok(peer)) = (sess, stream.peer_addr()) {
+        sess.state.get::<BoundInterface>().set_peer(peer);
     }
 }
 

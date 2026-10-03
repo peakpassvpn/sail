@@ -175,6 +175,10 @@ impl Kinds {
     pub const DIAL: Kinds = Kinds(1 << 4);
     /// A task's panic the instance went on after (a contained one).
     pub const FAULT: Kinds = Kinds(1 << 5);
+    /// Every connection, once the rules decided of it and its dial ended:
+    /// what a polled list of the connections open misses, the short ones
+    /// and those that never opened. Built only while someone subscribes.
+    pub const ROUTE: Kinds = Kinds(1 << 6);
     /// Every kind there is, and those added later.
     pub const ALL: Kinds = Kinds(u32::MAX);
 
@@ -209,6 +213,9 @@ pub enum Event {
     /// A task panicked and the instance went on: its name, class, message
     /// and the instance's running count of such panics.
     Fault(super::Fault),
+    /// A connection was routed, and dialled where the rules sent it to an
+    /// outbound.
+    Routed(Arc<RoutedConnection>),
     /// This subscriber fell behind on `kind`, and `missed` events of it
     /// are gone: read the snapshot again.
     Lagged {
@@ -270,6 +277,9 @@ impl Instance {
             );
             streams.push(Box::pin(coalesce(failures, DIAL_WINDOW)));
         }
+        if kinds.contains(Kinds::ROUTE) {
+            streams.push(Box::pin(self.route_events()));
+        }
         futures::stream::select_all(streams)
     }
 
@@ -286,6 +296,22 @@ impl Instance {
             };
             Some((event, rx))
         })
+    }
+
+    fn route_events(&self) -> impl Stream<Item = Event> + Send + 'static {
+        per_run_counted(
+            self.inner().clone(),
+            Kinds::ROUTE,
+            |m| m.env.events.routes(),
+            Event::Routed,
+        )
+    }
+
+    /// How many routed connections the instance built to tell, since its
+    /// start: none while no one subscribes to `Kinds::ROUTE`.
+    #[doc(hidden)]
+    pub fn routes_built(&self) -> Result<usize, Error> {
+        Ok(self.manager()?.env.events.routes_built())
     }
 
     fn network_events(&self) -> impl Stream<Item = Event> + Send + 'static {
@@ -314,7 +340,9 @@ impl Instance {
     }
 }
 
-pub use crate::control::events::{DialFailure, DialStage, GroupSwitch, SwitchReason};
+pub use crate::control::events::{
+    DialFailure, DialStage, DomainSource, GroupSwitch, RouteAction, RoutedConnection, SwitchReason,
+};
 pub use crate::runtime::TunName;
 
 /// The events a run's broadcast tells, through stops and starts: each run's
@@ -344,6 +372,46 @@ where
                 };
                 let event = match rx.recv().await {
                     Ok(value) => map(&value),
+                    Err(RecvError::Lagged(missed)) => Event::Lagged { kind, missed },
+                    // The run ended.
+                    Err(RecvError::Closed) => continue,
+                };
+                return Some((event, (inner, Some(rx), states, subscribe, map)));
+            }
+        },
+    )
+}
+
+/// `per_run`, of a channel that counts who listens (control::events'
+/// `Channel`): what it tells is built only while a subscription is held.
+fn per_run_counted<T, S, M>(
+    inner: Arc<Inner>,
+    kind: Kinds,
+    subscribe: S,
+    map: M,
+) -> impl Stream<Item = Event> + Send + 'static
+where
+    T: Clone + Send + 'static,
+    S: Fn(&crate::RuntimeManager) -> crate::control::events::Subscription<T>
+        + Send
+        + Sync
+        + 'static,
+    M: Fn(T) -> Event + Send + Sync + 'static,
+{
+    let first = inner.manager().ok().map(|m| subscribe(&m));
+    let states = inner.states();
+    futures::stream::unfold(
+        (inner, first, states, subscribe, map),
+        move |(inner, mut subscribed, mut states, subscribe, map)| async move {
+            loop {
+                let Some(mut rx) = subscribed.take() else {
+                    // Not running: the next run's, once it runs.
+                    states.changed().await.ok()?;
+                    subscribed = inner.manager().ok().map(|m| subscribe(&m));
+                    continue;
+                };
+                let event = match rx.recv().await {
+                    Ok(value) => map(value),
                     Err(RecvError::Lagged(missed)) => Event::Lagged { kind, missed },
                     // The run ended.
                     Err(RecvError::Closed) => continue,

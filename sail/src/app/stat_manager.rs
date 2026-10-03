@@ -899,13 +899,27 @@ impl StatManager {
 
     /// Counts `stream`, the outbound's side of a TCP connection.
     pub fn stat_stream(&self, stream: AnyStream, sess: Session) -> AnyStream {
-        Box::new(Stream::new(stream, self.register(sess), false))
+        self.stat_stream_id(stream, sess).0
+    }
+
+    /// `stat_stream`, and the id the connection is listed by.
+    pub fn stat_stream_id(&self, stream: AnyStream, sess: Session) -> (AnyStream, u64) {
+        let accounts = self.register(sess);
+        let id = accounts.counter.id;
+        (Box::new(Stream::new(stream, accounts, false)), id)
     }
 
     /// Counts `stream`, the client's side of a TCP connection, for an
     /// outbound that gives no stream of its own.
     pub fn stat_inbound_stream(&self, stream: AnyStream, sess: Session) -> AnyStream {
-        Box::new(Stream::new(stream, self.register(sess), true))
+        self.stat_inbound_stream_id(stream, sess).0
+    }
+
+    /// `stat_inbound_stream`, and the id the connection is listed by.
+    pub fn stat_inbound_stream_id(&self, stream: AnyStream, sess: Session) -> (AnyStream, u64) {
+        let accounts = self.register(sess);
+        let id = accounts.counter.id;
+        (Box::new(Stream::new(stream, accounts, true)), id)
     }
 
     /// Counts `dgram`, the outbound's side of a UDP session.
@@ -914,10 +928,24 @@ impl StatManager {
         dgram: AnyOutboundDatagram,
         sess: Session,
     ) -> AnyOutboundDatagram {
-        Box::new(Datagram {
-            inner: dgram,
-            accounts: Arc::new(self.register(sess)),
-        })
+        self.stat_outbound_datagram_id(dgram, sess).0
+    }
+
+    /// `stat_outbound_datagram`, and the id the session is listed by.
+    pub fn stat_outbound_datagram_id(
+        &self,
+        dgram: AnyOutboundDatagram,
+        sess: Session,
+    ) -> (AnyOutboundDatagram, u64) {
+        let accounts = self.register(sess);
+        let id = accounts.counter.id;
+        (
+            Box::new(Datagram {
+                inner: dgram,
+                accounts: Arc::new(accounts),
+            }),
+            id,
+        )
     }
 
     pub fn get_last_peer_active(&self, outbound_tag: &str) -> Option<u32> {

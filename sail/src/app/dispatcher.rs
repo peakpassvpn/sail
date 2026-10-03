@@ -286,7 +286,168 @@ fn outbound_path(sess: &Session, tag: &str) -> String {
         .join(">")
 }
 
+/// The outbounds a connection went through, outermost first, as
+/// `outbound_path` joins them.
+fn outbound_chain(sess: &Session, tag: &str) -> Vec<String> {
+    std::iter::once(tag.to_string())
+        .chain(sess.chain.get())
+        .collect()
+}
+
+/// What routing found of a connection, kept beside it until it is told
+/// (control::events' `RoutedConnection`), not in its session.
+#[derive(Debug, Clone, Copy, Default)]
+struct Matched {
+    /// The index of the rule that decided, looked up only while someone
+    /// listens for routed connections.
+    rule: Option<u32>,
+    /// A rule rejected it.
+    rejected: bool,
+    /// Its destination was a fake IP, now the domain it stands for.
+    fake_ip: bool,
+}
+
+/// What is told of a connection besides its session.
+#[derive(Debug, Clone, Copy, Default)]
+struct Told<'a> {
+    matched: Matched,
+    /// As the connections list it, once it is listed.
+    id: Option<u64>,
+    /// What the outbound was asked to reach.
+    asked: Option<&'a SocksAddr>,
+}
+
+/// The domain known for `sess`, and where it came from.
+fn domain_of(
+    sess: &Session,
+    fake_ip: bool,
+) -> Option<(String, crate::control::events::DomainSource)> {
+    use crate::control::events::DomainSource;
+    use crate::session::{DialDomainSource, Dialled, SniffedFrom};
+    if let Some(domain) = sess.destination.domain() {
+        let source = match fake_ip {
+            true => DomainSource::FakeIp,
+            false => DomainSource::Request,
+        };
+        return Some((domain.clone(), source));
+    }
+    if let Some((domain, source)) = sess.state.get::<Dialled>().get() {
+        let source = match source {
+            DialDomainSource::Sniff => DomainSource::Sniffed,
+            DialDomainSource::ReverseMapping => DomainSource::ReverseMapping,
+        };
+        return Some((domain, source));
+    }
+    sess.sniffed.as_ref().map(|(from, domain)| {
+        let source = match from {
+            SniffedFrom::Dns => DomainSource::ReverseMapping,
+            SniffedFrom::Http | SniffedFrom::Tls => DomainSource::Sniffed,
+        };
+        (domain.clone(), source)
+    })
+}
+
 impl Dispatcher {
+    /// A connection whose dial ended, well or not: logged, and told to
+    /// those who listen for routed connections. Every place a dial ends
+    /// goes through here, so that none is logged and not told.
+    fn handled(
+        &self,
+        sess: &Session,
+        outbound_tag: &str,
+        told: Told<'_>,
+        connect: Result<std::time::Duration, io::ErrorKind>,
+    ) {
+        log_request(
+            sess,
+            outbound_tag,
+            connect.ok().map(|took| took.as_millis()),
+        );
+        self.tell_routed(
+            sess,
+            Some(outbound_tag),
+            told,
+            crate::control::events::RouteAction::Outbound,
+            Some(connect),
+        );
+    }
+
+    /// `handled`, of a connection that connected and is listed only now:
+    /// `list` lists it, and gives the id it is listed by. Its session is
+    /// copied only while someone listens for routed connections.
+    fn handled_listing<T>(
+        &self,
+        sess: Session,
+        outbound_tag: &str,
+        took: std::time::Duration,
+        list: impl FnOnce(Session) -> (T, u64),
+    ) -> T {
+        if !self.env.events.routes_wanted() {
+            log_request(&sess, outbound_tag, Some(took.as_millis()));
+            return list(sess).0;
+        }
+        let (listed, id) = list(sess.clone());
+        let told = Told {
+            id: Some(id),
+            asked: Some(&sess.destination),
+            ..Default::default()
+        };
+        self.handled(&sess, outbound_tag, told, Ok(took));
+        listed
+    }
+
+    /// Tells of a connection the rules sent to no outbound.
+    fn unrouted(
+        &self,
+        sess: &Session,
+        matched: Matched,
+        action: crate::control::events::RouteAction,
+    ) {
+        let told = Told {
+            matched,
+            ..Default::default()
+        };
+        self.tell_routed(sess, None, told, action, None);
+    }
+
+    /// Tells of a routed connection (control::events), built only while
+    /// someone listens: otherwise this is one load of a counter.
+    fn tell_routed(
+        &self,
+        sess: &Session,
+        outbound_tag: Option<&str>,
+        told: Told<'_>,
+        action: crate::control::events::RouteAction,
+        connect: Option<Result<std::time::Duration, io::ErrorKind>>,
+    ) {
+        self.env.events.routed(|| {
+            let (domain, domain_source) = match domain_of(sess, told.matched.fake_ip) {
+                Some((domain, source)) => (Some(domain), Some(source)),
+                None => (None, None),
+            };
+            crate::control::events::RoutedConnection {
+                id: told.id,
+                network: sess.network,
+                inbound: sess.inbound_tag.clone(),
+                source: sess.source,
+                destination: sess.destination.clone(),
+                request_destination: told.asked.cloned(),
+                domain,
+                domain_source,
+                sniffed_protocol: sess.sniffed_protocol.map(|protocol| protocol.name()),
+                rule: told.matched.rule,
+                rule_text: sess.matched_rule.as_deref().map(str::to_owned),
+                action,
+                chain: outbound_tag
+                    .map(|tag| outbound_chain(sess, tag))
+                    .unwrap_or_default(),
+                target: outbound_tag
+                    .and_then(|_| sess.state.get::<net::dial::BoundInterface>().peer()),
+                connect,
+            }
+        });
+    }
+
     /// Tells of a connection that failed (control::events): connecting, or
     /// the outbound's handshake, as its error says. `Dial` means "connect,
     /// or timed out": a handshake that times out (the outbound's own, a
@@ -461,12 +622,16 @@ impl Dispatcher {
         // Routing, which may sniff and resolve, runs in a future of its own
         // that is freed once it decides: the one relaying for the life of
         // the connection does not keep room for it.
-        let Some((mut sess, routed, mut lhs)) = Box::pin(self.route_stream(sess, lhs)).await else {
+        let Some((mut sess, routed, matched, mut lhs)) =
+            Box::pin(self.route_stream(sess, lhs)).await
+        else {
             return;
         };
+        use crate::control::events::RouteAction;
         let outbound = match routed {
             Routed::Outbound(tag) => tag,
             Routed::HijackDns => {
+                self.unrouted(&sess, matched, RouteAction::HijackDns);
                 if let Err(e) =
                     // Boxed, as the dial: a connection keeps no room for it.
                     Box::pin(super::router::hijack_dns::serve_stream(
@@ -481,6 +646,7 @@ impl Dispatcher {
                 return;
             }
             Routed::Drop => {
+                self.unrouted(&sess, matched, RouteAction::Drop);
                 // Read and thrown away, and never answered, until the
                 // client gives up.
                 if let Some(reply) = &sess.reply {
@@ -518,6 +684,11 @@ impl Dispatcher {
         // connects taken; or the destination.
         let mut handshake = Err(io::Error::other("nowhere to connect"));
         let mut lhs_counted = false;
+        // What is told of it once the dial ends: the id it is listed by,
+        // and what the outbound was asked to reach, kept only while someone
+        // listens for routed connections.
+        let mut id = None;
+        let mut asked: Option<SocksAddr> = None;
         let connect = th.connect_addr();
         for to in net::destinations(&sess, &connect) {
             let attempt;
@@ -532,6 +703,9 @@ impl Dispatcher {
             };
             // Where it is dialled as a name, `override_destination`.
             let at = &*net::dial_domain::session(at, &h, &connect);
+            if self.env.events.routes_wanted() {
+                asked = Some(at.destination.clone());
+            }
             let stream =
                 // Boxed: the dial is the largest thing the session awaits,
                 // and unboxed, a relayed connection would keep room for it
@@ -558,10 +732,17 @@ impl Dispatcher {
                     }
                 };
             let stream = match stream {
-                Some(s) => Some(self.stat_manager.stat_stream(s, sess.clone())),
+                Some(s) => {
+                    let (s, listed) = self.stat_manager.stat_stream_id(s, sess.clone());
+                    id = Some(listed);
+                    Some(s)
+                }
                 None => {
                     if !lhs_counted {
-                        lhs = self.stat_manager.stat_inbound_stream(lhs, sess.clone());
+                        let (counted, listed) =
+                            self.stat_manager.stat_inbound_stream_id(lhs, sess.clone());
+                        lhs = counted;
+                        id = Some(listed);
                         lhs_counted = true;
                     }
                     None
@@ -596,7 +777,14 @@ impl Dispatcher {
                 }
                 let elapsed = tokio::time::Instant::now().duration_since(handshake_start);
 
-                log_request(&sess, h.tag(), Some(elapsed.as_millis()));
+                let told = Told {
+                    matched,
+                    id,
+                    asked: asked.as_ref(),
+                };
+                self.handled(&sess, h.tag(), told, Ok(elapsed));
+                // Told: the relay does not keep it.
+                drop(asked);
 
                 match net::relay::copy_buf_bidirectional_with_timeout(
                     &mut lhs,
@@ -637,7 +825,12 @@ impl Dispatcher {
                     e
                 );
                 self.tell_failed(&sess, h.tag(), &e);
-                log_request(&sess, h.tag(), None);
+                let told = Told {
+                    matched,
+                    id,
+                    asked: asked.as_ref(),
+                };
+                self.handled(&sess, h.tag(), told, Err(e.kind()));
                 refuse(&sess, &mut lhs, &e).await;
             }
         }
@@ -757,28 +950,44 @@ impl Dispatcher {
                 crate::net::connect_stream_routed(&sess, self.dns_client.clone(), &h).await?;
             // Counted from the first byte on the wire, as a routed
             // connection is.
-            let (stream, counted) = match stream {
-                Some(s) => (Some(self.stat_manager.stat_stream(s, sess.clone())), true),
-                None => (None, false),
+            let (stream, id) = match stream {
+                Some(s) => {
+                    let (s, id) = self.stat_manager.stat_stream_id(s, sess.clone());
+                    (Some(s), Some(id))
+                }
+                None => (None, None),
             };
             let rhs = h.stream()?.handle(&sess, None, stream).await?;
-            io::Result::Ok((rhs, counted))
+            io::Result::Ok((rhs, id))
         };
-        // A failed dial is logged as a routed connection's is.
-        let (rhs, counted) = match connected.await {
+        // A failed dial is logged, and told, as a routed connection's is.
+        let (rhs, id) = match connected.await {
             Ok(connected) => connected,
             Err(e) => {
                 self.tell_failed(&sess, h.tag(), &e);
-                log_request(&sess, h.tag(), None);
+                let told = Told {
+                    asked: Some(&sess.destination),
+                    ..Default::default()
+                };
+                self.handled(&sess, h.tag(), told, Err(e.kind()));
                 return Err(e);
             }
         };
-        log_request(&sess, h.tag(), Some(handshake_start.elapsed().as_millis()));
-        Ok(if counted {
-            rhs
-        } else {
-            self.stat_manager.stat_stream(rhs, sess)
-        })
+        let elapsed = handshake_start.elapsed();
+        match id {
+            Some(_) => {
+                let told = Told {
+                    id,
+                    asked: Some(&sess.destination),
+                    ..Default::default()
+                };
+                self.handled(&sess, h.tag(), told, Ok(elapsed));
+                Ok(rhs)
+            }
+            None => Ok(self.handled_listing(sess, h.tag(), elapsed, |sess| {
+                self.stat_manager.stat_stream_id(rhs, sess)
+            })),
+        }
     }
 
     /// Datagrams to the session's destination through the outbound `tag`
@@ -807,12 +1016,18 @@ impl Dispatcher {
             Ok(d) => d,
             Err(e) => {
                 self.tell_failed(&sess, h.tag(), &e);
-                log_request(&sess, h.tag(), None);
+                let told = Told {
+                    asked: Some(&sess.destination),
+                    ..Default::default()
+                };
+                self.handled(&sess, h.tag(), told, Err(e.kind()));
                 return Err(e);
             }
         };
-        log_request(&sess, h.tag(), Some(handshake_start.elapsed().as_millis()));
-        Ok(self.stat_manager.stat_outbound_datagram(d, sess))
+        let elapsed = handshake_start.elapsed();
+        Ok(self.handled_listing(sess, h.tag(), elapsed, |sess| {
+            self.stat_manager.stat_outbound_datagram_id(d, sess)
+        }))
     }
 
     /// Datagrams to where the rules send the UDP session `sess`, which
@@ -872,18 +1087,31 @@ impl Dispatcher {
         self.identify_inbound(&mut sess);
         let reverse_mapping = self.reverse_map(&mut sess).await;
         let origin = sess.destination.clone();
-        let outbound = match self.route(&mut sess, sniffer).await? {
+        use crate::control::events::RouteAction;
+        let mut matched = Matched::default();
+        let routed = match self.route_told(&mut sess, sniffer, &mut matched).await {
+            Ok(routed) => routed,
+            Err(e) => {
+                if matched.rejected {
+                    self.unrouted(&sess, matched, RouteAction::Reject);
+                }
+                return Err(e);
+            }
+        };
+        let outbound = match routed {
             Routed::Outbound(outbound) => outbound,
             Routed::HijackDns => {
+                self.unrouted(&sess, matched, RouteAction::HijackDns);
                 let udp_timeout = sess.route.udp_timeout;
                 let d = super::router::hijack_dns::Datagram::new(self.dns_client.clone(), sess);
                 return Ok((Box::new(d), udp_timeout));
             }
             Routed::Drop => {
+                self.unrouted(&sess, matched, RouteAction::Drop);
                 return Err(io::Error::new(
                     io::ErrorKind::ConnectionRefused,
                     "dropped by a rule",
-                ))
+                ));
             }
         };
 
@@ -940,9 +1168,14 @@ impl Dispatcher {
             Ok(mut d) => {
                 let elapsed = tokio::time::Instant::now().duration_since(handshake_start);
 
-                log_request(&sess, h.tag(), Some(elapsed.as_millis()));
-
-                d = self.stat_manager.stat_outbound_datagram(d, sess.clone());
+                let (counted, id) = self.stat_manager.stat_outbound_datagram_id(d, sess.clone());
+                d = counted;
+                let told = Told {
+                    matched,
+                    id: Some(id),
+                    asked: Some(&dialed),
+                };
+                self.handled(&sess, h.tag(), told, Ok(elapsed));
 
                 if reverse_mapping && sess.destination.port() == 53 {
                     d = Box::new(SniffingDatagram::new(d, self.env.reverse_map.clone()));
@@ -973,7 +1206,12 @@ impl Dispatcher {
                     e
                 );
                 self.tell_failed(&sess, h.tag(), &e);
-                log_request(&sess, h.tag(), None);
+                let told = Told {
+                    matched,
+                    id: None,
+                    asked: Some(&dialed),
+                };
+                self.handled(&sess, h.tag(), told, Err(e.kind()));
                 Err(e)
             }
         }
@@ -985,7 +1223,7 @@ impl Dispatcher {
         &self,
         mut sess: Session,
         mut lhs: T,
-    ) -> Option<(Session, Routed, Box<dyn ProxyStream>)>
+    ) -> Option<(Session, Routed, Matched, Box<dyn ProxyStream>)>
     where
         T: 'static + AsyncRead + AsyncWrite + Unpin + Send + Sync,
     {
@@ -1004,19 +1242,27 @@ impl Dispatcher {
         }
 
         self.identify_inbound(&mut sess);
+        let was_address = sess.destination.domain().is_none();
         if let Err(e) = self.restore_fake_ip(&mut sess.destination) {
             debug!("src={}: {}", &sess.source, e);
             return None;
         }
+        let mut matched = Matched {
+            fake_ip: was_address && sess.destination.domain().is_some(),
+            ..Default::default()
+        };
         self.reverse_map(&mut sess).await;
         let mut sniffer = StreamSniffer::new(lhs);
-        match self.route(&mut sess, &mut sniffer).await {
-            Ok(tag) => Some((sess, tag, sniffer.into_stream())),
+        match self.route_told(&mut sess, &mut sniffer, &mut matched).await {
+            Ok(tag) => Some((sess, tag, matched, sniffer.into_stream())),
             Err(e) => {
                 debug!(
                     "route src={} dst={}: {}",
                     &sess.source, &sess.destination, e
                 );
+                if matched.rejected {
+                    self.unrouted(&sess, matched, crate::control::events::RouteAction::Reject);
+                }
                 refuse(&sess, &mut sniffer.into_stream(), &e).await;
                 None
             }
@@ -1148,15 +1394,33 @@ impl Dispatcher {
     /// Where `sess` goes, as the rules decide; an error when a rule rejects
     /// it.
     async fn route(&self, sess: &mut Session, sniffer: &mut dyn Sniffer) -> io::Result<Routed> {
+        self.route_told(sess, sniffer, &mut Matched::default())
+            .await
+    }
+
+    /// `route`, and what it found that is told of a connection, in
+    /// `matched`: the rule's index, and whether a rule rejected it.
+    async fn route_told(
+        &self,
+        sess: &mut Session,
+        sniffer: &mut dyn Sniffer,
+        matched: &mut Matched,
+    ) -> io::Result<Routed> {
         self.find_neighbor(sess);
         self.find_owner(sess).await;
         let outbounds = self.outbound_manager.load_full();
-        let decision = self
-            .router
-            .load_full()
+        let router = self.router.load_full();
+        let decision = router
             .pick_route(sess, sniffer, &*outbounds)
             .await
             .map_err(|e| io::Error::other(format!("pick route: {}", e)))?;
+        // From the router that decided: a reload after numbers its own.
+        if self.env.events.routes_wanted() {
+            matched.rule = sess
+                .matched_rule
+                .as_ref()
+                .and_then(|rule| router.rule_index(rule));
+        }
         let tag = match decision {
             Decision::Route(Some(tag)) => tag,
             // The default outbound, no `final` naming another, passes as
@@ -1175,10 +1439,11 @@ impl Dispatcher {
             // A reset, as sing-box's reject is (ErrReset): a SOCKS client
             // is answered a general failure.
             Decision::Reject { drop: false } => {
+                matched.rejected = true;
                 return Err(io::Error::new(
                     io::ErrorKind::ConnectionReset,
                     "rejected by a rule",
-                ))
+                ));
             }
             Decision::Reject { drop: true } => return Ok(Routed::Drop),
             Decision::HijackDns => return Ok(Routed::HijackDns),
@@ -1239,6 +1504,61 @@ mod tests {
         sess.chain.push("hk");
         sess.chain.push("hk-ss");
         assert_eq!(super::outbound_path(&sess, "selected"), "selected>hk>hk-ss");
+    }
+
+    /// The domain told of a connection, and where it came from: the
+    /// destination's own first, then the name it was dialled as, then
+    /// what was sniffed or reverse-mapped.
+    #[test]
+    fn the_domain_told_of_a_connection_names_its_source() {
+        use crate::control::events::DomainSource;
+        use crate::session::{DialDomainSource, Dialled, Session, SniffedFrom, SocksAddr};
+        let named = Session {
+            destination: SocksAddr::Domain("example.com".into(), 443),
+            sniffed: Some((SniffedFrom::Tls, "sni.example".into())),
+            ..Default::default()
+        };
+        assert_eq!(
+            super::domain_of(&named, false),
+            Some(("example.com".to_string(), DomainSource::Request))
+        );
+        assert_eq!(
+            super::domain_of(&named, true),
+            Some(("example.com".to_string(), DomainSource::FakeIp))
+        );
+        let address = || SocksAddr::from(("1.2.3.4".parse::<std::net::IpAddr>().unwrap(), 443));
+        let sniffed = Session {
+            destination: address(),
+            sniffed: Some((SniffedFrom::Tls, "sni.example".into())),
+            ..Default::default()
+        };
+        assert_eq!(
+            super::domain_of(&sniffed, false),
+            Some(("sni.example".to_string(), DomainSource::Sniffed))
+        );
+        let mapped = Session {
+            destination: address(),
+            sniffed: Some((SniffedFrom::Dns, "dns.example".into())),
+            ..Default::default()
+        };
+        assert_eq!(
+            super::domain_of(&mapped, false),
+            Some(("dns.example".to_string(), DomainSource::ReverseMapping))
+        );
+        // The name a dial took comes before what was sniffed.
+        mapped
+            .state
+            .get::<Dialled>()
+            .set("dialled.example", DialDomainSource::Sniff);
+        assert_eq!(
+            super::domain_of(&mapped, false),
+            Some(("dialled.example".to_string(), DomainSource::Sniffed))
+        );
+        let bare = Session {
+            destination: address(),
+            ..Default::default()
+        };
+        assert_eq!(super::domain_of(&bare, false), None);
     }
 
     use std::net::IpAddr;

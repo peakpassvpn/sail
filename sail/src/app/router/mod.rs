@@ -623,6 +623,19 @@ impl Router {
     /// `sniffer`, resolving and setting route options as they say, until
     /// one decides. A rule whose outbound `passes` does not: see `walk`.
     /// `final` passing sends the connection direct.
+    /// The index, in the configuration's `route.rules`, of the rule whose
+    /// `matched` this is: this router's own, the one a session it routed
+    /// carries. `load_rules` builds one rule a configured rule, in order,
+    /// a logical rule and one naming rule-sets one each, so the index is
+    /// the one a configuration error's `route.rules[i]` names. Each rule
+    /// has a `matched` of its own, so two written alike are told apart.
+    pub(crate) fn rule_index(&self, matched: &std::sync::Arc<str>) -> Option<u32> {
+        self.rules
+            .iter()
+            .position(|rule| std::sync::Arc::ptr_eq(&rule.about.matched, matched))
+            .and_then(|i| u32::try_from(i).ok())
+    }
+
     pub async fn pick_route(
         &self,
         sess: &mut Session,
@@ -1487,6 +1500,41 @@ mod tests {
             .pick_route(sess, &mut NoSniffer, &NoPass)
             .await
             .unwrap()
+    }
+
+    /// A rule's index is its place in `route.rules` as written: a logical
+    /// rule before it counts once, and of two rules written alike each has
+    /// its own.
+    #[tokio::test]
+    async fn a_rule_is_numbered_as_the_configuration_lists_it() {
+        let router = router(serde_json::json!([
+            { "port": [80], "outbound": "a" },
+            { "type": "logical", "mode": "or",
+              "rules": [{ "port": [1] }, { "port": [2] }, { "port": [3] }], "outbound": "a" },
+            { "port": [80], "outbound": "a" },
+            { "port": [443], "outbound": "a" },
+        ]));
+        assert_eq!(router.rules.len(), 4);
+        assert_eq!(router.rules[0].about.matched, router.rules[2].about.matched);
+        for (i, rule) in router.rules.iter().enumerate() {
+            assert_eq!(
+                router.rule_index(&rule.about.matched),
+                u32::try_from(i).ok()
+            );
+        }
+        let mut sess = Session {
+            destination: SocksAddr::from(("1.2.3.4".parse::<IpAddr>().unwrap(), 443)),
+            ..Default::default()
+        };
+        assert_eq!(
+            pick(&router, &mut sess).await,
+            Decision::Route(Some("a".into()))
+        );
+        let matched = sess.matched_rule.clone().unwrap();
+        assert_eq!(router.rule_index(&matched), Some(3));
+        // Another router's rule, though written alike, is not this one's.
+        let other: std::sync::Arc<str> = matched.to_string().into();
+        assert_eq!(router.rule_index(&other), None);
     }
 
     /// The narrow rule-set a route rule matched by goes with the

@@ -552,3 +552,160 @@ async fn a_stop_reports_its_tasks_ended() {
     assert!(report.clean(), "{:?}", report);
     assert!(report.waited <= Duration::from_secs(2));
 }
+
+/// A SOCKS5 connection through `proxy` asking for 127.0.0.1:`port`, its
+/// greeting answered and its request sent, the reply not read.
+async fn socks_asked(proxy: u16, port: u16) -> tokio::net::TcpStream {
+    let mut s = tokio::net::TcpStream::connect(("127.0.0.1", proxy))
+        .await
+        .unwrap();
+    s.write_all(&[5, 1, 0]).await.unwrap();
+    let mut greeted = [0u8; 2];
+    s.read_exact(&mut greeted).await.unwrap();
+    let mut request = vec![5, 1, 0, 1, 127, 0, 0, 1];
+    request.extend(port.to_be_bytes());
+    s.write_all(&request).await.unwrap();
+    s
+}
+
+/// The reply's code: 0 when connected.
+async fn socks_reply(s: &mut tokio::net::TcpStream) -> u8 {
+    let mut reply = [0u8; 10];
+    tokio::time::timeout(Duration::from_secs(5), s.read_exact(&mut reply))
+        .await
+        .expect("a SOCKS reply in time")
+        .unwrap();
+    reply[1]
+}
+
+/// `Kinds::ROUTE` tells every connection once: one that is over before
+/// any poll of the connections open, a dial that fails, a reject and a
+/// hijacked DNS query, none of which such a poll shows. While no one
+/// subscribes, none is built.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn every_connection_is_told_once_and_none_is_built_unheard() {
+    use futures::StreamExt;
+    use sail::embed::{Event, Kinds, RouteAction, RoutedConnection};
+    use sail::session::{Network, SocksAddr};
+    use std::sync::Arc;
+
+    let (echo, serve) = common::run_tcp_echo_server("127.0.0.1:0").await.unwrap();
+    tokio::spawn(serve);
+    let [socks, rejected, hijacked, dead] = common::free_ports();
+    let config = serde_json::json!({
+        "log": { "level": "info" },
+        "dns": {
+            "servers": [{ "tag": "upstream", "type": "udp", "server": "127.0.0.1", "server_port": 53 }],
+        },
+        "inbounds": [{
+            "type": "socks", "tag": "socks-in",
+            "listen": "127.0.0.1", "listen_port": socks,
+        }],
+        "outbounds": [{ "type": "direct", "tag": "direct" }],
+        "route": {
+            "rules": [
+                { "port": [rejected], "action": "reject" },
+                // One entry of the list, whatever it holds.
+                { "type": "logical", "mode": "or",
+                  "rules": [{ "port": [1] }, { "port": [2] }], "outbound": "direct" },
+                { "port": [hijacked], "action": "hijack-dns" },
+                { "port": [echo.port()], "outbound": "direct" },
+            ],
+            "final": "direct",
+        },
+    })
+    .to_string();
+    let instance = Instance::new(options()).unwrap();
+    instance.start(Config::Json(config)).await.unwrap();
+
+    // A connection over at once: asked for, a byte each way, closed.
+    async fn short(socks: u16, port: u16) {
+        let mut s = socks_asked(socks, port).await;
+        assert_eq!(socks_reply(&mut s).await, 0);
+        round_trip(&mut s, b"x").await;
+    }
+
+    // No one listens: nothing is built.
+    for _ in 0..3 {
+        short(socks, echo.port()).await;
+    }
+    assert_eq!(instance.routes_built().unwrap(), 0);
+
+    let mut events = Box::pin(instance.events(Kinds::ROUTE));
+    async fn next(
+        events: &mut (impl futures::Stream<Item = Event> + Unpin),
+    ) -> Arc<RoutedConnection> {
+        match tokio::time::timeout(Duration::from_secs(5), events.next())
+            .await
+            .expect("a routed connection in time")
+            .unwrap()
+        {
+            Event::Routed(routed) => routed,
+            other => panic!("unexpected {:?}", other),
+        }
+    }
+    let to = |port: u16| SocksAddr::from(std::net::SocketAddr::from(([127, 0, 0, 1], port)));
+
+    // One that is over before any poll would see it.
+    short(socks, echo.port()).await;
+    let told = next(&mut events).await;
+    assert_eq!(told.action, RouteAction::Outbound, "{:?}", told);
+    assert_eq!(told.network, Network::Tcp);
+    assert_eq!(told.inbound, "socks-in");
+    assert_eq!(told.destination, to(echo.port()));
+    assert_eq!(told.request_destination, Some(to(echo.port())));
+    assert_eq!(told.rule, Some(3), "its index in route.rules as written");
+    assert!(told.rule_text.is_some());
+    assert_eq!(told.chain, ["direct"]);
+    assert_eq!(told.target, Some(echo));
+    assert!(matches!(told.connect, Some(Ok(_))), "{:?}", told);
+    assert!(told.id.is_some());
+    assert_eq!(told.domain, None);
+
+    // A dial that fails: nothing listens there. `final` decided.
+    let mut s = socks_asked(socks, dead).await;
+    assert_ne!(socks_reply(&mut s).await, 0);
+    let told = next(&mut events).await;
+    assert_eq!(told.action, RouteAction::Outbound, "{:?}", told);
+    assert_eq!(told.rule, None);
+    assert_eq!(told.chain, ["direct"]);
+    assert_eq!(
+        told.connect,
+        Some(Err(std::io::ErrorKind::ConnectionRefused)),
+        "{:?}",
+        told
+    );
+    assert_eq!(told.id, None, "it never opened");
+
+    // A reject.
+    let mut s = socks_asked(socks, rejected).await;
+    assert_ne!(socks_reply(&mut s).await, 0);
+    let told = next(&mut events).await;
+    assert_eq!(told.action, RouteAction::Reject, "{:?}", told);
+    assert_eq!(told.rule, Some(0));
+    assert_eq!(told.connect, None);
+    assert!(told.chain.is_empty());
+
+    // A hijacked DNS query: told when the rules decide, whatever it asks.
+    let s = socks_asked(socks, hijacked).await;
+    let told = next(&mut events).await;
+    assert_eq!(told.action, RouteAction::HijackDns, "{:?}", told);
+    assert_eq!(told.rule, Some(2));
+    assert_eq!(told.destination, to(hijacked));
+    drop(s);
+
+    // Each exactly once: four built, and no fifth event.
+    assert!(
+        tokio::time::timeout(Duration::from_millis(500), events.next())
+            .await
+            .is_err(),
+        "a connection was told twice"
+    );
+    assert_eq!(instance.routes_built().unwrap(), 4);
+
+    // The subscription dropped, nothing is built again.
+    drop(events);
+    short(socks, echo.port()).await;
+    assert_eq!(instance.routes_built().unwrap(), 4);
+    instance.stop().await.unwrap();
+}
