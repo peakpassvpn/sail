@@ -215,7 +215,7 @@ impl DnsClient {
             .handshake::<_, Bytes>(stream)
             .await
             .map_err(|e| anyhow!("http/2 handshake failed: {}", e))?;
-        let driver = tokio::spawn(async move {
+        let driver = crate::runtime::scope::spawn("dns http/2 connection", async move {
             if let Err(e) = conn.await {
                 debug!("doh http/2 connection closed: {}", e);
             }
