@@ -125,13 +125,13 @@ impl InboundManager {
 
         let mut network_listeners: HashMap<String, NetworkInboundListener> = HashMap::new();
         for (inbound, address) in plan_listeners(inbounds, &handlers, &dependencies)? {
-            let listener = NetworkInboundListener {
+            let listener = NetworkInboundListener::new(
                 address,
-                keepalive: inbound.tcp_keep_alive(),
-                handler: handlers[&inbound.tag].clone(),
-                dispatcher: dispatcher.clone(),
-                nat_manager: nat_manager.clone(),
-            };
+                inbound.tcp_keep_alive(),
+                handlers[&inbound.tag].clone(),
+                dispatcher.clone(),
+                nat_manager.clone(),
+            );
             network_listeners.insert(inbound.tag.clone(), listener);
         }
 
@@ -412,13 +412,13 @@ impl InboundManager {
         };
         let planned = plan_listeners(std::slice::from_ref(inbound), &handlers, &dependencies)?;
         if let Some((_, address)) = planned.first() {
-            let listener = NetworkInboundListener {
-                address: *address,
-                keepalive: inbound.tcp_keep_alive(),
-                handler: handlers[&inbound.tag].clone(),
-                dispatcher: self.dispatcher.clone(),
-                nat_manager: self.nat_manager.clone(),
-            };
+            let listener = NetworkInboundListener::new(
+                *address,
+                inbound.tcp_keep_alive(),
+                handlers[&inbound.tag].clone(),
+                self.dispatcher.clone(),
+                self.nat_manager.clone(),
+            );
             let runners = listener.listen()?;
             self.network_listeners.insert(inbound.tag.clone(), listener);
             self.run(inbound.tag.clone(), runners);
@@ -436,6 +436,14 @@ impl InboundManager {
         self.dispatcher
             .set_inbound_type(&inbound.tag, Some(&inbound.protocol));
         Ok(())
+    }
+
+    /// `remove`, giving the TCP connections the inbound accepted, for the
+    /// caller to disconnect.
+    pub fn remove_accepted(&mut self, tag: &str) -> Result<super::network_listener::Accepted> {
+        let accepted = super::network_listener::Accepted::of(self.network_listeners.get(tag));
+        self.remove(tag)?;
+        Ok(accepted)
     }
 
     /// Stops listening for the inbound `tag` and removes it. Connections it

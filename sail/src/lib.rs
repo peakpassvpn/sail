@@ -906,22 +906,25 @@ impl RuntimeManager {
     pub async fn remove_inbound_closing(&self, tag: &str) -> Result<usize, Error> {
         let _update = self.update.lock().await;
         // The lock goes before anything awaited.
-        self.inbound_manager
+        let accepted = self
+            .inbound_manager
             .lock()
             .map_err(|_| Error::RuntimeManager)?
-            .remove(tag)
+            .remove_accepted(tag)
             .map_err(Error::Config)?;
         #[cfg(feature = "auto-reload")]
         self.follow_certificates();
-        // The listener has stopped. A connection still in its handshake, or
-        // one that carries streams, is not among these yet and goes on: see
-        // the follow-up in network_listener.
+        // The listener has stopped. The connections the runtime lists are
+        // closed and counted first; then whatever else the inbound accepted
+        // over TCP ends, a connection still in its handshake or one that
+        // carries streams, which are not among those listed.
         let mut closed = 0;
         for connection in self.connections().await {
             if connection.inbound_tag == tag && self.close_connection(connection.id).await {
                 closed += 1;
             }
         }
+        accepted.disconnect();
         info!(
             "removed inbound [{}]; {} of its connections closed",
             tag, closed

@@ -8,6 +8,7 @@ use futures::stream::StreamExt;
 use tokio::net::{TcpStream, UdpSocket};
 use tokio::sync::mpsc::channel as tokio_channel;
 use tokio::sync::mpsc::{Receiver as TokioReceiver, Sender as TokioSender};
+use tokio::sync::watch;
 use tokio::time::timeout;
 use tracing::{debug, info, trace, warn, Instrument};
 
@@ -249,6 +250,7 @@ async fn handle_tcp_listen(
     handler: AnyInboundHandler,
     dispatcher: Arc<Dispatcher>,
     nat_manager: Arc<NatManager>,
+    removed_rx: watch::Receiver<bool>,
 ) -> io::Result<()> {
     let listen_addr = listener.io().local_addr()?;
     info!("listening tcp {}", &listen_addr);
@@ -288,18 +290,22 @@ async fn handle_tcp_listen(
         let handler_cloned = handler.clone();
         let dispatcher_cloned = dispatcher.clone();
         let nat_manager_cloned = nat_manager.clone();
+        let removed = until_removed(removed_rx.clone());
         tokio::spawn(async move {
-            // Handle each TCP stream.
-            if let Err(e) = handle_inbound_tcp_stream(
-                stream,
-                handler_cloned,
-                dispatcher_cloned,
-                nat_manager_cloned,
-                place,
-            )
-            .await
-            {
-                debug!("handle inbound stream failed: {}", e);
+            // Handle each TCP stream, for as long as its inbound is there.
+            tokio::select! {
+                result = handle_inbound_tcp_stream(
+                    stream,
+                    handler_cloned,
+                    dispatcher_cloned,
+                    nat_manager_cloned,
+                    place,
+                ) => {
+                    if let Err(e) = result {
+                        debug!("handle inbound stream failed: {}", e);
+                    }
+                }
+                _ = removed => {}
             }
         });
     }
@@ -339,9 +345,58 @@ pub struct NetworkInboundListener {
     pub handler: AnyInboundHandler,
     pub dispatcher: Arc<Dispatcher>,
     pub nat_manager: Arc<NatManager>,
+    /// Set once the inbound is removed: the TCP connections it accepted
+    /// end with it, those still in their handshake and those that carry
+    /// streams among them, which are not yet, or never, among the
+    /// connections the runtime lists. Stopping the listener alone leaves
+    /// them going on.
+    pub removed: Arc<watch::Sender<bool>>,
+}
+
+/// The TCP connections a removed inbound accepted, which go on until they
+/// are disconnected.
+pub struct Accepted(Option<Arc<watch::Sender<bool>>>);
+
+impl Accepted {
+    pub(super) fn of(listener: Option<&NetworkInboundListener>) -> Self {
+        Accepted(listener.map(|l| l.removed.clone()))
+    }
+
+    /// Ends them: those in their handshake and those that carry streams
+    /// too, which are not among the connections the runtime lists.
+    pub fn disconnect(self) {
+        if let Some(removed) = self.0 {
+            removed.send_replace(true);
+        }
+    }
+}
+
+/// Ends once the inbound is removed, and not when its listener only goes.
+async fn until_removed(mut removed: watch::Receiver<bool>) {
+    let gone = removed.wait_for(|removed| *removed).await.is_err();
+    if gone {
+        std::future::pending::<()>().await;
+    }
 }
 
 impl NetworkInboundListener {
+    pub fn new(
+        address: SocketAddr,
+        keepalive: Option<crate::net::TcpKeepAlive>,
+        handler: AnyInboundHandler,
+        dispatcher: Arc<Dispatcher>,
+        nat_manager: Arc<NatManager>,
+    ) -> Self {
+        NetworkInboundListener {
+            address,
+            keepalive,
+            handler,
+            dispatcher,
+            nat_manager,
+            removed: Arc::new(watch::channel(false).0),
+        }
+    }
+
     /// Binds every socket the inbound listens on, failing if any cannot be
     /// bound, and returns the tasks that serve them. Must be called from
     /// within a Tokio runtime.
@@ -372,8 +427,10 @@ impl NetworkInboundListener {
             let handler = self.handler.clone();
             let dispatcher = self.dispatcher.clone();
             let nat_manager = self.nat_manager.clone();
+            let removed = self.removed.subscribe();
             runners.push(Box::pin(async move {
-                if let Err(e) = handle_tcp_listen(listener, handler, dispatcher, nat_manager).await
+                if let Err(e) =
+                    handle_tcp_listen(listener, handler, dispatcher, nat_manager, removed).await
                 {
                     warn!("handler tcp listen failed: {}", e);
                 }
