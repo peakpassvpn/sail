@@ -65,7 +65,9 @@ async fn serve_unmuxed(
         // closes it, its place, its user's admission, its counter, its
         // span, goes with the session.
         None => {
-            tokio::spawn(async move { dispatcher.dispatch_stream(sess, stream).await });
+            crate::runtime::scope::spawn("inbound stream", async move {
+                dispatcher.dispatch_stream(sess, stream).await
+            });
         }
         Some(2) => {
             let handshake_timeout = dispatcher.env().options.inbound.handshake_timeout;
@@ -87,7 +89,14 @@ async fn serve_legacy_uot(
     sess.destination = SocksAddr::from((std::net::Ipv4Addr::UNSPECIFIED, 0));
     let source = udp_session(&mut sess);
     let datagram = uot::InboundDatagram::new(stream, None, source);
-    handle_inbound_datagram(inbound_tag, Box::new(datagram), Some(sess), nat_manager).await;
+    handle_inbound_datagram(
+        inbound_tag,
+        Box::new(datagram),
+        Some(sess),
+        nat_manager,
+        crate::runtime::scope::TaskClass::Contained,
+    )
+    .await;
 }
 
 async fn serve_uot(
@@ -113,7 +122,14 @@ async fn serve_uot(
     let source = udp_session(&mut sess);
     let connected = is_connect.then_some(destination);
     let datagram = uot::InboundDatagram::new(stream, connected, source);
-    handle_inbound_datagram(inbound_tag, Box::new(datagram), Some(sess), nat_manager).await;
+    handle_inbound_datagram(
+        inbound_tag,
+        Box::new(datagram),
+        Some(sess),
+        nat_manager,
+        crate::runtime::scope::TaskClass::Contained,
+    )
+    .await;
 }
 
 /// A session of its own for a stream of `sess`'s connection.
@@ -178,7 +194,8 @@ async fn serve_mux(
         let dispatcher = dispatcher.clone();
         let nat_manager = nat_manager.clone();
         let span = sess.span();
-        tokio::spawn(
+        crate::runtime::scope::spawn(
+            "inbound mux stream",
             async move {
                 let (request, stream) =
                     match timeout(handshake_timeout, server::read_stream(stream)).await {
@@ -215,6 +232,7 @@ async fn serve_mux(
                             Box::new(datagram),
                             Some(sess),
                             nat_manager,
+                            crate::runtime::scope::TaskClass::Contained,
                         )
                         .await;
                     }
@@ -226,6 +244,7 @@ async fn serve_mux(
                             Box::new(datagram),
                             Some(sess),
                             nat_manager,
+                            crate::runtime::scope::TaskClass::Contained,
                         )
                         .await;
                     }

@@ -124,8 +124,13 @@ impl RuntimeManager {
         }
         drop(tx);
         let task = self
-            .handle
-            .spawn(reload_changed(self.this.clone(), rx))
+            .env
+            .scope
+            .spawn_essential_on(
+                &self.handle,
+                "certificate follow",
+                reload_changed(self.this.clone(), rx),
+            )
             .abort_handle();
         *follow = Some(CertFollow {
             files,

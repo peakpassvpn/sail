@@ -792,7 +792,7 @@ where
         server::conn::auto::Builder,
         service::TowerToHyperService,
     };
-    tokio::spawn(async move {
+    crate::runtime::scope::spawn("api connection", async move {
         let _ = Builder::new(TokioExecutor::new())
             .http1_only()
             .serve_connection(TokioIo::new(stream), TowerToHyperService::new(app))
