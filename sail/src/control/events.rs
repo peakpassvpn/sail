@@ -26,6 +26,15 @@ const CAPACITY: usize = 64;
 /// again.
 const ROUTE_CAPACITY: usize = 1024;
 
+/// DNS exchanges a subscriber may fall behind by. A judgment value, not a
+/// measured one: there is one event a query, and queries come in bursts,
+/// most at the start, when every app on a device asks at once, each name
+/// twice (A and AAAA); 1024 holds such a burst for a host that reads them
+/// a little late. One that falls further behind is told
+/// `Lagged { kind: DNS, missed }` once and goes on from the oldest event
+/// still kept; what it missed is not told again.
+const DNS_CAPACITY: usize = 1024;
+
 /// What the rules did with a connection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
@@ -109,6 +118,72 @@ pub struct RoutedConnection {
     /// failed. None where no outbound was asked.
     pub connect: Option<Result<Duration, std::io::ErrorKind>>,
 }
+
+/// Where the answer told of a DNS query came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum DnsSource {
+    /// A server was asked.
+    Exchanged,
+    /// The cache had it, still fresh.
+    Cached,
+    /// The cache had it, expired, and gave it while the server is asked
+    /// again (`dns.optimistic`).
+    Optimistic,
+    /// A DNS rule answered it: `reject`, or `predefined`.
+    Rule,
+}
+
+/// How a DNS query ended.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum DnsOutcome {
+    /// An answer, with its response code as DNS names it (`NOERROR`,
+    /// `NXDOMAIN`, `SERVFAIL`, ...) and as its number.
+    Answered { rcode: String, rcode_code: u16 },
+    /// No answer: the server could not be reached, timed out, or what it
+    /// sent was not DNS.
+    Failed { error: String },
+}
+
+/// One DNS query answered or failed: one asked by a client of sail's DNS
+/// (a TUN's, a DNS inbound's, hijacked DNS) or by the instance itself, to
+/// reach a domain; a sequential server's members each once asked.
+///
+/// The name and the records are whole: `log.redact` governs sail's log,
+/// not what it tells its host, which redacts what it passes on itself.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct DnsExchange {
+    /// The name asked, without its final dot.
+    pub name: String,
+    /// The type asked, as DNS names it (`A`, `AAAA`, `HTTPS`, ...).
+    pub qtype: String,
+    pub qtype_code: u16,
+    /// The tag of the server that answered or failed; none where a rule
+    /// answered.
+    pub server: Option<String>,
+    pub source: DnsSource,
+    pub outcome: DnsOutcome,
+    /// The records of the answer section, as DNS writes their data (an
+    /// address, a name, ...): the first 16.
+    pub answers: Vec<String>,
+    /// How many records the answer section had.
+    pub answers_total: u32,
+    /// The least TTL of the answer's records, as the client is given it.
+    pub ttl: Option<u32>,
+    /// How long the server took; none from the cache or a rule.
+    pub duration: Option<Duration>,
+    /// Which attempt of a sequential server it was, from 1: its failed
+    /// members each are told, and the one that answered.
+    pub attempt: Option<u32>,
+    /// Asked by the instance itself (to dial a domain, or a server's own
+    /// name), rather than by a client.
+    pub for_instance: bool,
+}
+
+/// The records of an answer an event carries, at most.
+pub const DNS_ANSWERS_TOLD: usize = 16;
 
 /// Why a group took another member.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -234,6 +309,7 @@ pub struct EventHub {
     dial: broadcast::Sender<DialFailure>,
     fault: broadcast::Sender<Fault>,
     route: Channel<Arc<RoutedConnection>>,
+    dns: Channel<Arc<DnsExchange>>,
 }
 
 /// The channel of a kind told once a connection, or once a query: too
@@ -325,6 +401,7 @@ impl Default for EventHub {
             dial: broadcast::channel(CAPACITY).0,
             fault: broadcast::channel(CAPACITY).0,
             route: Channel::new(ROUTE_CAPACITY),
+            dns: Channel::new(DNS_CAPACITY),
         }
     }
 }
@@ -374,6 +451,22 @@ impl EventHub {
     #[doc(hidden)]
     pub fn routes_built(&self) -> usize {
         self.route.built()
+    }
+
+    /// Tells of a DNS query answered or failed, which `build` makes only
+    /// when someone listens.
+    pub fn dns_exchanged(&self, build: impl FnOnce() -> DnsExchange) {
+        self.dns.emit(|| Arc::new(build()));
+    }
+
+    pub fn dns_exchanges(&self) -> Subscription<Arc<DnsExchange>> {
+        self.dns.subscribe()
+    }
+
+    /// How many DNS exchanges were built to be told, since the start.
+    #[doc(hidden)]
+    pub fn dns_built(&self) -> usize {
+        self.dns.built()
     }
 
     pub fn group_switches(&self) -> broadcast::Receiver<GroupSwitch> {

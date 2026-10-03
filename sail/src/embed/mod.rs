@@ -38,9 +38,9 @@ pub use error::{Error, ErrorKind};
 pub use instance::{ids_held, Instance};
 pub use logs::{LogBatch, LogFilter, LogLine};
 pub use network::{
-    DialFailure, DialStage, DomainSource, Event, GroupSwitch, Interface, Kinds, NetworkChangeKind,
-    NetworkChangeReason, NetworkEvent, NetworkKind, NetworkState, RouteAction, RoutedConnection,
-    SwitchReason, TunName, UserEvent,
+    DialFailure, DialStage, DnsExchange, DnsOutcome, DnsSource, DomainSource, Event, GroupSwitch,
+    Interface, Kinds, NetworkChangeKind, NetworkChangeReason, NetworkEvent, NetworkKind,
+    NetworkState, RouteAction, RoutedConnection, SwitchReason, TunName, UserEvent,
 };
 pub use streams::Status;
 

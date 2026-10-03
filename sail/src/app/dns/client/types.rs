@@ -13,6 +13,15 @@ enum Answer {
     Ips(Vec<IpAddr>),
 }
 
+/// A server's answer, and which member of a race or a sequential server
+/// gave it: events tell that member.
+struct Asked {
+    answer: Answer,
+    member: Option<String>,
+    /// The sequential server's attempt that answered, from 1.
+    attempt: Option<u32>,
+}
+
 /// A DNS rule, compiled.
 struct Rule {
     /// The domain, inbound and user conditions, as a routing rule has them.
@@ -73,6 +82,8 @@ struct QueryOptions {
     timeout: Option<Duration>,
     /// Unset, `dns.client_subnet`.
     client_subnet: Option<Subnet>,
+    /// Asked for the instance itself, not for a client: as events tell it.
+    for_instance: bool,
 }
 
 /// The EDNS Client Subnet a query carries.
@@ -94,6 +105,7 @@ impl QueryOptions {
                 (Some(prefix), false) => Some(Subnet::Set(prefix)),
                 (None, false) => None,
             },
+            for_instance: false,
         }
     }
 
@@ -105,6 +117,7 @@ impl QueryOptions {
             rewrite_ttl: options.rewrite_ttl,
             timeout: None,
             client_subnet: options.client_subnet.map(Subnet::Set),
+            for_instance: false,
         }
     }
 
@@ -116,6 +129,7 @@ impl QueryOptions {
             rewrite_ttl: resolver.rewrite_ttl,
             timeout: resolver.timeout,
             client_subnet: resolver.client_subnet.map(Subnet::Set),
+            for_instance: true,
         }
     }
 
@@ -128,6 +142,7 @@ impl QueryOptions {
             rewrite_ttl: later.rewrite_ttl.or(self.rewrite_ttl),
             timeout: later.timeout.or(self.timeout),
             client_subnet: later.client_subnet.or(self.client_subnet),
+            for_instance: self.for_instance || later.for_instance,
         }
     }
 }
@@ -207,4 +222,6 @@ pub struct DnsClient {
     /// The servers `preferred_by` names, which are asked whether they
     /// prefer each name.
     pub(super) preferring: Vec<String>,
+    /// Where each query answered or failed is told (`Kinds::DNS`).
+    events: crate::control::events::EventHub,
 }

@@ -248,6 +248,36 @@ may fall 1024 events behind; further behind it gets
 kept. The struct and its enums are `#[non_exhaustive]`: fields and
 variants are added.
 
+`Kinds::DNS` gives every DNS query answered or failed, as
+`Event::DnsExchange`: those of the clients of sail's DNS (a TUN's, a DNS
+inbound's, a hijacked query) and those the instance makes itself, to
+dial a domain or reach a server by name. Its fields:
+
+- `name` (without the final dot), `qtype` (`A`, `AAAA`, ...) and
+  `qtype_code`.
+- `server`: the tag of the server that answered or failed; for a race or
+  a sequential server, the member that answered. None where a rule did.
+- `source`: `Exchanged` (a server was asked), `Cached`, `Optimistic` (an
+  expired answer given under `dns.optimistic` while the server is asked
+  again, which is told too) or `Rule` (a `reject` or `predefined` rule).
+- `outcome`: `Answered { rcode, rcode_code }` (`NOERROR`, `NXDOMAIN`,
+  `REFUSED`, ..., and the code's number)
+  or `Failed { error }`.
+- `answers`: the data of the answer's first 16 records (an address, a
+  name); `answers_total` counts them all; `ttl` the least of their TTLs.
+- `duration`: how long the server took; none from the cache or a rule.
+- `attempt`: a sequential server's attempt, from 1. Each member that
+  fails is told with its own attempt and time, then the one that
+  answered; a race tells only the member that won.
+- `for_instance`: the instance asked for itself, not for a client.
+
+The names asked and the records are whole, as the addresses of
+`Kinds::ROUTE` are: `log.redact` governs sail's log, not what it tells
+its host, which redacts what it passes on itself.
+Built only while a subscription to `Kinds::DNS` is held; a subscriber may
+fall 1024 events behind, then gets
+`Event::Lagged { kind: Kinds::DNS, missed }`.
+
 A host that shows the instance polls snapshots instead of following
 events: `instance.status(every)` (the traffic and its rate),
 `instance.watch_connections(every)` and `instance.watch_outbounds(every,

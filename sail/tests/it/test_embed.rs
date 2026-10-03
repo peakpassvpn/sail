@@ -709,3 +709,85 @@ async fn every_connection_is_told_once_and_none_is_built_unheard() {
     assert_eq!(instance.routes_built().unwrap(), 4);
     instance.stop().await.unwrap();
 }
+
+/// `Kinds::DNS` tells the queries the instance makes to dial a domain,
+/// and a rule's answer; none is built while no one subscribes.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn dns_queries_are_told_and_none_is_built_unheard() {
+    use futures::StreamExt;
+    use sail::embed::{DnsExchange, DnsOutcome, DnsSource, Event, Kinds};
+    use sail::session::SocksAddr;
+    use std::sync::Arc;
+
+    let (echo, serve) = common::run_tcp_echo_server("127.0.0.1:0").await.unwrap();
+    tokio::spawn(serve);
+    let config = serde_json::json!({
+        "log": { "level": "info" },
+        "dns": {
+            "servers": [{ "tag": "home", "type": "hosts",
+                          "predefined": { "echo.test": "127.0.0.1" } }],
+            "rules": [{ "domain": "blocked.test", "action": "reject" }],
+        },
+        "outbounds": [{ "type": "direct", "tag": "direct" }],
+    })
+    .to_string();
+    let instance = Instance::new(options()).unwrap();
+    instance.start(Config::Json(config)).await.unwrap();
+    let dial = |name: &str| {
+        let instance = &instance;
+        let to = SocksAddr::Domain(name.into(), echo.port());
+        async move {
+            instance
+                .dial_tcp("direct", to, Duration::from_secs(5))
+                .await
+        }
+    };
+
+    dial("echo.test").await.unwrap();
+    assert_eq!(instance.dns_built().unwrap(), 0);
+
+    let mut events = Box::pin(instance.events(Kinds::DNS));
+    // Every event until `name`'s A query is told.
+    async fn until_a(
+        events: &mut (impl futures::Stream<Item = Event> + Unpin),
+        name: &str,
+    ) -> Arc<DnsExchange> {
+        loop {
+            match tokio::time::timeout(Duration::from_secs(5), events.next())
+                .await
+                .expect("a DNS event in time")
+                .unwrap()
+            {
+                Event::DnsExchange(e) if e.name == name && e.qtype == "A" => return e,
+                // The other family, or the query before's.
+                Event::DnsExchange(_) => {}
+                other => panic!("unexpected {:?}", other),
+            }
+        }
+    }
+
+    let mut s = dial("echo.test").await.unwrap();
+    let told = until_a(&mut events, "echo.test").await;
+    assert_eq!(told.server.as_deref(), Some("home"), "{:?}", told);
+    assert_eq!(told.answers, ["127.0.0.1"]);
+    assert!(told.for_instance);
+    assert!(
+        matches!(told.outcome, DnsOutcome::Answered { .. }),
+        "{:?}",
+        told
+    );
+    round_trip(&mut s, b"x").await;
+
+    assert!(dial("blocked.test").await.is_err());
+    let told = until_a(&mut events, "blocked.test").await;
+    assert_eq!(told.source, DnsSource::Rule, "{:?}", told);
+    assert_eq!(told.server, None);
+    assert!(told.for_instance);
+
+    let built = instance.dns_built().unwrap();
+    assert!(built >= 2, "{}", built);
+    drop(events);
+    dial("echo.test").await.unwrap();
+    assert_eq!(instance.dns_built().unwrap(), built);
+    instance.stop().await.unwrap();
+}

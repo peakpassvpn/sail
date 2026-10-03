@@ -12,6 +12,8 @@ use hickory_proto::rr::rdata::opt::{ClientSubnet, EdnsCode, EdnsOption};
 use hickory_proto::rr::{RData, RecordType};
 use tracing::debug;
 
+use crate::control::events::{DnsExchange, DnsOutcome, DnsSource, DNS_ANSWERS_TOLD};
+
 use super::cache::{self, AnswerKey, Cached};
 use super::server::{Kind, Server};
 use super::{DnsClient, LookupContext, QueryOptions, Rule, RuleAction, Subnet};
@@ -379,6 +381,7 @@ impl DnsClient {
         };
         let mut ev = Evaluations::default();
         let mut options = QueryOptions::of_lookup(&ctx.options);
+        options.for_instance = !fake_ip;
         for (i, rule) in self.rules.iter().enumerate() {
             if !Self::for_outbound(rule, ctx) {
                 continue;
@@ -647,6 +650,19 @@ impl DnsClient {
             }
             RuleAction::Reject => {
                 debug!("dns rule {} matches {} {}: reject", index, host, ty);
+                self.events.dns_exchanged(|| DnsExchange {
+                    outcome: DnsOutcome::Answered {
+                        rcode: rcode_name(ResponseCode::Refused),
+                        rcode_code: u16::from(ResponseCode::Refused),
+                    },
+                    ..exchange(
+                        q.request,
+                        Ok(q.request),
+                        DnsSource::Rule,
+                        None,
+                        options.for_instance,
+                    )
+                });
                 Ok(Walked::Refused)
             }
             RuleAction::Predefined(predefined) => {
@@ -654,7 +670,17 @@ impl DnsClient {
                     "dns rule {} matches {} {}: {}",
                     index, host, ty, predefined.code
                 );
-                Ok(Walked::Response(Box::new(predefined.response(q.request))))
+                let response = predefined.response(q.request);
+                self.events.dns_exchanged(|| {
+                    exchange(
+                        q.request,
+                        Ok(&response),
+                        DnsSource::Rule,
+                        None,
+                        options.for_instance,
+                    )
+                });
+                Ok(Walked::Response(Box::new(response)))
             }
             RuleAction::Evaluate { .. } | RuleAction::RouteOptions(_) => {
                 unreachable!("an evaluate or route-options rule decides nothing")
@@ -799,10 +825,28 @@ impl DnsClient {
             match self.answers.get(key, request.id()) {
                 Cached::Fresh(answer) => {
                     log_answer("cached", tag, &answer, None);
+                    self.events.dns_exchanged(|| {
+                        exchange(
+                            &request,
+                            Ok(&answer),
+                            DnsSource::Cached,
+                            Some(tag),
+                            options.for_instance,
+                        )
+                    });
                     return Ok(for_request(answer, &request));
                 }
                 Cached::Stale(answer) if !options.disable_optimistic_cache => {
                     log_answer("optimistic", tag, &answer, None);
+                    self.events.dns_exchanged(|| {
+                        exchange(
+                            &request,
+                            Ok(&answer),
+                            DnsSource::Optimistic,
+                            Some(tag),
+                            options.for_instance,
+                        )
+                    });
                     self.refresh(tag, &request, options, key.clone());
                     return Ok(for_request(answer, &request));
                 }
@@ -824,8 +868,11 @@ impl DnsClient {
     ) -> Result<Message> {
         let timeout = options.timeout.unwrap_or(self.timeout);
         let started = tokio::time::Instant::now();
-        let asked = self.query(server, request, timeout).await;
-        let ms = started.elapsed().as_millis();
+        let asked = self
+            .query(server, request, timeout, options.for_instance)
+            .await;
+        let took = started.elapsed();
+        let ms = took.as_millis();
         let asked = match asked {
             Ok(asked) => asked,
             Err(e) => {
@@ -833,10 +880,21 @@ impl DnsClient {
                 let line = format!("dns: [{}] {} {}: {}", server.tag, name, ty, e);
                 logged(&line);
                 debug!(server = %server.tag, ms, "{}", line);
+                self.events.dns_exchanged(|| DnsExchange {
+                    duration: Some(took),
+                    ..exchange(
+                        request,
+                        Err(&e),
+                        DnsSource::Exchanged,
+                        Some(&server.tag),
+                        options.for_instance,
+                    )
+                });
                 return Err(e);
             }
         };
-        let mut response = match asked {
+        let (member, attempt) = (asked.member, asked.attempt);
+        let mut response = match asked.answer {
             super::Answer::Message(message) => message,
             super::Answer::Ips(ips) => {
                 Self::reply(request, &ips, super::LOCAL_TTL.as_secs() as u32)
@@ -857,6 +915,17 @@ impl DnsClient {
             self.answers.put(key, &response, ttl);
         }
         log_answer("exchanged", &server.tag, &response, Some(ms));
+        self.events.dns_exchanged(|| DnsExchange {
+            duration: Some(took),
+            attempt,
+            ..exchange(
+                request,
+                Ok(&response),
+                DnsSource::Exchanged,
+                Some(member.as_deref().unwrap_or(&server.tag)),
+                options.for_instance,
+            )
+        });
         fit_edns(&mut response, request);
         Ok(response)
     }
@@ -944,6 +1013,96 @@ fn question(m: &Message) -> (String, String) {
             )
         })
         .unwrap_or_default()
+}
+
+impl DnsClient {
+    /// Tells of a sequential server's `member` failing attempt `attempt`
+    /// of `request` with `error`, which took `took`.
+    pub(super) fn member_failed(
+        &self,
+        request: &Message,
+        member: &str,
+        error: &anyhow::Error,
+        took: std::time::Duration,
+        attempt: u32,
+        for_instance: bool,
+    ) {
+        self.events.dns_exchanged(|| DnsExchange {
+            duration: Some(took),
+            attempt: Some(attempt),
+            ..exchange(
+                request,
+                Err(error),
+                DnsSource::Exchanged,
+                Some(member),
+                for_instance,
+            )
+        });
+    }
+}
+
+/// What an event tells of the query of `request`, answered with `answered`
+/// or failed: its name and type, the answer's code, records and TTL; the
+/// time and attempt are the caller's to set.
+fn exchange(
+    request: &Message,
+    answered: std::result::Result<&Message, &anyhow::Error>,
+    source: DnsSource,
+    server: Option<&str>,
+    for_instance: bool,
+) -> DnsExchange {
+    let (name, qtype, qtype_code) = request
+        .queries()
+        .first()
+        .map(|q| {
+            let name = q.name().to_utf8();
+            (
+                name.trim_end_matches('.').to_string(),
+                q.query_type().to_string(),
+                u16::from(q.query_type()),
+            )
+        })
+        .unwrap_or_default();
+    let (outcome, answers, answers_total, ttl) = match answered {
+        Ok(answer) => {
+            let records = answer.answers();
+            (
+                DnsOutcome::Answered {
+                    rcode: rcode_name(answer.response_code()),
+                    rcode_code: u16::from(answer.response_code()),
+                },
+                records
+                    .iter()
+                    .take(DNS_ANSWERS_TOLD)
+                    .map(|r| r.data.to_string())
+                    .collect(),
+                u32::try_from(records.len()).unwrap_or(u32::MAX),
+                records.iter().map(|r| r.ttl).min(),
+            )
+        }
+        Err(e) => (
+            DnsOutcome::Failed {
+                error: e.to_string(),
+            },
+            Vec::new(),
+            0,
+            None,
+        ),
+    };
+    DnsExchange {
+        name,
+        qtype,
+        qtype_code,
+        server: server.map(str::to_string),
+        source,
+        outcome,
+        answers,
+        answers_total,
+        ttl,
+        duration: None,
+        attempt: None,
+        for_instance,
+    }
 }
 
 /// One line at debug for each query a server answered or the cache did:

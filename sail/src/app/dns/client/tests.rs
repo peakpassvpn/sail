@@ -2582,6 +2582,14 @@ mod tests {
         options: serde_json::Value,
         members: &[(&str, u16)],
     ) -> anyhow::Result<DnsClient> {
+        sequential_client_in(options, members, &Default::default())
+    }
+
+    fn sequential_client_in(
+        options: serde_json::Value,
+        members: &[(&str, u16)],
+        env: &crate::runtime::RuntimeEnv,
+    ) -> anyhow::Result<DnsClient> {
         let mut servers = vec![{
             let mut s = options;
             s["type"] = "sequential".into();
@@ -2598,7 +2606,7 @@ mod tests {
             &serde_json::json!({ "dns": { "timeout": "2s", "servers": servers, "final": "seq" } })
                 .to_string(),
         )?;
-        DnsClient::new(&config.dns, Default::default(), &Default::default())
+        DnsClient::new(&config.dns, Default::default(), env)
     }
 
     /// A member that does not answer passes the query on, once its attempt
@@ -2851,5 +2859,213 @@ mod tests {
         assert!(line("dns: cached a.example A NOERROR").contains("server=up"));
         line("dns: [down] b.example A");
         assert!(lines.iter().all(|l| !l.contains("10.0.0.1")), "no record is logged");
+    }
+
+    // -- Events (Kinds::DNS) ------------------------------------------------
+
+    use crate::control::events::{DnsExchange, DnsOutcome, DnsSource};
+    use futures::FutureExt;
+
+    /// The events told so far, without waiting.
+    fn told(
+        rx: &mut crate::control::events::Subscription<std::sync::Arc<DnsExchange>>,
+    ) -> Vec<std::sync::Arc<DnsExchange>> {
+        let mut told = Vec::new();
+        while let Some(Ok(event)) = rx.recv().now_or_never() {
+            told.push(event);
+        }
+        told
+    }
+
+    fn answered(rcode: &str) -> DnsOutcome {
+        let rcode_code = match rcode {
+            "NOERROR" => 0,
+            "SERVFAIL" => 2,
+            "NXDOMAIN" => 3,
+            "REFUSED" => 5,
+            other => panic!("{}", other),
+        };
+        DnsOutcome::Answered {
+            rcode: rcode.into(),
+            rcode_code,
+        }
+    }
+
+    /// A server's answer, the cache's, an expired one's while it is asked
+    /// again, and the instance's own lookup: each told once, with where
+    /// it came from.
+    #[tokio::test]
+    async fn each_query_is_told_with_where_its_answer_came_from() {
+        let (port, count) = counting_server(1, false).await;
+        let env = crate::runtime::RuntimeEnv::default();
+        let mut rx = env.events.dns_exchanges();
+        let config = crate::config::Config::from_json(
+            &serde_json::json!({ "dns": { "optimistic": true, "servers": [
+                { "type": "udp", "tag": "up", "server": "127.0.0.1", "server_port": port }
+            ] } })
+            .to_string(),
+        )
+        .unwrap();
+        let client = DnsClient::new(&config.dns, Default::default(), &env)
+            .unwrap()
+            .into_arc();
+        exchange(&client, "a.example", RecordType::A).await;
+        let first = told(&mut rx);
+        assert_eq!(first.len(), 1, "{:#?}", first);
+        let e = &first[0];
+        assert_eq!((e.name.as_str(), e.qtype.as_str(), e.qtype_code), ("a.example", "A", 1));
+        assert_eq!(e.server.as_deref(), Some("up"));
+        assert_eq!(e.source, DnsSource::Exchanged);
+        assert_eq!(e.outcome, answered("NOERROR"));
+        assert_eq!((e.answers.clone(), e.answers_total, e.ttl), (vec!["10.0.0.1".into()], 1, Some(1)));
+        assert!(e.duration.is_some());
+        assert_eq!((e.attempt, e.for_instance), (None, false));
+
+        exchange(&client, "a.example", RecordType::A).await;
+        let cached = told(&mut rx);
+        assert_eq!(cached.len(), 1, "{:#?}", cached);
+        assert_eq!(cached[0].source, DnsSource::Cached);
+        assert_eq!(cached[0].server.as_deref(), Some("up"));
+        assert_eq!(cached[0].answers, ["10.0.0.1"]);
+        assert_eq!(cached[0].duration, None);
+
+        tokio::time::sleep(Duration::from_millis(1200)).await;
+        exchange(&client, "a.example", RecordType::A).await;
+        for _ in 0..1000 {
+            if asked(&count) == 2 && client.answers.refreshing() == 0 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        let stale = told(&mut rx);
+        let sources: Vec<_> = stale.iter().map(|e| e.source).collect();
+        // The expired answer given, then the one asked for behind it.
+        assert_eq!(sources, [DnsSource::Optimistic, DnsSource::Exchanged], "{:#?}", stale);
+        assert_eq!(stale[1].answers, ["10.0.0.2"]);
+
+        client.lookup("b.example").await.unwrap();
+        let own = told(&mut rx);
+        assert!(!own.is_empty());
+        assert!(
+            own.iter().all(|e| e.name == "b.example" && e.for_instance),
+            "{:#?}",
+            own
+        );
+    }
+
+    /// A rule's reject and predefined answer are told, with no server;
+    /// a server that fails, with its error.
+    #[tokio::test]
+    async fn rule_answers_and_failures_are_told() {
+        let env = crate::runtime::RuntimeEnv::default();
+        let mut rx = env.events.dns_exchanges();
+        let (silent, _) = noting_server(None).await;
+        let config = crate::config::Config::from_json(
+            &serde_json::json!({ "dns": {
+                "timeout": "300ms",
+                "servers": [
+                    { "type": "hosts", "tag": "world", "predefined": { "a.example": "10.0.0.1" } },
+                    { "type": "udp", "tag": "down", "server": "127.0.0.1", "server_port": silent }
+                ],
+                "rules": [
+                    { "domain": "blocked.example", "action": "reject" },
+                    { "domain": "ads.example", "action": "predefined", "rcode": "NXDOMAIN" },
+                    { "domain": "down.example", "server": "down" }
+                ],
+                "final": "world"
+            } })
+            .to_string(),
+        )
+        .unwrap();
+        let client = DnsClient::new(&config.dns, Default::default(), &env).unwrap();
+
+        exchange(&client, "blocked.example", RecordType::A).await;
+        exchange(&client, "ads.example", RecordType::A).await;
+        let down = exchange(&client, "down.example", RecordType::A).await;
+        assert_eq!(down.response_code(), ResponseCode::ServFail);
+        let events = told(&mut rx);
+        assert_eq!(events.len(), 3, "{:#?}", events);
+        assert_eq!(events[0].source, DnsSource::Rule);
+        assert_eq!(events[0].server, None);
+        assert_eq!(events[0].outcome, answered("REFUSED"));
+        assert_eq!(events[1].source, DnsSource::Rule);
+        assert_eq!(events[1].outcome, answered("NXDOMAIN"));
+        assert_eq!(events[1].name, "ads.example");
+        assert_eq!(events[2].source, DnsSource::Exchanged);
+        assert_eq!(events[2].server.as_deref(), Some("down"));
+        assert!(
+            matches!(&events[2].outcome, DnsOutcome::Failed { .. }),
+            "{:#?}",
+            events[2]
+        );
+        assert!(events[2].duration.is_some());
+    }
+
+    /// A sequential server's member that fails is told with its attempt;
+    /// the answer, with the member that gave it and its attempt.
+    #[tokio::test]
+    async fn a_sequential_server_s_attempts_are_told() {
+        let (silent, _) = noting_server(None).await;
+        let (good, _) = noting_server(Some(ResponseCode::NoError)).await;
+        let env = crate::runtime::RuntimeEnv::default();
+        let mut rx = env.events.dns_exchanges();
+        let client = sequential_client_in(
+            serde_json::json!({ "attempt_timeout": "300ms", "budget": "1500ms" }),
+            &[("silent", silent), ("good", good)],
+            &env,
+        )
+        .unwrap();
+        exchange(&client, "a.example", RecordType::A).await;
+        let events = told(&mut rx);
+        assert_eq!(events.len(), 2, "{:#?}", events);
+        assert_eq!(events[0].server.as_deref(), Some("silent"));
+        assert_eq!(events[0].attempt, Some(1));
+        assert_eq!(
+            events[0].outcome,
+            DnsOutcome::Failed {
+                error: "timeout".into()
+            }
+        );
+        let d = events[0].duration.unwrap();
+        assert!(d >= Duration::from_millis(280) && d < Duration::from_millis(1000), "{:?}", d);
+        assert_eq!(events[1].server.as_deref(), Some("good"));
+        assert_eq!(events[1].attempt, Some(2));
+        assert_eq!(events[1].outcome, answered("NOERROR"));
+        assert_eq!(events[1].source, DnsSource::Exchanged);
+    }
+
+    /// No event is built while no one listens, nor after the last
+    /// subscription is dropped.
+    #[tokio::test]
+    async fn no_event_is_built_unheard() {
+        let env = crate::runtime::RuntimeEnv::default();
+        let client = with_rules_in(serde_json::json!([]), &env).unwrap();
+        exchange(&client, "a.example", RecordType::A).await;
+        assert_eq!(env.events.dns_built(), 0);
+        let rx = env.events.dns_exchanges();
+        exchange(&client, "a.example", RecordType::AAAA).await;
+        assert_eq!(env.events.dns_built(), 1);
+        drop(rx);
+        exchange(&client, "nas.home.arpa", RecordType::A).await;
+        assert_eq!(env.events.dns_built(), 1);
+    }
+
+    /// A subscriber that falls more than 1024 events behind is told how
+    /// many it missed, then goes on from the oldest kept.
+    #[tokio::test]
+    async fn a_subscriber_far_behind_is_told_it_lagged() {
+        let env = crate::runtime::RuntimeEnv::default();
+        let client = with_rules_in(serde_json::json!([]), &env).unwrap();
+        let mut rx = env.events.dns_exchanges();
+        for _ in 0..1100 {
+            exchange(&client, "a.example", RecordType::A).await;
+        }
+        match rx.recv().await {
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(missed)) => {
+                assert_eq!(missed, 1100 - 1024)
+            }
+            other => panic!("{:?}", other.map(|e| e.source)),
+        }
+        assert_eq!(rx.recv().await.unwrap().name, "a.example");
     }
 }

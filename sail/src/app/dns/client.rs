@@ -183,6 +183,7 @@ impl DnsClient {
             rules_set_strategy: dns.rules.iter().any(|r| r.strategy.is_some()),
             network,
             preferring,
+            events: env.events.clone(),
         })
     }
 
@@ -567,17 +568,31 @@ impl DnsClient {
     // -- Asking servers --------------------------------------------------
 
     /// Asks `server` `request`, within `time`; a race asks its members.
-    /// Asking may resolve the server's own name, which asks again.
+    /// Asking may resolve the server's own name, which asks again. A
+    /// sequential server's members that fail are told as events, for the
+    /// instance's own query when `for_instance`.
     #[async_recursion]
-    async fn query(&self, server: &Server, request: &Message, time: Duration) -> Result<Answer> {
+    async fn query(
+        &self,
+        server: &Server,
+        request: &Message,
+        time: Duration,
+        for_instance: bool,
+    ) -> Result<Asked> {
         if let Kind::Race { members } = &server.kind {
             return self.race(members, request, time).await;
         }
         if let Kind::Sequential(sequential) = &server.kind {
-            return self.sequential(&server.tag, sequential, request).await;
+            return self
+                .sequential(&server.tag, sequential, request, for_instance)
+                .await;
         }
         match timeout(time, self.ask(server, request, time)).await {
-            Ok(res) => res,
+            Ok(res) => res.map(|answer| Asked {
+                answer,
+                member: None,
+                attempt: None,
+            }),
             Err(_) => Err(anyhow!("{} {}: timeout", server, Self::question(request))),
         }
     }
@@ -594,7 +609,7 @@ impl DnsClient {
     /// Asks every member at once, and takes the first answer that is not
     /// a failure, as Mihomo does: an error, a timeout, SERVFAIL or REFUSED
     /// counts as none, and the others are waited for.
-    async fn race(&self, members: &[String], request: &Message, time: Duration) -> Result<Answer> {
+    async fn race(&self, members: &[String], request: &Message, time: Duration) -> Result<Asked> {
         let asks = members.iter().map(|tag| {
             Box::pin(async move {
                 let server = self.server(tag)?;
@@ -611,13 +626,17 @@ impl DnsClient {
                     {
                         Err(anyhow!("[{}]: {}", tag, m.response_code()))
                     }
-                    Ok(answer) => Ok(answer),
+                    Ok(answer) => Ok(Asked {
+                        answer,
+                        member: Some(tag.clone()),
+                        attempt: None,
+                    }),
                     Err(e) => Err(anyhow!("[{}]: {}", tag, e)),
                 }
             })
         });
         match select_ok(asks).await {
-            Ok((answer, _)) => Ok(answer),
+            Ok((asked, _)) => Ok(asked),
             Err(e) => Err(anyhow!(
                 "{}: every server failed, the last {}",
                 Self::question(request),
@@ -640,7 +659,8 @@ impl DnsClient {
         tag: &str,
         sequential: &server::Sequential,
         request: &Message,
-    ) -> Result<Answer> {
+        for_instance: bool,
+    ) -> Result<Asked> {
         let started = tokio::time::Instant::now();
         let deadline = started + sequential.budget;
         let n = sequential.members.len();
@@ -707,13 +727,18 @@ impl DnsClient {
                             .lock()
                             .unwrap_or_else(|e| e.into_inner()) = Some((i, now));
                     }
-                    return Ok(answer);
+                    return Ok(Asked {
+                        answer,
+                        member: Some(member.clone()),
+                        attempt: Some(attempt),
+                    });
                 }
                 Ok(Err(e)) => {
                     debug!(
                         name = %name, r#type = %ty, server = %member, attempt, error = %e,
                         ms, "dns: [{}] member failed", tag
                     );
+                    self.member_failed(request, member, &e, now.elapsed(), attempt, for_instance);
                     if kept_timed_out.load(std::sync::atomic::Ordering::Relaxed) && !retried {
                         retried = true;
                         fresh = true;
@@ -727,6 +752,15 @@ impl DnsClient {
                         ms, "dns: [{}] member failed", tag
                     );
                     failed = anyhow!("[{}]: timeout", member);
+                    let timed_out = anyhow!("timeout");
+                    self.member_failed(
+                        request,
+                        member,
+                        &timed_out,
+                        now.elapsed(),
+                        attempt,
+                        for_instance,
+                    );
                 }
             }
             fresh = false;

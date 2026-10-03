@@ -179,6 +179,10 @@ impl Kinds {
     /// what a polled list of the connections open misses, the short ones
     /// and those that never opened. Built only while someone subscribes.
     pub const ROUTE: Kinds = Kinds(1 << 6);
+    /// Every DNS query answered or failed: by a server, the cache or a
+    /// rule; a client's and the instance's own. Built only while someone
+    /// subscribes.
+    pub const DNS: Kinds = Kinds(1 << 7);
     /// Every kind there is, and those added later.
     pub const ALL: Kinds = Kinds(u32::MAX);
 
@@ -216,6 +220,9 @@ pub enum Event {
     /// A connection was routed, and dialled where the rules sent it to an
     /// outbound.
     Routed(Arc<RoutedConnection>),
+    /// A DNS query was answered or failed: a client's, or the instance's
+    /// own.
+    DnsExchange(Arc<DnsExchange>),
     /// This subscriber fell behind on `kind`, and `missed` events of it
     /// are gone: read the snapshot again.
     Lagged {
@@ -280,6 +287,14 @@ impl Instance {
         if kinds.contains(Kinds::ROUTE) {
             streams.push(Box::pin(self.route_events()));
         }
+        if kinds.contains(Kinds::DNS) {
+            streams.push(Box::pin(per_run_counted(
+                self.inner().clone(),
+                Kinds::DNS,
+                |m| m.env.events.dns_exchanges(),
+                Event::DnsExchange,
+            )));
+        }
         futures::stream::select_all(streams)
     }
 
@@ -314,6 +329,13 @@ impl Instance {
         Ok(self.manager()?.env.events.routes_built())
     }
 
+    /// How many DNS exchanges the instance built to tell, since its start:
+    /// none while no one subscribes to `Kinds::DNS`.
+    #[doc(hidden)]
+    pub fn dns_built(&self) -> Result<usize, Error> {
+        Ok(self.manager()?.env.events.dns_built())
+    }
+
     fn network_events(&self) -> impl Stream<Item = Event> + Send + 'static {
         per_run(
             self.inner().clone(),
@@ -341,7 +363,8 @@ impl Instance {
 }
 
 pub use crate::control::events::{
-    DialFailure, DialStage, DomainSource, GroupSwitch, RouteAction, RoutedConnection, SwitchReason,
+    DialFailure, DialStage, DnsExchange, DnsOutcome, DnsSource, DomainSource, GroupSwitch,
+    RouteAction, RoutedConnection, SwitchReason,
 };
 pub use crate::runtime::TunName;
 
