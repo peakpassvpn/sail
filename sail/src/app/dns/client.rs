@@ -823,7 +823,10 @@ impl DnsClient {
                         .exchange_plain(&dialed.dialer, addr, &wire, server, share)
                         .await;
                     match asked {
-                        Ok(response) => return Ok(Answer::Message(response)),
+                        Ok(response) => {
+                            debug!("{}: {} answered", server, addr);
+                            return Ok(Answer::Message(response));
+                        }
                         Err(e) => {
                             debug!("{}: {} failed: {}", server, addr, e);
                             last_err = Some(e);
