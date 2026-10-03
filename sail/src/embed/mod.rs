@@ -256,6 +256,25 @@ pub fn features() -> Vec<&'static str> {
 /// What this sail is: its release.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// What this sail was built from, for a host's diagnostics.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct BuildInfo {
+    /// The release: `VERSION`.
+    pub version: &'static str,
+    /// The commit's short hash: the release build's, else git's when built
+    /// in a checkout of sail, else the revision Cargo checked it out at as
+    /// a git dependency; `unknown` when none tells, never empty.
+    pub commit: &'static str,
+}
+
+/// This build of sail. The CLI's `--version` and the C ABI's capabilities
+/// tell the same.
+pub const BUILD: BuildInfo = BuildInfo {
+    version: VERSION,
+    commit: env!("SAIL_BUILD_COMMIT"),
+};
+
 impl Instance {
     /// What it sent and received since it started.
     pub async fn traffic(&self) -> Result<Traffic, Error> {

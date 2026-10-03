@@ -27,6 +27,8 @@ fn millis(delay: Duration) -> u64 {
 pub struct Capabilities {
     /// The sail release.
     pub version: &'static str,
+    /// The commit it was built from: a short hash, or `unknown`.
+    pub commit: &'static str,
     /// The modules compiled in (`inbound-tun`, `outbound-vless`…): what was
     /// built, not which calls or fields there are. A call a sail lacks
     /// answers that it is unsupported; a field it lacks is absent.
@@ -600,7 +602,9 @@ mod tests {
                 version: "0.15.0".into(), has_tun: true, opens_tun: false, protects_sockets: true,
                 needs_network: false, has_modes: true,
             },
-            "sail_capabilities": Capabilities { version: "0.15.0", features: vec!["inbound-socks"] },
+            "sail_capabilities": Capabilities {
+                version: "0.15.0", commit: "5b1dfad5", features: vec!["inbound-socks"],
+            },
             "providers": Providers { providers: vec![Provider {
                 tag: "sub".into(), source: "remote".into(), members: 3,
                 updated_ms: Some(millis_since_epoch(at)), next_update_ms: None,

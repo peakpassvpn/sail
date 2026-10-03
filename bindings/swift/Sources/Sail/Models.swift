@@ -203,6 +203,9 @@ public struct Capabilities: Decodable, Equatable, Sendable {
     public let version: String
     /// The modules compiled in: what was built, not which calls there are.
     public let features: [String]
+    /// The commit it was built from: a short hash, or `unknown`; nil from
+    /// a sail before it was told.
+    public let commit: String?
 }
 
 struct Connections: Decodable { let connections: [Connection] }

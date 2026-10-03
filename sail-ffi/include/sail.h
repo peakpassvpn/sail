@@ -235,16 +235,17 @@ extern "C" {
 void sail_free_string(char *s);
 
 /*
- What this build of sail is, as JSON: `{"version", "features":
- ["inbound-tun", "outbound-vless", …]}`, the release and the modules
- compiled in. The features say what was built, not which functions or
+ What this build of sail is, as JSON: `{"version", "commit", "features":
+ ["inbound-tun", "outbound-vless", …]}`, the release, the commit it was
+ built from (a short hash, or "unknown"), and the modules compiled in. The features say what was built, not which functions or
  fields there are: there is no version number to compare (see the
  header's contract).
 
  @param out Takes the JSON, the host's to free.
  @param err Takes the message of a failure, or null.
  */
-int32_t sail_capabilities(char **out, char **err);
+int32_t sail_capabilities(char **out,
+                          char **err);
 
 /*
  What the instance sent and received, as JSON: `{"up_total",

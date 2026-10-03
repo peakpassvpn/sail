@@ -61,6 +61,17 @@ no dial, no download. It returns the warnings a start would log (as
 It blocks while it builds, on a thread of its own, so it may be called
 from any thread.
 
+## Which sail
+
+`sail::embed::BUILD` says which sail a host runs, for its diagnostics:
+`version` (the release) and `commit` (the short hash it was built from).
+The commit is the release build's (`CFG_COMMIT_HASH`, or a `SAIL_COMMIT`
+override). Without that, it is git's HEAD when sail is built in a checkout
+of its own, which includes the checkout Cargo makes of a git dependency, or
+that checkout's revision. It is `unknown` when none of these tells, never
+empty. The CLI's `--version` and the C ABI's `sail_capabilities` give the
+same.
+
 ## Runtime and threads
 
 - **Where it runs.** Each instance runs on a tokio runtime of its own, on

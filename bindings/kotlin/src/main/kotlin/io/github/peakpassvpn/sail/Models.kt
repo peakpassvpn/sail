@@ -144,6 +144,8 @@ data class Capabilities(
     val version: String,
     /** The modules compiled in: what was built, not which calls there are. */
     val features: List<String>,
+    /** The commit it was built from: a short hash, or `unknown`; null from a sail before it was told. */
+    val commit: String? = null,
 )
 
 @Serializable

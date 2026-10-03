@@ -232,3 +232,22 @@ async fn a_configuration_is_checked_without_an_instance() {
         ErrorKind::Config
     );
 }
+
+/// The build names its release and its commit: in a git checkout of sail,
+/// HEAD's short hash, unless the release build said which.
+#[test]
+fn the_build_names_its_release_and_commit() {
+    let build = sail::embed::BUILD;
+    assert_eq!(build.version, env!("CARGO_PKG_VERSION"));
+    assert!(!build.commit.is_empty());
+    if option_env!("SAIL_COMMIT").is_some() || option_env!("CFG_COMMIT_HASH").is_some() {
+        return;
+    }
+    let head = std::process::Command::new("git")
+        .args(["-C", concat!(env!("CARGO_MANIFEST_DIR"), "/..")])
+        .args(["rev-parse", "--short", "HEAD"])
+        .output();
+    if let Some(head) = head.ok().filter(|o| o.status.success()) {
+        assert_eq!(build.commit, String::from_utf8_lossy(&head.stdout).trim());
+    }
+}

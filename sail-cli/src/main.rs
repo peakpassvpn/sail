@@ -2,17 +2,15 @@ use std::process::exit;
 
 use argh::FromArgs;
 
-const VERSION: Option<&'static str> = option_env!("CARGO_PKG_VERSION");
-const COMMIT_HASH: Option<&'static str> = option_env!("CFG_COMMIT_HASH");
 const COMMIT_DATE: Option<&'static str> = option_env!("CFG_COMMIT_DATE");
 
+/// The release and the commit, as `sail::embed::BUILD` tells them, with
+/// the commit's date when the release build gives it.
 fn get_version_string() -> String {
-    match (VERSION, COMMIT_HASH, COMMIT_DATE) {
-        (Some(ver), None, None) => ver.to_string(),
-        (Some(ver), Some(hash), Some(date)) => {
-            format!("{} ({} - {})", ver, hash, date)
-        }
-        _ => "unknown".to_string(),
+    let build = sail::embed::BUILD;
+    match COMMIT_DATE {
+        Some(date) => format!("{} ({} - {})", build.version, build.commit, date),
+        None => format!("{} ({})", build.version, build.commit),
     }
 }
 

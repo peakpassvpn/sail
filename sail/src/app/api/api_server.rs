@@ -236,7 +236,8 @@ mod handlers {
     /// This build of sail: its release, and the modules compiled in.
     pub async fn capabilities() -> Json<json::Capabilities> {
         Json(json::Capabilities {
-            version: env!("CARGO_PKG_VERSION"),
+            version: crate::embed::BUILD.version,
+            commit: crate::embed::BUILD.commit,
             features: crate::control::features(),
         })
     }

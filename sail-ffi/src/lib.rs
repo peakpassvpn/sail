@@ -256,9 +256,9 @@ pub unsafe extern "C" fn sail_free_string(s: *mut c_char) {
     }
 }
 
-/// What this build of sail is, as JSON: `{"version", "features":
-/// ["inbound-tun", "outbound-vless", …]}`, the release and the modules
-/// compiled in. The features say what was built, not which functions or
+/// What this build of sail is, as JSON: `{"version", "commit", "features":
+/// ["inbound-tun", "outbound-vless", …]}`, the release, the commit it was
+/// built from (a short hash, or "unknown"), and the modules compiled in. The features say what was built, not which functions or
 /// fields there are: there is no version number to compare (see the
 /// header's contract).
 ///
@@ -270,7 +270,8 @@ pub unsafe extern "C" fn sail_capabilities(out: *mut *mut c_char, err: *mut *mut
         out_json(
             out,
             &json::Capabilities {
-                version: env!("CARGO_PKG_VERSION"),
+                version: sail::embed::BUILD.version,
+                commit: sail::embed::BUILD.commit,
                 features: sail::control::features(),
             },
         )
@@ -307,6 +308,7 @@ mod tests {
             serde_json::from_str(unsafe { CStr::from_ptr(out) }.to_str().unwrap()).unwrap();
         unsafe { sail_free_string(out) };
         assert_eq!(json["version"], env!("CARGO_PKG_VERSION"));
+        assert_eq!(json["commit"], sail::embed::BUILD.commit);
         assert!(json.get("api_version").is_none() && json.get("json_version").is_none());
         assert!(json["features"].as_array().unwrap().len() > 1);
         assert_eq!(

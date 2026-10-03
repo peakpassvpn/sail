@@ -137,6 +137,7 @@
     ]
   },
   "sail_capabilities": {
+    "commit": "5b1dfad5",
     "features": [
       "inbound-socks"
     ],
