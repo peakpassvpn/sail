@@ -3,7 +3,7 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use socket2::{Domain, SockRef, Socket, Type};
-use tokio::io::AsyncReadExt;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::time::timeout;
 use tracing::{debug, trace};
@@ -497,6 +497,34 @@ pub(crate) fn destinations(sess: &Session, connect: &OutboundConnect) -> Vec<Soc
         }
         _ => vec![sess.destination.clone()],
     }
+}
+
+/// How much of what a refused client sent [`refuse`] reads and drops, at
+/// most: a judgment value, as sing-box sets none.
+const REFUSAL_DRAIN_LIMIT: u64 = 64 * 1024;
+/// How long [`refuse`] waits, in all, for the client to stop sending: a
+/// judgment value.
+const REFUSAL_DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// Writes a refusal, `reply`, and closes the write side, then reads and drops
+/// what the client sent but was not read, up to its end or a bound. A
+/// connection closed with data left unread is reset, not closed in order,
+/// and the reset can discard the refusal before the client reads it (on
+/// Windows, most of all). Fails only when the reply cannot be written.
+pub async fn refuse<S>(stream: &mut S, reply: &[u8]) -> io::Result<()>
+where
+    S: AsyncRead + AsyncWrite + Unpin + ?Sized,
+{
+    stream.write_all(reply).await?;
+    stream.flush().await?;
+    let _ = stream.shutdown().await;
+    let mut unread = (&mut *stream).take(REFUSAL_DRAIN_LIMIT);
+    let _ = timeout(
+        REFUSAL_DRAIN_TIMEOUT,
+        tokio::io::copy(&mut unread, &mut tokio::io::sink()),
+    )
+    .await;
+    Ok(())
 }
 
 /// Peeks data from the local side of a stream.

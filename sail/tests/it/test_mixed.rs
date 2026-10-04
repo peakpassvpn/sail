@@ -318,6 +318,141 @@ fn test_mixed_socks4a() -> anyhow::Result<()> {
     })
 }
 
+/// Sends `request` to `port` in one write, reads `reply_len` bytes of answer,
+/// and expects the connection then to close in order: closed with what the
+/// client sent left unread, it is reset, which on Windows discards the
+/// answer before the client reads it.
+async fn refused_in_order(port: u16, request: &[u8], reply_len: usize) -> anyhow::Result<Vec<u8>> {
+    let mut stream = TcpStream::connect(("127.0.0.1", port)).await?;
+    stream.write_all(request).await?;
+    let mut reply = vec![0u8; reply_len];
+    timeout(Duration::from_secs(5), stream.read_exact(&mut reply)).await??;
+    let mut rest = [0u8; 1];
+    let end = timeout(Duration::from_secs(5), stream.read(&mut rest)).await?;
+    anyhow::ensure!(
+        matches!(end, Ok(0)),
+        "the refusal {:?} did not end in an orderly close: {:?}",
+        reply,
+        end
+    );
+    Ok(reply)
+}
+
+/// A SOCKS5 username/password subnegotiation, without the method selection.
+fn socks5_auth(username: &str, password: &str) -> Vec<u8> {
+    let mut auth = vec![0x01, username.len() as u8];
+    auth.extend_from_slice(username.as_bytes());
+    auth.push(password.len() as u8);
+    auth.extend_from_slice(password.as_bytes());
+    auth
+}
+
+/// CONNECT 127.0.0.1:80.
+const SOCKS5_CONNECT: [u8; 10] = [0x05, 0x01, 0x00, 0x01, 127, 0, 0, 1, 0, 80];
+
+// A SOCKS5 client refused, at the method or the password, reads the refusal
+// and then an orderly close, though it sent its CONNECT without waiting.
+#[test]
+fn test_socks5_refusal_closes_in_order() -> anyhow::Result<()> {
+    common::retry_port_clash(|| {
+        let port = common::free_port();
+        with_instances(
+            vec![server("socks", port, true, false)],
+            move |_| async move {
+                // A wrong password, and an unknown user, sent once the method
+                // is selected, with the CONNECT behind.
+                for (user, pass) in [("bob", "alice-pass"), ("carol", "bob-pass")] {
+                    let mut stream = TcpStream::connect(("127.0.0.1", port)).await?;
+                    stream.write_all(&[0x05, 0x01, 0x02]).await?;
+                    let mut method = [0u8; 2];
+                    timeout(Duration::from_secs(5), stream.read_exact(&mut method)).await??;
+                    anyhow::ensure!(method == [0x05, 0x02], "method {:?}", method);
+                    let mut request = socks5_auth(user, pass);
+                    request.extend_from_slice(&SOCKS5_CONNECT);
+                    stream.write_all(&request).await?;
+                    let mut status = [0u8; 2];
+                    timeout(Duration::from_secs(5), stream.read_exact(&mut status)).await??;
+                    anyhow::ensure!(
+                        status[0] == 0x01 && status[1] != 0,
+                        "{}:{} answered {:?}",
+                        user,
+                        pass,
+                        status
+                    );
+                    let mut rest = [0u8; 1];
+                    let end = timeout(Duration::from_secs(5), stream.read(&mut rest)).await?;
+                    anyhow::ensure!(
+                        matches!(end, Ok(0)),
+                        "{}:{} refused, not in an orderly close: {:?}",
+                        user,
+                        pass,
+                        end
+                    );
+                }
+
+                // A wrong password, and the CONNECT, in the same write as the
+                // methods.
+                let mut request = vec![0x05, 0x01, 0x02];
+                request.extend_from_slice(&socks5_auth("bob", "alice-pass"));
+                request.extend_from_slice(&SOCKS5_CONNECT);
+                let reply = refused_in_order(port, &request, 4).await?;
+                anyhow::ensure!(
+                    reply[..3] == [0x05, 0x02, 0x01] && reply[3] != 0,
+                    "answered {:?}",
+                    reply
+                );
+
+                // No method the inbound takes.
+                let mut request = vec![0x05, 0x01, 0x00];
+                request.extend_from_slice(&SOCKS5_CONNECT);
+                let reply = refused_in_order(port, &request, 2).await?;
+                anyhow::ensure!(reply == [0x05, 0xff], "answered {:?}", reply);
+                Ok(())
+            },
+        )
+    })
+}
+
+// An HTTP client refused a 407 reads it and then an orderly close, though a
+// body, or a second request, followed the first request's head.
+#[test]
+fn test_http_407_closes_in_order() -> anyhow::Result<()> {
+    common::retry_port_clash(|| {
+        let port = common::free_port();
+        with_instances(
+            vec![server("mixed", port, true, false)],
+            move |_| async move {
+                // Past what one read of the head takes.
+                let body = vec![b'x'; 8 * 1024];
+                let mut with_body = format!(
+                    "POST http://127.0.0.1/ HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: {}\r\n\r\n",
+                    body.len()
+                )
+                .into_bytes();
+                with_body.extend_from_slice(&body);
+
+                let get = b"GET http://127.0.0.1/ HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n";
+                let pipelined = get.repeat(256);
+
+                for request in [with_body, pipelined] {
+                    let mut stream = TcpStream::connect(("127.0.0.1", port)).await?;
+                    stream.write_all(&request).await?;
+                    let head = read_head(&mut stream).await?;
+                    anyhow::ensure!(head.starts_with("HTTP/1.1 407 "), "answered {:?}", head);
+                    let mut rest = [0u8; 1];
+                    let end = timeout(Duration::from_secs(5), stream.read(&mut rest)).await?;
+                    anyhow::ensure!(
+                        matches!(end, Ok(0)),
+                        "the 407 did not end in an orderly close: {:?}",
+                        end
+                    );
+                }
+                Ok(())
+            },
+        )
+    })
+}
+
 // The socks inbound with two users: the second authenticates, and its name
 // reaches routing.
 #[test]

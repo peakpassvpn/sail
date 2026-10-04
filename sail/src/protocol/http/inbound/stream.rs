@@ -261,7 +261,7 @@ impl HttpStream {
         let mut head = match RequestHead::try_from(&head[..]) {
             Ok(head) => head,
             Err(e) => {
-                let _ = self.origin.write_all(BAD_REQUEST).await;
+                let _ = crate::net::refuse(&mut self.origin, BAD_REQUEST).await;
                 return Err(e);
             }
         };
@@ -272,7 +272,7 @@ impl HttpStream {
             match authenticate(users, head.header("Proxy-Authorization")) {
                 Some(user) => user,
                 None => {
-                    let _ = self.origin.write_all(&proxy_auth_required(realm)).await;
+                    let _ = crate::net::refuse(&mut self.origin, &proxy_auth_required(realm)).await;
                     return Err(io::Error::other("http proxy authentication failed"));
                 }
             }
@@ -285,7 +285,7 @@ impl HttpStream {
         let addr = match addr {
             Ok(addr) => addr,
             Err(e) => {
-                let _ = self.origin.write_all(BAD_REQUEST).await;
+                let _ = crate::net::refuse(&mut self.origin, BAD_REQUEST).await;
                 return Err(e);
             }
         };
@@ -471,6 +471,8 @@ mod tests {
         let (client, server) = tokio::io::duplex(64 * 1024);
         let (mut client_r, mut client_w) = tokio::io::split(client);
         client_w.write_all(request).await.unwrap();
+        // All sent: a refusal drains to the end without waiting.
+        client_w.shutdown().await.unwrap();
         let mut stream = HttpStream {
             cache: Vec::new(),
             origin: Box::new(server),
@@ -567,6 +569,7 @@ mod tests {
             .write_all(b"CONNECT example.com:443 HTTP/1.1\r\n\r\n")
             .await
             .unwrap();
+        client_w.shutdown().await.unwrap();
         let mut stream = HttpStream {
             cache: Vec::new(),
             origin: Box::new(server),

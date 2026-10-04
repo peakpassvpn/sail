@@ -170,7 +170,7 @@ impl Handler {
         // before the client reads it.
         if !self.users.is_empty() {
             // Reply: VN=0, CD=91(Rejected)
-            stream.write_all(&[0, 91, 0, 0, 0, 0, 0, 0]).await?;
+            crate::net::refuse(&mut stream, &[0, 91, 0, 0, 0, 0, 0, 0]).await?;
             return Err(io::Error::other(
                 "socks4 refused: users are configured, and socks4 cannot authenticate",
             ));
@@ -221,7 +221,7 @@ impl Handler {
             }
         }
         if !method_accepted {
-            stream.write_all(&[0x05, 0xff]).await?;
+            crate::net::refuse(&mut stream, &[0x05, 0xff]).await?;
             return Err(io::Error::other(format!(
                 "unsupported socks5 authentication methods, client sent: {:?}, server expects: {}",
                 &buf[..],
@@ -264,7 +264,7 @@ impl Handler {
                 stream.write_all(&[0x01, 0x00]).await?;
                 sess.user = user.clone();
             } else {
-                stream.write_all(&[0x01, 0x01]).await?;
+                crate::net::refuse(&mut stream, &[0x01, 0x01]).await?;
                 return Err(io::Error::other("socks5 authentication failed"));
             }
         }
@@ -286,9 +286,7 @@ impl Handler {
         // connect, udp associate; BIND, or anything else, is answered as
         // not supported (RFC 1928, as sing-box answers it).
         if cmd != 0x01 && cmd != 0x03 {
-            stream
-                .write_all(&socks5_reply(REP_COMMAND_NOT_SUPPORTED))
-                .await?;
+            crate::net::refuse(&mut stream, &socks5_reply(REP_COMMAND_NOT_SUPPORTED)).await?;
             return Err(io::Error::other(format!("unsupported socks5 cmd {}", cmd)));
         }
 
@@ -391,6 +389,8 @@ mod tests {
         let (client, server) = tokio::io::duplex(4096);
         let (mut client_r, mut client_w) = tokio::io::split(client);
         client_w.write_all(request).await.unwrap();
+        // All sent: a refusal drains to the end without waiting.
+        client_w.shutdown().await.unwrap();
         let result = handler
             .handle(Session::default(), Box::new(server))
             .await
