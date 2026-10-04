@@ -56,6 +56,8 @@ Apple 平台的 framework 在 macOS 上用 `scripts/build_apple_xcframework.sh` 
 
 为 Linux musl 目标构建的 CLI 用 [mimalloc](https://github.com/microsoft/mimalloc) 分配内存，即 x86_64、aarch64、i686、armv7 和 arm 的发布二进制。musl 自带的分配器让多路复用传输明显变慢。同一构建的 A/B 对比中，mux 上传从 1336 Mbit/s 提高到 2248 Mbit/s；16 组 sail 对 sail 测试相对 sing-box 的几何平均从 0.88× 提高到 1.10×。
 
+路由器构建（OpenWrt 软件包安装的 `-router` 归档）仍用 musl 自带的分配器 mallocng：它占的内存更少，而路由器内存最紧。在 x86_64 上，载入 30,000 行的 Clash 配置时峰值为 59 MiB（mimalloc 为 75），重载后为 78 MiB（mimalloc 为 88）；3,000 行时分别为 19 对 35、24 对 36。代价在 mux：x86_64 上的上传速度约为 mimalloc 的一半。在路由器自己的 CPU 上差多少尚未测量。从源码构建时不加 `--no-default-features` 即用 mimalloc。
+
 只有 `sail-cli` 设置分配器，`sail` 和 `sail-ffi` 库把它留给链接它们的程序。glibc Linux、Apple 平台、Windows 和 Android 的构建仍用系统分配器，MIPS 的 musl 构建也是：libmimalloc 的 C 代码需要 64 位原子操作，32 位 MIPS 没有。启用 `alloc-stats` 特性的构建改用它的计数分配器。
 
 ## 作为 systemd 服务运行

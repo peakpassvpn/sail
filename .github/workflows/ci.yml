@@ -333,6 +333,9 @@ jobs:
       - name: lint armv7 musl
         run: scripts/cross.sh armv7-unknown-linux-musleabihf clippy -p sail-cli -p sail-ffi
 
+      - name: lint armv7 musl, as a router build (musl's allocator)
+        run: scripts/cross.sh armv7-unknown-linux-musleabihf clippy -p sail-cli --no-default-features
+
   cross:
     if: github.ref == 'refs/heads/master' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest

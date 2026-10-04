@@ -10,6 +10,13 @@ name = "sail"
 path = "src/main.rs"
 
 [features]
+default = ["mimalloc"]
+# musl builds allocate with mimalloc (src/main.rs): musl's mallocng is
+# slow under the mux's per-frame allocations. A router build leaves it out
+# (scripts/release/build-cli.sh): mallocng holds less memory, which a
+# router has least of, and the mux matters less there. MIPS keeps musl's
+# either way: 32-bit MIPS lacks the 64-bit atomics libmimalloc's C needs.
+mimalloc = ["dep:mimalloc"]
 # A measurement build: counts allocations and writes them to the file
 # SAIL_ALLOC_STATS names (tools/perf).
 alloc-stats = ["sail/alloc-stats"]
@@ -22,11 +29,9 @@ serde_json = "1.0"
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
-# musl builds allocate with mimalloc (src/main.rs): musl's mallocng is
-# slow under the mux's per-frame allocations. MIPS keeps musl's: 32-bit
-# MIPS lacks the 64-bit atomics libmimalloc's C needs.
+# With the mimalloc feature, on the targets it builds for.
 [target.'cfg(all(target_env = "musl", not(any(target_arch = "mips", target_arch = "mips64"))))'.dependencies]
-mimalloc = "0.1.52"
+mimalloc = { version = "0.1.52", optional = true }
 
 [target.'cfg(not(windows))'.dependencies.sail]
 path = "../sail"

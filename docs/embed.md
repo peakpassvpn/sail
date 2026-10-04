@@ -109,7 +109,8 @@ sail runs it after a start, after each reload, and after a provider's or a
 rule-set's update, whether the document was taken or refused: on the task
 that loaded it, never on a connection's path. It is process-wide, and the
 first registration stays: two instances run the same one, each after its
-own loads. The `sail` command registers mimalloc's collect. A host
+own loads. The `sail` command registers mimalloc's collect (its router
+build, with musl's allocator, registers nothing). A host
 registers what its own allocator needs, or nothing: glibc's malloc keeps
 freed memory too, which `malloc_trim(0)` gives back; an allocator that
 returns memory by itself needs nothing.

@@ -24,21 +24,24 @@ SAIL_RUSTFLAGS+=" --remap-path-prefix=${CARGO_HOME:-$HOME/.cargo}=/cargo"
 SAIL_RUSTFLAGS+=" --remap-path-prefix=$(rustc --print sysroot)=/rust"
 export CFG_COMMIT_HASH CFG_COMMIT_DATE SAIL_RUSTFLAGS
 
-# A router build: every feature, sized by the dist-router profile; on
-# mipsel linked statically (+crt-static), whose libc a router's may not be.
+# A router build: every feature, sized by the dist-router profile, with
+# musl's allocator (no mimalloc: it holds less memory); on mipsel linked
+# statically (+crt-static), whose libc a router's may not be.
 variant=${4:-}
 profile=dist
+features=()
 case $variant in
 '') ;;
 router)
 	profile=dist-router
+	features=(--no-default-features)
 	case $target in
 	mipsel-*) SAIL_RUSTFLAGS+=" -C target-feature=+crt-static" ;;
 	esac
 	;;
 *) echo "build-cli: unknown variant: $variant" >&2 && exit 2 ;;
 esac
-scripts/cross.sh "$target" build --locked --profile "$profile" -p sail-cli
+scripts/cross.sh "$target" build --locked --profile "$profile" -p sail-cli ${features[@]+"${features[@]}"}
 case $target in
 *windows*) built=target/$target/$profile/sail.exe ;;
 *) built=target/$target/$profile/sail ;;

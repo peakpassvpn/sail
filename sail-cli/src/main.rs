@@ -487,9 +487,13 @@ fn fetch_includes(config: &str, cache_dir: Option<&str>) -> Result<(), String> {
 static ALLOC: sail::alloc_stats::Counting = sail::alloc_stats::Counting;
 
 // musl's mallocng is slow under the mux's per-frame allocations: a mux
-// upload measured 1336 Mbit/s with it and 2248 with mimalloc. The library
-// crates leave the allocator to the binary; alloc-stats replaces this one.
+// upload measured 1336 Mbit/s with it and 2248 with mimalloc. A router
+// build goes without the mimalloc feature: mallocng holds less (after a
+// 30,000-line profile, a load's peak 59 MiB against 75, after a reload 78
+// against 88; x86_64). The library crates leave the allocator to the
+// binary; alloc-stats replaces this one.
 #[cfg(all(
+    feature = "mimalloc",
     target_env = "musl",
     not(any(target_arch = "mips", target_arch = "mips64")),
     not(feature = "alloc-stats")
@@ -499,13 +503,15 @@ static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 /// mimalloc gives freed memory back lazily, as later allocations run, and
 /// an idle process after a load makes none: without this it would keep a
-/// load's peak for good. Run where sail says a load's memory was freed
+/// load's peak for good. (mallocng gives it back as it is freed: without
+/// mimalloc nothing is registered.) Run where sail says a load's memory was freed
 /// (sail::runtime::memory): on the task that loaded it, which a reload on
 /// a multi-thread runtime may have resumed on another worker; mi_collect
 /// gives back the calling thread's free pages and the segments threads
 /// abandoned. Measured on the router profile's runtime, at start and
 /// reload.
 #[cfg(all(
+    feature = "mimalloc",
     target_env = "musl",
     not(any(target_arch = "mips", target_arch = "mips64")),
     not(feature = "alloc-stats")
@@ -523,6 +529,7 @@ fn give_memory_back() {
 
 fn main() {
     #[cfg(all(
+        feature = "mimalloc",
         target_env = "musl",
         not(any(target_arch = "mips", target_arch = "mips64")),
         not(feature = "alloc-stats")
@@ -764,6 +771,20 @@ mod tests {
             Some("0.1.49"),
             "libmimalloc-sys changed: check mi_collect in its mimalloc.h against give_memory_back"
         );
+    }
+
+    /// A router build goes without mimalloc, the default feature: what a
+    /// release builds for one is in build-cli.sh.
+    #[test]
+    fn a_router_build_has_musl_allocator() {
+        let script = include_str!("../../scripts/release/build-cli.sh");
+        let router = script
+            .split("\nrouter)\n")
+            .nth(1)
+            .and_then(|rest| rest.split(";;").next())
+            .expect("build-cli.sh has a router variant");
+        assert!(router.contains("features=(--no-default-features)"));
+        assert!(script.contains(r#"-p sail-cli ${features[@]+"${features[@]}"}"#));
     }
 
     #[cfg(unix)]

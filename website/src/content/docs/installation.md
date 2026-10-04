@@ -64,6 +64,8 @@ Apple frameworks are built on macOS with `scripts/build_apple_xcframework.sh`.
 
 The CLI built for a Linux musl target allocates with [mimalloc](https://github.com/microsoft/mimalloc): the x86_64, aarch64, i686, armv7 and arm release binaries. musl's own allocator made multiplexed transfers markedly slower. In an A/B of the same build, a mux upload went from 1336 to 2248 Mbit/s with mimalloc, and across 16 sail-to-sail cells the geometric mean against sing-box went from 0.88× to 1.10×.
 
+The router builds (`-router` archives, which OpenWrt's packages install) keep musl's own allocator, mallocng: it holds less memory, which a router has least of. On x86_64, after a 30,000-line Clash profile, the load's peak was 59 MiB against 75 with mimalloc, and after a reload 78 against 88; with 3,000 lines, 19 against 35 and 24 against 36. The cost is the mux: on x86_64 its upload was about half as fast. How it compares on a router's own CPU has not been measured. A build from source without `--no-default-features` uses mimalloc.
+
 Only `sail-cli` sets the allocator. The `sail` and `sail-ffi` libraries leave it to the program that links them. Builds for glibc Linux, Apple platforms, Windows and Android keep the system allocator, as do MIPS musl builds: libmimalloc's C needs 64-bit atomics that 32-bit MIPS lacks. A build with the `alloc-stats` feature uses its counting allocator instead.
 
 ## Run as a systemd service

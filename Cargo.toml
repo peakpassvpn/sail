@@ -49,6 +49,7 @@ debug = false
 # A router's build: every feature, smaller for its flash. Measured on
 # armv7 musl: 19.1 MB at dist, about 11 MB here; forwarding CPU on x86_64
 # within the judged limit (-2 to +6% per GiB for direct, ss and trojan).
+# Its allocator, musl's, is chosen by build-cli.sh, not here.
 [profile.dist-router]
 inherits = "dist"
 opt-level = "z"
