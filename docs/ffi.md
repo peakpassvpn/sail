@@ -79,6 +79,16 @@ reload changes what only a start sets up), `SAIL_ERR_TUN_NAME_TAKEN`,
 the host's header does not name, from a newer sail, is taken as
 `SAIL_ERR_INTERNAL`.
 
+**Panics.** The released library (the XCFramework, the AAR, the C
+library of a release) is built with `panic = "abort"`: a panic anywhere in
+sail ends the host process, whichever call or task it is in, and no
+`SAIL_ERR_PANICKED`, no `SAIL_EVENT_FAULT`, no teardown follows. On iOS
+the network extension ends (the system restarts it only with on-demand
+rules); on Android the process the `VpnService` runs in ends. What
+docs/embed.md says of panics (a task's ends that task alone, an essential
+one fails the instance, what it changed in the system is undone) holds in
+a build with `panic = "unwind"` only, as debug builds are.
+
 **Failures and stops.** `sail_instance_state` gives a failure's kind
 (`"error_kind"`) and what the failed run's teardown left in the system
 (`"left"`: each `{"kind", "resource", "why", "clear"}`, `clear` the command
