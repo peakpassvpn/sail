@@ -777,7 +777,7 @@ jobs:
           fi
           base=$(git merge-base HEAD origin/master)
           git diff --name-only "$base" HEAD | tee changed.txt
-          if grep -qE '^(sail/src/protocol/tun/|sail/src/net/netstack/|sail/src/platform/|sail/src/runtime/|sail/src/fault\.rs|sail/tests/scripts/[a-z_]+_netns\.sh|sail/tests/test_[a-z_]+_linux\.rs|sail/tests/test_teardown\.rs|\.github/workflows/ci\.yml$)' changed.txt; then
+          if grep -qE '^(sail/src/protocol/tun/|sail/src/net/netstack/|sail/src/platform/|sail/src/runtime/|sail/src/fault\.rs|sail/src/protocol/wireguard/|sail/tests/test_wireguard_interop\.rs|sail/tests/scripts/[a-z_]+_netns\.sh|sail/tests/test_[a-z_]+_linux\.rs|sail/tests/test_teardown\.rs|\.github/workflows/ci\.yml$)' changed.txt; then
             echo run=true >>"$GITHUB_OUTPUT"
           else
             echo run=false >>"$GITHUB_OUTPUT"
@@ -819,9 +819,11 @@ jobs:
         run: |
           uname -r
           command -v nft >/dev/null || sudo apt-get install -y -qq nftables
+          command -v wg >/dev/null && command -v socat >/dev/null ||
+            sudo apt-get install -y -qq wireguard-tools socat
           nft --version
           for module in tun nf_tables nft_redir nft_tproxy nf_tproxy_ipv4 nf_tproxy_ipv6 \
-              nft_socket nft_queue nfnetlink_queue nft_fib nft_ct; do
+              nft_socket nft_queue nfnetlink_queue nft_fib nft_ct wireguard; do
             if sudo modprobe "$module" 2>/dev/null; then echo "module $module: loaded"; else echo "module $module: MISSING"; fi
           done
           ls -l /dev/net/tun
@@ -835,6 +837,7 @@ jobs:
           cargo test --locked -p sail --no-run --test test_auto_redirect_linux \
             --test test_auto_route_linux --test test_network_switch_linux --test test_tproxy_linux
           cargo test --locked -p sail --features fault-injection --test test_teardown --no-run
+          cargo test --locked -p sail --features wireguard --test test_wireguard_interop --no-run
 
       - name: auto_redirect, and what a failing instance leaves
         if: always() && steps.build.outcome == 'success'
@@ -851,3 +854,7 @@ jobs:
       - name: a network switch
         if: always() && steps.build.outcome == 'success'
         run: sudo -E env "PATH=$PATH" sail/tests/scripts/network_switch_netns.sh
+
+      - name: WireGuard against the kernel's
+        if: always() && steps.build.outcome == 'success'
+        run: sudo -E env "PATH=$PATH" sail/tests/scripts/wireguard_interop_netns.sh
