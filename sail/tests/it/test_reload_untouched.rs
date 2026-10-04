@@ -521,3 +521,83 @@ async fn a_udp_session_goes_on_through_a_reload() {
     echoed!(b"after all was built again");
     instance.stop().await.unwrap();
 }
+
+/// An endpoint is only set up at a start. A reload that changes the
+/// defaults every dial goes by while one runs is taken, and tells that
+/// the endpoint goes on with those it was built with; one that changes
+/// nothing of them, or the inbounds alone, tells nothing.
+#[cfg(feature = "wireguard")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_reload_tells_what_did_not_reach_an_endpoint_that_runs() {
+    use sail::embed::ReloadNote;
+
+    let [keep] = common::free_ports();
+    let config = |dns: serde_json::Value, rules: serde_json::Value| {
+        Config::Json(
+            serde_json::json!({
+                "log": { "level": "info" },
+                "dns": dns,
+                "inbounds": [{ "type": "socks", "tag": "keep",
+                               "listen": "127.0.0.1", "listen_port": keep }],
+                "outbounds": [{ "type": "direct", "tag": "direct" }],
+                // A peer nowhere: the endpoint runs, and reaches nothing.
+                "endpoints": [{
+                    "type": "wireguard", "tag": "wg",
+                    "address": ["10.0.0.2/32"],
+                    "private_key": "YFf6vyGG0nAu8ZlKIYO7nZbcfdd2dbmodt1XRkcCdU4=",
+                    "peers": [{
+                        "address": "192.0.2.1", "port": 51820,
+                        "public_key": "Z1XXLsKYkYxuiYjJIkRvtIKFepCYHTgON+GwPq7SOV4=",
+                        "allowed_ips": ["0.0.0.0/0"],
+                    }],
+                }],
+                "route": { "rules": rules, "final": "direct" },
+            })
+            .to_string(),
+        )
+    };
+    let none = serde_json::json!([]);
+    let any = serde_json::json!({});
+    let instance = Instance::new(Options::new().threads(Threads::One).log_lines(100)).unwrap();
+    instance
+        .start(config(any.clone(), none.clone()))
+        .await
+        .unwrap();
+
+    // A rule more: all is built again, the defaults as they were.
+    let rule = serde_json::json!([{ "port": [1], "outbound": "direct" }]);
+    let report = instance
+        .reload(Some(config(any.clone(), rule.clone())))
+        .await
+        .unwrap();
+    assert_eq!(report.path, ReloadPath::Full);
+    assert!(report.notes.is_empty(), "{:?}", report.notes);
+
+    // The families dials use change: taken, and told of the endpoint.
+    let ipv4 = serde_json::json!({ "strategy": "ipv4_only" });
+    let report = instance
+        .reload(Some(config(ipv4.clone(), rule.clone())))
+        .await
+        .unwrap();
+    assert_eq!(report.path, ReloadPath::Full);
+    assert_eq!(
+        report.notes,
+        [ReloadNote::EndpointKeepsDefaults {
+            endpoint: "wg".to_string(),
+            options: vec!["dns.strategy"],
+        }]
+    );
+    assert!(
+        report.notes[0]
+            .to_string()
+            .contains("applies at the next start"),
+        "{}",
+        report.notes[0]
+    );
+
+    // The same again is the inbounds alone, and has nothing to tell.
+    let report = instance.reload(Some(config(ipv4, rule))).await.unwrap();
+    assert_eq!(report.path, ReloadPath::InboundsOnly);
+    assert!(report.notes.is_empty(), "{:?}", report.notes);
+    instance.stop().await.unwrap();
+}

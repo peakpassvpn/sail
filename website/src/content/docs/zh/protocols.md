@@ -35,7 +35,7 @@ Sail 不实现的字段绝不靠猜。不影响路由和安全的字段会被丢
 | Hysteria2 | 是 | 是 | QUIC、UDP、Salamander 混淆；出站支持端口跳跃，入站支持伪装站 |
 | TUIC | 是 | 是 | QUIC stream 与 datagram |
 | MPTP | 是 | 是 | 多路径聚合为逻辑隧道；Sail 自有协议，见 [MPTP](/sail/zh/mptp/) |
-| WireGuard | 端点 | 端点 | sing-box 的 `endpoints` 条目：同一标签下既是入站也是出站，运行在 Sail 的用户态 TCP/IP 协议栈上 |
+| WireGuard | 端点 | 端点 | 端点只在启动时建立：重载会保留它继续运行，拒绝对它的修改；重载改动了 `route.default_*` 或 `dns.strategy` 时，端点仍用它建立时的默认值，并在结果和日志里说明。sing-box 的 `endpoints` 条目：同一标签下既是入站也是出站，运行在 Sail 的用户态 TCP/IP 协议栈上 |
 
 其他出站有 `direct`、`block`、`pass`（Mihomo 的 PASS，见[路由规则](/sail/zh/routing/#跳过规则pass)）和 `redirect`（把所有连接发往一个固定地址）。其他入站包括 `direct`、`tun` 以及下文的透明代理入站。
 

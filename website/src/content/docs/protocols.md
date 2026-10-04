@@ -35,7 +35,7 @@ A field Sail does not implement is never guessed at. One whose absence changes n
 | Hysteria2 | Yes | Yes | QUIC, UDP, Salamander obfuscation, port hopping on the outbound, masquerade on the inbound |
 | TUIC | Yes | Yes | QUIC streams and datagrams |
 | MPTP | Yes | Yes | Multiple paths as one logical tunnel; a Sail protocol, see [MPTP](/sail/mptp/) |
-| WireGuard | Endpoint | Endpoint | sing-box's `endpoints` entry: inbound and outbound under one tag, over Sail's userspace TCP/IP stack |
+| WireGuard | Endpoint | Endpoint | An endpoint is set up only at a start: a reload keeps it running, refuses a change to it, and, where it changes `route.default_*` or `dns.strategy`, leaves the endpoint on the defaults it was built with and says so. sing-box's `endpoints` entry: inbound and outbound under one tag, over Sail's userspace TCP/IP stack |
 
 Other outbounds are `direct`, `block`, `pass` (Mihomo's PASS, see [Routing](/sail/routing/#pass-a-rule-on-pass)) and `redirect`, which sends every connection to one fixed address. Other inbounds include `direct`, `tun` and the transparent ones below.
 

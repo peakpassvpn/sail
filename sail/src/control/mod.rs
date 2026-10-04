@@ -36,6 +36,36 @@ pub struct ReloadReport {
     /// connections went through was kept, or was not.
     pub path: ReloadPath,
     pub inbounds: Vec<(String, InboundChange)>,
+    /// What the reload took and did not reach everything with.
+    pub notes: Vec<ReloadNote>,
+}
+
+/// Something a reload took that did not reach all it concerns.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ReloadNote {
+    /// The reload changed defaults every dial goes by, `options` as the
+    /// configuration names them, while the endpoint `endpoint` runs: an
+    /// endpoint is only set up at a start, so it, and the outbounds it is
+    /// built on, go on with the defaults they were built with. The change
+    /// applies to them at the next start, and to all else now.
+    EndpointKeepsDefaults {
+        endpoint: String,
+        options: Vec<&'static str>,
+    },
+}
+
+impl std::fmt::Display for ReloadNote {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ReloadNote::EndpointKeepsDefaults { endpoint, options } => write!(
+                f,
+                "[{}] endpoint: {} changed; it goes on with what it was built with: applies at the next start",
+                endpoint,
+                options.join(", ")
+            ),
+        }
+    }
 }
 
 /// How much a reload built again.

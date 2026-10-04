@@ -151,6 +151,17 @@ the rest of this section applies.
   starts the groups' checks over. To have everything built again, change
   something else, or stop and start.
 
+`ReloadReport::notes` tells what a reload took and did not reach
+everything with. Today there is one: an endpoint (WireGuard) is only set
+up at a start, so a reload that changes the defaults every dial goes by
+(`route.default_interface`, `auto_detect_interface`, `default_mark`,
+`default_domain_resolver`, the `default_network_*` options,
+`dns.strategy`) while an endpoint runs is taken, applies to everything
+else, and gives `ReloadNote::EndpointKeepsDefaults` for each endpoint
+with the options that changed: the endpoint, and the outbounds it is
+built on, go on with those they were built with until the next start.
+The log has the same as a warning.
+
 A full reload:
 
 | | after a full reload |

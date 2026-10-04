@@ -185,8 +185,13 @@ mod handlers {
                     .iter()
                     .map(|(tag, change)| serde_json::json!({ "tag": tag, "change": change.name() }))
                     .collect();
-                Json(serde_json::json!({ "path": report.path.name(), "inbounds": inbounds }))
-                    .into_response()
+                let notes: Vec<_> = report.notes.iter().map(|note| note.to_string()).collect();
+                Json(serde_json::json!({
+                    "path": report.path.name(),
+                    "inbounds": inbounds,
+                    "notes": notes,
+                }))
+                .into_response()
             }
             Err(e) => {
                 warn!("reload failed, the configuration running is kept: {:#}", e);

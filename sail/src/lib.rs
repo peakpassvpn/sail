@@ -683,6 +683,34 @@ impl RuntimeManager {
             .map_err(|_| Error::RuntimeManager)?
             .prepare_reload(&config.inbounds)?;
         let dial_defaults = dial_defaults(&config, &self.env).map_err(Error::Config)?;
+        // An endpoint is only set up at a start: one that runs, and what
+        // it is built on, go on with the defaults they were built with.
+        // The reload is taken all the same, and tells so.
+        let notes: Vec<control::ReloadNote> = {
+            let options = self
+                .dial_defaults
+                .load()
+                .route
+                .differs_in(&dial_defaults.route);
+            let mut endpoints: Vec<String> = match options.is_empty() {
+                true => Vec::new(),
+                false => self
+                    .outbound_manager
+                    .load()
+                    .endpoint_servers()
+                    .into_iter()
+                    .map(|(tag, _)| tag)
+                    .collect(),
+            };
+            endpoints.sort();
+            endpoints
+                .into_iter()
+                .map(|endpoint| control::ReloadNote::EndpointKeepsDefaults {
+                    endpoint,
+                    options: options.clone(),
+                })
+                .collect()
+        };
         // The detours of DNS servers and HTTP clients find the outbounds
         // that replace these.
         dial_defaults.env.outbounds.set(&self.outbound_manager);
@@ -837,9 +865,13 @@ impl RuntimeManager {
         *self.running.lock().unwrap_or_else(|e| e.into_inner()) = Some(running);
         self.reloads
             .fetch_add(1, portable_atomic::Ordering::Relaxed);
+        for note in &notes {
+            warn!("{}", note);
+        }
         Ok(control::ReloadReport {
             path: control::ReloadPath::Full,
             inbounds: reloaded.changes,
+            notes,
         })
     }
 
@@ -877,6 +909,7 @@ impl RuntimeManager {
         Ok(control::ReloadReport {
             path: control::ReloadPath::InboundsOnly,
             inbounds: reloaded.changes,
+            notes: Vec::new(),
         })
     }
 

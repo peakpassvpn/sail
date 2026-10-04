@@ -47,6 +47,44 @@ pub struct RouteDefaults {
 }
 
 impl RouteDefaults {
+    /// The options, as the configuration names them, in which `other`
+    /// differs from these: what a reload changed of the defaults, for
+    /// telling what goes on with those it was built with.
+    pub fn differs_in(&self, other: &RouteDefaults) -> Vec<&'static str> {
+        let mut options = Vec::new();
+        if self.bind_interface != other.bind_interface {
+            options.push("route.default_interface");
+        }
+        if self.auto_detect_interface != other.auto_detect_interface
+            || (self.inet4_bind_address, self.inet6_bind_address)
+                != (other.inet4_bind_address, other.inet6_bind_address)
+        {
+            options.push("route.auto_detect_interface");
+        }
+        if self.routing_mark != other.routing_mark {
+            options.push("route.default_mark");
+        }
+        if self.domain_resolver != other.domain_resolver {
+            options.push("route.default_domain_resolver");
+        }
+        if self.network_strategy != other.network_strategy {
+            options.push("route.default_network_strategy");
+        }
+        if self.network_type != other.network_type {
+            options.push("route.default_network_type");
+        }
+        if self.fallback_network_type != other.fallback_network_type {
+            options.push("route.default_fallback_network_type");
+        }
+        if self.fallback_delay != other.fallback_delay {
+            options.push("route.default_fallback_delay");
+        }
+        if self.ipv6 != other.ipv6 {
+            options.push("dns.strategy");
+        }
+        options
+    }
+
     /// The defaults `route` sets, checked against this platform. What
     /// `auto_detect_interface` finds is added at start, where the system
     /// is asked.
