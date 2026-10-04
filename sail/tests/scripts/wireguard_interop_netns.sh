@@ -63,8 +63,18 @@ in_ns "$KERNEL" wg set wg0 private-key "$KEYS/kernel.key" listen-port 51820 \
 in_ns "$KERNEL" ip addr add 10.99.0.1/24 dev wg0
 in_ns "$KERNEL" ip addr add fd99::1/64 dev wg0
 in_ns "$KERNEL" ip link set wg0 mtu 1420 up
+# The IPv6 server is IPv6-only: dual-stack, its bind would collide with
+# the IPv4 server's on port 7, and it would never run.
 in_ns "$KERNEL" socat UDP4-RECVFROM:7,fork EXEC:cat &
-in_ns "$KERNEL" socat UDP6-RECVFROM:7,fork EXEC:cat &
+in_ns "$KERNEL" socat UDP6-RECVFROM:7,ipv6only=1,fork EXEC:cat &
+for _ in $(seq 50); do
+    [ "$(in_ns "$KERNEL" ss -Hulnp 'sport = :7' | grep -c socat)" = 2 ] && break
+    sleep 0.1
+done
+if [ "$(in_ns "$KERNEL" ss -Hulnp 'sport = :7' | grep -c socat)" != 2 ]; then
+    echo "the UDP echo servers did not both start"
+    exit 1
+fi
 
 in_ns "$SAIL" env WG_KERNEL_PUBLIC="$(wg pubkey <"$KEYS/kernel.key")" \
     WG_SAIL_PRIVATE="$(cat "$KEYS/sail.key")" \

@@ -19,7 +19,7 @@
 //! ip -n sailwg-a addr add fd99::1/64 dev wg0
 //! ip -n sailwg-a link set wg0 mtu 1420 up
 //! ip netns exec sailwg-a socat UDP4-RECVFROM:7,fork EXEC:cat &
-//! ip netns exec sailwg-a socat UDP6-RECVFROM:7,fork EXEC:cat &
+//! ip netns exec sailwg-a socat UDP6-RECVFROM:7,ipv6only=1,fork EXEC:cat &
 //!
 //! WG_KERNEL_PUBLIC="$(wg pubkey < kernel.key)" WG_SAIL_PRIVATE="$(cat sail.key)" \
 //!     ip netns exec sailwg-b cargo test -p sail --features wireguard \
