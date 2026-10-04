@@ -48,6 +48,19 @@ the one that gave it up lost, and the error names it. A TUN
 inbound is the exception: adding, removing or changing one refuses the
 whole reload ("only at a start; restart to apply"), and nothing changes.
 
+A file that differs from what runs only in `inbounds` (and the users'
+limits) touches nothing else: the outbounds and their sessions, the
+groups and what they measured, the DNS client and its cache, the routing
+and the rule-sets are the ones that ran before. The journal says `only the
+inbounds differ: nothing else is built again`. "Differs" is said of the
+configuration as read, so spacing, key order or a default written out
+change nothing. A file the configuration names and sail does not watch
+(root certificates, an outbound's certificate or key, a provider's or a
+rule-set's file, the geo databases) is noted by size and modification
+time when it is read: rewrite one, and the next reload builds everything
+again. So does the first reload after an outbound was added or removed
+through the API.
+
 | Edited | `systemctl reload` | Takes effect |
 |---|---|---|
 | DNS, outbounds, routing, an inbound's users or TLS certificates | applies it | at once, for new connections |
