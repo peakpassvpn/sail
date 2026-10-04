@@ -17,6 +17,10 @@ use crate::Runner;
 use super::network_listener::NetworkInboundListener;
 use super::resource::{self, StreamGeneration, StreamResource};
 
+mod reload;
+pub use reload::InboundChange;
+pub(crate) use reload::Refused;
+
 /// Nothing is published until every candidate (and the other reloadable
 /// components) has been built successfully. Commit itself cannot fail.
 pub(crate) struct PreparedResources {
@@ -31,6 +35,9 @@ use super::cat_listener::CatInboundListener;
 #[cfg(feature = "inbound-tun")]
 use super::tun_listener::TunInboundListener;
 
+/// A listener's task: ended, its socket is closed.
+type ListenerTask = tokio::task::JoinHandle<Result<(), futures::future::Aborted>>;
+
 pub struct InboundManager {
     stateful_resources: HashSet<String>,
     states: HashMap<String, Arc<registry::InboundState>>,
@@ -43,6 +50,9 @@ pub struct InboundManager {
     network_listeners: HashMap<String, NetworkInboundListener>,
     /// The tasks of each started listener.
     running: HashMap<String, Vec<AbortHandle>>,
+    /// The same tasks, to wait for: one that has ended has closed its
+    /// socket, and its address can be bound again.
+    ended: HashMap<String, Vec<ListenerTask>>,
     dispatcher: Arc<Dispatcher>,
     nat_manager: Arc<NatManager>,
     /// What the inbounds dial with when they connect somewhere themselves.
@@ -178,6 +188,7 @@ impl InboundManager {
             dependencies,
             network_listeners,
             running: HashMap::new(),
+            ended: HashMap::new(),
             dispatcher,
             nat_manager,
             dial,
@@ -211,36 +222,33 @@ impl InboundManager {
                 stopped += 1;
             }
         }
+        self.ended.clear();
         stopped
     }
 
     fn run(&mut self, tag: String, runners: Vec<Runner>) {
-        let handles = runners
+        let (handles, tasks) = runners
             .into_iter()
             .map(|runner| {
                 let (task, handle) = abortable(runner);
                 // The instance's scope, whoever adds it: the start, the
                 // API, a test driving the manager directly.
-                self.dispatcher
+                let task = self
+                    .dispatcher
                     .env()
                     .scope
                     .spawn_essential("inbound listener", task);
-                handle
+                (handle, task)
             })
-            .collect();
-        self.running.insert(tag, handles);
+            .unzip();
+        self.running.insert(tag.clone(), handles);
+        self.ended.insert(tag, tasks);
     }
 
     /// Builds replacement users/certificates without binding any sockets or
     /// mutating live resources. Re-read certificate files even if the JSON
     /// did not change. Unsupported inbounds are retained, never rebuilt.
-    pub(crate) fn prepare_resources(
-        &self,
-        inbounds: &[config::Inbound],
-    ) -> Result<PreparedResources> {
-        self.prepare_selected_resources(inbounds, None)
-    }
-
+    /// One inbound's, for a host: a reload goes through `prepare_reload`.
     fn prepare_selected_resources(
         &self,
         inbounds: &[config::Inbound],
@@ -273,6 +281,18 @@ impl InboundManager {
                 "inbound: reload cannot remove listeners; use remove_inbound"
             ));
         }
+        self.prepare_kept(inbounds, configs, selected)
+    }
+
+    /// The users and certificates of `inbounds`, which are inbounds it
+    /// has, as they are to be: of `selected` alone, or of every one that
+    /// takes new ones without its socket rebound.
+    fn prepare_kept(
+        &self,
+        inbounds: &[config::Inbound],
+        configs: HashMap<String, config::Inbound>,
+        selected: Option<&str>,
+    ) -> Result<PreparedResources> {
         let mut updates = Vec::new();
         let mut protocol_updates = Vec::new();
         let mut states = self.states.clone();
@@ -467,6 +487,7 @@ impl InboundManager {
         for handle in self.running.remove(tag).unwrap_or_default() {
             handle.abort();
         }
+        self.ended.remove(tag);
         self.network_listeners.remove(tag);
         self.handlers.remove(tag);
         self.dependencies.remove(tag);
@@ -603,6 +624,91 @@ pub(crate) fn plan_listeners<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A reload sorts the inbounds by what became of each, and refuses,
+    /// with an error of its own, what only a start does: a TUN added,
+    /// removed or changed.
+    #[cfg(all(
+        feature = "inbound-socks",
+        feature = "inbound-tun",
+        feature = "outbound-direct"
+    ))]
+    #[tokio::test]
+    async fn a_reload_sorts_the_inbounds_and_refuses_what_takes_a_start() {
+        use serde_json::json;
+        let socks = |tag: &str, port: u16| json!({"type": "socks", "tag": tag, "listen": "127.0.0.1", "listen_port": port});
+        let tun = |mtu: u32| json!({"type": "tun", "tag": "tun-in", "address": ["172.19.0.1/30"], "mtu": mtu});
+        let inbounds = |inbounds: serde_json::Value| {
+            config::Config::from_json(
+                &json!({"inbounds": inbounds, "outbounds": [{"type": "direct"}]}).to_string(),
+            )
+            .unwrap()
+            .inbounds
+        };
+        let build = |inbounds: serde_json::Value| {
+            let config = config::Config::from_json(
+                &json!({"inbounds": inbounds, "outbounds": [{"type": "direct"}]}).to_string(),
+            )
+            .unwrap();
+            crate::app::instance::Instance::build(&config, Arc::default(), Arc::default()).unwrap()
+        };
+        let refused = |manager: &InboundManager, to: serde_json::Value| match manager
+            .prepare_reload(&inbounds(to))
+        {
+            Err(Refused::NeedsRestart(why)) => why,
+            Err(other) => panic!("refused otherwise: {:?}", other),
+            Ok(_) => panic!("taken"),
+        };
+
+        // Not started: nothing is bound, and port 0 binds anywhere.
+        let with_tun = build(json!([socks("a", 0), tun(1500)]));
+        let manager = with_tun.inbound_manager.lock().unwrap();
+        let why = refused(&manager, json!([socks("a", 0)]));
+        assert!(why.contains("removed only at a start"), "{}", why);
+        // A service manager's script reads this ending.
+        assert!(why.ends_with(crate::RESTART_TO_APPLY), "{}", why);
+        assert!(refused(&manager, json!([socks("a", 0), tun(1400)]))
+            .contains("changed only at a start"));
+        // As it is, with another inbound changed beside it: taken.
+        let prepared = manager
+            .prepare_reload(&inbounds(json!([socks("b", 0), tun(1500)])))
+            .unwrap();
+        assert_eq!(
+            prepared.changes(),
+            [
+                ("b".to_string(), InboundChange::Added),
+                ("tun-in".to_string(), InboundChange::Untouched),
+                ("a".to_string(), InboundChange::Removed),
+            ]
+        );
+        // Users alone changed: the same listener, with new users.
+        let mut with_users = socks("a", 0);
+        with_users["users"] = json!([{"username": "u", "password": "p"}]);
+        let prepared = manager
+            .prepare_reload(&inbounds(json!([with_users, tun(1500)])))
+            .unwrap();
+        assert_eq!(
+            prepared.changes(),
+            [
+                ("a".to_string(), InboundChange::Reloaded),
+                ("tun-in".to_string(), InboundChange::Untouched),
+            ]
+        );
+        drop(manager);
+
+        let without = build(json!([socks("a", 0)]));
+        let manager = without.inbound_manager.lock().unwrap();
+        assert!(
+            refused(&manager, json!([socks("a", 0), tun(1500)])).contains("added only at a start")
+        );
+        // The same tag twice is no configuration.
+        let mut twice = inbounds(json!([socks("a", 0)]));
+        twice.push(twice[0].clone());
+        assert!(matches!(
+            manager.prepare_reload(&twice),
+            Err(Refused::Config(_))
+        ));
+    }
 
     /// A user taken out of an inbound loses what it has through it, the
     /// connections it carries others on too; not what it has through
@@ -751,8 +857,8 @@ mod tests {
         assert!(accepted(&live, &wire).await);
         {
             let mut manager = instance.inbound_manager.lock().unwrap();
-            let prepared = manager.prepare_resources(&config.inbounds).unwrap();
-            manager.publish_resources(prepared);
+            let prepared = manager.prepare_reload(&config.inbounds).unwrap();
+            manager.commit_reload(prepared);
         }
         assert!(!accepted(&live, &wire).await);
         {

@@ -273,6 +273,55 @@ fn a_reload_that_fails_says_why_and_keeps_what_runs() -> anyhow::Result<()> {
         )?;
         let (status, _, body) = call(&rt, &at, Some(SECRET), "POST", reload, "")?;
         anyhow::ensure!(status == 200, "{} {}", status, body);
+
+        // A reload tells what became of each inbound: one the file adds,
+        // then one it no longer has.
+        #[cfg(feature = "inbound-socks")]
+        {
+            let [socks_port] = common::free_ports();
+            let with_inbounds = |inbounds: serde_json::Value| {
+                let mut config: serde_json::Value = serde_json::from_str(&config(
+                    api_port,
+                    serde_json::json!([{ "type": "direct", "tag": "d" }]),
+                ))
+                .unwrap();
+                config["inbounds"] = inbounds;
+                config.to_string()
+            };
+            let changes = |body: &serde_json::Value| -> Vec<(String, String)> {
+                body["inbounds"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .map(|i| {
+                        (
+                            i["tag"].as_str().unwrap_or_default().to_string(),
+                            i["change"].as_str().unwrap_or_default().to_string(),
+                        )
+                    })
+                    .collect()
+            };
+            std::fs::write(
+                &path,
+                with_inbounds(serde_json::json!([{ "type": "socks", "tag": "s",
+                    "listen": "127.0.0.1", "listen_port": socks_port }])),
+            )?;
+            let (status, _, body) = call(&rt, &at, Some(SECRET), "POST", reload, "")?;
+            anyhow::ensure!(status == 200, "{} {}", status, body);
+            anyhow::ensure!(
+                changes(&body) == [("s".to_string(), "added".to_string())],
+                "{}",
+                body
+            );
+            std::fs::write(&path, with_inbounds(serde_json::json!([])))?;
+            let (status, _, body) = call(&rt, &at, Some(SECRET), "POST", reload, "")?;
+            anyhow::ensure!(status == 200, "{} {}", status, body);
+            anyhow::ensure!(
+                changes(&body) == [("s".to_string(), "removed".to_string())],
+                "{}",
+                body
+            );
+        }
         Ok(())
     })();
     sail::shutdown(id);

@@ -70,9 +70,48 @@ pub enum Error {
     /// An essential task panicked, or a lock a panic poisoned was met.
     #[error("stopped after a panic: {0}")]
     Panicked(String),
+    /// A reload that adds, removes or changes an inbound served by a
+    /// listener of its own (a TUN): only a start does that. Nothing
+    /// changed.
+    #[error("{0}")]
+    NeedsRestart(String),
+    /// A reload that was to replace the inbound `tag` on the address it
+    /// had: the new one did not bind, and the one before could not listen
+    /// again. The reload failed, and `tag` listens no more; all else is as
+    /// it was.
+    #[error("[{tag}] inbound: lost: {reason}")]
+    InboundLost { tag: String, reason: String },
+}
+
+impl From<app::inbound::manager::Refused> for Error {
+    fn from(refused: app::inbound::manager::Refused) -> Self {
+        use app::inbound::manager::Refused;
+        match refused {
+            Refused::Config(e) => Error::Config(e),
+            Refused::NeedsRestart(why) => Error::NeedsRestart(why),
+            Refused::Lost { tag, reason } => Error::InboundLost { tag, reason },
+        }
+    }
 }
 
 pub type Runner = futures::future::BoxFuture<'static, ()>;
+
+/// How long a reload goes on trying to bind an inbound to the address of
+/// the one it replaces, once that one's listener has ended. A judgment
+/// value: a TCP or UDP listener's socket is closed by then, and a QUIC
+/// endpoint's within milliseconds of it, its connections being closed
+/// with it; a second is far more, and bounds what an address that will
+/// never bind costs a reload before it is refused.
+const LATE_BIND_WITHIN: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// What the log says when a SIGHUP's reload took, and when it did not,
+/// before the reason; and how a refusal that only a restart gets past
+/// ends. A service manager's scripts read these (OpenWrt's init script
+/// decides by them whether to restart): they are not reworded.
+pub const SIGHUP_RELOADED: &str = "SIGHUP: reloaded";
+pub const SIGHUP_NOT_LOADED: &str =
+    "SIGHUP: the configuration is not loaded, the one before runs on";
+pub const RESTART_TO_APPLY: &str = "restart to apply";
 
 pub struct RuntimeManager {
     /// The runtime the instance runs on.
@@ -555,6 +594,11 @@ impl RuntimeManager {
     /// build changes nothing. Connections already routed keep what they
     /// were routed with.
     pub async fn reload(&self) -> Result<(), Error> {
+        self.reload_reporting().await.map(|_| ())
+    }
+
+    /// `reload`, and what it did to each inbound.
+    pub async fn reload_reporting(&self) -> Result<control::ReloadReport, Error> {
         let config_path = if let Some(p) = self.config_path.as_ref() {
             p
         } else {
@@ -563,24 +607,33 @@ impl RuntimeManager {
         let _update = self.update.lock().await;
         info!("reloading from config file: {}", config_path);
         let config = config::from_file_for(config_path, &self.env.host).map_err(Error::Config)?;
-        self.apply(config).await?;
+        let report = self.apply(config).await?;
         info!("reloaded from config file: {}", config_path);
-        Ok(())
+        Ok(report)
     }
 
     /// Reloads with `config`, as a reload from the file does: the host's,
     /// for an instance started from a string.
     pub async fn reload_with(&self, config: config::Config) -> Result<(), Error> {
+        self.reload_with_reporting(config).await.map(|_| ())
+    }
+
+    /// `reload_with`, and what it did to each inbound.
+    pub async fn reload_with_reporting(
+        &self,
+        config: config::Config,
+    ) -> Result<control::ReloadReport, Error> {
         let _update = self.update.lock().await;
         info!("reloading with the configuration given");
-        self.apply(config).await?;
+        let report = self.apply(config).await?;
         info!("reloaded with the configuration given");
-        Ok(())
+        Ok(report)
     }
 
     /// Replaces what the instance runs with what `config` makes, keeping
-    /// all that did not change; the changes lock is held.
-    async fn apply(&self, config: config::Config) -> Result<(), Error> {
+    /// all that did not change; the changes lock is held. The inbounds it
+    /// has are those that run after it: see app/inbound/manager/reload.rs.
+    async fn apply(&self, config: config::Config) -> Result<control::ReloadReport, Error> {
         #[cfg(feature = "inbound-tun")]
         let config = {
             let mut config = config;
@@ -598,12 +651,14 @@ impl RuntimeManager {
         // watched show against this.
         #[cfg(feature = "auto-reload")]
         let inbound_files = app::inbound::follow::about_to_read(&config.inbounds, &self.env);
-        let inbound_resources = self
+        // Built, and bound where no inbound that goes holds the address:
+        // nothing running is touched, and what fails from here on drops
+        // these with their sockets.
+        let mut inbound_reload = self
             .inbound_manager
             .lock()
             .map_err(|_| Error::RuntimeManager)?
-            .prepare_resources(&config.inbounds)
-            .map_err(Error::Config)?;
+            .prepare_reload(&config.inbounds)?;
         let dial_defaults = dial_defaults(&config, &self.env).map_err(Error::Config)?;
         // The detours of DNS servers and HTTP clients find the outbounds
         // that replace these.
@@ -686,21 +741,64 @@ impl RuntimeManager {
         if let Some(feed) = &self.tun_rule_sets {
             feed.check(&rule_sets).map_err(Error::Config)?;
         }
-        // Acquire the last fallible lock before publishing anything. No
-        // listener is stopped or rebound by a resource update.
-        let mut inbounds = self
+        // The last step that can fail. An inbound that goes and holds an
+        // address a new one takes stops first, and the new one binds once
+        // its socket is closed; one that does not bind puts those stopped
+        // back, listening as they were, and the reload fails with all
+        // else untouched.
+        let stopping = self
             .inbound_manager
             .lock()
-            .map_err(|_| Error::RuntimeManager)?;
-        self.env.clash_mode.configure(
-            config.clash_api.as_ref(),
-            self.env.host.clash_modes,
-            self.env.cache_file.get().as_deref(),
-        );
-        self.set_views(&config);
-        self.set_assets(&config);
-        inbounds.publish_resources(inbound_resources);
-        drop(inbounds);
+            .map_err(|_| Error::RuntimeManager)?
+            .stop_for(&mut inbound_reload);
+        for stopped in stopping {
+            // Aborted, it ends at its next poll: 2 s is far more.
+            let _ = tokio::time::timeout(std::time::Duration::from_secs(2), stopped).await;
+        }
+        // An address is free a moment after its listener's task has ended:
+        // a QUIC endpoint closes its socket once its connections are gone.
+        // The bind is tried again for that long before the reload gives up
+        // and puts back what it stopped.
+        let giving_up = tokio::time::Instant::now() + LATE_BIND_WITHIN;
+        loop {
+            let bound = self
+                .inbound_manager
+                .lock()
+                .map_err(|_| Error::RuntimeManager)?
+                .bind_late(&mut inbound_reload);
+            match bound {
+                Ok(()) => break,
+                Err(_) if tokio::time::Instant::now() < giving_up => {
+                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                }
+                Err(failed) => {
+                    return Err(self
+                        .inbound_manager
+                        .lock()
+                        .map_err(|_| Error::RuntimeManager)?
+                        .put_back(&mut inbound_reload, failed)
+                        .into());
+                }
+            }
+        }
+        // Acquire the last fallible lock before publishing anything. Held
+        // in a block of its own: nothing is awaited with it.
+        let mut reloaded = {
+            let mut inbounds = self
+                .inbound_manager
+                .lock()
+                .map_err(|_| Error::RuntimeManager)?;
+            self.env.clash_mode.configure(
+                config.clash_api.as_ref(),
+                self.env.host.clash_modes,
+                self.env.cache_file.get().as_deref(),
+            );
+            self.set_views(&config);
+            self.set_assets(&config);
+            // The inbounds that go are stopped; the new ones are bound,
+            // and accept once the routing they go by is in place.
+            inbounds.commit_reload(inbound_reload)
+        };
         // The users the new inbounds bound are limited as configured now.
         self.env
             .users
@@ -714,6 +812,23 @@ impl RuntimeManager {
         ))]
         if let Some(feed) = &self.tun_rule_sets {
             feed.publish(rule_sets.clone());
+        }
+        // What the inbounds that went had accepted goes with them, as
+        // when one is removed: those listed, then those in their handshake
+        // or carrying streams. Nothing is accepted under their tags
+        // meanwhile; the new ones run from here, on the new routing.
+        for tag in &reloaded.gone {
+            let closed = self.close_connections_of(tag).await;
+            info!(
+                "[{}] inbound: stopped by the reload; {} of its connections closed",
+                tag, closed
+            );
+        }
+        for accepted in std::mem::take(&mut reloaded.accepted) {
+            accepted.disconnect();
+        }
+        if let Ok(mut inbounds) = self.inbound_manager.lock() {
+            inbounds.start_reloaded(reloaded.take_starting());
         }
         {
             let mut updater = self
@@ -752,7 +867,25 @@ impl RuntimeManager {
         self.follow_certificates_read(&inbound_files);
         self.reloads
             .fetch_add(1, portable_atomic::Ordering::Relaxed);
-        Ok(())
+        for (tag, change) in &reloaded.changes {
+            if *change != control::InboundChange::Untouched {
+                info!("[{}] inbound: {} by the reload", tag, change.name());
+            }
+        }
+        Ok(control::ReloadReport {
+            inbounds: reloaded.changes,
+        })
+    }
+
+    /// Closes the connections listed under the inbound `tag`; how many.
+    async fn close_connections_of(&self, tag: &str) -> usize {
+        let mut closed = 0;
+        for connection in self.connections().await {
+            if connection.inbound_tag == tag && self.close_connection(connection.id).await {
+                closed += 1;
+            }
+        }
+        closed
     }
 
     /// How many reloads took since the instance started.
@@ -927,12 +1060,7 @@ impl RuntimeManager {
         // closed and counted first; then whatever else the inbound accepted
         // over TCP ends, a connection still in its handshake or one that
         // carries streams, which are not among those listed.
-        let mut closed = 0;
-        for connection in self.connections().await {
-            if connection.inbound_tag == tag && self.close_connection(connection.id).await {
-                closed += 1;
-            }
-        }
+        let closed = self.close_connections_of(tag).await;
         accepted.disconnect();
         info!(
             "removed inbound [{}]; {} of its connections closed",
@@ -1984,11 +2112,8 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
                 while hangup.recv().await.is_some() {
                     info!("SIGHUP: reloading");
                     match rm.reload().await {
-                        Ok(()) => info!("SIGHUP: reloaded"),
-                        Err(e) => tracing::error!(
-                            "SIGHUP: the configuration is not loaded, the one before runs on: {}",
-                            e
-                        ),
+                        Ok(()) => info!("{}", SIGHUP_RELOADED),
+                        Err(e) => tracing::error!("{}: {}", SIGHUP_NOT_LOADED, e),
                     }
                 }
                 std::future::pending::<()>().await
@@ -2125,6 +2250,23 @@ fn log_file_limit() {
 
 #[cfg(test)]
 mod tests {
+    /// What a service manager's scripts read of the log stays as it is:
+    /// sail-openwrt's init script restarts sail, or does not, by these.
+    #[test]
+    fn the_lines_a_service_manager_reads_are_not_reworded() {
+        assert_eq!(super::SIGHUP_RELOADED, "SIGHUP: reloaded");
+        assert_eq!(
+            super::SIGHUP_NOT_LOADED,
+            "SIGHUP: the configuration is not loaded, the one before runs on"
+        );
+        assert_eq!(super::RESTART_TO_APPLY, "restart to apply");
+        let refused = super::Error::NeedsRestart(format!(
+            "[tun-in] inbound: a tun inbound is changed only at a start; {}",
+            super::RESTART_TO_APPLY
+        ));
+        assert!(format!("{}: {}", super::SIGHUP_NOT_LOADED, refused).contains("restart to apply"));
+    }
+
     use super::*;
 
     /// The notices of a switch, 3 ms apart, are taken 100 ms after the

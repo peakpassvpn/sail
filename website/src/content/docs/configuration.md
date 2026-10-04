@@ -153,7 +153,7 @@ The management API: `GET /api/v1` gives this build's version and features. Under
 | `GET /status` | Traffic in total, connections and memory |
 | `GET /events` | Server-Sent Events of what happens to users: `shut` (over its quota or expired, and disconnected) and `removed` (taken out of an inbound), the event's JSON as its data; `lagged`, with how many were missed, to one that fell behind |
 | `GET /connections`, `DELETE /connections`, `DELETE /connections/{id}` | The connections open, closing them all, or one |
-| `POST /reload`, `POST /shutdown` | Reloads the configuration file, or stops |
+| `POST /reload`, `POST /shutdown` | Reloads the configuration file, or stops. A reload answers what became of each inbound: `{"inbounds": [{"tag", "change"}]}`, `change` one of `untouched`, `reloaded` (new users or certificate), `added`, `removed`, `replaced`; the connections of those removed and replaced are closed, and no others. 409 (`needs_restart`) when the file adds, removes or changes a TUN: nothing changed |
 | `GET /inbounds` | The inbounds: tag, type, where they listen, and whether their users change while they run (`reloadable`) |
 | `POST /inbounds`, `DELETE /inbounds/{tag}`, `POST /outbounds`, `DELETE /outbounds/{tag}` | Adds or removes one, as the configuration has them |
 | `PUT /inbounds/{tag}` | Replaces a reloadable inbound's users and certificate by the body, the whole inbound, without rebinding its socket; 204 |
@@ -164,7 +164,7 @@ The management API: `GET /api/v1` gives this build's version and features. Under
 
 A change to the users of an inbound that is not reloadable answers 422 (`unsupported`): change it with a reload.
 
-What the API changes is not written to the configuration: a reload or a restart goes by the file. A user is 404 when no inbound has it.
+What the API changes is not written to the configuration: a reload or a restart goes by the file. An inbound added through the API and not in the file is removed by the next reload, so write it to the file as well. A user is 404 when no inbound has it.
  The Clash API, which dashboards use, is configured in `clash_api` or in sing-box's `experimental.clash_api`, not both.
 
 ## Sail extensions

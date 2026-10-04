@@ -71,6 +71,7 @@ mod test_quic_trojan;
 mod test_reality;
 mod test_redaction;
 mod test_reload;
+mod test_reload_inbounds;
 mod test_reload_sessions;
 mod test_route_actions;
 mod test_route_dial_domain;

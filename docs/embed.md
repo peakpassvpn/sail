@@ -124,14 +124,49 @@ nothing.
 
 | | after a reload |
 |---|---|
-| inbound listeners | kept: no listener is closed or rebound. An inbound's users and certificates are replaced. An inbound added or removed in the configuration takes a restart, or `add_inbound`/`remove_inbound` |
-| connections already open | kept, on the outbound they were routed through (tested for a direct outbound over a socks inbound, with only `dns.servers` changed) |
+| inbounds | those the configuration has are those that run. Compared by tag with those running: one that is the same is not touched; one whose users, certificate or key alone changed gets them, its listener kept; a new one is built and listens; one the configuration no longer has is removed; one changed otherwise (its port, its type, its transport) is replaced. A TUN is set up only at a start: see below |
+| connections already open | kept, on the outbound they were routed through, except those of an inbound removed or replaced, which are closed (tested: `sail/tests/it/test_reload_inbounds.rs`, where connections on an untouched inbound carry on through a reload byte for byte) |
 | outbounds | rebuilt from the new configuration. Endpoints (WireGuard) and the outbounds they are built on are kept. Tasks the replaced outbounds ran (health checks, idle-session cleanup) stop. The replaced outbounds' sessions (AnyTLS, sing-mux) carry the connections they hold, and close when those connections end |
 | group selections, pins | kept, for groups of the same tag |
 | delays measured | kept |
 | DNS client | rebuilt from the new `dns`. **Its cache starts empty** |
 | routing, rule-sets | rebuilt; rule-sets the configuration still names, and already downloaded, are not downloaded again |
 | traffic counters | kept. Counters of inbounds and outbounds that are gone are dropped once nothing counts to them |
+
+**The inbounds.** `reload` returns a `ReloadReport`: each inbound of the
+configuration, in its order, then those it no longer has, with what
+became of it.
+
+| `InboundChange` | the inbound | its connections |
+|---|---|---|
+| `Untouched` | as it was | go on |
+| `Reloaded` | new users, certificate or key; the listener kept | go on (a removed user's are closed) |
+| `Added` | built, listening | — |
+| `Removed` | stopped | closed |
+| `Replaced` | the one before stopped, this one in its place | the one before's are closed |
+
+- **The configuration is what runs.** An inbound added with
+  `add_inbound` and not in the configuration reloaded is removed by the
+  reload. A host that adds one keeps it in the configuration it reloads
+  with, and finds it `Untouched`.
+- **Nothing is half applied.** What is new is built and bound before
+  anything running is touched, and a reload that cannot bind what it adds
+  fails with all as it was. An inbound replaced on the address it has
+  must stop before the new one binds: if that bind fails, the one before
+  listens again, its connections never touched, and the reload fails.
+- **Two errors of their own.**
+  - `ErrorKind::NeedsRestart`: the configuration adds, removes or changes
+    an inbound that only a start sets up, a TUN. Nothing changed; stop
+    and start to apply it.
+  - `ErrorKind::InboundLost`: an inbound was to be replaced on its
+    address, the new one did not bind, and the one before could not
+    listen again (another program took the port meanwhile). The reload
+    failed, all else is as it was, and that inbound, which the message
+    names, listens no more: reload again, or add it.
+- New and replaced inbounds accept once the new routing is in place.
+- sing-box closes every connection on a reload: it builds the instance
+  anew. sail closes those of the inbounds removed or replaced, and no
+  others.
 
 So a reload that changes only `dns.servers` swaps the servers and does not
 interrupt established connections. New queries go to the new servers, with
@@ -391,6 +426,8 @@ Every start first sweeps what a killed instance left there.
 | `Panicked` | `panicked` | sail panicked. The instance has failed and may be started again |
 | `Internal` | `internal` | a bug: the message says what |
 | `TunNameTaken` | `tun_name_taken` | a TUN's device name is in use. A configured one: change it. One sail chose: each free name it tried was taken before it opened, and starting again may well succeed |
+| `NeedsRestart` | `needs_restart` | a reload whose configuration adds, removes or changes an inbound that only a start sets up (a TUN). Nothing changed: stop and start to apply it |
+| `InboundLost` | `inbound_lost` | a reload that was to replace an inbound on the address it had: the new one did not bind, and the one before could not listen again. The reload failed, all else is as it was, and the inbound the message names listens no more: reload again, or `add_inbound` it |
 
 ## Panics
 

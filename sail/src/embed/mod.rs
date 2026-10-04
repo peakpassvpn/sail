@@ -29,6 +29,7 @@ pub use crate::control::{
     ConnectionInfo, Delay, Failure, GroupInfo, InboundInfo, Mode, OutboundInfo, ProviderInfo,
     RuleSetInfo, SourceKind, SubscriptionInfo, Traffic,
 };
+pub use crate::control::{InboundChange, ReloadReport};
 pub use crate::platform::sweep::RunDir;
 pub use crate::runtime::platform::{ConnectionOwner, ConnectionQuery};
 pub use crate::runtime::{Platform, TunRequest};

@@ -339,6 +339,58 @@ fn quic_users_and_certificates_rotate_without_disconnecting_sessions() -> Result
     Ok(())
 }
 
+/// A QUIC inbound replaced by a reload on the port it has: the endpoint
+/// before holds the UDP socket until it and its connections are gone, a
+/// moment after its listener has ended, and the new one binds once it
+/// is. The session open on the one before ends; a new one is served.
+#[test]
+fn a_quic_inbound_is_replaced_by_a_reload_on_the_port_it_has() -> Result<()> {
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()?;
+    for protocol in ["hysteria2", "tuic", "trojan-quic"] {
+        let [port] = common::free_ports();
+        let pair = rcgen::generate_simple_self_signed(vec!["localhost".into()])?;
+        let (cert, key) = (pair.cert.pem(), pair.key_pair.serialize_pem());
+        let before = inbound(protocol, port, &["alice"], &cert, &key);
+        // Something other than its users and certificate changes.
+        let mut after = before.clone();
+        after["udp_timeout"] = json!("1m");
+        let config = |inbound: &Value| {
+            json!({"inbounds":[inbound],"outbounds":[{"type":"direct"}]}).to_string()
+        };
+        let running = Running(common::run_sail_instances(&rt, vec![config(&before)])?);
+        let manager = sail::runtime_managers().get(&running.0[0]).unwrap().clone();
+        rt.block_on(async {
+            let (address, echo) = common::run_tcp_echo_server("127.0.0.1:0").await?;
+            let echo_task = tokio::spawn(echo);
+            let (_old_client, old_handler) = client(protocol, port, "alice", &cert)?;
+            let mut old_stream = open(&old_handler, address).await?;
+            ping(&mut old_stream).await?;
+
+            let report = manager
+                .reload_with_reporting(sail::config::from_string(&config(&after))?)
+                .await
+                .map_err(|e| anyhow::anyhow!("{protocol}: the reload: {e}"))?;
+            ensure!(
+                report.inbounds == [("server".to_string(), sail::control::InboundChange::Replaced)],
+                "{protocol}: {:?}",
+                report
+            );
+            ensure!(
+                refused(&mut old_stream).await,
+                "a session of the inbound before outlived it: {protocol}"
+            );
+            let (_new_client, new_handler) = client(protocol, port, "alice", &cert)?;
+            ping(&mut open(&new_handler, address).await?).await?;
+            echo_task.abort();
+            anyhow::Ok(())
+        })?;
+    }
+    Ok(())
+}
+
 #[cfg(all(feature = "inbound-shadowsocks", feature = "outbound-shadowsocks"))]
 #[test]
 fn ss2022_users_reload_on_live_tcp_and_udp_listeners() -> Result<()> {

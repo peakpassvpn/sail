@@ -231,9 +231,8 @@ impl Instance {
                 "called on a thread of the instance's own, where it would wait on itself",
             ));
         }
-        Ok(futures::executor::block_on(
-            self.core.reload(config.map(embed::Config::Json)),
-        )?)
+        futures::executor::block_on(self.core.reload(config.map(embed::Config::Json)))?;
+        Ok(())
     }
 }
 

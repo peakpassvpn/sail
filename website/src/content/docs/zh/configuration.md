@@ -153,7 +153,7 @@ sing-box 的 `ntp` 段会被丢弃并给出警告；其 `services`、`certificat
 | `GET /status` | 总流量、连接数和内存 |
 | `GET /events` | 以 Server-Sent Events 推送用户的变化：`shut`（超额或到期，已断开）与 `removed`（被移出入站），数据为该事件的 JSON；订阅方落后太多时收到 `lagged`，带漏掉的条数 |
 | `GET /connections`、`DELETE /connections`、`DELETE /connections/{id}` | 列出进行中的连接，关闭全部或其中一条 |
-| `POST /reload`、`POST /shutdown` | 重载配置文件，或停止 |
+| `POST /reload`、`POST /shutdown` | 重载配置文件，或停止。重载的响应给出每个入站的结果：`{"inbounds": [{"tag", "change"}]}`，`change` 为 `untouched`、`reloaded`（换了用户或证书）、`added`、`removed`、`replaced` 之一；只有被移除和被替换的入站的连接会断开。配置文件增加、移除或修改了 TUN 时返回 409（`needs_restart`），此时什么都没有变 |
 | `GET /inbounds` | 列出入站：tag、类型、监听地址，以及运行中能否修改用户（`reloadable`） |
 | `POST /inbounds`、`DELETE /inbounds/{tag}`、`POST /outbounds`、`DELETE /outbounds/{tag}` | 增删一个入站或出站，格式同配置文件 |
 | `PUT /inbounds/{tag}` | 用请求体（完整的入站配置）替换一个可热更新入站的用户和证书，不重新绑定端口；返回 204 |
@@ -164,7 +164,7 @@ sing-box 的 `ntp` 段会被丢弃并给出警告；其 `services`、`certificat
 
 对不可热更新的入站修改用户，返回 422（`unsupported`）：请改配置文件后重载。
 
-经 API 做的修改不写回配置文件：重载或重启以文件为准。没有入站包含的用户返回 404。
+经 API 做的修改不写回配置文件：重载或重启以文件为准。经 API 增加、而配置文件里没有的入站，会在下一次重载时被移除，所以要同时写进配置文件。没有入站包含的用户返回 404。
 供面板使用的 Clash API 写在 `clash_api` 或 sing-box 的 `experimental.clash_api` 中，二者只能选一。
 
 ## Sail 扩展

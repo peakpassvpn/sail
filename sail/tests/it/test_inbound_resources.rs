@@ -232,13 +232,9 @@ fn exercise(port: u16) -> Result<()> {
     let mut unchanged = connect(port)?;
     authenticate(&mut unchanged, "bob", destination)?;
     ping(&mut unchanged)?;
-    bad = config("charlie");
-    bad["inbounds"][0]["listen_port"] = json!(port.wrapping_add(1));
-    save(&bad)?;
-    ensure!(
-        sail::reload(ID).is_err(),
-        "listener change silently ignored"
-    );
+    // A reload that changes the listener is no longer refused: it replaces
+    // the inbound, and closes its connections (test_reload_inbounds.rs).
+    // This test keeps its connections, so it changes none.
 
     // The host API updates just its selected inbound, with the same checks.
     let manager = sail::runtime_managers().get(&ID).unwrap().clone();

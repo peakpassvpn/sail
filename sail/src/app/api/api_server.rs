@@ -171,9 +171,20 @@ mod handlers {
 
     /// Reloads from the configuration file: 200 once the new one runs;
     /// otherwise the old one runs on, and the error tells why.
+    /// The body tells what became of each inbound: `{"inbounds": [{"tag",
+    /// "change"}]}`, `change` one of untouched, reloaded, added, removed,
+    /// replaced. Only the removed and the replaced had their connections
+    /// closed.
     pub async fn runtime_reload(State(rm): State<Arc<RuntimeManager>>) -> Response {
-        match rm.reload().await {
-            Ok(()) => StatusCode::OK.into_response(),
+        match rm.reload_reporting().await {
+            Ok(report) => {
+                let inbounds: Vec<_> = report
+                    .inbounds
+                    .iter()
+                    .map(|(tag, change)| serde_json::json!({ "tag": tag, "change": change.name() }))
+                    .collect();
+                Json(serde_json::json!({ "inbounds": inbounds })).into_response()
+            }
             Err(e) => {
                 warn!("reload failed, the configuration running is kept: {:#}", e);
                 failed(e)
@@ -229,6 +240,12 @@ mod handlers {
                 "unsupported",
                 "the instance was started from no file to reload",
             ),
+            // Nothing changed: what the configuration asks takes a start.
+            e @ crate::Error::NeedsRestart(_) => error(StatusCode::CONFLICT, "needs_restart", e),
+            // The inbound it names listens no more.
+            e @ crate::Error::InboundLost { .. } => {
+                error(StatusCode::INTERNAL_SERVER_ERROR, "inbound_lost", e)
+            }
             e => error(StatusCode::INTERNAL_SERVER_ERROR, "internal", e),
         }
     }

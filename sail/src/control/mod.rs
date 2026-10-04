@@ -21,8 +21,19 @@ pub mod json;
 pub mod listen;
 mod providers;
 
+pub use crate::app::inbound::manager::InboundChange;
 pub(crate) use dial::relay_stream;
 pub use dial::{Dialed, Dialer, DIAL_INBOUND};
+
+/// What a reload did: each inbound the configuration has, in its order,
+/// then those it no longer has, with what became of it. A host tells by
+/// it whose connections were closed: those of the inbounds removed and
+/// replaced, and no others.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[non_exhaustive]
+pub struct ReloadReport {
+    pub inbounds: Vec<(String, InboundChange)>,
+}
 pub use inbounds::{InboundError, InboundInfo};
 pub use providers::{Failure, ProviderInfo, RuleSetInfo, SourceKind, SubscriptionInfo};
 

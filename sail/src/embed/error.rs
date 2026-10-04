@@ -46,6 +46,14 @@ pub enum ErrorKind {
     /// each one sail chose as free taken before it opened (a start again
     /// may well succeed). See `tun_name_taken`.
     TunNameTaken,
+    /// A reload that adds, removes or changes an inbound which only a
+    /// start sets up (a TUN). Nothing changed: stop and start to apply.
+    NeedsRestart,
+    /// A reload that was to replace an inbound on the address it had: the
+    /// new one did not bind, and the one before could not listen again.
+    /// The reload failed and that inbound, which the message names,
+    /// listens no more; all else is as it was.
+    InboundLost,
 }
 
 impl ErrorKind {
@@ -66,6 +74,8 @@ impl ErrorKind {
             ErrorKind::Panicked => "panicked",
             ErrorKind::Internal => "internal",
             ErrorKind::TunNameTaken => "tun_name_taken",
+            ErrorKind::NeedsRestart => "needs_restart",
+            ErrorKind::InboundLost => "inbound_lost",
         }
     }
 }
@@ -131,6 +141,8 @@ impl From<crate::Error> for Error {
             crate::Error::Io(_) => ErrorKind::Io,
             crate::Error::InUse(_) => ErrorKind::State,
             crate::Error::Panicked(_) => ErrorKind::Panicked,
+            crate::Error::NeedsRestart(_) => ErrorKind::NeedsRestart,
+            crate::Error::InboundLost { .. } => ErrorKind::InboundLost,
             _ => ErrorKind::Internal,
         };
         let message = match e {
@@ -173,5 +185,30 @@ impl From<crate::control::InboundError> for Error {
                 Error::new(kind, e.to_string())
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod reload_errors {
+    use super::*;
+
+    /// The two failures a reload has of its own are told by kind, not by
+    /// their text, and the inbound that was lost is named.
+    #[test]
+    fn a_reload_s_own_failures_have_kinds_of_their_own() {
+        let needs = Error::from(crate::Error::NeedsRestart(
+            "[tun-in] inbound: a tun inbound is changed only at a start; restart to apply".into(),
+        ));
+        assert_eq!(needs.kind(), ErrorKind::NeedsRestart);
+        assert_eq!(needs.kind().code(), "needs_restart");
+        assert!(needs.message().starts_with("[tun-in] inbound"));
+
+        let lost = Error::from(crate::Error::InboundLost {
+            tag: "in".into(),
+            reason: "address in use".into(),
+        });
+        assert_eq!(lost.kind(), ErrorKind::InboundLost);
+        assert_eq!(lost.kind().code(), "inbound_lost");
+        assert!(lost.message().contains("[in] inbound: lost"), "{}", lost);
     }
 }

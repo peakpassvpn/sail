@@ -8,7 +8,7 @@ use std::time::{Duration, SystemTime};
 
 use futures::future::BoxFuture;
 
-use super::{Config, Error, ErrorKind, Options, State, Threads};
+use super::{Config, Error, ErrorKind, Options, ReloadReport, State, Threads};
 use crate::app::logger::{InstanceLog, InstanceLogRef};
 use crate::runtime::{Host, Platform, PlatformRef, RuntimeOptions};
 use crate::{RuntimeId, RuntimeManager};
@@ -208,13 +208,17 @@ impl Instance {
 
     /// Reloads it in place with `config`, or, with none, from the file it
     /// was started from. What did not change goes on; a reload that fails
-    /// leaves it as it was. See docs/embed.md for what a reload keeps.
-    pub async fn reload(&self, config: Option<Config>) -> Result<(), Error> {
+    /// leaves it as it was. The inbounds `config` has are those that run
+    /// after it, and it tells what became of each: only those `Removed`
+    /// and `Replaced` had their connections closed. See docs/embed.md for
+    /// what a reload keeps, and for the two errors of its own:
+    /// `NeedsRestart` and `InboundLost`.
+    pub async fn reload(&self, config: Option<Config>) -> Result<ReloadReport, Error> {
         let host = self.inner().host.clone();
         self.with_manager(move |manager| {
             Box::pin(async move {
                 match config {
-                    None => manager.reload().await,
+                    None => manager.reload_reporting().await,
                     Some(config) => {
                         let config = match config {
                             Config::Json(text) => crate::config::from_string_for(&text, &host),
@@ -223,7 +227,7 @@ impl Instance {
                             }
                         }
                         .map_err(crate::Error::Config)?;
-                        manager.reload_with(config).await
+                        manager.reload_with_reporting(config).await
                     }
                 }
             })
