@@ -117,6 +117,9 @@ pub(crate) struct Reloaded {
     pub(crate) gone: Vec<String>,
     /// The TCP connections they accepted that are not listed.
     pub(crate) accepted: Vec<Accepted>,
+    /// Their listeners' tasks, aborted: once those have ended, their
+    /// sockets are closed.
+    pub(crate) listeners: Vec<ListenerTask>,
     /// The new listeners, bound, to run once the routing is in place.
     starting: Vec<(String, Vec<Runner>)>,
 }
@@ -380,12 +383,13 @@ impl InboundManager {
         // alone from here.
         self.publish_resources(prepared.kept);
         let mut accepted = Vec::new();
+        let mut listeners = Vec::new();
         for tag in &prepared.gone {
             accepted.push(Accepted::of(self.network_listeners.get(tag)));
             for handle in self.running.remove(tag).unwrap_or_default() {
                 handle.abort();
             }
-            self.ended.remove(tag);
+            listeners.extend(self.ended.remove(tag).unwrap_or_default());
             self.network_listeners.remove(tag);
             self.resources.remove(tag);
             self.stateful_resources.remove(tag);
@@ -417,6 +421,7 @@ impl InboundManager {
             changes: prepared.changes,
             gone: prepared.gone,
             accepted,
+            listeners,
             starting,
         }
     }

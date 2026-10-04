@@ -120,7 +120,7 @@ const LATE_BIND_WITHIN: std::time::Duration = std::time::Duration::from_secs(1);
 
 /// How long an inbound's listener task may take to end once aborted, its
 /// socket closing as it ends: a reload waits so long before binding the
-/// address again, a removal before it returns. A judgment value: an
+/// address again, and before it returns; a removal before it returns. A judgment value: an
 /// aborted task ends at its next turn on the runtime, in microseconds.
 const LISTENER_ENDS_WITHIN: std::time::Duration = std::time::Duration::from_secs(2);
 
@@ -988,6 +988,15 @@ impl RuntimeManager {
     /// Ends what the inbounds a reload stopped had accepted, and runs the
     /// new ones.
     async fn finish_inbounds(&self, reloaded: &mut app::inbound::manager::Reloaded) {
+        // Those that went and held no address a new one takes were aborted
+        // only now: their sockets close as their tasks end, waited for as
+        // a removal waits, so that once the reload returns their addresses
+        // refuse a connection and can be bound.
+        let _ = tokio::time::timeout(
+            LISTENER_ENDS_WITHIN,
+            futures::future::join_all(std::mem::take(&mut reloaded.listeners)),
+        )
+        .await;
         // What the inbounds that went had accepted goes with them, as
         // when one is removed: those listed, then those in their handshake
         // or carrying streams. Nothing is accepted under their tags

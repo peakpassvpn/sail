@@ -141,6 +141,17 @@ async fn a_reload_adds_removes_and_replaces_inbounds_and_tells_which() {
             ("gone".to_string(), InboundChange::Removed),
         ]
     );
+    // Closed once the reload returned, not a moment later.
+    for (port, what) in [
+        (gone, "the removed inbound's port"),
+        (moved_from, "the port the moved inbound left"),
+    ] {
+        assert!(
+            std::net::TcpStream::connect(("127.0.0.1", port)).is_err(),
+            "{} still listens once the reload returned",
+            what
+        );
+    }
 
     assert!(
         relays(&mut on_keep).await,
@@ -154,11 +165,6 @@ async fn a_reload_adds_removes_and_replaces_inbounds_and_tells_which() {
     assert!(
         closed(&mut on_same).await,
         "a replaced inbound's connection"
-    );
-    assert!(!listens(gone).await, "the removed inbound's port");
-    assert!(
-        !listens(moved_from).await,
-        "the port the moved inbound left"
     );
     for port in [keep, moved_to, same, added] {
         let mut s = through(port, echo).await.unwrap();
