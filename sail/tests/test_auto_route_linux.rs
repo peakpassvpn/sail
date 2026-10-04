@@ -497,3 +497,196 @@ fn a_dial_made_while_it_starts_stays_out_of_the_tun() -> Result<()> {
         stopped.map_err(|e| anyhow::anyhow!("stop: {}", e))
     })
 }
+
+/// What the server at `addr` answers on TCP to a connection made through
+/// the SOCKS5 inbound on `proxy`, if anything within 3 s: the address it
+/// sees the connection come from.
+fn tcp_through(proxy: u16, addr: &str) -> Option<String> {
+    use std::io::{Read, Write};
+    let to: std::net::Ipv4Addr = addr.parse().ok()?;
+    let mut s = std::net::TcpStream::connect_timeout(
+        &std::net::SocketAddr::from(([127, 0, 0, 1], proxy)),
+        Duration::from_secs(3),
+    )
+    .ok()?;
+    s.set_read_timeout(Some(Duration::from_secs(3))).ok()?;
+    s.write_all(&[5, 1, 0]).ok()?;
+    let mut method = [0u8; 2];
+    s.read_exact(&mut method).ok()?;
+    let mut connect = vec![5, 1, 0, 1];
+    connect.extend(to.octets());
+    connect.extend(8080u16.to_be_bytes());
+    s.write_all(&connect).ok()?;
+    let mut reply = [0u8; 10];
+    s.read_exact(&mut reply).ok()?;
+    if reply[1] != 0 {
+        return None;
+    }
+    let mut out = String::new();
+    s.read_to_string(&mut out).ok()?;
+    Some(out.trim().to_string())
+}
+
+/// The packets `interface` has sent.
+fn sent(interface: &str) -> Result<u64> {
+    Ok(std::fs::read_to_string(format!(
+        "/sys/class/net/{}/statistics/tx_packets",
+        interface
+    ))?
+    .trim()
+    .parse()?)
+}
+
+/// A reload that changes the interface dials go out of, or their mark,
+/// reaches the connections made after it, with no restart; what was
+/// dialled before keeps the socket it has.
+#[test]
+#[ignore = "needs root, in the namespace tests/scripts/auto_route_netns.sh builds"]
+fn a_reload_s_interface_and_mark_reach_the_connections_made_after() -> Result<()> {
+    use sail::embed::{Address, Config, Instance, Options, ReloadPath};
+
+    const SOCKS: u16 = 1081;
+    const MARK: u32 = 0x66;
+    const TABLE_OF_MARK: &str = "266";
+    let config = |route: &str| {
+        Config::Json(format!(
+            r#"{{
+                "inbounds": [{{ "type": "socks", "tag": "socks",
+                                "listen": "127.0.0.1", "listen_port": {SOCKS} }}],
+                "outbounds": [{{ "type": "direct", "tag": "direct" }}],
+                "route": {{ {route} "final": "direct" }}
+            }}"#
+        ))
+    };
+    // A way out of the second uplink for what is bound to it, and for what
+    // carries the mark: the default route stays the first uplink's.
+    run(
+        "ip",
+        "route add default via 10.242.0.2 dev sar-rb metric 500",
+    )?;
+    run(
+        "ip",
+        &format!(
+            "route add default via 10.242.0.2 dev sar-rb table {}",
+            TABLE_OF_MARK
+        ),
+    )?;
+    run(
+        "ip",
+        &format!(
+            "rule add fwmark {} lookup {} priority 8000",
+            MARK, TABLE_OF_MARK
+        ),
+    )?;
+    let undo = || {
+        let _ = run(
+            "ip",
+            &format!(
+                "rule del fwmark {} lookup {} priority 8000",
+                MARK, TABLE_OF_MARK
+            ),
+        );
+        let _ = run("ip", &format!("route flush table {}", TABLE_OF_MARK));
+        let _ = run(
+            "ip",
+            "route del default via 10.242.0.2 dev sar-rb metric 500",
+        );
+    };
+
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()?;
+    let result = rt.block_on(async {
+        let failed = |what: &str, e: sail::embed::Error| anyhow::anyhow!("{}: {}", what, e);
+        let instance = Instance::new(Options::new()).map_err(|e| failed("new", e))?;
+        instance
+            .start(config(r#""default_interface": "sar-ra","#))
+            .await
+            .map_err(|e| failed("start", e))?;
+        let checked = async {
+            ensure!(
+                tcp_through(SOCKS, SERVER).as_deref() == Some(FIRST_UPLINK),
+                "bound to the first uplink, it goes out of it"
+            );
+            // Dialled before the reload: UDP through the direct outbound,
+            // its socket bound to the first uplink.
+            let to: std::net::SocketAddr = format!("{}:9999", SERVER).parse()?;
+            let held = instance
+                .dial_udp("direct", Address::from(to), Duration::from_secs(5))
+                .await
+                .map_err(|e| failed("dial", e))?;
+            let mut buf = [0u8; 16];
+            held.send(b"before").await?;
+            tokio::time::timeout(Duration::from_secs(3), held.recv_from(&mut buf))
+                .await
+                .context("no echo before the reload")??;
+
+            // The interface changes: connections made after go out of the
+            // second uplink.
+            let report = instance
+                .reload(Some(config(r#""default_interface": "sar-rb","#)))
+                .await
+                .map_err(|e| failed("reload to the second uplink", e))?;
+            ensure!(report.path == ReloadPath::Full, "{:?}", report);
+            ensure!(
+                tcp_through(SOCKS, SERVER).as_deref() == Some(SECOND_UPLINK),
+                "after the reload a new connection goes out of the second uplink"
+            );
+            // What was dialled before keeps its socket: its datagrams
+            // still leave by the first uplink, and come back.
+            let (first, second) = (sent("sar-ra")?, sent("sar-rb")?);
+            for _ in 0..5 {
+                held.send(b"after!").await?;
+                tokio::time::timeout(Duration::from_secs(3), held.recv_from(&mut buf))
+                    .await
+                    .context("no echo on the socket dialled before the reload")??;
+            }
+            ensure!(
+                sent("sar-ra")? >= first + 5,
+                "the datagrams of the socket dialled before did not leave by the first uplink"
+            );
+            ensure!(
+                sent("sar-rb")? < second + 5,
+                "the socket dialled before moved to the second uplink"
+            );
+
+            // No interface, a mark: the rule for it sends what carries it
+            // out of the second uplink; without it, the default route's.
+            let report = instance
+                .reload(Some(config(&format!(r#""default_mark": {},"#, MARK))))
+                .await
+                .map_err(|e| failed("reload to the mark", e))?;
+            ensure!(report.path == ReloadPath::Full, "{:?}", report);
+            ensure!(
+                tcp_through(SOCKS, SERVER).as_deref() == Some(SECOND_UPLINK),
+                "a new connection carries the mark the reload set"
+            );
+            instance
+                .reload(Some(config("")))
+                .await
+                .map_err(|e| failed("reload to no mark", e))?;
+            ensure!(
+                tcp_through(SOCKS, SERVER).as_deref() == Some(FIRST_UPLINK),
+                "with the mark gone, a new connection goes by the default route"
+            );
+
+            // An interface there is none of: refused, what runs runs on.
+            let refused = instance
+                .reload(Some(config(r#""default_interface": "sar-none","#)))
+                .await;
+            ensure!(refused.is_err(), "an interface that is not there was taken");
+            ensure!(
+                tcp_through(SOCKS, SERVER).as_deref() == Some(FIRST_UPLINK),
+                "a refused reload changed where connections go out"
+            );
+            Ok(())
+        };
+        let result = checked.await;
+        let stopped = instance.stop().await;
+        result?;
+        stopped.map_err(|e| failed("stop", e))
+    });
+    undo();
+    result
+}

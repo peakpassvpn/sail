@@ -179,7 +179,9 @@ cargo test -p sail --test test_auto_route_linux --no-run
 # namespace, cannot see the host's. sail in a namespace once set the host's
 # eth0's servers, by the namespace's interface numbers, and a crash left
 # them behind.
-host_dns() { resolvectl dns 2>/dev/null || true; }
+# Only the links that have servers: on a shared host other jobs' links
+# (containers' veths) come and go meanwhile, with none, and are not sail's.
+host_dns() { resolvectl dns 2>/dev/null | grep -v ':[[:space:]]*$' || true; }
 dns_before=$(host_dns)
 status=0
 in_ns "$HOST" env SAIL_BIN="${CARGO_TARGET_DIR:-$SAIL_DIR/../target}/debug/sail" \
