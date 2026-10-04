@@ -253,7 +253,7 @@ impl Instance {
 
     /// Waits on `call` on this thread, unless it is one of the instance's
     /// own, where it would wait on itself.
-    fn wait_on<T>(
+    pub(crate) fn wait_on<T>(
         &self,
         call: impl std::future::Future<Output = Result<T, embed::Error>>,
     ) -> Result<T, Failure> {

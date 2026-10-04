@@ -212,6 +212,10 @@ past its own TUN through `direct`. The connection is counted and listed
 as one of its own (inbound `control`), and `sail_close_connection` closes
 it.
 
+- **While it starts.** A dial made while the instance starts waits for its
+  outbounds to be built, within `timeout_ms`, and goes ahead then, before
+  the start returns: a host may fetch what its start needs through them. A
+  dial while it neither runs nor starts fails with `SAIL_ERR_STATE`.
 - **The descriptor is the host's.** It is one end of a socket pair sail
   relays through the outbound; the host reads, writes and closes it, and
   closing it ends the connection. On Android, `ParcelFileDescriptor.adoptFd`

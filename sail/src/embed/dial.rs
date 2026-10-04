@@ -130,6 +130,27 @@ impl Instance {
         .await?
     }
 
+    /// `dial_tcp` or `dial_udp` as one end of a socket pair sail relays
+    /// through the outbound, the host's to own: what the C ABI's dial
+    /// gives. As those, it waits while the instance starts for its
+    /// outbounds to be built.
+    #[cfg(unix)]
+    #[doc(hidden)]
+    pub async fn dial_fd(
+        &self,
+        outbound: &str,
+        network: Network,
+        to: crate::session::SocksAddr,
+        timeout: Duration,
+    ) -> Result<std::os::fd::OwnedFd, Error> {
+        let outbound = outbound.to_string();
+        Ok(self
+            .with_dialer(timeout, move |dialer, timeout| {
+                Box::pin(async move { dialer.dial_fd(&outbound, network, to, timeout).await })
+            })
+            .await??)
+    }
+
     /// Opens UDP to `to` through the outbound `outbound` alone, as
     /// `dial_tcp` does.
     pub async fn dial_udp(

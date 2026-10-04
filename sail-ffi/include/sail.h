@@ -414,7 +414,10 @@ int32_t sail_update_rule_set(SailInstance instance, const char *tag, char **err)
      Android, SOCK_DGRAM on Apple's systems, each end's buffers 256 KiB.
  @return SAIL_ERR_NOT_FOUND with no such outbound; SAIL_ERR_TIMEOUT
      when `timeout_ms` passed first; SAIL_ERR_IO when the outbound
-     failed to connect; SAIL_ERR_STATE when the instance does not run;
+     failed to connect; SAIL_ERR_STATE when the instance neither runs
+     nor starts (while it starts, the dial waits for its outbounds to be
+     built, within `timeout_ms`: a host may dial before the start
+     returns);
      SAIL_ERR_UNSUPPORTED through a command service client (a descriptor
      does not cross processes) and on Windows.
  */

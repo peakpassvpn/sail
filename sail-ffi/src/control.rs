@@ -412,7 +412,10 @@ pub unsafe extern "C" fn sail_update_rule_set(
 ///     Android, SOCK_DGRAM on Apple's systems, each end's buffers 256 KiB.
 /// @return SAIL_ERR_NOT_FOUND with no such outbound; SAIL_ERR_TIMEOUT
 ///     when `timeout_ms` passed first; SAIL_ERR_IO when the outbound
-///     failed to connect; SAIL_ERR_STATE when the instance does not run;
+///     failed to connect; SAIL_ERR_STATE when the instance neither runs
+///     nor starts (while it starts, the dial waits for its outbounds to be
+///     built, within `timeout_ms`: a host may dial before the start
+///     returns);
 ///     SAIL_ERR_UNSUPPORTED through a command service client (a descriptor
 ///     does not cross processes) and on Windows.
 #[no_mangle]
@@ -471,9 +474,14 @@ fn dial_fd(
     fd: *mut i32,
 ) -> Result<(), Failure> {
     use std::os::fd::IntoRawFd;
-    let owned = instance.run(move |m| {
-        Box::pin(async move { m.dial_fd(&outbound, network, destination, timeout).await })
-    })??;
+    // While it starts too: the dial waits for its outbounds, within the
+    // timeout.
+    let owned = instance.wait_on(instance.core().dial_fd(
+        &outbound,
+        network,
+        destination,
+        timeout,
+    ))?;
     out_value(fd, owned.into_raw_fd())
 }
 
