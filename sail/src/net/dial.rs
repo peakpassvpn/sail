@@ -12,6 +12,8 @@ mod dialer;
 pub mod fields;
 mod happy;
 mod networks;
+#[cfg(unix)]
+mod protect;
 mod sockopt;
 mod spec;
 
@@ -23,6 +25,8 @@ pub use spec::{DialSpec, ResolveSpec, RouteDefaults};
 
 #[cfg(all(test, unix))]
 pub(crate) use dialer::recording;
+#[cfg(all(test, unix))]
+pub(crate) use protect::server as protect_server;
 
 /// The default time a TCP connect to one address may take: sing-box's
 /// and Mihomo's.
@@ -53,11 +57,11 @@ pub fn tcp_keep_alive(
 /// How the host keeps outbound sockets out of its VPN (Android).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SocketProtect {
-    /// An endpoint that takes each socket's file descriptor as an int32
-    /// and answers 0 once it is protected: a Unix domain socket, by path.
+    /// A Unix stream socket, by path, handed each socket's descriptor with
+    /// `SCM_RIGHTS` before it binds or connects, which answers one byte
+    /// once it is protected: sing-box's `protect_path`, see
+    /// `protect::through_path`. Unix only.
     Unix(String),
-    /// The same, over TCP.
-    Tcp(SocketAddr),
     /// The host's `Platform::protect_socket`.
     Platform(crate::runtime::PlatformRef),
 }

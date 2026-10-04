@@ -107,10 +107,10 @@ Rust: [`AnyTlsInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail
 | `inet4_bind_address` | string | — | Supported | — |
 | `inet6_bind_address` | string | — | Supported | — |
 | `bind_address_no_port` | bool | — | Supported | — |
-| `protect_path` | string | — | Error: Android's socket protection and Linux network namespaces: sockets would leave another way | — |
+| `protect_path` | string | — | Supported | — |
 | `routing_mark` | number\|string | — | Supported | — |
 | `reuse_addr` | bool | — | Supported | — |
-| `netns` | string | — | Error: Android's socket protection and Linux network namespaces: sockets would leave another way | — |
+| `netns` | string | — | Error: Linux network namespaces: sockets would leave another way | — |
 | `connect_timeout` | duration | — | Supported | — |
 | `tcp_fast_open` | bool | — | Supported | — |
 | `tcp_multi_path` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
@@ -596,7 +596,7 @@ Rust: [`ShadowTlsHandshake`](https://github.com/peakpassvpn/sail/blob/dev/sail/s
 | `inet4_bind_address` | string | unset | Supported | The local address for IPv4 destinations, loopback ones aside: as `bind_interface`. |
 | `inet6_bind_address` | string | unset | Supported | The local address for IPv6 destinations, loopback ones aside: as `bind_interface`. |
 | `bind_address_no_port` | bool | `false` | Supported | `IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address, so that the port is picked at connect: Linux only. |
-| `protect_path` | string | — | Error: The protocol's own check: not implemented yet | Not implemented yet. |
+| `protect_path` | string | unset | Supported | A Unix socket each socket's descriptor is handed to, with `SCM_RIGHTS`, before it binds or connects, for the process there to protect it (from its VPN, say); it answers one byte. Besides what the host protects. Unix only. |
 | `routing_mark` | number\|string | unset | Supported | `SO_MARK`, Linux only. |
 | `reuse_addr` | bool | `false` | Supported | `SO_REUSEADDR`, and `SO_REUSEPORT` on Unix, on UDP sockets. |
 | `netns` | string | — | Error: The protocol's own check: not implemented yet | Not implemented yet. |

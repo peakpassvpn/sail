@@ -26,6 +26,7 @@ const ACTION_FIELDS: &[&str] = &[
     "inet4_bind_address",
     "inet6_bind_address",
     "bind_address_no_port",
+    "protect_path",
     "routing_mark",
     "reuse_addr",
     "connect_timeout",

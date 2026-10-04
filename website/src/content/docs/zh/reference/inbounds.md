@@ -107,10 +107,10 @@ Rust 定义：[`AnyTlsInboundOptions`](https://github.com/peakpassvpn/sail/blob/
 | `inet4_bind_address` | string | — | 支持 | — |
 | `inet6_bind_address` | string | — | 支持 | — |
 | `bind_address_no_port` | bool | — | 支持 | — |
-| `protect_path` | string | — | 报错：Android's socket protection and Linux network namespaces: sockets would leave another way | — |
+| `protect_path` | string | — | 支持 | — |
 | `routing_mark` | number\|string | — | 支持 | — |
 | `reuse_addr` | bool | — | 支持 | — |
-| `netns` | string | — | 报错：Android's socket protection and Linux network namespaces: sockets would leave another way | — |
+| `netns` | string | — | 报错：Linux network namespaces: sockets would leave another way | — |
 | `connect_timeout` | duration | — | 支持 | — |
 | `tcp_fast_open` | bool | — | 支持 | — |
 | `tcp_multi_path` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
@@ -596,7 +596,7 @@ Rust 定义：[`ShadowTlsHandshake`](https://github.com/peakpassvpn/sail/blob/de
 | `inet4_bind_address` | string | 未设置 | 支持 | The local address for IPv4 destinations, loopback ones aside: as `bind_interface`. |
 | `inet6_bind_address` | string | 未设置 | 支持 | The local address for IPv6 destinations, loopback ones aside: as `bind_interface`. |
 | `bind_address_no_port` | bool | `false` | 支持 | `IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address, so that the port is picked at connect: Linux only. |
-| `protect_path` | string | — | 报错：The protocol's own check: not implemented yet | Not implemented yet. |
+| `protect_path` | string | 未设置 | 支持 | A Unix socket each socket's descriptor is handed to, with `SCM_RIGHTS`, before it binds or connects, for the process there to protect it (from its VPN, say); it answers one byte. Besides what the host protects. Unix only. |
 | `routing_mark` | number\|string | 未设置 | 支持 | `SO_MARK`, Linux only. |
 | `reuse_addr` | bool | `false` | 支持 | `SO_REUSEADDR`, and `SO_REUSEPORT` on Unix, on UDP sockets. |
 | `netns` | string | — | 报错：The protocol's own check: not implemented yet | Not implemented yet. |

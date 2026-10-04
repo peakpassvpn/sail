@@ -1550,6 +1550,7 @@ pub(crate) const HANDSHAKE_DIAL: &[&str] = &[
     "skip_default_domain_resolver",
     "domain_strategy",
     "bind_address_no_port",
+    "protect_path",
     "reuse_addr",
     "tcp_fast_open",
     "udp_fragment",

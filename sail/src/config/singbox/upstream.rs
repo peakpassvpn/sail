@@ -89,8 +89,7 @@ pub const EMPTIED: &[&str] = &["experimental"];
 // Reasons several groups share.
 const NETWORKS: &str =
     "Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say";
-const PROTECT: &str =
-    "Android's socket protection and Linux network namespaces: sockets would leave another way";
+const NETNS: &str = "Linux network namespaces: sockets would leave another way";
 const SOCKET: &str = "Socket tuning: connections go the same way without it";
 const TLS_CIPHERS: &str =
     "TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked";
@@ -176,14 +175,9 @@ pub const GROUPS: &[Group] = &[
         &["http_clients.*.tls", "route.rule_set.*.http_client.tls"],
     ),
     g(
-        PROTECT,
+        NETNS,
         Unsupported,
-        &[
-            "http_clients.*.protect_path",
-            "http_clients.*.netns",
-            "route.rule_set.*.http_client.protect_path",
-            "route.rule_set.*.http_client.netns",
-        ],
+        &["http_clients.*.netns", "route.rule_set.*.http_client.netns"],
     ),
     g(
         HTTP_TUNING,
@@ -225,11 +219,7 @@ pub const GROUPS: &[Group] = &[
         Ignored,
         &["dns.servers.*.prefer_go"],
     ),
-    g(
-        PROTECT,
-        Unsupported,
-        &["dns.servers.*.netns", "dns.servers.*.protect_path"],
-    ),
+    g(NETNS, Unsupported, &["dns.servers.*.netns"]),
     g(
         NETWORKS,
         Unsupported,
@@ -270,6 +260,7 @@ pub const GROUPS: &[Group] = &[
             "dns.servers.*.tcp_fast_open",
             "dns.servers.*.udp_fragment",
             "dns.servers.*.fallback_delay",
+            "dns.servers.*.protect_path",
         ],
     ),
     t(
@@ -368,14 +359,9 @@ pub const GROUPS: &[Group] = &[
     ),
     // Dial fields.
     g(
-        PROTECT,
+        NETNS,
         Unsupported,
-        &[
-            "outbounds.*.protect_path",
-            "outbounds.*.netns",
-            "route.rules.*.protect_path",
-            "route.rules.*.netns",
-        ],
+        &["outbounds.*.netns", "route.rules.*.netns"],
     ),
     g(
         SOCKET,
@@ -449,12 +435,9 @@ pub const GROUPS: &[Group] = &[
         &["inbounds.*.tls.reality.handshake.detour"],
     ),
     g(
-        PROTECT,
+        NETNS,
         Unsupported,
-        &[
-            "inbounds.*.tls.reality.handshake.protect_path",
-            "inbounds.*.tls.reality.handshake.netns",
-        ],
+        &["inbounds.*.tls.reality.handshake.netns"],
     ),
     g(
         SOCKET,
@@ -637,11 +620,7 @@ pub const GROUPS: &[Group] = &[
         ],
     ),
     // Endpoints: WireGuard's dial fields, as an outbound's.
-    g(
-        PROTECT,
-        Unsupported,
-        &["endpoints.*.protect_path", "endpoints.*.netns"],
-    ),
+    g(NETNS, Unsupported, &["endpoints.*.netns"]),
     g(
         NETWORKS,
         Unsupported,

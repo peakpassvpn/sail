@@ -159,6 +159,9 @@ pub struct DialSpec {
     pub ipv6: bool,
     /// `IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address.
     pub bind_address_no_port: bool,
+    /// The Unix socket each socket is handed to, to be protected, besides
+    /// the host's protection.
+    pub protect_path: Option<String>,
     /// `SO_REUSEADDR` (and `SO_REUSEPORT`) on UDP sockets.
     pub reuse_addr: bool,
     /// Whether UDP datagrams may be fragmented; if not, DF is set.
@@ -213,6 +216,9 @@ impl DialSpec {
         }
         if fields.bind_address_no_port && !super::sockopt::SUPPORTS_BIND_ADDRESS_NO_PORT {
             return Err(anyhow!("bind_address_no_port: only supported on Linux"));
+        }
+        if fields.protect_path.is_some() && !cfg!(unix) {
+            return Err(anyhow!("protect_path: only supported on Unix"));
         }
         if fields.tcp_fast_open {
             super::sockopt::supports_tcp_fast_open()
@@ -277,6 +283,8 @@ impl DialSpec {
             ),
             ipv6: defaults.ipv6,
             bind_address_no_port: fields.bind_address_no_port,
+            // Empty is unset, as in sing-box (common/dialer/default.go:145).
+            protect_path: fields.protect_path.clone().filter(|p| !p.is_empty()),
             reuse_addr: fields.reuse_addr,
             udp_fragment: fields.udp_fragment.unwrap_or(fields.udp_fragment_default),
             tcp_fast_open: fields.tcp_fast_open,
@@ -587,6 +595,12 @@ mod tests {
                 no_port,
                 Err("bind_address_no_port: only supported on Linux".into())
             );
+        }
+        let protect = check(serde_json::json!({ "protect_path": "/run/protect.sock" }));
+        if cfg!(unix) {
+            protect.unwrap();
+        } else {
+            assert_eq!(protect, Err("protect_path: only supported on Unix".into()));
         }
         let fast_open = check(serde_json::json!({ "tcp_fast_open": true }));
         if cfg!(any(

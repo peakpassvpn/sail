@@ -110,7 +110,11 @@ impl Options {
     /// sail's start settings as JSON: `{"profile", "set": ["relay.buffer_size=32"],
     /// "data_dir", "cache_dir", "log_to_system", "socket_protect",
     /// "sub_store", "ui_download_url", "asset_sources"}`, as `sail -s`
-    /// and the C ABI take them.
+    /// and the C ABI take them. `socket_protect` is the path of a Unix
+    /// socket that takes each outbound socket's descriptor by
+    /// `SCM_RIGHTS` and answers one byte, sing-box's `protect_path`
+    /// protocol; an address is an error. A host that protects sockets in
+    /// its own process does it in `Platform::protect_socket` instead.
     pub fn settings_json(mut self, json: &str) -> Result<Self, Error> {
         self.settings = crate::runtime::StartSettings::from_json(json)
             .map_err(|e| Error::new(ErrorKind::Config, format!("{:#}", e)))?;

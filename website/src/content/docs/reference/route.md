@@ -137,10 +137,10 @@ Rust: [`Rule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/mode
 | `inet4_bind_address` | string | — | Warned: Accepted, no effect (as sing-box) | `direct`: the local address for IPv4 destinations. |
 | `inet6_bind_address` | string | — | Warned: Accepted, no effect (as sing-box) | `direct`: the local address for IPv6 destinations. |
 | `bind_address_no_port` | bool | — | Warned: Accepted, no effect (as sing-box) | `direct`: `IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address: Linux only. |
-| `protect_path` | string | — | Error: Android's socket protection and Linux network namespaces: sockets would leave another way | — |
+| `protect_path` | string | — | Warned: Accepted, no effect (as sing-box) | `direct`: the Unix socket each socket's descriptor is handed to, to be protected: Unix only. |
 | `routing_mark` | number\|string | — | Warned: Accepted, no effect (as sing-box) | `direct`: `SO_MARK`, Linux only. |
 | `reuse_addr` | bool | — | Warned: Accepted, no effect (as sing-box) | `direct`: `SO_REUSEADDR`, and `SO_REUSEPORT` on Unix, on UDP sockets. |
-| `netns` | string | — | Error: Android's socket protection and Linux network namespaces: sockets would leave another way | — |
+| `netns` | string | — | Error: Linux network namespaces: sockets would leave another way | — |
 | `connect_timeout` | duration | — | Warned: Accepted, no effect (as sing-box) | `direct`: how long a TCP connect to one address may take; 5s when unset. |
 | `tcp_fast_open` | bool | — | Warned: Accepted, no effect (as sing-box) | `direct`: TCP Fast Open. |
 | `tcp_multi_path` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
@@ -389,10 +389,10 @@ Rust: [`RuleSet`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/r
 | `inet4_bind_address` | string | — | Supported | — |
 | `inet6_bind_address` | string | — | Supported | — |
 | `bind_address_no_port` | bool | — | Supported | — |
-| `protect_path` | string | — | Error: Android's socket protection and Linux network namespaces: sockets would leave another way | — |
+| `protect_path` | string | — | Supported | — |
 | `routing_mark` | number\|string | — | Supported | — |
 | `reuse_addr` | bool | — | Supported | — |
-| `netns` | string | — | Error: Android's socket protection and Linux network namespaces: sockets would leave another way | — |
+| `netns` | string | — | Error: Linux network namespaces: sockets would leave another way | — |
 | `connect_timeout` | duration | — | Supported | — |
 | `tcp_fast_open` | bool | — | Supported | — |
 | `tcp_multi_path` | bool | — | Warned: Socket tuning: connections go the same way without it | — |

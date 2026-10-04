@@ -46,9 +46,12 @@ pub struct DialFields {
     /// that the port is picked at connect: Linux only.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub bind_address_no_port: bool,
-    /// Not implemented yet.
+    /// A Unix socket each socket's descriptor is handed to, with
+    /// `SCM_RIGHTS`, before it binds or connects, for the process there to
+    /// protect it (from its VPN, say); it answers one byte. Besides what
+    /// the host protects. Unix only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub protect_path: Option<Value>,
+    pub protect_path: Option<String>,
     /// `SO_MARK`, Linux only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub routing_mark: Option<u32>,
@@ -150,6 +153,7 @@ pub const IMPLEMENTED: &[&str] = &[
     "inet4_bind_address",
     "inet6_bind_address",
     "bind_address_no_port",
+    "protect_path",
     "routing_mark",
     "reuse_addr",
     "connect_timeout",

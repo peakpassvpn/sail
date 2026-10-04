@@ -3049,8 +3049,8 @@
      "description": "`IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address, so that the port is picked at connect: Linux only."
     },
     "protect_path": {
-     "not": {},
-     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+     "type": "string",
+     "description": "A Unix socket each socket's descriptor is handed to, with `SCM_RIGHTS`, before it binds or connects, for the process there to protect it (from its VPN, say); it answers one byte. Besides what the host protects. Unix only."
     },
     "routing_mark": {
      "anyOf": [
@@ -3069,7 +3069,7 @@
     },
     "netns": {
      "not": {},
-     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+     "description": "sail refuses this field: Linux network namespaces: sockets would leave another way"
     },
     "connect_timeout": {
      "type": "string",
@@ -3528,8 +3528,8 @@
      "description": "`IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address, so that the port is picked at connect: Linux only."
     },
     "protect_path": {
-     "not": {},
-     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+     "type": "string",
+     "description": "A Unix socket each socket's descriptor is handed to, with `SCM_RIGHTS`, before it binds or connects, for the process there to protect it (from its VPN, say); it answers one byte. Besides what the host protects. Unix only."
     },
     "routing_mark": {
      "anyOf": [
@@ -3548,7 +3548,7 @@
     },
     "netns": {
      "not": {},
-     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+     "description": "sail refuses this field: Linux network namespaces: sockets would leave another way"
     },
     "connect_timeout": {
      "type": "string",
@@ -3991,8 +3991,8 @@
      "description": "`IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address, so that the port is picked at connect: Linux only."
     },
     "protect_path": {
-     "not": {},
-     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+     "type": "string",
+     "description": "A Unix socket each socket's descriptor is handed to, with `SCM_RIGHTS`, before it binds or connects, for the process there to protect it (from its VPN, say); it answers one byte. Besides what the host protects. Unix only."
     },
     "routing_mark": {
      "anyOf": [
@@ -4011,7 +4011,7 @@
     },
     "netns": {
      "not": {},
-     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+     "description": "sail refuses this field: Linux network namespaces: sockets would leave another way"
     },
     "connect_timeout": {
      "type": "string",
@@ -4186,8 +4186,9 @@
      "description": "sail ignores this field, with a warning: An mDNS server asks on each interface itself, as sing-box's, which dials nothing"
     },
     "protect_path": {
-     "not": {},
-     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+     "type": "string",
+     "deprecated": true,
+     "description": "sail ignores this field, with a warning: An mDNS server asks on each interface itself, as sing-box's, which dials nothing"
     },
     "routing_mark": {
      "anyOf": [
@@ -4208,7 +4209,7 @@
     },
     "netns": {
      "not": {},
-     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+     "description": "sail refuses this field: Linux network namespaces: sockets would leave another way"
     },
     "connect_timeout": {
      "type": "string",
@@ -4395,8 +4396,8 @@
      "description": "`IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address, so that the port is picked at connect: Linux only."
     },
     "protect_path": {
-     "not": {},
-     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+     "type": "string",
+     "description": "A Unix socket each socket's descriptor is handed to, with `SCM_RIGHTS`, before it binds or connects, for the process there to protect it (from its VPN, say); it answers one byte. Besides what the host protects. Unix only."
     },
     "routing_mark": {
      "anyOf": [
@@ -4415,7 +4416,7 @@
     },
     "netns": {
      "not": {},
-     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+     "description": "sail refuses this field: Linux network namespaces: sockets would leave another way"
     },
     "connect_timeout": {
      "type": "string",
@@ -4897,8 +4898,8 @@
      "description": "`IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address, so that the port is picked at connect: Linux only."
     },
     "protect_path": {
-     "not": {},
-     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+     "type": "string",
+     "description": "A Unix socket each socket's descriptor is handed to, with `SCM_RIGHTS`, before it binds or connects, for the process there to protect it (from its VPN, say); it answers one byte. Besides what the host protects. Unix only."
     },
     "routing_mark": {
      "anyOf": [
@@ -4917,7 +4918,7 @@
     },
     "netns": {
      "not": {},
-     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+     "description": "sail refuses this field: Linux network namespaces: sockets would leave another way"
     },
     "connect_timeout": {
      "type": "string",
@@ -5082,8 +5083,8 @@
      "description": "`IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address, so that the port is picked at connect: Linux only."
     },
     "protect_path": {
-     "not": {},
-     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+     "type": "string",
+     "description": "A Unix socket each socket's descriptor is handed to, with `SCM_RIGHTS`, before it binds or connects, for the process there to protect it (from its VPN, say); it answers one byte. Besides what the host protects. Unix only."
     },
     "routing_mark": {
      "anyOf": [
@@ -5102,7 +5103,7 @@
     },
     "netns": {
      "not": {},
-     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+     "description": "sail refuses this field: Linux network namespaces: sockets would leave another way"
     },
     "connect_timeout": {
      "type": "string",
@@ -5533,8 +5534,8 @@
      "description": "`IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address, so that the port is picked at connect: Linux only."
     },
     "protect_path": {
-     "not": {},
-     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+     "type": "string",
+     "description": "A Unix socket each socket's descriptor is handed to, with `SCM_RIGHTS`, before it binds or connects, for the process there to protect it (from its VPN, say); it answers one byte. Besides what the host protects. Unix only."
     },
     "routing_mark": {
      "anyOf": [
@@ -5553,7 +5554,7 @@
     },
     "netns": {
      "not": {},
-     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+     "description": "sail refuses this field: Linux network namespaces: sockets would leave another way"
     },
     "connect_timeout": {
      "type": "string",
@@ -5782,8 +5783,8 @@
      "description": "`IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address, so that the port is picked at connect: Linux only."
     },
     "protect_path": {
-     "not": {},
-     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+     "type": "string",
+     "description": "A Unix socket each socket's descriptor is handed to, with `SCM_RIGHTS`, before it binds or connects, for the process there to protect it (from its VPN, say); it answers one byte. Besides what the host protects. Unix only."
     },
     "routing_mark": {
      "anyOf": [
@@ -5802,7 +5803,7 @@
     },
     "netns": {
      "not": {},
-     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+     "description": "sail refuses this field: Linux network namespaces: sockets would leave another way"
     },
     "connect_timeout": {
      "type": "string",
@@ -6224,8 +6225,8 @@
      "description": "`IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address, so that the port is picked at connect: Linux only."
     },
     "protect_path": {
-     "not": {},
-     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+     "type": "string",
+     "description": "A Unix socket each socket's descriptor is handed to, with `SCM_RIGHTS`, before it binds or connects, for the process there to protect it (from its VPN, say); it answers one byte. Besides what the host protects. Unix only."
     },
     "routing_mark": {
      "anyOf": [
@@ -6244,7 +6245,7 @@
     },
     "netns": {
      "not": {},
-     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+     "description": "sail refuses this field: Linux network namespaces: sockets would leave another way"
     },
     "connect_timeout": {
      "type": "string",
@@ -6968,8 +6969,7 @@
      "type": "boolean"
     },
     "protect_path": {
-     "not": {},
-     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+     "type": "string"
     },
     "routing_mark": {
      "anyOf": [
@@ -6986,7 +6986,7 @@
     },
     "netns": {
      "not": {},
-     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+     "description": "sail refuses this field: Linux network namespaces: sockets would leave another way"
     },
     "connect_timeout": {
      "type": "string"
@@ -7644,8 +7644,8 @@
      "description": "`IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address, so that the port is picked at connect: Linux only."
     },
     "protect_path": {
-     "not": {},
-     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+     "type": "string",
+     "description": "A Unix socket each socket's descriptor is handed to, with `SCM_RIGHTS`, before it binds or connects, for the process there to protect it (from its VPN, say); it answers one byte. Besides what the host protects. Unix only."
     },
     "routing_mark": {
      "anyOf": [
@@ -7664,7 +7664,7 @@
     },
     "netns": {
      "not": {},
-     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+     "description": "sail refuses this field: Linux network namespaces: sockets would leave another way"
     },
     "connect_timeout": {
      "type": "string",
@@ -8752,8 +8752,8 @@
      "description": "`IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address, so that the port is picked at connect: Linux only."
     },
     "protect_path": {
-     "not": {},
-     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+     "type": "string",
+     "description": "A Unix socket each socket's descriptor is handed to, with `SCM_RIGHTS`, before it binds or connects, for the process there to protect it (from its VPN, say); it answers one byte. Besides what the host protects. Unix only."
     },
     "routing_mark": {
      "anyOf": [
@@ -8772,7 +8772,7 @@
     },
     "netns": {
      "not": {},
-     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+     "description": "sail refuses this field: Linux network namespaces: sockets would leave another way"
     },
     "connect_timeout": {
      "type": "string",
@@ -9887,8 +9887,8 @@
      "description": "`IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address, so that the port is picked at connect: Linux only."
     },
     "protect_path": {
-     "not": {},
-     "description": "sail refuses this field: The protocol's own check: not implemented yet"
+     "type": "string",
+     "description": "A Unix socket each socket's descriptor is handed to, with `SCM_RIGHTS`, before it binds or connects, for the process there to protect it (from its VPN, say); it answers one byte. Besides what the host protects. Unix only."
     },
     "routing_mark": {
      "anyOf": [
@@ -10781,8 +10781,8 @@
      "description": "`IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address, so that the port is picked at connect: Linux only."
     },
     "protect_path": {
-     "not": {},
-     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+     "type": "string",
+     "description": "A Unix socket each socket's descriptor is handed to, with `SCM_RIGHTS`, before it binds or connects, for the process there to protect it (from its VPN, say); it answers one byte. Besides what the host protects. Unix only."
     },
     "routing_mark": {
      "anyOf": [
@@ -10801,7 +10801,7 @@
     },
     "netns": {
      "not": {},
-     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+     "description": "sail refuses this field: Linux network namespaces: sockets would leave another way"
     },
     "connect_timeout": {
      "type": "string",
@@ -11456,8 +11456,8 @@
      "description": "`IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address, so that the port is picked at connect: Linux only."
     },
     "protect_path": {
-     "not": {},
-     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+     "type": "string",
+     "description": "A Unix socket each socket's descriptor is handed to, with `SCM_RIGHTS`, before it binds or connects, for the process there to protect it (from its VPN, say); it answers one byte. Besides what the host protects. Unix only."
     },
     "routing_mark": {
      "anyOf": [
@@ -11476,7 +11476,7 @@
     },
     "netns": {
      "not": {},
-     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+     "description": "sail refuses this field: Linux network namespaces: sockets would leave another way"
     },
     "connect_timeout": {
      "type": "string",
@@ -12526,8 +12526,8 @@
      "description": "`IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address, so that the port is picked at connect: Linux only."
     },
     "protect_path": {
-     "not": {},
-     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+     "type": "string",
+     "description": "A Unix socket each socket's descriptor is handed to, with `SCM_RIGHTS`, before it binds or connects, for the process there to protect it (from its VPN, say); it answers one byte. Besides what the host protects. Unix only."
     },
     "routing_mark": {
      "anyOf": [
@@ -12546,7 +12546,7 @@
     },
     "netns": {
      "not": {},
-     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+     "description": "sail refuses this field: Linux network namespaces: sockets would leave another way"
     },
     "connect_timeout": {
      "type": "string",
@@ -13255,8 +13255,8 @@
      "description": "`IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address, so that the port is picked at connect: Linux only."
     },
     "protect_path": {
-     "not": {},
-     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+     "type": "string",
+     "description": "A Unix socket each socket's descriptor is handed to, with `SCM_RIGHTS`, before it binds or connects, for the process there to protect it (from its VPN, say); it answers one byte. Besides what the host protects. Unix only."
     },
     "routing_mark": {
      "anyOf": [
@@ -13275,7 +13275,7 @@
     },
     "netns": {
      "not": {},
-     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+     "description": "sail refuses this field: Linux network namespaces: sockets would leave another way"
     },
     "connect_timeout": {
      "type": "string",
@@ -14006,8 +14006,8 @@
      "description": "`IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address, so that the port is picked at connect: Linux only."
     },
     "protect_path": {
-     "not": {},
-     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+     "type": "string",
+     "description": "A Unix socket each socket's descriptor is handed to, with `SCM_RIGHTS`, before it binds or connects, for the process there to protect it (from its VPN, say); it answers one byte. Besides what the host protects. Unix only."
     },
     "routing_mark": {
      "anyOf": [
@@ -14026,7 +14026,7 @@
     },
     "netns": {
      "not": {},
-     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+     "description": "sail refuses this field: Linux network namespaces: sockets would leave another way"
     },
     "connect_timeout": {
      "type": "string",
@@ -14539,8 +14539,8 @@
      "description": "`IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address, so that the port is picked at connect: Linux only."
     },
     "protect_path": {
-     "not": {},
-     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+     "type": "string",
+     "description": "A Unix socket each socket's descriptor is handed to, with `SCM_RIGHTS`, before it binds or connects, for the process there to protect it (from its VPN, say); it answers one byte. Besides what the host protects. Unix only."
     },
     "routing_mark": {
      "anyOf": [
@@ -14559,7 +14559,7 @@
     },
     "netns": {
      "not": {},
-     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+     "description": "sail refuses this field: Linux network namespaces: sockets would leave another way"
     },
     "connect_timeout": {
      "type": "string",
@@ -14899,8 +14899,8 @@
      "description": "`IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address, so that the port is picked at connect: Linux only."
     },
     "protect_path": {
-     "not": {},
-     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+     "type": "string",
+     "description": "A Unix socket each socket's descriptor is handed to, with `SCM_RIGHTS`, before it binds or connects, for the process there to protect it (from its VPN, say); it answers one byte. Besides what the host protects. Unix only."
     },
     "routing_mark": {
      "anyOf": [
@@ -14919,7 +14919,7 @@
     },
     "netns": {
      "not": {},
-     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+     "description": "sail refuses this field: Linux network namespaces: sockets would leave another way"
     },
     "connect_timeout": {
      "type": "string",
@@ -15416,8 +15416,8 @@
      "description": "`IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address, so that the port is picked at connect: Linux only."
     },
     "protect_path": {
-     "not": {},
-     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+     "type": "string",
+     "description": "A Unix socket each socket's descriptor is handed to, with `SCM_RIGHTS`, before it binds or connects, for the process there to protect it (from its VPN, say); it answers one byte. Besides what the host protects. Unix only."
     },
     "routing_mark": {
      "anyOf": [
@@ -15436,7 +15436,7 @@
     },
     "netns": {
      "not": {},
-     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+     "description": "sail refuses this field: Linux network namespaces: sockets would leave another way"
     },
     "connect_timeout": {
      "type": "string",
@@ -16790,7 +16790,8 @@
      "description": "`IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address, so that the port is picked at connect: Linux only."
     },
     "protect_path": {
-     "description": "Not implemented yet."
+     "type": "string",
+     "description": "A Unix socket each socket's descriptor is handed to, with `SCM_RIGHTS`, before it binds or connects, for the process there to protect it (from its VPN, say); it answers one byte. Besides what the host protects. Unix only."
     },
     "routing_mark": {
      "type": "number",
@@ -17083,8 +17084,8 @@
      "description": "`IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address, so that the port is picked at connect: Linux only."
     },
     "protect_path": {
-     "not": {},
-     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+     "type": "string",
+     "description": "A Unix socket each socket's descriptor is handed to, with `SCM_RIGHTS`, before it binds or connects, for the process there to protect it (from its VPN, say); it answers one byte. Besides what the host protects. Unix only."
     },
     "routing_mark": {
      "anyOf": [
@@ -17103,7 +17104,7 @@
     },
     "netns": {
      "not": {},
-     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+     "description": "sail refuses this field: Linux network namespaces: sockets would leave another way"
     },
     "connect_timeout": {
      "type": "string",
@@ -17440,8 +17441,8 @@
      "description": "`IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address, so that the port is picked at connect: Linux only."
     },
     "protect_path": {
-     "not": {},
-     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+     "type": "string",
+     "description": "A Unix socket each socket's descriptor is handed to, with `SCM_RIGHTS`, before it binds or connects, for the process there to protect it (from its VPN, say); it answers one byte. Besides what the host protects. Unix only."
     },
     "routing_mark": {
      "anyOf": [
@@ -17460,7 +17461,7 @@
     },
     "netns": {
      "not": {},
-     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+     "description": "sail refuses this field: Linux network namespaces: sockets would leave another way"
     },
     "connect_timeout": {
      "type": "string",
@@ -18102,8 +18103,8 @@
      "description": "`IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address, so that the port is picked at connect: Linux only."
     },
     "protect_path": {
-     "not": {},
-     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+     "type": "string",
+     "description": "A Unix socket each socket's descriptor is handed to, with `SCM_RIGHTS`, before it binds or connects, for the process there to protect it (from its VPN, say); it answers one byte. Besides what the host protects. Unix only."
     },
     "routing_mark": {
      "anyOf": [
@@ -18122,7 +18123,7 @@
     },
     "netns": {
      "not": {},
-     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+     "description": "sail refuses this field: Linux network namespaces: sockets would leave another way"
     },
     "connect_timeout": {
      "type": "string",
@@ -18367,8 +18368,8 @@
      "description": "`IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address, so that the port is picked at connect: Linux only."
     },
     "protect_path": {
-     "not": {},
-     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+     "type": "string",
+     "description": "A Unix socket each socket's descriptor is handed to, with `SCM_RIGHTS`, before it binds or connects, for the process there to protect it (from its VPN, say); it answers one byte. Besides what the host protects. Unix only."
     },
     "routing_mark": {
      "anyOf": [
@@ -18387,7 +18388,7 @@
     },
     "netns": {
      "not": {},
-     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+     "description": "sail refuses this field: Linux network namespaces: sockets would leave another way"
     },
     "connect_timeout": {
      "type": "string",
@@ -19142,8 +19143,8 @@
      "description": "`IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address, so that the port is picked at connect: Linux only."
     },
     "protect_path": {
-     "not": {},
-     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+     "type": "string",
+     "description": "A Unix socket each socket's descriptor is handed to, with `SCM_RIGHTS`, before it binds or connects, for the process there to protect it (from its VPN, say); it answers one byte. Besides what the host protects. Unix only."
     },
     "routing_mark": {
      "anyOf": [
@@ -19162,7 +19163,7 @@
     },
     "netns": {
      "not": {},
-     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+     "description": "sail refuses this field: Linux network namespaces: sockets would leave another way"
     },
     "connect_timeout": {
      "type": "string",
@@ -19842,8 +19843,8 @@
      "description": "`IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address, so that the port is picked at connect: Linux only."
     },
     "protect_path": {
-     "not": {},
-     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+     "type": "string",
+     "description": "A Unix socket each socket's descriptor is handed to, with `SCM_RIGHTS`, before it binds or connects, for the process there to protect it (from its VPN, say); it answers one byte. Besides what the host protects. Unix only."
     },
     "routing_mark": {
      "anyOf": [
@@ -19862,7 +19863,7 @@
     },
     "netns": {
      "not": {},
-     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+     "description": "sail refuses this field: Linux network namespaces: sockets would leave another way"
     },
     "connect_timeout": {
      "type": "string",
@@ -20604,8 +20605,8 @@
      "description": "`IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address, so that the port is picked at connect: Linux only."
     },
     "protect_path": {
-     "not": {},
-     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+     "type": "string",
+     "description": "A Unix socket each socket's descriptor is handed to, with `SCM_RIGHTS`, before it binds or connects, for the process there to protect it (from its VPN, say); it answers one byte. Besides what the host protects. Unix only."
     },
     "routing_mark": {
      "anyOf": [
@@ -20624,7 +20625,7 @@
     },
     "netns": {
      "not": {},
-     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+     "description": "sail refuses this field: Linux network namespaces: sockets would leave another way"
     },
     "connect_timeout": {
      "type": "string",
@@ -22754,8 +22755,7 @@
      "type": "boolean"
     },
     "protect_path": {
-     "not": {},
-     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+     "type": "string"
     },
     "routing_mark": {
      "anyOf": [
@@ -22772,7 +22772,7 @@
     },
     "netns": {
      "not": {},
-     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+     "description": "sail refuses this field: Linux network namespaces: sockets would leave another way"
     },
     "connect_timeout": {
      "type": "string"
@@ -24442,8 +24442,9 @@
      "description": "sail ignores this field, with a warning: Accepted, no effect (as sing-box). `direct`: `IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address: Linux only."
     },
     "protect_path": {
-     "not": {},
-     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+     "type": "string",
+     "deprecated": true,
+     "description": "sail ignores this field, with a warning: Accepted, no effect (as sing-box). `direct`: the Unix socket each socket's descriptor is handed to, to be protected: Unix only."
     },
     "routing_mark": {
      "anyOf": [
@@ -24464,7 +24465,7 @@
     },
     "netns": {
      "not": {},
-     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+     "description": "sail refuses this field: Linux network namespaces: sockets would leave another way"
     },
     "connect_timeout": {
      "type": "string",
@@ -24857,8 +24858,9 @@
      "description": "sail ignores this field, with a warning: Accepted, no effect (as sing-box). `direct`: `IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address: Linux only."
     },
     "protect_path": {
-     "not": {},
-     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+     "type": "string",
+     "deprecated": true,
+     "description": "sail ignores this field, with a warning: Accepted, no effect (as sing-box). `direct`: the Unix socket each socket's descriptor is handed to, to be protected: Unix only."
     },
     "routing_mark": {
      "anyOf": [
@@ -24879,7 +24881,7 @@
     },
     "netns": {
      "not": {},
-     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+     "description": "sail refuses this field: Linux network namespaces: sockets would leave another way"
     },
     "connect_timeout": {
      "type": "string",

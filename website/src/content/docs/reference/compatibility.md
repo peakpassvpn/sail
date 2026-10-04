@@ -15,19 +15,19 @@ Full table: [docs/compat/sing-box.md](https://github.com/peakpassvpn/sail/blob/d
 |---|--:|--:|--:|--:|
 | `$schema` | 1 | 1 | 0 | 0 |
 | `log` | 5 | 5 | 0 | 0 |
-| `dns` | 578 | 360 | 66 | 152 |
+| `dns` | 578 | 367 | 67 | 144 |
 | `ntp` | 35 | 0 | 35 | 0 |
 | `certificate` | 5 | 5 | 0 | 0 |
 | `certificate_providers` | 212 | 0 | 0 | 212 |
-| `http_clients` | 80 | 29 | 11 | 40 |
+| `http_clients` | 80 | 30 | 11 | 39 |
 | `network_namespaces` | 6 | 0 | 0 | 6 |
-| `endpoints` | 433 | 47 | 13 | 373 |
-| `inbounds` | 1367 | 584 | 151 | 632 |
-| `outbounds` | 1228 | 669 | 75 | 484 |
-| `route` | 268 | 172 | 41 | 55 |
+| `endpoints` | 433 | 48 | 13 | 372 |
+| `inbounds` | 1367 | 592 | 151 | 624 |
+| `outbounds` | 1228 | 680 | 75 | 473 |
+| `route` | 268 | 173 | 42 | 53 |
 | `services` | 751 | 1 | 166 | 584 |
 | `experimental` | 34 | 16 | 17 | 1 |
-| **All** | **5003** | **1889** | **575** | **2539** |
+| **All** | **5003** | **1918** | **577** | **2508** |
 
 ## Clash / Mihomo
 

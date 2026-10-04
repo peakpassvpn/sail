@@ -22,19 +22,19 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 |---|--:|--:|--:|--:|
 | `$schema` | 1 | 1 | 0 | 0 |
 | `log` | 5 | 5 | 0 | 0 |
-| `dns` | 578 | 360 | 66 | 152 |
+| `dns` | 578 | 367 | 67 | 144 |
 | `ntp` | 35 | 0 | 35 | 0 |
 | `certificate` | 5 | 5 | 0 | 0 |
 | `certificate_providers` | 212 | 0 | 0 | 212 |
-| `http_clients` | 80 | 29 | 11 | 40 |
+| `http_clients` | 80 | 30 | 11 | 39 |
 | `network_namespaces` | 6 | 0 | 0 | 6 |
-| `endpoints` | 433 | 47 | 13 | 373 |
-| `inbounds` | 1367 | 584 | 151 | 632 |
-| `outbounds` | 1228 | 669 | 75 | 484 |
-| `route` | 268 | 172 | 41 | 55 |
+| `endpoints` | 433 | 48 | 13 | 372 |
+| `inbounds` | 1367 | 592 | 151 | 624 |
+| `outbounds` | 1228 | 680 | 75 | 473 |
+| `route` | 268 | 173 | 42 | 53 |
 | `services` | 751 | 1 | 166 | 584 |
 | `experimental` | 34 | 16 | 17 | 1 |
-| **全部** | **5003** | **1889** | **575** | **2539** |
+| **全部** | **5003** | **1918** | **577** | **2508** |
 
 ## `$schema`
 
@@ -111,10 +111,10 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `inet4_bind_address` | 支持 |  |
 | `inet6_bind_address` | 支持 |  |
 | `bind_address_no_port` | 支持 |  |
-| `protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `protect_path` | 支持 |  |
 | `routing_mark` | 支持 |  |
 | `reuse_addr` | 支持 |  |
-| `netns` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `netns` | 报错 | Linux network namespaces: sockets would leave another way |
 | `connect_timeout` | 支持 |  |
 | `tcp_fast_open` | 支持 |  |
 | `tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
@@ -191,10 +191,10 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `inet4_bind_address` | 支持 |  |
 | `inet6_bind_address` | 支持 |  |
 | `bind_address_no_port` | 支持 |  |
-| `protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `protect_path` | 支持 |  |
 | `routing_mark` | 支持 |  |
 | `reuse_addr` | 支持 |  |
-| `netns` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `netns` | 报错 | Linux network namespaces: sockets would leave another way |
 | `connect_timeout` | 支持 |  |
 | `tcp_fast_open` | 支持 |  |
 | `tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
@@ -265,10 +265,10 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `inet4_bind_address` | 支持 |  |
 | `inet6_bind_address` | 支持 |  |
 | `bind_address_no_port` | 支持 |  |
-| `protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `protect_path` | 支持 |  |
 | `routing_mark` | 支持 |  |
 | `reuse_addr` | 支持 |  |
-| `netns` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `netns` | 报错 | Linux network namespaces: sockets would leave another way |
 | `connect_timeout` | 支持 |  |
 | `tcp_fast_open` | 支持 |  |
 | `tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
@@ -295,10 +295,10 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `inet4_bind_address` | 警告 | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
 | `inet6_bind_address` | 警告 | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
 | `bind_address_no_port` | 警告 | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
-| `protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `protect_path` | 警告 | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
 | `routing_mark` | 警告 | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
 | `reuse_addr` | 警告 | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
-| `netns` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `netns` | 报错 | Linux network namespaces: sockets would leave another way |
 | `connect_timeout` | 警告 | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
 | `tcp_fast_open` | 警告 | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
 | `tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
@@ -326,10 +326,10 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `inet4_bind_address` | 支持 |  |
 | `inet6_bind_address` | 支持 |  |
 | `bind_address_no_port` | 支持 |  |
-| `protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `protect_path` | 支持 |  |
 | `routing_mark` | 支持 |  |
 | `reuse_addr` | 支持 |  |
-| `netns` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `netns` | 报错 | Linux network namespaces: sockets would leave another way |
 | `connect_timeout` | 支持 |  |
 | `tcp_fast_open` | 支持 |  |
 | `tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
@@ -395,10 +395,10 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `inet4_bind_address` | 支持 |  |
 | `inet6_bind_address` | 支持 |  |
 | `bind_address_no_port` | 支持 |  |
-| `protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `protect_path` | 支持 |  |
 | `routing_mark` | 支持 |  |
 | `reuse_addr` | 支持 |  |
-| `netns` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `netns` | 报错 | Linux network namespaces: sockets would leave another way |
 | `connect_timeout` | 支持 |  |
 | `tcp_fast_open` | 支持 |  |
 | `tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
@@ -432,10 +432,10 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `inet4_bind_address` | 支持 |  |
 | `inet6_bind_address` | 支持 |  |
 | `bind_address_no_port` | 支持 |  |
-| `protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `protect_path` | 支持 |  |
 | `routing_mark` | 支持 |  |
 | `reuse_addr` | 支持 |  |
-| `netns` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `netns` | 报错 | Linux network namespaces: sockets would leave another way |
 | `connect_timeout` | 支持 |  |
 | `tcp_fast_open` | 支持 |  |
 | `tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
@@ -503,10 +503,10 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `inet4_bind_address` | 支持 |  |
 | `inet6_bind_address` | 支持 |  |
 | `bind_address_no_port` | 支持 |  |
-| `protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `protect_path` | 支持 |  |
 | `routing_mark` | 支持 |  |
 | `reuse_addr` | 支持 |  |
-| `netns` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `netns` | 报错 | Linux network namespaces: sockets would leave another way |
 | `connect_timeout` | 支持 |  |
 | `tcp_fast_open` | 支持 |  |
 | `tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
@@ -718,10 +718,10 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `[].inet4_bind_address` | 支持 |  |
 | `[].inet6_bind_address` | 支持 |  |
 | `[].bind_address_no_port` | 支持 |  |
-| `[].protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `[].protect_path` | 支持 |  |
 | `[].routing_mark` | 支持 |  |
 | `[].reuse_addr` | 支持 |  |
-| `[].netns` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `[].netns` | 报错 | Linux network namespaces: sockets would leave another way |
 | `[].connect_timeout` | 支持 |  |
 | `[].tcp_fast_open` | 支持 |  |
 | `[].tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
@@ -811,10 +811,10 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `inet4_bind_address` | 支持 |  |
 | `inet6_bind_address` | 支持 |  |
 | `bind_address_no_port` | 支持 |  |
-| `protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `protect_path` | 支持 |  |
 | `routing_mark` | 支持 |  |
 | `reuse_addr` | 支持 |  |
-| `netns` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `netns` | 报错 | Linux network namespaces: sockets would leave another way |
 | `connect_timeout` | 支持 |  |
 | `tcp_fast_open` | 支持 |  |
 | `tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
@@ -905,10 +905,10 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `tls.reality.handshake.inet4_bind_address` | 支持 |  |
 | `tls.reality.handshake.inet6_bind_address` | 支持 |  |
 | `tls.reality.handshake.bind_address_no_port` | 支持 |  |
-| `tls.reality.handshake.protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `tls.reality.handshake.protect_path` | 支持 |  |
 | `tls.reality.handshake.routing_mark` | 支持 |  |
 | `tls.reality.handshake.reuse_addr` | 支持 |  |
-| `tls.reality.handshake.netns` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `tls.reality.handshake.netns` | 报错 | Linux network namespaces: sockets would leave another way |
 | `tls.reality.handshake.connect_timeout` | 支持 |  |
 | `tls.reality.handshake.tcp_fast_open` | 支持 |  |
 | `tls.reality.handshake.tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
@@ -1017,10 +1017,10 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `tls.reality.handshake.inet4_bind_address` | 支持 |  |
 | `tls.reality.handshake.inet6_bind_address` | 支持 |  |
 | `tls.reality.handshake.bind_address_no_port` | 支持 |  |
-| `tls.reality.handshake.protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `tls.reality.handshake.protect_path` | 支持 |  |
 | `tls.reality.handshake.routing_mark` | 支持 |  |
 | `tls.reality.handshake.reuse_addr` | 支持 |  |
-| `tls.reality.handshake.netns` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `tls.reality.handshake.netns` | 报错 | Linux network namespaces: sockets would leave another way |
 | `tls.reality.handshake.connect_timeout` | 支持 |  |
 | `tls.reality.handshake.tcp_fast_open` | 支持 |  |
 | `tls.reality.handshake.tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
@@ -1109,10 +1109,10 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `tls.reality.handshake.inet4_bind_address` | 支持 |  |
 | `tls.reality.handshake.inet6_bind_address` | 支持 |  |
 | `tls.reality.handshake.bind_address_no_port` | 支持 |  |
-| `tls.reality.handshake.protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `tls.reality.handshake.protect_path` | 支持 |  |
 | `tls.reality.handshake.routing_mark` | 支持 |  |
 | `tls.reality.handshake.reuse_addr` | 支持 |  |
-| `tls.reality.handshake.netns` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `tls.reality.handshake.netns` | 报错 | Linux network namespaces: sockets would leave another way |
 | `tls.reality.handshake.connect_timeout` | 支持 |  |
 | `tls.reality.handshake.tcp_fast_open` | 支持 |  |
 | `tls.reality.handshake.tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
@@ -1262,7 +1262,7 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `handshake.inet4_bind_address` | 支持 |  |
 | `handshake.inet6_bind_address` | 支持 |  |
 | `handshake.bind_address_no_port` | 支持 |  |
-| `handshake.protect_path` | 报错 | The protocol's own check: not implemented yet |
+| `handshake.protect_path` | 支持 |  |
 | `handshake.routing_mark` | 支持 |  |
 | `handshake.reuse_addr` | 支持 |  |
 | `handshake.netns` | 报错 | The protocol's own check: not implemented yet |
@@ -1392,10 +1392,10 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `tls.reality.handshake.inet4_bind_address` | 支持 |  |
 | `tls.reality.handshake.inet6_bind_address` | 支持 |  |
 | `tls.reality.handshake.bind_address_no_port` | 支持 |  |
-| `tls.reality.handshake.protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `tls.reality.handshake.protect_path` | 支持 |  |
 | `tls.reality.handshake.routing_mark` | 支持 |  |
 | `tls.reality.handshake.reuse_addr` | 支持 |  |
-| `tls.reality.handshake.netns` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `tls.reality.handshake.netns` | 报错 | Linux network namespaces: sockets would leave another way |
 | `tls.reality.handshake.connect_timeout` | 支持 |  |
 | `tls.reality.handshake.tcp_fast_open` | 支持 |  |
 | `tls.reality.handshake.tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
@@ -1510,10 +1510,10 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `tls.reality.handshake.inet4_bind_address` | 支持 |  |
 | `tls.reality.handshake.inet6_bind_address` | 支持 |  |
 | `tls.reality.handshake.bind_address_no_port` | 支持 |  |
-| `tls.reality.handshake.protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `tls.reality.handshake.protect_path` | 支持 |  |
 | `tls.reality.handshake.routing_mark` | 支持 |  |
 | `tls.reality.handshake.reuse_addr` | 支持 |  |
-| `tls.reality.handshake.netns` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `tls.reality.handshake.netns` | 报错 | Linux network namespaces: sockets would leave another way |
 | `tls.reality.handshake.connect_timeout` | 支持 |  |
 | `tls.reality.handshake.tcp_fast_open` | 支持 |  |
 | `tls.reality.handshake.tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
@@ -1647,10 +1647,10 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `tls.reality.handshake.inet4_bind_address` | 支持 |  |
 | `tls.reality.handshake.inet6_bind_address` | 支持 |  |
 | `tls.reality.handshake.bind_address_no_port` | 支持 |  |
-| `tls.reality.handshake.protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `tls.reality.handshake.protect_path` | 支持 |  |
 | `tls.reality.handshake.routing_mark` | 支持 |  |
 | `tls.reality.handshake.reuse_addr` | 支持 |  |
-| `tls.reality.handshake.netns` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `tls.reality.handshake.netns` | 报错 | Linux network namespaces: sockets would leave another way |
 | `tls.reality.handshake.connect_timeout` | 支持 |  |
 | `tls.reality.handshake.tcp_fast_open` | 支持 |  |
 | `tls.reality.handshake.tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
@@ -1757,10 +1757,10 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `tls.reality.handshake.inet4_bind_address` | 支持 |  |
 | `tls.reality.handshake.inet6_bind_address` | 支持 |  |
 | `tls.reality.handshake.bind_address_no_port` | 支持 |  |
-| `tls.reality.handshake.protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `tls.reality.handshake.protect_path` | 支持 |  |
 | `tls.reality.handshake.routing_mark` | 支持 |  |
 | `tls.reality.handshake.reuse_addr` | 支持 |  |
-| `tls.reality.handshake.netns` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `tls.reality.handshake.netns` | 报错 | Linux network namespaces: sockets would leave another way |
 | `tls.reality.handshake.connect_timeout` | 支持 |  |
 | `tls.reality.handshake.tcp_fast_open` | 支持 |  |
 | `tls.reality.handshake.tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
@@ -1842,10 +1842,10 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `inet4_bind_address` | 支持 |  |
 | `inet6_bind_address` | 支持 |  |
 | `bind_address_no_port` | 支持 |  |
-| `protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `protect_path` | 支持 |  |
 | `routing_mark` | 支持 |  |
 | `reuse_addr` | 支持 |  |
-| `netns` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `netns` | 报错 | Linux network namespaces: sockets would leave another way |
 | `connect_timeout` | 支持 |  |
 | `tcp_fast_open` | 支持 |  |
 | `tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
@@ -1928,10 +1928,10 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `inet4_bind_address` | 支持 |  |
 | `inet6_bind_address` | 支持 |  |
 | `bind_address_no_port` | 支持 |  |
-| `protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `protect_path` | 支持 |  |
 | `routing_mark` | 支持 |  |
 | `reuse_addr` | 支持 |  |
-| `netns` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `netns` | 报错 | Linux network namespaces: sockets would leave another way |
 | `connect_timeout` | 支持 |  |
 | `tcp_fast_open` | 支持 |  |
 | `tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
@@ -1963,10 +1963,10 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `inet4_bind_address` | 支持 |  |
 | `inet6_bind_address` | 支持 |  |
 | `bind_address_no_port` | 支持 |  |
-| `protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `protect_path` | 支持 |  |
 | `routing_mark` | 支持 |  |
 | `reuse_addr` | 支持 |  |
-| `netns` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `netns` | 报错 | Linux network namespaces: sockets would leave another way |
 | `connect_timeout` | 支持 |  |
 | `tcp_fast_open` | 支持 |  |
 | `tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
@@ -2042,10 +2042,10 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `inet4_bind_address` | 支持 |  |
 | `inet6_bind_address` | 支持 |  |
 | `bind_address_no_port` | 支持 |  |
-| `protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `protect_path` | 支持 |  |
 | `routing_mark` | 支持 |  |
 | `reuse_addr` | 支持 |  |
-| `netns` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `netns` | 报错 | Linux network namespaces: sockets would leave another way |
 | `connect_timeout` | 支持 |  |
 | `tcp_fast_open` | 支持 |  |
 | `tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
@@ -2148,10 +2148,10 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `inet4_bind_address` | 支持 |  |
 | `inet6_bind_address` | 支持 |  |
 | `bind_address_no_port` | 支持 |  |
-| `protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `protect_path` | 支持 |  |
 | `routing_mark` | 支持 |  |
 | `reuse_addr` | 支持 |  |
-| `netns` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `netns` | 报错 | Linux network namespaces: sockets would leave another way |
 | `connect_timeout` | 支持 |  |
 | `tcp_fast_open` | 支持 |  |
 | `tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
@@ -2204,10 +2204,10 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `inet4_bind_address` | 支持 |  |
 | `inet6_bind_address` | 支持 |  |
 | `bind_address_no_port` | 支持 |  |
-| `protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `protect_path` | 支持 |  |
 | `routing_mark` | 支持 |  |
 | `reuse_addr` | 支持 |  |
-| `netns` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `netns` | 报错 | Linux network namespaces: sockets would leave another way |
 | `connect_timeout` | 支持 |  |
 | `tcp_fast_open` | 支持 |  |
 | `tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
@@ -2281,10 +2281,10 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `inet4_bind_address` | 支持 |  |
 | `inet6_bind_address` | 支持 |  |
 | `bind_address_no_port` | 支持 |  |
-| `protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `protect_path` | 支持 |  |
 | `routing_mark` | 支持 |  |
 | `reuse_addr` | 支持 |  |
-| `netns` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `netns` | 报错 | Linux network namespaces: sockets would leave another way |
 | `connect_timeout` | 支持 |  |
 | `tcp_fast_open` | 支持 |  |
 | `tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
@@ -2325,10 +2325,10 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `inet4_bind_address` | 支持 |  |
 | `inet6_bind_address` | 支持 |  |
 | `bind_address_no_port` | 支持 |  |
-| `protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `protect_path` | 支持 |  |
 | `routing_mark` | 支持 |  |
 | `reuse_addr` | 支持 |  |
-| `netns` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `netns` | 报错 | Linux network namespaces: sockets would leave another way |
 | `connect_timeout` | 支持 |  |
 | `tcp_fast_open` | 支持 |  |
 | `tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
@@ -2432,10 +2432,10 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `inet4_bind_address` | 支持 |  |
 | `inet6_bind_address` | 支持 |  |
 | `bind_address_no_port` | 支持 |  |
-| `protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `protect_path` | 支持 |  |
 | `routing_mark` | 支持 |  |
 | `reuse_addr` | 支持 |  |
-| `netns` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `netns` | 报错 | Linux network namespaces: sockets would leave another way |
 | `connect_timeout` | 支持 |  |
 | `tcp_fast_open` | 支持 |  |
 | `tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
@@ -2532,10 +2532,10 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `inet4_bind_address` | 支持 |  |
 | `inet6_bind_address` | 支持 |  |
 | `bind_address_no_port` | 支持 |  |
-| `protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `protect_path` | 支持 |  |
 | `routing_mark` | 支持 |  |
 | `reuse_addr` | 支持 |  |
-| `netns` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `netns` | 报错 | Linux network namespaces: sockets would leave another way |
 | `connect_timeout` | 支持 |  |
 | `tcp_fast_open` | 支持 |  |
 | `tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
@@ -2641,10 +2641,10 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `inet4_bind_address` | 支持 |  |
 | `inet6_bind_address` | 支持 |  |
 | `bind_address_no_port` | 支持 |  |
-| `protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `protect_path` | 支持 |  |
 | `routing_mark` | 支持 |  |
 | `reuse_addr` | 支持 |  |
-| `netns` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `netns` | 报错 | Linux network namespaces: sockets would leave another way |
 | `connect_timeout` | 支持 |  |
 | `tcp_fast_open` | 支持 |  |
 | `tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
@@ -2865,10 +2865,10 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `inet4_bind_address` | 警告 | Accepted, no effect (as sing-box) |
 | `inet6_bind_address` | 警告 | Accepted, no effect (as sing-box) |
 | `bind_address_no_port` | 警告 | Accepted, no effect (as sing-box) |
-| `protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `protect_path` | 警告 | Accepted, no effect (as sing-box) |
 | `routing_mark` | 警告 | Accepted, no effect (as sing-box) |
 | `reuse_addr` | 警告 | Accepted, no effect (as sing-box) |
-| `netns` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `netns` | 报错 | Linux network namespaces: sockets would leave another way |
 | `connect_timeout` | 警告 | Accepted, no effect (as sing-box) |
 | `tcp_fast_open` | 警告 | Accepted, no effect (as sing-box) |
 | `tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
@@ -3005,10 +3005,10 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `http_client.inet4_bind_address` | 支持 |  |
 | `http_client.inet6_bind_address` | 支持 |  |
 | `http_client.bind_address_no_port` | 支持 |  |
-| `http_client.protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `http_client.protect_path` | 支持 |  |
 | `http_client.routing_mark` | 支持 |  |
 | `http_client.reuse_addr` | 支持 |  |
-| `http_client.netns` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `http_client.netns` | 报错 | Linux network namespaces: sockets would leave another way |
 | `http_client.connect_timeout` | 支持 |  |
 | `http_client.tcp_fast_open` | 支持 |  |
 | `http_client.tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |

@@ -729,6 +729,57 @@ mod tests {
         assert_eq!(dial(1), None);
     }
 
+    /// An outbound's `protect_path` protects its own sockets, and not
+    /// another outbound's.
+    #[cfg(all(unix, feature = "outbound-direct"))]
+    #[tokio::test]
+    async fn protect_path_protects_the_sockets_of_its_outbound() {
+        use crate::net::dial::protect_server::{Answer, Server};
+
+        // One answer: one socket handed over.
+        let server = Server::start(vec![Answer::Byte(1)]);
+        let config = parse(
+            &serde_json::json!({ "outbounds": [
+                { "type": "direct", "tag": "protected", "protect_path": server.path },
+                { "type": "direct", "tag": "plain" },
+            ] })
+            .to_string(),
+        )
+        .unwrap();
+        assert!(config.warnings.is_empty(), "{:?}", config.warnings);
+        let dialer = |i: usize| {
+            let outbound = &config.outbounds[i];
+            let (_, blocks) = crate::transport::layers::Blocks::DIAL.split(&outbound.options);
+            crate::config::model::parse_options::<crate::transport::layers::OutboundBlocks>(
+                "outbound",
+                &outbound.tag,
+                &blocks,
+            )
+            .unwrap()
+            .dialer(&outbound.tag, "direct", &Default::default(), None)
+            .unwrap()
+        };
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (plain, protected) = (dialer(1), dialer(0));
+        let (plain, accepted) = tokio::join!(plain.tcp_to(addr), listener.accept());
+        plain.unwrap();
+        accepted.unwrap();
+        let (protected, accepted) = tokio::join!(protected.tcp_to(addr), listener.accept());
+        let protected = protected.unwrap();
+        accepted.unwrap();
+        let taken = server.taken();
+        assert_eq!(taken.len(), 1, "sockets handed over");
+        let taken = taken[0].as_ref().expect("a descriptor, by SCM_RIGHTS");
+        assert_eq!(
+            socket2::SockRef::from(taken)
+                .local_addr()
+                .unwrap()
+                .as_socket(),
+            Some(protected.local_addr().unwrap())
+        );
+    }
+
     /// Outbounds, DNS servers, HTTP clients and REALITY's handshake read
     /// the dial fields alike: the same fields, warnings and errors, each
     /// under the place it is at. Built, as `sail -T` builds a
@@ -811,6 +862,18 @@ mod tests {
                 "udp_fragment": false, "reuse_addr": true, "fallback_delay": "100ms",
             });
             assert_eq!(load(place, &socket), Ok(vec![]), "{}", at);
+            // protect_path: wherever sail dials, on Unix.
+            let protect = load(place, &json!({ "protect_path": "/run/protect.sock" }));
+            if cfg!(unix) {
+                assert_eq!(protect, Ok(vec![]), "{}", at);
+            } else {
+                let err = protect.unwrap_err();
+                assert!(
+                    err.contains("protect_path: only supported on Unix"),
+                    "{}",
+                    err
+                );
+            }
             // Keepalive: taken wherever sail dials a TCP connection of its
             // own accord.
             let keepalive = json!({ "tcp_keep_alive": "1m", "tcp_keep_alive_interval": "10s" });

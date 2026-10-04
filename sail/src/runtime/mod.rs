@@ -281,7 +281,10 @@ pub struct StartSettings {
     /// unset.
     #[serde(default)]
     pub log_to_system: Option<bool>,
-    /// A Unix socket path, or an `address:port` to connect to over TCP.
+    /// The path of a Unix socket each outbound socket's descriptor is
+    /// handed to, with `SCM_RIGHTS`, to be protected from the host's VPN
+    /// before it binds or connects; it answers one byte. sing-box's
+    /// `protect_path`, for every outbound. Unix only.
     #[serde(default)]
     pub socket_protect: Option<String>,
     /// The base URL of a Sub-Store backend, which `sub.store` stands for.
@@ -350,10 +353,7 @@ impl StartSettings {
         };
         let mut options = RuntimeOptions::profile(profile);
         options.set_all(self.set.iter().map(String::as_str))?;
-        let socket_protect = self.socket_protect.map(|p| match p.parse() {
-            Ok(addr) => crate::net::dial::SocketProtect::Tcp(addr),
-            Err(_) => crate::net::dial::SocketProtect::Unix(p),
-        });
+        let socket_protect = self.socket_protect.map(socket_protect).transpose()?;
         Ok((
             options,
             Host {
@@ -376,6 +376,30 @@ impl StartSettings {
             },
         ))
     }
+}
+
+/// `socket_protect` as start settings give it: a Unix socket's path. An
+/// address is a mistake, of a host that still speaks the protocol sail had
+/// before sing-box's (the descriptor's number over TCP).
+fn socket_protect(path: String) -> Result<crate::net::dial::SocketProtect> {
+    if path.parse::<std::net::SocketAddr>().is_ok() {
+        return Err(anyhow!(
+            "start settings: socket_protect: {:?} is an address; give the path of a Unix socket, \
+             which takes each socket's descriptor by SCM_RIGHTS",
+            path
+        ));
+    }
+    if path.is_empty() {
+        return Err(anyhow!(
+            "start settings: socket_protect: empty; give the path of a Unix socket, or leave it out"
+        ));
+    }
+    if !cfg!(unix) {
+        return Err(anyhow!(
+            "start settings: socket_protect: only supported on Unix"
+        ));
+    }
+    Ok(crate::net::dial::SocketProtect::Unix(path))
 }
 
 #[cfg(test)]
@@ -445,7 +469,7 @@ mod tests {
     fn start_settings_resolve_to_tuning_and_host() {
         let (options, host) = StartSettings::from_json(
             r#"{ "profile": "router", "set": ["relay.buffer_size=2"],
-                 "data_dir": "/d", "socket_protect": "127.0.0.1:9000",
+                 "data_dir": "/d", "socket_protect": "/data/protect.sock",
                  "asset_sources": { "asn.mmdb": "https://example.com/asn.mmdb" } }"#,
         )
         .unwrap()
@@ -463,14 +487,57 @@ mod tests {
             host.asset_sources["asn.mmdb"],
             "https://example.com/asn.mmdb"
         );
-        assert_eq!(
-            host.socket_protect,
-            Some(crate::net::dial::SocketProtect::Tcp(
-                "127.0.0.1:9000".parse().unwrap()
-            ))
-        );
+        if cfg!(unix) {
+            assert_eq!(
+                host.socket_protect,
+                Some(crate::net::dial::SocketProtect::Unix(
+                    "/data/protect.sock".into()
+                ))
+            );
+        }
         let err = StartSettings::from_json(r#"{ "profile": "mobile", "sett": [] }"#).unwrap_err();
         assert!(err.to_string().contains("sett"), "{}", err);
+    }
+
+    #[test]
+    fn socket_protect_is_a_unix_socket_s_path_only() {
+        let resolve = |json: &str| {
+            StartSettings::from_json(json)
+                .unwrap()
+                .resolve()
+                .map(|(_, host)| host.socket_protect)
+                .map_err(|e| e.to_string())
+        };
+        // The protocol over TCP is gone, and an address is a mistake.
+        for address in ["127.0.0.1:9000", "[::1]:9000"] {
+            let err = resolve(&format!(r#"{{ "socket_protect": "{}" }}"#, address)).unwrap_err();
+            assert_eq!(
+                err,
+                format!(
+                    "start settings: socket_protect: \"{}\" is an address; give the path of a \
+                     Unix socket, which takes each socket's descriptor by SCM_RIGHTS",
+                    address
+                )
+            );
+        }
+        assert!(resolve(r#"{ "socket_protect": "" }"#)
+            .unwrap_err()
+            .contains("empty"));
+        let path = resolve(r#"{ "socket_protect": "protect.sock" }"#);
+        if cfg!(unix) {
+            assert_eq!(
+                path,
+                Ok(Some(crate::net::dial::SocketProtect::Unix(
+                    "protect.sock".into()
+                )))
+            );
+        } else {
+            assert_eq!(
+                path,
+                Err("start settings: socket_protect: only supported on Unix".into())
+            );
+        }
+        assert_eq!(resolve("{}"), Ok(None));
     }
 
     #[test]

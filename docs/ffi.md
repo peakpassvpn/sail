@@ -55,6 +55,15 @@ sail_instance_free(instance);
   (2000; what outlasts it is named in `sail_instance_stop_report`). An unknown
   setting is an error. On iOS and Android the "mobile" profile and the
   system log are the defaults.
+- `socket_protect` is the path of a Unix socket, for a host that protects
+  sockets in another process; one in the same process uses the platform's
+  `protect_socket` instead. Each outbound socket, before it binds or
+  connects, is handed over as sing-box hands it to `protect_path`: a
+  connection of its own, one byte sent with the descriptor as `SCM_RIGHTS`,
+  and one byte, of any value, back once it is protected. A connection
+  closed unanswered fails the socket's dial. An address (`127.0.0.1:9000`)
+  is an error: the protocol that sent the descriptor's number, over TCP
+  too, is gone.
 
 ## The contract
 

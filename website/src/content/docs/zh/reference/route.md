@@ -137,10 +137,10 @@ Rust 定义：[`Rule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/con
 | `inet4_bind_address` | string | — | 警告：Accepted, no effect (as sing-box) | `direct`: the local address for IPv4 destinations. |
 | `inet6_bind_address` | string | — | 警告：Accepted, no effect (as sing-box) | `direct`: the local address for IPv6 destinations. |
 | `bind_address_no_port` | bool | — | 警告：Accepted, no effect (as sing-box) | `direct`: `IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address: Linux only. |
-| `protect_path` | string | — | 报错：Android's socket protection and Linux network namespaces: sockets would leave another way | — |
+| `protect_path` | string | — | 警告：Accepted, no effect (as sing-box) | `direct`: the Unix socket each socket's descriptor is handed to, to be protected: Unix only. |
 | `routing_mark` | number\|string | — | 警告：Accepted, no effect (as sing-box) | `direct`: `SO_MARK`, Linux only. |
 | `reuse_addr` | bool | — | 警告：Accepted, no effect (as sing-box) | `direct`: `SO_REUSEADDR`, and `SO_REUSEPORT` on Unix, on UDP sockets. |
-| `netns` | string | — | 报错：Android's socket protection and Linux network namespaces: sockets would leave another way | — |
+| `netns` | string | — | 报错：Linux network namespaces: sockets would leave another way | — |
 | `connect_timeout` | duration | — | 警告：Accepted, no effect (as sing-box) | `direct`: how long a TCP connect to one address may take; 5s when unset. |
 | `tcp_fast_open` | bool | — | 警告：Accepted, no effect (as sing-box) | `direct`: TCP Fast Open. |
 | `tcp_multi_path` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
@@ -389,10 +389,10 @@ Rust 定义：[`RuleSet`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/
 | `inet4_bind_address` | string | — | 支持 | — |
 | `inet6_bind_address` | string | — | 支持 | — |
 | `bind_address_no_port` | bool | — | 支持 | — |
-| `protect_path` | string | — | 报错：Android's socket protection and Linux network namespaces: sockets would leave another way | — |
+| `protect_path` | string | — | 支持 | — |
 | `routing_mark` | number\|string | — | 支持 | — |
 | `reuse_addr` | bool | — | 支持 | — |
-| `netns` | string | — | 报错：Android's socket protection and Linux network namespaces: sockets would leave another way | — |
+| `netns` | string | — | 报错：Linux network namespaces: sockets would leave another way | — |
 | `connect_timeout` | duration | — | 支持 | — |
 | `tcp_fast_open` | bool | — | 支持 | — |
 | `tcp_multi_path` | bool | — | 警告：Socket tuning: connections go the same way without it | — |

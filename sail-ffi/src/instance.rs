@@ -316,6 +316,10 @@ fn split_settings(settings: Option<&str>) -> Result<(FfiSettings, Option<String>
 ///     (3000), `worker_threads`, 0 or unset for one thread,
 ///     `stack_size` of each worker, in bytes, and `stop_within_ms`, how
 ///     long a stop waits for the instance's tasks to end (2000).
+///     `socket_protect` is the path of a Unix socket each outbound
+///     socket's descriptor is handed to by `SCM_RIGHTS`, before it binds
+///     or connects, and which answers one byte once it is protected
+///     (sing-box's `protect_path`); an address is an error.
 /// @param platform What the host does for it, or null for nothing; read
 ///     during the call, its callbacks kept until `release`.
 /// @param out Takes the instance's handle.

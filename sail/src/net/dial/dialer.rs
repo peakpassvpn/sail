@@ -14,16 +14,10 @@ use arc_swap::ArcSwap;
 use socket2::{Domain, SockRef, Socket, Type};
 use tokio::net::{TcpSocket, TcpStream, UdpSocket};
 use tokio::time::timeout;
-#[cfg(unix)]
-use tracing::trace;
 use tracing::{debug, warn};
 
 #[cfg(unix)]
-use {
-    std::os::unix::io::{AsRawFd, RawFd},
-    tokio::io::{AsyncReadExt, AsyncWriteExt},
-    tokio::net::UnixStream,
-};
+use std::os::unix::io::AsRawFd;
 
 use super::detour::{DetourDialer, Outbounds, Target};
 use super::happy::Order;
@@ -678,6 +672,14 @@ impl Dialer {
             SocketAddr::V4(..) => TcpSocket::new_v4()?,
             SocketAddr::V6(..) => TcpSocket::new_v6()?,
         };
+        // Protected first, before it binds or connects.
+        #[cfg(unix)]
+        super::protect::protect(
+            socket.as_raw_fd(),
+            env.protect.as_ref(),
+            spec.protect_path.as_deref(),
+        )
+        .await?;
 
         let (spec, egress) = match (&via, racing) {
             (Some(via), Some(racing)) => {
@@ -694,9 +696,6 @@ impl Dialer {
                 (spec, egress)
             }
         };
-
-        #[cfg(unix)]
-        protect_socket(socket.as_raw_fd(), env.protect.as_ref()).await?;
 
         debug!("tcp dialing {}", &addr);
         let start = tokio::time::Instant::now();
@@ -771,6 +770,14 @@ impl Dialer {
             spec, env, racing, ..
         } = self.socket()?;
         let socket = Socket::new(Domain::for_address(*indicator), Type::DGRAM, None)?;
+        // Protected first, before it binds.
+        #[cfg(unix)]
+        super::protect::protect(
+            socket.as_raw_fd(),
+            env.protect.as_ref(),
+            spec.protect_path.as_deref(),
+        )
+        .await?;
         crate::net::no_udp_connreset(SockRef::from(&socket));
         crate::net::dual_stack(SockRef::from(&socket), indicator)?;
         socket.set_nonblocking(true)?;
@@ -791,9 +798,6 @@ impl Dialer {
         if !bound && indicator.ip().is_unspecified() {
             socket.bind(&(*indicator).into())?;
         }
-
-        #[cfg(unix)]
-        protect_socket(socket.as_raw_fd(), env.protect.as_ref()).await?;
 
         Ok((UdpSocket::from_std(socket.into())?, egress))
     }
@@ -858,43 +862,6 @@ fn record_peer(sess: Option<&Session>, stream: &TcpStream) {
     if let (Some(sess), Ok(peer)) = (sess, stream.peer_addr()) {
         sess.state.get::<BoundInterface>().set_peer(peer);
     }
-}
-
-/// Keeps an outbound socket out of the host's VPN, as `protect` says.
-#[cfg(unix)]
-async fn protect_socket(fd: RawFd, protect: Option<&SocketProtect>) -> io::Result<()> {
-    let answer = match protect {
-        None => return Ok(()),
-        Some(SocketProtect::Platform(platform)) => {
-            let start = std::time::Instant::now();
-            platform.protect_socket(fd).map_err(|e| {
-                io::Error::other(format!("failed to protect outbound socket {}: {}", fd, e))
-            })?;
-            trace!(
-                "protected socket {} in {} µs",
-                fd,
-                start.elapsed().as_micros()
-            );
-            return Ok(());
-        }
-        Some(SocketProtect::Tcp(addr)) => {
-            let mut stream = TcpStream::connect(addr).await?;
-            stream.write_i32(fd).await?;
-            stream.read_i32().await?
-        }
-        Some(SocketProtect::Unix(path)) => {
-            let mut stream = UnixStream::connect(path).await?;
-            stream.write_i32(fd).await?;
-            stream.read_i32().await?
-        }
-    };
-    if answer != 0 {
-        return Err(io::Error::other(format!(
-            "failed to protect outbound socket {}",
-            fd
-        )));
-    }
-    Ok(())
 }
 
 /// A dialer whose host protects sockets by counting them: which dialer a

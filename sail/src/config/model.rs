@@ -199,6 +199,7 @@ const HTTP_CLIENT_DIAL: &[&str] = &[
     "domain_resolver",
     "domain_strategy",
     "bind_address_no_port",
+    "protect_path",
     "reuse_addr",
     "tcp_fast_open",
     "udp_fragment",
@@ -2498,6 +2499,10 @@ pub struct Rule {
     /// address: Linux only.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub bind_address_no_port: bool,
+    /// `direct`: the Unix socket each socket's descriptor is handed to, to
+    /// be protected: Unix only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protect_path: Option<String>,
     /// `direct`: `SO_MARK`, Linux only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub routing_mark: Option<u32>,
@@ -2934,6 +2939,7 @@ impl Rule {
                 &[Direct],
             ),
             ("bind_address_no_port", self.bind_address_no_port, &[Direct]),
+            ("protect_path", self.protect_path.is_some(), &[Direct]),
             ("routing_mark", self.routing_mark.is_some(), &[Direct]),
             ("reuse_addr", self.reuse_addr, &[Direct]),
             ("connect_timeout", self.connect_timeout.is_some(), &[Direct]),
@@ -3104,6 +3110,7 @@ impl Rule {
             inet4_bind_address: self.inet4_bind_address,
             inet6_bind_address: self.inet6_bind_address,
             bind_address_no_port: self.bind_address_no_port,
+            protect_path: self.protect_path.clone(),
             routing_mark: self.routing_mark,
             reuse_addr: self.reuse_addr,
             connect_timeout: self.connect_timeout,
