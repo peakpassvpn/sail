@@ -810,7 +810,7 @@ impl Condition {
     #[cfg_attr(not(feature = "rule-set"), allow(dead_code))]
     pub(crate) fn ip_ranges(&self, out: &mut Vec<(IpAddr, IpAddr)>) {
         match self {
-            Condition::Default(c) => out.extend(c.ip_cidr.ranges()),
+            Condition::Default(c) => out.extend(c.ip_cidr_ranges()),
             Condition::Logical { rules, .. } => rules.iter().for_each(|r| r.ip_ranges(out)),
         }
     }
@@ -855,8 +855,10 @@ impl Condition {
 /// address, its port, the destination's address, its port) match when any
 /// of them does; the rule when each thing it has conditions on matches,
 /// and every other condition does.
+/// What `compile` gathers of a default rule, every kind of condition in
+/// a field of its own; kept as `Conditions`, which holds only those it has.
 #[derive(Default)]
-pub(crate) struct Conditions {
+struct Parts {
     /// The mode wanted, and the instance's.
     clash_mode: Option<(String, crate::app::clash_mode::ClashMode)>,
     inbounds: Vec<String>,
@@ -916,9 +918,90 @@ pub(crate) struct Conditions {
     /// resolved.
     no_resolve: bool,
     invert: bool,
+}
+
+/// The conditions of a default rule: only those it has, each an item, in
+/// `Parts`' order. A rule with one condition, as an inline Clash or Surge
+/// rule is, keeps that one and not room for every kind.
+pub(crate) struct Conditions {
+    items: Box<[Item]>,
+    /// A DNS rule's own `match_response`, within a logical one.
+    response: Option<model::ResponseRef>,
+    /// Each by its tag.
+    #[cfg(feature = "rule-set")]
+    rule_sets: Vec<(std::sync::Arc<str>, super::rule_set::SharedRuleSet)>,
+    #[cfg(feature = "rule-set")]
+    ip_match_source: bool,
+    /// Its conditions on addresses, and its rule-sets', never need them
+    /// resolved.
+    no_resolve: bool,
+    invert: bool,
     /// Whether it has no conditions at all, and so matches everything,
     /// inverted or not, as in sing-box.
     empty: bool,
+}
+
+/// A condition a rule has. Those on addresses and ports match as sing-box
+/// groups them (any of a group's); the others must each hold.
+enum Item {
+    ClashMode(String, crate::app::clash_mode::ClashMode),
+    Inbounds(Box<[String]>),
+    IpVersion(u8),
+    Networks(Box<[Network]>),
+    AuthUsers(Box<[String]>),
+    Protocols(Box<[SniffedProtocol]>),
+    Domains(DomainIndex),
+    Succinct(SuccinctSet),
+    DomainRegex(Box<[Pattern]>),
+    SourceIpCidr(CidrIndex),
+    SourceIpIsPrivate,
+    IpCidr(CidrIndex),
+    Mmdbs(Box<[Mmdb]>),
+    Asns(Asns),
+    IpIsPrivate,
+    IpAcceptAny,
+    ResponseRcode(u16),
+    /// A DNS response's records, in one of its sections (0 answers, 1
+    /// authorities, 2 additionals): any of them.
+    ResponseRecords(u8, Box<[hickory_proto::rr::Record]>),
+    SourcePorts(Box<[(u16, u16)]>),
+    Ports(Box<[(u16, u16)]>),
+    ProcessNames(Box<[String]>),
+    ProcessPaths(Box<[String]>),
+    ProcessPathRegex(Box<[Pattern]>),
+    ProcessNameRegex(Box<[Pattern]>),
+    PackageNames(Box<[String]>),
+    PackageNameRegex(Box<[Pattern]>),
+    ProcessUsers(Box<[String]>),
+    ProcessUserIds(Box<[i32]>),
+    HttpUserAgent(Box<[Pattern]>),
+    UrlRegex(Box<[Pattern]>),
+    QueryTypes(Box<[u16]>),
+    PreferredBy(Box<[String]>),
+    SourceMacs(Box<[String]>),
+    SourceHostnames(Box<[String]>),
+    Network(Box<NetworkConditions>),
+}
+
+impl Item {
+    /// Whether it is on the destination given as IPs.
+    fn on_ips(&self) -> bool {
+        matches!(
+            self,
+            Item::IpCidr(_)
+                | Item::Mmdbs(_)
+                | Item::Asns(_)
+                | Item::IpIsPrivate
+                | Item::IpAcceptAny
+        )
+    }
+
+    fn on_domains(&self) -> bool {
+        matches!(
+            self,
+            Item::Domains(_) | Item::Succinct(_) | Item::DomainRegex(_)
+        )
+    }
 }
 
 impl Conditions {
@@ -1065,7 +1148,7 @@ impl Conditions {
                 })
                 .collect::<Result<Vec<_>>>()
         };
-        let conditions = Conditions {
+        let parts = Parts {
             inbounds: rule.inbound.clone(),
             ip_version,
             networks: rule
@@ -1152,70 +1235,101 @@ impl Conditions {
             ip_match_source: rule.rule_set_ip_cidr_match_source,
             no_resolve: rule.no_resolve,
             invert: rule.invert,
+        };
+        Ok(Conditions::keeping(parts))
+    }
+
+    /// The conditions `parts` has, each kept as an item in its order.
+    fn keeping(parts: Parts) -> Self {
+        fn list<T>(v: Vec<T>, item: fn(Box<[T]>) -> Item, items: &mut Vec<Item>) {
+            if !v.is_empty() {
+                items.push(item(v.into_boxed_slice()));
+            }
+        }
+        let p = parts;
+        let mut items = Vec::new();
+        if let Some((wanted, mode)) = p.clash_mode {
+            items.push(Item::ClashMode(wanted, mode));
+        }
+        list(p.inbounds, Item::Inbounds, &mut items);
+        if let Some(v) = p.ip_version {
+            items.push(Item::IpVersion(v));
+        }
+        list(p.networks, Item::Networks, &mut items);
+        list(p.auth_users, Item::AuthUsers, &mut items);
+        list(p.protocols, Item::Protocols, &mut items);
+        if !p.domains.is_empty() {
+            items.push(Item::Domains(p.domains));
+        }
+        if let Some(set) = p.succinct {
+            items.push(Item::Succinct(set));
+        }
+        list(p.domain_regex, Item::DomainRegex, &mut items);
+        if !p.source_ip_cidr.is_empty() {
+            items.push(Item::SourceIpCidr(p.source_ip_cidr));
+        }
+        if p.source_ip_is_private {
+            items.push(Item::SourceIpIsPrivate);
+        }
+        if !p.ip_cidr.is_empty() {
+            items.push(Item::IpCidr(p.ip_cidr));
+        }
+        list(p.mmdbs, Item::Mmdbs, &mut items);
+        if let Some(asns) = p.asns {
+            items.push(Item::Asns(asns));
+        }
+        if p.ip_is_private {
+            items.push(Item::IpIsPrivate);
+        }
+        if p.ip_accept_any {
+            items.push(Item::IpAcceptAny);
+        }
+        if let Some(rcode) = p.response_rcode {
+            items.push(Item::ResponseRcode(rcode));
+        }
+        for (section, records) in [p.response_answer, p.response_ns, p.response_extra]
+            .into_iter()
+            .enumerate()
+        {
+            if !records.is_empty() {
+                items.push(Item::ResponseRecords(
+                    section as u8,
+                    records.into_boxed_slice(),
+                ));
+            }
+        }
+        list(p.source_ports, Item::SourcePorts, &mut items);
+        list(p.ports, Item::Ports, &mut items);
+        list(p.process_names, Item::ProcessNames, &mut items);
+        list(p.process_paths, Item::ProcessPaths, &mut items);
+        list(p.process_path_regex, Item::ProcessPathRegex, &mut items);
+        list(p.process_name_regex, Item::ProcessNameRegex, &mut items);
+        list(p.package_names, Item::PackageNames, &mut items);
+        list(p.package_name_regex, Item::PackageNameRegex, &mut items);
+        list(p.process_users, Item::ProcessUsers, &mut items);
+        list(p.process_user_ids, Item::ProcessUserIds, &mut items);
+        list(p.http_user_agent, Item::HttpUserAgent, &mut items);
+        list(p.url_regex, Item::UrlRegex, &mut items);
+        list(p.query_types, Item::QueryTypes, &mut items);
+        list(p.preferred_by, Item::PreferredBy, &mut items);
+        list(p.source_macs, Item::SourceMacs, &mut items);
+        list(p.source_hostnames, Item::SourceHostnames, &mut items);
+        if !p.network.is_empty() {
+            items.push(Item::Network(Box::new(p.network)));
+        }
+        let mut conditions = Conditions {
+            items: items.into_boxed_slice(),
+            response: p.response,
+            #[cfg(feature = "rule-set")]
+            rule_sets: p.rule_sets,
+            #[cfg(feature = "rule-set")]
+            ip_match_source: p.ip_match_source,
+            no_resolve: p.no_resolve,
+            invert: p.invert,
             empty: false,
         };
-        Ok(Conditions {
-            empty: conditions.is_empty(),
-            ..conditions
-        })
-    }
-
-    fn is_empty(&self) -> bool {
-        self.inbounds.is_empty()
-            && self.ip_version.is_none()
-            && self.networks.is_empty()
-            && self.auth_users.is_empty()
-            && self.protocols.is_empty()
-            && !self.has_domains()
-            && self.source_ip_cidr.is_empty()
-            && !self.source_ip_is_private
-            && !self.has_ip_cidr()
-            && self.source_ports.is_empty()
-            && self.ports.is_empty()
-            && self.process_names.is_empty()
-            && self.process_paths.is_empty()
-            && self.process_path_regex.is_empty()
-            && self.process_name_regex.is_empty()
-            && self.package_names.is_empty()
-            && self.package_name_regex.is_empty()
-            && self.process_users.is_empty()
-            && self.process_user_ids.is_empty()
-            && self.http_user_agent.is_empty()
-            && self.url_regex.is_empty()
-            && self.query_types.is_empty()
-            && self.preferred_by.is_empty()
-            && self.source_macs.is_empty()
-            && self.source_hostnames.is_empty()
-            && self.response_rcode.is_none()
-            && self.response_answer.is_empty()
-            && self.response_ns.is_empty()
-            && self.response_extra.is_empty()
-            && self.clash_mode.is_none()
-            && self.network.is_empty()
-            && !self.has_rule_sets()
-    }
-
-    /// Whether the DNS response has one of the records each section's
-    /// condition names, as sing-box compares them.
-    fn response_records_match(&self, facts: &Facts) -> bool {
-        let sections = [
-            (&self.response_answer, 0),
-            (&self.response_ns, 1),
-            (&self.response_extra, 2),
-        ];
-        sections.iter().all(|(wanted, section)| {
-            wanted.is_empty()
-                || facts.response.as_ref().is_some_and(|m| {
-                    let records = match section {
-                        0 => &m.answers,
-                        1 => &m.authorities,
-                        _ => &m.additionals,
-                    };
-                    wanted
-                        .iter()
-                        .any(|w| records.iter().any(|r| crate::app::dns::same_record(w, r)))
-                })
-        })
+        conditions.empty = conditions.items.is_empty() && !conditions.has_rule_sets();
+        conditions
     }
 
     fn has_rule_sets(&self) -> bool {
@@ -1227,18 +1341,32 @@ impl Conditions {
 
     /// How many domains it names; `None` when it matches addresses too.
     fn domain_count(&self) -> Option<usize> {
-        if self.has_ip_cidr() || !self.source_ip_cidr.is_empty() || self.source_ip_is_private {
-            return None;
+        let mut count = 0;
+        for item in self.items.iter() {
+            match item {
+                Item::Domains(d) => {
+                    count += d.full.len() + d.suffix.len() + d.subdomain.len() + d.keyword.len()
+                }
+                Item::Succinct(s) => count += s.len(),
+                Item::DomainRegex(r) => count += r.len(),
+                Item::SourceIpCidr(_) | Item::SourceIpIsPrivate => return None,
+                item if item.on_ips() => return None,
+                _ => {}
+            }
         }
-        let d = &self.domains;
-        Some(
-            d.full.len()
-                + d.suffix.len()
-                + d.subdomain.len()
-                + d.keyword.len()
-                + self.domain_regex.len()
-                + self.succinct.as_ref().map_or(0, |s| s.len()),
-        )
+        Some(count)
+    }
+
+    /// The destination `ip_cidr` ranges it has.
+    #[cfg_attr(not(feature = "rule-set"), allow(dead_code))]
+    fn ip_cidr_ranges(&self) -> impl Iterator<Item = (IpAddr, IpAddr)> + '_ {
+        self.items
+            .iter()
+            .filter_map(|item| match item {
+                Item::IpCidr(c) => Some(c.ranges()),
+                _ => None,
+            })
+            .flatten()
     }
 
     /// The tag of the first of its narrow rule-sets that `facts` matches.
@@ -1257,8 +1385,9 @@ impl Conditions {
     /// learnt of a connection; its own `ip_cidr` looks at the source when
     /// `ip_match_source`, and needs nothing resolved then.
     fn needs(&self, ip_match_source: bool) -> Needs {
+        let has = |f: fn(&Item) -> bool| self.items.iter().any(f);
         let ip = if ip_match_source {
-            !self.mmdbs.is_empty() || self.asns.is_some() || self.ip_is_private
+            has(|i| matches!(i, Item::Mmdbs(_) | Item::Asns(_) | Item::IpIsPrivate))
         } else {
             self.has_ip_cidr()
         };
@@ -1266,10 +1395,13 @@ impl Conditions {
         let mut needs = Needs {
             ip,
             domain: self.has_domains(),
-            sniff: !self.protocols.is_empty()
-                || !self.http_user_agent.is_empty()
-                || !self.url_regex.is_empty(),
-            network: self.network.needs(),
+            sniff: has(|i| {
+                matches!(
+                    i,
+                    Item::Protocols(_) | Item::HttpUserAgent(_) | Item::UrlRegex(_)
+                )
+            }),
+            network: has(|i| matches!(i, Item::Network(n) if n.needs())),
         };
         #[cfg(feature = "rule-set")]
         for (_, set) in &self.rule_sets {
@@ -1280,164 +1412,184 @@ impl Conditions {
 
     /// Whether it has conditions on a destination address given as IPs.
     pub(crate) fn has_ip_cidr(&self) -> bool {
-        !self.ip_cidr.is_empty()
-            || !self.mmdbs.is_empty()
-            || self.asns.is_some()
-            || self.ip_is_private
-            || self.ip_accept_any
+        self.items.iter().any(Item::on_ips)
     }
 
     fn has_domains(&self) -> bool {
-        !self.domains.is_empty() || self.succinct.is_some() || !self.domain_regex.is_empty()
+        self.items.iter().any(Item::on_domains)
     }
 
     /// Which things it has conditions on, and which of them match; `None`
-    /// when a condition on anything else does not. A rule-set's `ip_cidr`
-    /// matches the source when `ip_match_source`.
+    /// when a condition on anything else does not. Its `ip_cidr` matches
+    /// the source when `ip_match_source`, the other conditions on IPs the
+    /// destination's, counted with the source then.
     pub(crate) fn evaluate(&self, facts: &Facts, ip_match_source: bool) -> Option<Groups> {
         let mut groups = Groups::default();
         let source_ip = facts.source().map(|s| s.ip());
-        if !self.source_ip_cidr.is_empty() || self.source_ip_is_private {
-            groups.require(
-                Groups::SOURCE_ADDRESS,
-                source_ip.is_some_and(|ip| {
-                    self.source_ip_cidr.contains(ip)
-                        || (self.source_ip_is_private && is_private(ip))
-                }),
-            );
-        }
-        let by_ip = |ip: IpAddr| {
-            self.ip_cidr.contains(ip)
-                || self.mmdbs.iter().any(|m| m.contains(ip))
-                || self.asns.as_ref().is_some_and(|a| a.contains(ip))
-                || (self.ip_is_private && is_private(ip))
-                || self.ip_accept_any
+        let ips = facts.ips();
+        let ip_group = if ip_match_source {
+            Groups::SOURCE_ADDRESS
+        } else {
+            Groups::DESTINATION_ADDRESS
         };
-        if ip_match_source && self.has_ip_cidr() {
-            // Only `ip_cidr` looks at the source; the others still look at
-            // the destination.
-            let matched = source_ip.is_some_and(|ip| self.ip_cidr.contains(ip))
-                || facts.ips().iter().any(|&ip| {
-                    self.mmdbs.iter().any(|m| m.contains(ip))
-                        || self.asns.as_ref().is_some_and(|a| a.contains(ip))
-                        || (self.ip_is_private && is_private(ip))
-                });
-            groups.require(Groups::SOURCE_ADDRESS, matched);
-        }
-        if !self.source_ports.is_empty() {
-            let port = facts.source().map(|s| s.port());
-            groups.require(
-                Groups::SOURCE_PORT,
-                port.is_some_and(|p| in_ranges(&self.source_ports, p)),
-            );
-        }
-        if self.has_domains() {
-            let matched = facts.domain().is_some_and(|d| {
-                self.domains.matches(d)
-                    || self.succinct.as_ref().is_some_and(|s| s.matches(d))
-                    || self.domain_regex.iter().any(|r| r.is_match(d))
-            });
-            groups.require(Groups::DESTINATION_ADDRESS, matched);
-        }
-        if !ip_match_source && self.has_ip_cidr() {
-            groups.require(
-                Groups::DESTINATION_ADDRESS,
-                facts.ips().iter().any(|&ip| by_ip(ip)),
-            );
-        }
-        if !self.ports.is_empty() {
-            groups.require(
-                Groups::DESTINATION_PORT,
-                in_ranges(&self.ports, facts.port()),
-            );
-        }
-        let holds =
-            (self.inbounds.is_empty() || self.inbounds.contains(&facts.inbound))
-                && self.ip_version.is_none_or(|v| facts.ip_version == Some(v))
-                && (self.networks.is_empty() || self.networks.contains(&facts.network()))
-                && (self.auth_users.is_empty()
-                    || facts
-                        .user
-                        .as_ref()
-                        .is_some_and(|user| self.auth_users.iter().any(|u| **u == **user.name())))
-                && (self.protocols.is_empty()
-                    || facts.protocol.is_some_and(|p| self.protocols.contains(&p)))
-                && (self.process_names.is_empty()
-                    || facts
-                        .process_name()
-                        .is_some_and(|name| self.process_names.iter().any(|p| p == name)))
-                && (self.process_paths.is_empty()
-                    || facts
-                        .process_path
-                        .as_deref()
-                        .is_some_and(|path| self.process_paths.iter().any(|p| p == path)))
-                && (self.process_path_regex.is_empty()
-                    || facts.process_path.as_deref().is_some_and(|path| {
-                        self.process_path_regex.iter().any(|r| r.is_match(path))
-                    }))
-                && (self.process_name_regex.is_empty()
-                    || facts.process_name().is_some_and(|name| {
-                        self.process_name_regex.iter().any(|r| r.is_match(name))
-                    }))
-                && (self.package_names.is_empty()
-                    || facts.owner.as_ref().is_some_and(|o| {
-                        o.packages.iter().any(|p| self.package_names.contains(p))
-                    }))
-                && (self.package_name_regex.is_empty()
-                    || facts.owner.as_ref().is_some_and(|o| {
-                        o.packages
-                            .iter()
-                            .any(|p| self.package_name_regex.iter().any(|r| r.is_match(p)))
-                    }))
-                && (self.process_users.is_empty()
-                    || facts.owner.as_ref().is_some_and(|o| {
-                        o.user
-                            .as_ref()
-                            .is_some_and(|u| self.process_users.contains(u))
-                    }))
-                && (self.process_user_ids.is_empty()
-                    || facts
-                        .owner
-                        .as_ref()
-                        .and_then(|o| i32::try_from(o.uid).ok())
-                        .is_some_and(|uid| self.process_user_ids.contains(&uid)))
-                && (self.http_user_agent.is_empty()
-                    || facts
-                        .user_agent()
-                        .is_some_and(|ua| self.http_user_agent.iter().any(|r| r.is_match(ua))))
-                && (self.url_regex.is_empty()
-                    || facts
-                        .url()
-                        .is_some_and(|url| self.url_regex.iter().any(|r| r.is_match(url))))
-                && (self.query_types.is_empty()
-                    || facts
-                        .query_type()
-                        .is_some_and(|t| self.query_types.contains(&t)))
-                && (self.preferred_by.is_empty()
-                    || facts
-                        .preferred_by
-                        .as_ref()
-                        .is_some_and(|tags| self.preferred_by.iter().any(|t| tags.contains(t))))
-                && (self.source_macs.is_empty()
-                    || facts
-                        .neighbor
-                        .as_ref()
-                        .and_then(|n| n.mac_string())
-                        .is_some_and(|mac| self.source_macs.contains(&mac)))
-                && (self.source_hostnames.is_empty()
-                    || facts
-                        .neighbor
-                        .as_ref()
-                        .and_then(|n| n.hostname.as_ref())
-                        .is_some_and(|name| self.source_hostnames.contains(name)))
-                && self.response_rcode.is_none_or(|c| facts.rcode == Some(c))
-                && self.response_records_match(facts)
-                && self
-                    .clash_mode
+        let domain = facts.domain();
+        for item in self.items.iter() {
+            let holds = match item {
+                Item::SourceIpCidr(c) => {
+                    groups.require(
+                        Groups::SOURCE_ADDRESS,
+                        source_ip.is_some_and(|ip| c.contains(ip)),
+                    );
+                    true
+                }
+                Item::SourceIpIsPrivate => {
+                    groups.require(Groups::SOURCE_ADDRESS, source_ip.is_some_and(is_private));
+                    true
+                }
+                Item::IpCidr(c) => {
+                    let matched = if ip_match_source {
+                        source_ip.is_some_and(|ip| c.contains(ip))
+                    } else {
+                        ips.iter().any(|&ip| c.contains(ip))
+                    };
+                    groups.require(ip_group, matched);
+                    true
+                }
+                Item::Mmdbs(m) => {
+                    groups.require(
+                        ip_group,
+                        ips.iter().any(|&ip| m.iter().any(|m| m.contains(ip))),
+                    );
+                    true
+                }
+                Item::Asns(a) => {
+                    groups.require(ip_group, ips.iter().any(|&ip| a.contains(ip)));
+                    true
+                }
+                Item::IpIsPrivate => {
+                    groups.require(ip_group, ips.iter().any(|&ip| is_private(ip)));
+                    true
+                }
+                // Any address of the destination; with the source looked at,
+                // it holds the group but matches nothing there.
+                Item::IpAcceptAny => {
+                    groups.require(ip_group, !ip_match_source && !ips.is_empty());
+                    true
+                }
+                Item::SourcePorts(ranges) => {
+                    let port = facts.source().map(|s| s.port());
+                    groups.require(
+                        Groups::SOURCE_PORT,
+                        port.is_some_and(|p| in_ranges(ranges, p)),
+                    );
+                    true
+                }
+                Item::Domains(d) => {
+                    groups.require(
+                        Groups::DESTINATION_ADDRESS,
+                        domain.is_some_and(|x| d.matches(x)),
+                    );
+                    true
+                }
+                Item::Succinct(set) => {
+                    groups.require(
+                        Groups::DESTINATION_ADDRESS,
+                        domain.is_some_and(|x| set.matches(x)),
+                    );
+                    true
+                }
+                Item::DomainRegex(r) => {
+                    groups.require(
+                        Groups::DESTINATION_ADDRESS,
+                        domain.is_some_and(|x| r.iter().any(|r| r.is_match(x))),
+                    );
+                    true
+                }
+                Item::Ports(ranges) => {
+                    groups.require(Groups::DESTINATION_PORT, in_ranges(ranges, facts.port()));
+                    true
+                }
+                Item::Inbounds(v) => v.contains(&facts.inbound),
+                Item::IpVersion(v) => facts.ip_version == Some(*v),
+                Item::Networks(v) => v.contains(&facts.network()),
+                Item::AuthUsers(v) => facts
+                    .user
                     .as_ref()
-                    .is_none_or(|(wanted, mode)| mode.is(wanted))
-                && self.network.matches(facts.network_state.as_deref());
-        holds.then_some(groups)
+                    .is_some_and(|user| v.iter().any(|u| **u == **user.name())),
+                Item::Protocols(v) => facts.protocol.is_some_and(|p| v.contains(&p)),
+                Item::ProcessNames(v) => facts
+                    .process_name()
+                    .is_some_and(|name| v.iter().any(|p| p == name)),
+                Item::ProcessPaths(v) => facts
+                    .process_path
+                    .as_deref()
+                    .is_some_and(|path| v.iter().any(|p| p == path)),
+                Item::ProcessPathRegex(v) => facts
+                    .process_path
+                    .as_deref()
+                    .is_some_and(|path| v.iter().any(|r| r.is_match(path))),
+                Item::ProcessNameRegex(v) => facts
+                    .process_name()
+                    .is_some_and(|name| v.iter().any(|r| r.is_match(name))),
+                Item::PackageNames(v) => facts
+                    .owner
+                    .as_ref()
+                    .is_some_and(|o| o.packages.iter().any(|p| v.contains(p))),
+                Item::PackageNameRegex(v) => facts
+                    .owner
+                    .as_ref()
+                    .is_some_and(|o| o.packages.iter().any(|p| v.iter().any(|r| r.is_match(p)))),
+                Item::ProcessUsers(v) => facts
+                    .owner
+                    .as_ref()
+                    .is_some_and(|o| o.user.as_ref().is_some_and(|u| v.contains(u))),
+                Item::ProcessUserIds(v) => facts
+                    .owner
+                    .as_ref()
+                    .and_then(|o| i32::try_from(o.uid).ok())
+                    .is_some_and(|uid| v.contains(&uid)),
+                Item::HttpUserAgent(v) => facts
+                    .user_agent()
+                    .is_some_and(|ua| v.iter().any(|r| r.is_match(ua))),
+                Item::UrlRegex(v) => facts
+                    .url()
+                    .is_some_and(|url| v.iter().any(|r| r.is_match(url))),
+                Item::QueryTypes(v) => facts.query_type().is_some_and(|t| v.contains(&t)),
+                Item::PreferredBy(v) => facts
+                    .preferred_by
+                    .as_ref()
+                    .is_some_and(|tags| v.iter().any(|t| tags.contains(t))),
+                Item::SourceMacs(v) => facts
+                    .neighbor
+                    .as_ref()
+                    .and_then(|n| n.mac_string())
+                    .is_some_and(|mac| v.contains(&mac)),
+                Item::SourceHostnames(v) => facts
+                    .neighbor
+                    .as_ref()
+                    .and_then(|n| n.hostname.as_ref())
+                    .is_some_and(|name| v.contains(name)),
+                Item::ResponseRcode(c) => facts.rcode == Some(*c),
+                Item::ResponseRecords(section, wanted) => {
+                    facts.response.as_ref().is_some_and(|m| {
+                        let records = match section {
+                            0 => &m.answers,
+                            1 => &m.authorities,
+                            _ => &m.additionals,
+                        };
+                        wanted
+                            .iter()
+                            .any(|w| records.iter().any(|r| crate::app::dns::same_record(w, r)))
+                    })
+                }
+                Item::ClashMode(wanted, mode) => mode.is(wanted),
+                Item::Network(n) => n.matches(facts.network_state.as_deref()),
+            };
+            if !holds {
+                return None;
+            }
+        }
+        Some(groups)
     }
 
     pub(crate) fn matches(&self, facts: &Facts, ip_match_source: bool) -> bool {
@@ -2445,5 +2597,15 @@ pub(crate) mod tests {
         assert!(m.matches(&ip("1.2.3.4", 1)));
         assert!(!m.matches(&ip("1.2.3.5", 1)));
         assert!(m.matches(&ip("2001:db8::1", 1)));
+    }
+
+    /// A default rule keeps only the conditions it has: an inline rule of
+    /// one condition, as Clash and Surge conversions write thousands of,
+    /// keeps at most 352 bytes of them (its Conditions and one item, before
+    /// what the item's sets hold), where it kept 1,288.
+    #[test]
+    fn a_rule_keeps_only_the_conditions_it_has() {
+        let one = std::mem::size_of::<Conditions>() + std::mem::size_of::<Item>();
+        assert!(one <= 352, "{} bytes", one);
     }
 }
