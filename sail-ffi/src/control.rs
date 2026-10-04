@@ -189,6 +189,69 @@ pub unsafe extern "C" fn sail_groups(
     call(err, || out_json(out, &outbounds(instance, true)?))
 }
 
+/// Adds an inbound to the running instance: `inbound` is one, as
+/// sing-box's configuration has it (`{"type", "tag", "listen",
+/// "listen_port", ...}`). It listens when this returns. Not kept: a reload
+/// or a start goes by the configuration.
+///
+/// @return SAIL_ERR_CONFIG when it does not read or build (a tag in use, a
+///     TUN, which only a start sets up); SAIL_ERR_IO when it cannot listen;
+///     SAIL_ERR_STATE when the instance does not
+///     run; SAIL_ERR_UNSUPPORTED through a command service client.
+#[no_mangle]
+pub unsafe extern "C" fn sail_add_inbound(
+    instance: SailInstance,
+    inbound: *const c_char,
+    err: *mut *mut c_char,
+) -> i32 {
+    call(err, || {
+        let inbound = unsafe { str_arg(inbound, "inbound") }?;
+        match target(instance)? {
+            Target::Local(i) => i.add_inbound(inbound),
+            #[cfg(feature = "command-server")]
+            Target::Remote(_) => Err(Failure::new(
+                crate::SAIL_ERR_UNSUPPORTED,
+                "inbounds are added in the tunnel process",
+            )),
+        }
+    })
+}
+
+/// Removes the inbound `tag` from the running instance: it stops
+/// listening, and the connections it accepted are closed at once, those of
+/// other inbounds not touched. Not kept: a reload or a start goes by the
+/// configuration.
+///
+/// @param closed Takes how many connections it closed, or null.
+/// @return SAIL_ERR_NOT_FOUND with no such inbound; SAIL_ERR_STATE when
+///     the instance does not run; SAIL_ERR_UNSUPPORTED through a command
+///     service client.
+#[no_mangle]
+pub unsafe extern "C" fn sail_remove_inbound(
+    instance: SailInstance,
+    tag: *const c_char,
+    closed: *mut u64,
+    err: *mut *mut c_char,
+) -> i32 {
+    call(err, || {
+        let tag = unsafe { str_arg(tag, "tag") }?;
+        let count = match target(instance)? {
+            Target::Local(i) => i.remove_inbound(tag)?,
+            #[cfg(feature = "command-server")]
+            Target::Remote(_) => {
+                return Err(Failure::new(
+                    crate::SAIL_ERR_UNSUPPORTED,
+                    "inbounds are removed in the tunnel process",
+                ))
+            }
+        };
+        if !closed.is_null() {
+            unsafe { *closed = count as u64 };
+        }
+        Ok(())
+    })
+}
+
 /// Selects `member` of the selector `group`; the choice is kept in the
 /// cache file, as sing-box keeps it. A fallback is pinned to `member`
 /// instead, as Mihomo pins it: it goes there while the member is up.

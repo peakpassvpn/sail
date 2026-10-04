@@ -692,6 +692,49 @@ fn a_stop_tells_what_it_could_not_end_or_undo() {
     });
 }
 
+/// An inbound added while it runs listens and carries connections; removed,
+/// it closes them and listens no more; one not there is not found.
+#[test]
+fn inbounds_are_added_and_removed_while_it_runs() {
+    let _serial = serial();
+    within(Duration::from_secs(30), || {
+        let instance = new_instance(None, None);
+        start_on_free_port(instance, config);
+        let mut added = 0;
+        for _ in 0..5 {
+            let port = free_port();
+            let inbound = CString::new(
+                serde_json::json!({
+                    "type": "socks", "tag": "extra", "listen": "127.0.0.1", "listen_port": port,
+                })
+                .to_string(),
+            )
+            .unwrap();
+            if code(|err| unsafe { sail_add_inbound(instance, inbound.as_ptr(), err) }) == SAIL_OK {
+                added = port;
+                break;
+            }
+        }
+        assert_ne!(added, 0, "the inbound was added");
+        echo_through(added);
+        let tag = CString::new("extra").unwrap();
+        let mut closed = u64::MAX;
+        ok("remove", |err| unsafe {
+            sail_remove_inbound(instance, tag.as_ptr(), &mut closed, err)
+        });
+        assert_ne!(closed, u64::MAX);
+        assert!(std::net::TcpStream::connect(("127.0.0.1", added)).is_err());
+        assert_eq!(
+            code(|err| unsafe {
+                sail_remove_inbound(instance, tag.as_ptr(), std::ptr::null_mut(), err)
+            }),
+            SAIL_ERR_NOT_FOUND
+        );
+        stop(instance);
+        sail_instance_free(instance);
+    });
+}
+
 /// A reload tells what became of the inbound: the same configuration
 /// again leaves it untouched, and nothing else is built again.
 #[test]

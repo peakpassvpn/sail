@@ -189,6 +189,7 @@ and the next start with the same directories runs.
 | Delays | `sail_delay` (waits), `sail_url_test` (does not; a group's members), `sail_cancel` | through `SAIL_EVENT_OUTBOUNDS` |
 | Providers and rule-sets | `sail_providers`, `sail_update_provider`, `sail_rule_sets`, `sail_update_rule_set` (an update waits for it; no URL is told, as a subscription's carries its token) | |
 | Dial through an outbound | `sail_dial` (waits until connected; see below) | |
+| Inbounds | `sail_add_inbound` (one inbound's sing-box JSON), `sail_remove_inbound` (closes its connections; how many) — while it runs, not kept past a reload or a start | |
 | Mode | `sail_mode`, `sail_set_mode` (an instance has modes though its configuration has no Clash API, as libbox's apps do) | |
 | Log | `sail_clear_logs` | `SAIL_EVENT_LOG` (the lines as `log.redact` leaves them: destinations, sources or processes taken out of INFO, WARN and ERROR lines when it names them) |
 | Network | `sail_set_network_state`, `sail_network_changed` | `SAIL_EVENT_NETWORK` (each change the connections do not survive) |

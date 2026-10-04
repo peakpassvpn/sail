@@ -133,6 +133,7 @@ impl From<sail::Error> for Failure {
             sail::Error::Config(_) | sail::Error::NoConfigFile => SAIL_ERR_CONFIG,
             sail::Error::Io(_) => SAIL_ERR_IO,
             sail::Error::InUse(_) => SAIL_ERR_STATE,
+            sail::Error::NoInbound(_) => SAIL_ERR_NOT_FOUND,
             sail::Error::Panicked(_) => SAIL_ERR_PANICKED,
             sail::Error::NeedsRestart(_) => SAIL_ERR_NEEDS_RESTART,
             sail::Error::InboundLost { .. } => SAIL_ERR_INBOUND_LOST,

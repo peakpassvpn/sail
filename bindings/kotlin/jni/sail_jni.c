@@ -264,6 +264,18 @@ STRING_CALL(setMode, sail_set_mode)
 STRING_CALL(setNetworkState, sail_set_network_state)
 STRING_CALL(updateProvider, sail_update_provider)
 STRING_CALL(updateRuleSet, sail_update_rule_set)
+STRING_CALL(addInbound, sail_add_inbound)
+
+JNIEXPORT jlong JNICALL NATIVE(removeInbound)(JNIEnv *env, jclass cls, jlong h, jstring tag) {
+    (void)cls;
+    const char *t = c_string(env, tag);
+    uint64_t closed = 0;
+    char *err = NULL;
+    int32_t code = sail_remove_inbound((SailInstance)h, t, &closed, &err);
+    done(env, tag, t);
+    failed(env, code, err);
+    return (jlong)closed;
+}
 
 /* A reload, answering what it did as JSON. */
 JNIEXPORT jstring JNICALL NATIVE(instanceReloadReport)(JNIEnv *env, jclass cls, jlong h, jstring config) {

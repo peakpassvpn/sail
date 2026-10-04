@@ -327,6 +327,32 @@ int32_t sail_outbounds(SailInstance instance, char **out, char **err);
 int32_t sail_groups(SailInstance instance, char **out, char **err);
 
 /*
+ Adds an inbound to the running instance: `inbound` is one, as
+ sing-box's configuration has it (`{"type", "tag", "listen",
+ "listen_port", ...}`). It listens when this returns. Not kept: a reload
+ or a start goes by the configuration.
+
+ @return SAIL_ERR_CONFIG when it does not read or build (a tag in use, a
+     TUN, which only a start sets up); SAIL_ERR_IO when it cannot listen;
+     SAIL_ERR_STATE when the instance does not
+     run; SAIL_ERR_UNSUPPORTED through a command service client.
+ */
+int32_t sail_add_inbound(SailInstance instance, const char *inbound, char **err);
+
+/*
+ Removes the inbound `tag` from the running instance: it stops
+ listening, and the connections it accepted are closed at once, those of
+ other inbounds not touched. Not kept: a reload or a start goes by the
+ configuration.
+
+ @param closed Takes how many connections it closed, or null.
+ @return SAIL_ERR_NOT_FOUND with no such inbound; SAIL_ERR_STATE when
+     the instance does not run; SAIL_ERR_UNSUPPORTED through a command
+     service client.
+ */
+int32_t sail_remove_inbound(SailInstance instance, const char *tag, uint64_t *closed, char **err);
+
+/*
  Selects `member` of the selector `group`; the choice is kept in the
  cache file, as sing-box keeps it. A fallback is pinned to `member`
  instead, as Mihomo pins it: it goes there while the member is up.

@@ -22,6 +22,8 @@ internal object Native {
     @JvmStatic external fun connections(instance: Long): String
     @JvmStatic external fun closeConnection(instance: Long, id: Long): Boolean
     @JvmStatic external fun closeAllConnections(instance: Long): Long
+    @JvmStatic external fun addInbound(instance: Long, inbound: String)
+    @JvmStatic external fun removeInbound(instance: Long, tag: String): Long
     @JvmStatic external fun outbounds(instance: Long): String
     @JvmStatic external fun groups(instance: Long): String
     @JvmStatic external fun providers(instance: Long): String

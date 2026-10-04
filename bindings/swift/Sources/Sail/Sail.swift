@@ -235,6 +235,24 @@ public final class Sail {
         return count
     }
 
+    /// Adds an inbound, sing-box's JSON of one, while it runs; not kept
+    /// past a reload or a start.
+    public func addInbound(_ inbound: String) throws {
+        try inbound.withCString { inbound in
+            try check { sail_add_inbound(handle, inbound, $0) }
+        }
+    }
+
+    /// Removes the inbound `tag`, closing its connections; how many it
+    /// closed.
+    public func removeInbound(_ tag: String) throws -> UInt64 {
+        var closed: UInt64 = 0
+        try tag.withCString { tag in
+            try check { sail_remove_inbound(handle, tag, &closed, $0) }
+        }
+        return closed
+    }
+
     public func outbounds() throws -> [Outbound] {
         try decode(Outbounds.self, json { sail_outbounds(handle, $0, $1) }).outbounds
     }

@@ -238,6 +238,34 @@ impl Instance {
         self.reload_report(config).map(|_| ())
     }
 
+    /// Adds the inbound `inbound`, sing-box's JSON of one, to the running
+    /// instance.
+    pub(crate) fn add_inbound(&self, inbound: &str) -> Result<(), Failure> {
+        let inbound: serde_json::Value = serde_json::from_str(inbound)
+            .map_err(|e| Failure::invalid(format!("inbound: {}", e)))?;
+        self.wait_on(self.core.add_inbound(inbound))
+    }
+
+    /// Removes the inbound `tag`; how many connections it closed.
+    pub(crate) fn remove_inbound(&self, tag: &str) -> Result<usize, Failure> {
+        self.wait_on(self.core.remove_inbound(tag))
+    }
+
+    /// Waits on `call` on this thread, unless it is one of the instance's
+    /// own, where it would wait on itself.
+    fn wait_on<T>(
+        &self,
+        call: impl std::future::Future<Output = Result<T, embed::Error>>,
+    ) -> Result<T, Failure> {
+        if self.on_own_thread() {
+            return Err(Failure::new(
+                crate::SAIL_ERR_WRONG_THREAD,
+                "called on a thread of the instance's own, where it would wait on itself",
+            ));
+        }
+        Ok(futures::executor::block_on(call)?)
+    }
+
     /// Reloads it, and tells what the reload did.
     pub(crate) fn reload_report(
         &self,

@@ -114,6 +114,12 @@ class Sail private constructor(private val handle: Long) : AutoCloseable {
         json.decodeFromString<Connections>(Native.connections(handle)).connections
     fun closeConnection(id: Long): Boolean = Native.closeConnection(handle, id)
     fun closeAllConnections(): Long = Native.closeAllConnections(handle)
+
+    /** Adds an inbound, sing-box's JSON of one, while it runs; not kept past a reload or a start. */
+    fun addInbound(inbound: String) = Native.addInbound(handle, inbound)
+
+    /** Removes the inbound [tag], closing its connections; how many it closed. */
+    fun removeInbound(tag: String): Long = Native.removeInbound(handle, tag)
     fun outbounds(): List<Outbound> = json.decodeFromString<Outbounds>(Native.outbounds(handle)).outbounds
     fun groups(): List<Outbound> = json.decodeFromString<Outbounds>(Native.groups(handle)).outbounds
 
