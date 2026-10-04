@@ -346,9 +346,20 @@ fn kernel_peer(public: [u8; 32]) -> PeerConfig {
 /// the binary is run.
 static ONE_AT_A_TIME: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
+/// `fut` in a task scope, as an instance's: what sail's parts spawn goes
+/// into one.
+fn scoped<F: std::future::Future>(fut: F) -> impl std::future::Future<Output = F::Output> {
+    static SCOPE: std::sync::OnceLock<sail::runtime::scope::TaskScope> = std::sync::OnceLock::new();
+    SCOPE.get_or_init(Default::default).clone().enter(fut)
+}
+
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "needs root and the sailwg-* namespaces; see the module docs"]
 async fn kernel_wireguard() {
+    scoped(kernel_wireguard_scoped()).await
+}
+
+async fn kernel_wireguard_scoped() {
     let _one = ONE_AT_A_TIME.lock().await;
     let kernel_public = env_key("WG_KERNEL_PUBLIC");
     let private = env_key("WG_SAIL_PRIVATE");
@@ -485,6 +496,10 @@ impl sail::protocol::wireguard::Transport for Counting {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "needs root and the sailwg-* namespaces; see the module docs"]
 async fn kernel_cookie_under_load() {
+    scoped(kernel_cookie_under_load_scoped()).await
+}
+
+async fn kernel_cookie_under_load_scoped() {
     let _one = ONE_AT_A_TIME.lock().await;
     use sail::protocol::wireguard::cookie::LABEL_MAC1;
     use sail::protocol::wireguard::crypto;
