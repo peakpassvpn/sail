@@ -40,7 +40,9 @@ strip = false
 # btls-sys's settings: opt-level 3 with debug info is RelWithDebInfo, -O2;
 # without, Release, -O3. BoringSSL adds -ggdb itself either way (not with
 # MSVC), so its frames keep their symbols and lines. dist-router's
-# opt-level "z" stays MinSizeRel, -Os.
+# opt-level "z" stays MinSizeRel, -Os. With MSVC BoringSSL's frames have no
+# debug info; when Windows crash reports want them, set
+# CMAKE_C_FLAGS_RELEASE / CMAKE_CXX_FLAGS_RELEASE to add /Zi for btls-sys.
 [profile.dist.package.btls-sys]
 debug = false
 
