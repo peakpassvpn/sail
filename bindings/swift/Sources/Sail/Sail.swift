@@ -193,6 +193,12 @@ public final class Sail {
         try decode(State.self, json { sail_instance_state(handle, $0, $1) })
     }
 
+    /// What the last stop, or the end of the last run, could not end or
+    /// undo; nil before any stop.
+    public func stopReport() throws -> StopReport? {
+        try decode(StopReport?.self, json { sail_instance_stop_report(handle, $0, $1) })
+    }
+
     public func capabilities() throws -> InstanceCapabilities {
         try decode(InstanceCapabilities.self, json { sail_instance_capabilities(handle, $0, $1) })
     }

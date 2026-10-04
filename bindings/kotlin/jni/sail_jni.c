@@ -276,6 +276,7 @@ STRING_CALL(updateRuleSet, sail_update_rule_set)
     }
 
 JSON_CALL(instanceState, sail_instance_state)
+JSON_CALL(instanceStopReport, sail_instance_stop_report)
 JSON_CALL(instanceCapabilities, sail_instance_capabilities)
 JSON_CALL(traffic, sail_traffic)
 JSON_CALL(connections, sail_connections)

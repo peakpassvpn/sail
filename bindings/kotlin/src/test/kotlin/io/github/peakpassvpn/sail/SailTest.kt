@@ -103,6 +103,7 @@ class SailTest {
             "providers" to Providers.serializer(),
             "rule_sets" to RuleSets.serializer(),
             "state" to State.serializer(),
+            "stop_report" to StopReport.serializer(),
             "status" to Status.serializer(),
             "traffic" to Traffic.serializer(),
         )

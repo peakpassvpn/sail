@@ -97,12 +97,17 @@ struct FfiSettings {
 
 /// The state, as the host is told it.
 pub(crate) fn state_json(state: &embed::State) -> json::State {
+    let failure = match state {
+        embed::State::Failed(e) => Some(e),
+        _ => None,
+    };
     json::State {
         state: state.name().to_string(),
-        error: match state {
-            embed::State::Failed(e) => Some(e.message().to_string()),
-            _ => None,
-        },
+        error: failure.map(|e| e.message().to_string()),
+        error_kind: failure.map(|e| e.code().to_string()),
+        left: failure
+            .map(|e| e.left().iter().map(json::Left::of).collect())
+            .unwrap_or_default(),
         started_at_ms: match state {
             embed::State::Running { since } => Some(
                 since
@@ -491,7 +496,10 @@ pub unsafe extern "C" fn sail_client_connect(
 
 /// The instance's state, as JSON: `{"state": "idle" | "starting" |
 /// "running" | "stopping" | "stopped" | "failed", "error": why it failed,
-/// or null, "started_at_ms": when it last started running, or null}`.
+/// or null, "error_kind": the failure's kind (`panicked`, `config`,
+/// `tun_name_taken`, ...), or null, "left": what the failed run's teardown
+/// left in the system, as `sail_instance_stop_report` gives it (empty when
+/// nothing is), "started_at_ms": when it last started running, or null}`.
 #[no_mangle]
 pub unsafe extern "C" fn sail_instance_state(
     instance: SailInstance,
@@ -507,6 +515,38 @@ pub unsafe extern "C" fn sail_instance_state(
             })?),
         };
         out_json(out, &state)
+    })
+}
+
+/// What the instance's last stop, or the end of its last run, could not
+/// end or undo, as JSON: `{"tasks": [{"name", "count"}], "waited_ms",
+/// "left": [{"kind": "tun" | "route" | "rule" | "dns" | "nft" | "wfp" |
+/// "file" | "task", "resource", "why", "clear": the command that clears
+/// it by hand, or null}]}`; `null` before any stop. A failed or stopped
+/// instance's is kept until it starts again.
+///
+/// @return SAIL_ERR_UNSUPPORTED through a command service client.
+#[no_mangle]
+pub unsafe extern "C" fn sail_instance_stop_report(
+    instance: SailInstance,
+    out: *mut *mut c_char,
+    err: *mut *mut c_char,
+) -> i32 {
+    call(err, || {
+        let report = match target(instance)? {
+            Target::Local(instance) => instance
+                .core
+                .stop_report()
+                .map(|r| json::StopReport::of(&r)),
+            #[cfg(feature = "command-server")]
+            Target::Remote(_) => {
+                return Err(Failure::new(
+                    crate::SAIL_ERR_UNSUPPORTED,
+                    "a stop report is not told through a command service client",
+                ))
+            }
+        };
+        out_json(out, &report)
     })
 }
 

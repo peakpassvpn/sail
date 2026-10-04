@@ -80,8 +80,21 @@ pub const SAIL_ERR_TIMEOUT: i32 = 9;
 /// The call would wait on the thread it was made on: one of the
 /// instance's own, as a `protect_socket` callback runs on.
 pub const SAIL_ERR_WRONG_THREAD: i32 = 10;
-/// sail failed where it should not have; the message says how.
+/// sail failed where it should not have; the message says how. A code
+/// this header does not name, from a newer sail, is taken as this one.
 pub const SAIL_ERR_INTERNAL: i32 = 11;
+/// An essential task of the instance panicked, or a lock a panic poisoned
+/// was met: the instance failed (`"error_kind": "panicked"`).
+pub const SAIL_ERR_PANICKED: i32 = 12;
+/// A reload adds, removes or changes what only a start sets up (a TUN):
+/// nothing changed; stop and start to apply it.
+pub const SAIL_ERR_NEEDS_RESTART: i32 = 13;
+/// A TUN's device name is in use: a configured one, or each free name
+/// sail tried was taken before it opened (a start again may succeed).
+pub const SAIL_ERR_TUN_NAME_TAKEN: i32 = 14;
+/// A reload that replaced an inbound on its own address: the new one did
+/// not bind, and the old one could not listen again; it listens no more.
+pub const SAIL_ERR_INBOUND_LOST: i32 = 15;
 
 /// A failed call: its code, and what the host is told.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -120,6 +133,9 @@ impl From<sail::Error> for Failure {
             sail::Error::Config(_) | sail::Error::NoConfigFile => SAIL_ERR_CONFIG,
             sail::Error::Io(_) => SAIL_ERR_IO,
             sail::Error::InUse(_) => SAIL_ERR_STATE,
+            sail::Error::Panicked(_) => SAIL_ERR_PANICKED,
+            sail::Error::NeedsRestart(_) => SAIL_ERR_NEEDS_RESTART,
+            sail::Error::InboundLost { .. } => SAIL_ERR_INBOUND_LOST,
             _ => SAIL_ERR_INTERNAL,
         };
         let message = match e {
@@ -137,13 +153,17 @@ impl From<sail::embed::Error> for Failure {
             K::Config => SAIL_ERR_CONFIG,
             K::InvalidArgument => SAIL_ERR_INVALID_ARGUMENT,
             // NeedsRestart: the host stops and starts, as for a name taken.
-            K::NotRunning | K::State | K::TunNameTaken | K::NeedsRestart => SAIL_ERR_STATE,
+            K::NotRunning | K::State => SAIL_ERR_STATE,
+            K::TunNameTaken => SAIL_ERR_TUN_NAME_TAKEN,
+            K::NeedsRestart => SAIL_ERR_NEEDS_RESTART,
+            K::Panicked => SAIL_ERR_PANICKED,
             K::NotFound => SAIL_ERR_NOT_FOUND,
             K::Unsupported => SAIL_ERR_UNSUPPORTED,
             K::Timeout => SAIL_ERR_TIMEOUT,
             K::Cancelled => SAIL_ERR_CANCELLED,
             K::WrongThread => SAIL_ERR_WRONG_THREAD,
-            K::Failed | K::Io | K::InboundLost => SAIL_ERR_IO,
+            K::Failed | K::Io => SAIL_ERR_IO,
+            K::InboundLost => SAIL_ERR_INBOUND_LOST,
             _ => SAIL_ERR_INTERNAL,
         };
         Failure::new(code, e.message())

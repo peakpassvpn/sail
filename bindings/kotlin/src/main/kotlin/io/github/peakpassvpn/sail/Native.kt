@@ -14,6 +14,7 @@ internal object Native {
     @JvmStatic external fun instanceServe(instance: Long, options: String?)
     @JvmStatic external fun instanceStop(instance: Long, timeoutMs: Int)
     @JvmStatic external fun instanceState(instance: Long): String
+    @JvmStatic external fun instanceStopReport(instance: Long): String
     @JvmStatic external fun instanceCapabilities(instance: Long): String
     @JvmStatic external fun capabilities(): String
     @JvmStatic external fun traffic(instance: Long): String

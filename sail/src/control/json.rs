@@ -59,8 +59,84 @@ pub struct State {
     pub state: String,
     /// Why it failed, for `failed`.
     pub error: Option<String>,
+    /// The kind of the failure, as `embed::ErrorKind::code` names it
+    /// (`panicked`, `config`, `tun_name_taken`, ...), for `failed`.
+    pub error_kind: Option<String>,
+    /// What the failed run's teardown left in the system, for `failed`;
+    /// empty when nothing is.
+    pub left: Vec<Left>,
     /// When it last started running, in milliseconds since the epoch.
     pub started_at_ms: Option<u64>,
+}
+
+/// Something an instance's teardown could not undo in the system.
+#[derive(Serialize, Clone, PartialEq, Eq, Debug)]
+pub struct Left {
+    /// `tun`, `route`, `rule`, `dns`, `nft`, `wfp`, `file` or `task`; more
+    /// may come.
+    pub kind: String,
+    /// The resource, as a person reads it: `nft table inet sail_tun0`.
+    pub resource: String,
+    /// Why it is left: the error, a timeout, a panic.
+    pub why: String,
+    /// The one command that clears it by hand, where there is one.
+    pub clear: Option<String>,
+}
+
+impl Left {
+    pub fn of(left: &crate::runtime::teardown::Left) -> Self {
+        use crate::runtime::teardown::LeftKind as K;
+        let kind = match left.kind {
+            K::Tun => "tun",
+            K::Route => "route",
+            K::Rule => "rule",
+            K::Dns => "dns",
+            K::Nft => "nft",
+            K::Wfp => "wfp",
+            K::File => "file",
+            K::Task => "task",
+        };
+        Self {
+            kind: kind.into(),
+            resource: left.resource.clone(),
+            why: left.why.clone(),
+            clear: left.clear.clone(),
+        }
+    }
+}
+
+/// What the last stop could not end or undo.
+#[derive(Serialize, Clone, PartialEq, Eq, Debug)]
+pub struct StopReport {
+    /// The instance's tasks still running when the stop gave up on them.
+    pub tasks: Vec<StopTask>,
+    /// How long the stop waited for them, in milliseconds.
+    pub waited_ms: u64,
+    /// What the teardown left in the system.
+    pub left: Vec<Left>,
+}
+
+#[derive(Serialize, Clone, PartialEq, Eq, Debug)]
+pub struct StopTask {
+    pub name: String,
+    pub count: usize,
+}
+
+impl StopReport {
+    pub fn of(report: &crate::runtime::scope::StopReport) -> Self {
+        Self {
+            tasks: report
+                .tasks
+                .iter()
+                .map(|(name, count)| StopTask {
+                    name: name.to_string(),
+                    count: *count,
+                })
+                .collect(),
+            waited_ms: report.waited.as_millis() as u64,
+            left: report.left.iter().map(Left::of).collect(),
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -568,7 +644,18 @@ mod tests {
     fn the_json_of_the_c_abi_is_as_published() {
         let at = UNIX_EPOCH + Duration::from_millis(1_759_300_000_123);
         let snapshot = serde_json::json!({
-            "state": State { state: "failed".into(), error: Some("x".into()), started_at_ms: None },
+            "state": State {
+                state: "failed".into(), error: Some("x".into()), error_kind: Some("panicked".into()),
+                left: vec![Left { kind: "nft".into(), resource: "nft table inet sail_tun0".into(),
+                                  why: "timed out after 5s".into(),
+                                  clear: Some("nft delete table inet sail_tun0".into()) }],
+                started_at_ms: None,
+            },
+            "stop_report": StopReport {
+                tasks: vec![StopTask { name: "inbound tcp".into(), count: 2 }],
+                waited_ms: 2000,
+                left: vec![],
+            },
             "traffic": Traffic { up_total: 1, down_total: 2, connections: 3, memory: 4 },
             "status": Status { up: 1, down: 2, up_total: 3, down_total: 4, connections: 5, memory: 6 },
             "connection": Connection {

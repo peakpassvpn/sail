@@ -669,6 +669,29 @@ fn starts_and_stops_leave_nothing_behind() {
     });
 }
 
+/// A stop's report: none before any stop, then what it could not end or
+/// undo (nothing here); a state that has not failed has no kind and
+/// leaves nothing.
+#[test]
+fn a_stop_tells_what_it_could_not_end_or_undo() {
+    let _serial = serial();
+    within(Duration::from_secs(30), || {
+        let instance = new_instance(None, None);
+        let report = json_of(|out, err| unsafe { sail_instance_stop_report(instance, out, err) });
+        assert!(report.is_null(), "{}", report);
+        start_on_free_port(instance, config);
+        let state = json_of(|out, err| unsafe { sail_instance_state(instance, out, err) });
+        assert!(state["error_kind"].is_null(), "{}", state);
+        assert_eq!(state["left"], serde_json::json!([]), "{}", state);
+        stop(instance);
+        let report = json_of(|out, err| unsafe { sail_instance_stop_report(instance, out, err) });
+        assert_eq!(report["tasks"], serde_json::json!([]), "{}", report);
+        assert_eq!(report["left"], serde_json::json!([]), "{}", report);
+        assert!(report["waited_ms"].is_u64(), "{}", report);
+        sail_instance_free(instance);
+    });
+}
+
 #[test]
 fn instances_run_at_once_each_with_its_own_events() {
     let _serial = serial();

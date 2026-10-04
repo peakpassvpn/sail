@@ -19,14 +19,49 @@ public struct SailError: Error, CustomStringConvertible, Equatable {
     public static let cancelled: Int32 = 8
     public static let timeout: Int32 = 9
     public static let wrongThread: Int32 = 10
+    /// Also any code this binding does not name, from a newer sail.
     public static let `internal`: Int32 = 11
+    /// An essential task panicked: the instance failed.
+    public static let panicked: Int32 = 12
+    /// A reload changes what only a start sets up (a TUN): stop and start.
+    public static let needsRestart: Int32 = 13
+    /// A TUN's device name is in use.
+    public static let tunNameTaken: Int32 = 14
+    /// A reload lost an inbound it was to replace on its own address.
+    public static let inboundLost: Int32 = 15
 }
 
 public struct State: Decodable, Equatable, Sendable {
     /// idle, starting, running, stopping, stopped or failed.
     public let state: String
     public let error: String?
+    /// The failure's kind: panicked, config, tun_name_taken, ...
+    public let errorKind: String?
+    /// What the failed run's teardown left in the system; nil from an older sail.
+    public let left: [Left]?
     public let startedAtMs: UInt64?
+}
+
+/// Something an instance's teardown could not undo in the system.
+public struct Left: Decodable, Equatable, Sendable {
+    /// tun, route, rule, dns, nft, wfp, file or task; more may come.
+    public let kind: String
+    public let resource: String
+    public let why: String
+    /// The command that clears it by hand, where there is one.
+    public let clear: String?
+}
+
+/// What a stop could not end or undo.
+public struct StopReport: Decodable, Equatable, Sendable {
+    public let tasks: [StopTask]
+    public let waitedMs: UInt64
+    public let left: [Left]
+}
+
+public struct StopTask: Decodable, Equatable, Sendable {
+    public let name: String
+    public let count: Int
 }
 
 public struct Traffic: Decodable, Equatable, Sendable {

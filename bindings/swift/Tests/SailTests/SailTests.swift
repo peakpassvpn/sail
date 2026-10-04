@@ -167,6 +167,7 @@ final class SailTests: XCTestCase {
             "providers": { try check(Providers.self, "providers") },
             "rule_sets": { try check(RuleSets.self, "rule_sets") },
             "state": { try check(State.self, "state") },
+            "stop_report": { try check(StopReport.self, "stop_report") },
             "status": { try check(Status.self, "status") },
             "traffic": { try check(Traffic.self, "traffic") },
         ]

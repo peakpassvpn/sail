@@ -177,7 +177,7 @@ Servers should use the `server` profile when concurrency matters. Routers should
 
 ## Error boundary
 
-FFI calls return stable codes: `SAIL_ERR_INVALID_ARGUMENT`, `SAIL_ERR_NO_INSTANCE`, `SAIL_ERR_STATE`, `SAIL_ERR_CONFIG`, `SAIL_ERR_IO`, `SAIL_ERR_NOT_FOUND`, `SAIL_ERR_UNSUPPORTED`, `SAIL_ERR_CANCELLED`, `SAIL_ERR_TIMEOUT`, `SAIL_ERR_WRONG_THREAD` and `SAIL_ERR_INTERNAL`. A panic inside Sail aborts the process in release builds, as a Go panic in libbox does; debug builds catch it and return `SAIL_ERR_INTERNAL`.
+FFI calls return stable codes: `SAIL_ERR_INVALID_ARGUMENT`, `SAIL_ERR_NO_INSTANCE`, `SAIL_ERR_STATE`, `SAIL_ERR_CONFIG`, `SAIL_ERR_IO`, `SAIL_ERR_NOT_FOUND`, `SAIL_ERR_UNSUPPORTED`, `SAIL_ERR_CANCELLED`, `SAIL_ERR_TIMEOUT`, `SAIL_ERR_WRONG_THREAD`, `SAIL_ERR_INTERNAL`, `SAIL_ERR_PANICKED`, `SAIL_ERR_NEEDS_RESTART`, `SAIL_ERR_TUN_NAME_TAKEN` and `SAIL_ERR_INBOUND_LOST`; a code the header does not name, from a newer Sail, is taken as `SAIL_ERR_INTERNAL`. After a failure, `sail_instance_state` gives its kind (`error_kind`) and what the failed run left in the system (`left`, each with a command to clear it), and `sail_instance_stop_report` gives what the last stop could not end or undo. A panic inside Sail aborts the process in release builds, as a Go panic in libbox does; debug builds catch it: the instance fails with `SAIL_ERR_PANICKED`.
 
 Configuration errors are designed to be found offline. Run `sail_check_config` and `sail_test_outbounds` before committing a new configuration to a running VPN session.
 

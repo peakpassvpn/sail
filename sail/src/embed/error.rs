@@ -85,6 +85,7 @@ impl ErrorKind {
 pub struct Error {
     kind: ErrorKind,
     message: String,
+    left: Vec<crate::runtime::teardown::Left>,
 }
 
 impl Error {
@@ -92,7 +93,20 @@ impl Error {
         Self {
             kind,
             message: message.into(),
+            left: Vec::new(),
         }
+    }
+
+    /// What the run's teardown left in the system, which the message says
+    /// too: of a failure, a failed start, or a stop that could not undo
+    /// everything. Empty for every other error.
+    pub fn left(&self) -> &[crate::runtime::teardown::Left] {
+        &self.left
+    }
+
+    pub(crate) fn with_left(mut self, left: Vec<crate::runtime::teardown::Left>) -> Self {
+        self.left = left;
+        self
     }
 
     pub fn kind(&self) -> ErrorKind {

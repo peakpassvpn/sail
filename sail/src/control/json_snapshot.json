@@ -145,6 +145,15 @@
   },
   "state": {
     "error": "x",
+    "error_kind": "panicked",
+    "left": [
+      {
+        "clear": "nft delete table inet sail_tun0",
+        "kind": "nft",
+        "resource": "nft table inet sail_tun0",
+        "why": "timed out after 5s"
+      }
+    ],
     "started_at_ms": null,
     "state": "failed"
   },
@@ -167,6 +176,16 @@
     "memory": 6,
     "up": 1,
     "up_total": 3
+  },
+  "stop_report": {
+    "left": [],
+    "tasks": [
+      {
+        "count": 2,
+        "name": "inbound tcp"
+      }
+    ],
+    "waited_ms": 2000
   },
   "traffic": {
     "connections": 3,

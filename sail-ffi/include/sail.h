@@ -77,9 +77,34 @@
 #define SAIL_ERR_WRONG_THREAD 10
 
 /*
- sail failed where it should not have; the message says how.
+ sail failed where it should not have; the message says how. A code
+ this header does not name, from a newer sail, is taken as this one.
  */
 #define SAIL_ERR_INTERNAL 11
+
+/*
+ An essential task of the instance panicked, or a lock a panic poisoned
+ was met: the instance failed (`"error_kind": "panicked"`).
+ */
+#define SAIL_ERR_PANICKED 12
+
+/*
+ A reload adds, removes or changes what only a start sets up (a TUN):
+ nothing changed; stop and start to apply it.
+ */
+#define SAIL_ERR_NEEDS_RESTART 13
+
+/*
+ A TUN's device name is in use: a configured one, or each free name
+ sail tried was taken before it opened (a start again may succeed).
+ */
+#define SAIL_ERR_TUN_NAME_TAKEN 14
+
+/*
+ A reload that replaced an inbound on its own address: the new one did
+ not bind, and the old one could not listen again; it listens no more.
+ */
+#define SAIL_ERR_INBOUND_LOST 15
 
 /*
  The instance's state, as `sail_instance_state` gives it: now, then on
@@ -611,9 +636,24 @@ int32_t sail_client_connect(const char *options, SailInstance *out, char **err);
 /*
  The instance's state, as JSON: `{"state": "idle" | "starting" |
  "running" | "stopping" | "stopped" | "failed", "error": why it failed,
- or null, "started_at_ms": when it last started running, or null}`.
+ or null, "error_kind": the failure's kind (`panicked`, `config`,
+ `tun_name_taken`, ...), or null, "left": what the failed run's teardown
+ left in the system, as `sail_instance_stop_report` gives it (empty when
+ nothing is), "started_at_ms": when it last started running, or null}`.
  */
 int32_t sail_instance_state(SailInstance instance, char **out, char **err);
+
+/*
+ What the instance's last stop, or the end of its last run, could not
+ end or undo, as JSON: `{"tasks": [{"name", "count"}], "waited_ms",
+ "left": [{"kind": "tun" | "route" | "rule" | "dns" | "nft" | "wfp" |
+ "file" | "task", "resource", "why", "clear": the command that clears
+ it by hand, or null}]}`; `null` before any stop. A failed or stopped
+ instance's is kept until it starts again.
+
+ @return SAIL_ERR_UNSUPPORTED through a command service client.
+ */
+int32_t sail_instance_stop_report(SailInstance instance, char **out, char **err);
 
 /*
  Checks the configuration file at `path`: it reads and builds, as an

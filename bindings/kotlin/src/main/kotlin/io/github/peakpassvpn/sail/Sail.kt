@@ -97,6 +97,9 @@ class Sail private constructor(private val handle: Long) : AutoCloseable {
     fun serve(options: String?) = Native.instanceServe(handle, options)
 
     fun state(): State = json.decodeFromString(Native.instanceState(handle))
+
+    /** What the last stop, or the end of the last run, could not end or undo; null before any stop. */
+    fun stopReport(): StopReport? = json.decodeFromString(Native.instanceStopReport(handle))
     fun capabilities(): InstanceCapabilities = json.decodeFromString(Native.instanceCapabilities(handle))
     fun traffic(): Traffic = json.decodeFromString(Native.traffic(handle))
     fun connections(): List<Connection> =

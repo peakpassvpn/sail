@@ -64,7 +64,21 @@ message. The codes are stable: `SAIL_ERR_INVALID_ARGUMENT`,
 `SAIL_ERR_NO_INSTANCE`, `SAIL_ERR_STATE` (not running, or started already),
 `SAIL_ERR_CONFIG`, `SAIL_ERR_IO`, `SAIL_ERR_NOT_FOUND`,
 `SAIL_ERR_UNSUPPORTED`, `SAIL_ERR_CANCELLED`, `SAIL_ERR_TIMEOUT`,
-`SAIL_ERR_WRONG_THREAD`, `SAIL_ERR_INTERNAL`.
+`SAIL_ERR_WRONG_THREAD`, `SAIL_ERR_INTERNAL`, `SAIL_ERR_PANICKED` (an
+essential task panicked: the instance failed; only in a build with
+`panic = "unwind"`, as debug builds are: the released library aborts on a
+panic), `SAIL_ERR_NEEDS_RESTART` (a
+reload changes what only a start sets up), `SAIL_ERR_TUN_NAME_TAKEN`,
+`SAIL_ERR_INBOUND_LOST` (a reload lost an inbound it was replacing). A code
+the host's header does not name, from a newer sail, is taken as
+`SAIL_ERR_INTERNAL`.
+
+**Failures and stops.** `sail_instance_state` gives a failure's kind
+(`"error_kind"`) and what the failed run's teardown left in the system
+(`"left"`: each `{"kind", "resource", "why", "clear"}`, `clear` the command
+that clears it by hand). `sail_instance_stop_report` gives the same for the
+last stop or end of a run, with the tasks the stop could not end; null
+before any stop.
 
 **Memory.** Strings passed in are NUL-terminated UTF-8, read during the
 call only. Strings returned are sail's, freed with `sail_free_string`. The

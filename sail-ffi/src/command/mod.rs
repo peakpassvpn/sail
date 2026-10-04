@@ -90,6 +90,17 @@ impl From<&json::State> for proto::ServiceStatus {
             state: s.state.clone(),
             error: s.error.clone(),
             started_at_ms: s.started_at_ms,
+            error_kind: s.error_kind.clone(),
+            left: s
+                .left
+                .iter()
+                .map(|l| proto::LeftBehind {
+                    kind: l.kind.clone(),
+                    resource: l.resource.clone(),
+                    why: l.why.clone(),
+                    clear: l.clear.clone(),
+                })
+                .collect(),
         }
     }
 }
@@ -99,6 +110,17 @@ impl From<proto::ServiceStatus> for json::State {
         Self {
             state: s.state,
             error: s.error,
+            error_kind: s.error_kind,
+            left: s
+                .left
+                .into_iter()
+                .map(|l| json::Left {
+                    kind: l.kind,
+                    resource: l.resource,
+                    why: l.why,
+                    clear: l.clear,
+                })
+                .collect(),
             started_at_ms: s.started_at_ms,
         }
     }

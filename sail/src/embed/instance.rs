@@ -618,16 +618,15 @@ impl Inner {
                     .and_then(|s| s.report())
                     .map(|r| r.left)
                     .unwrap_or_default();
-                life.failure = Some(
-                    if left.is_empty() || failure.message().contains(crate::LEFT_SAID) {
-                        failure
-                    } else {
-                        Error::new(
-                            failure.kind(),
-                            crate::with_left(failure.message().to_string(), &left),
-                        )
-                    },
-                );
+                let failure = if left.is_empty() || failure.message().contains(crate::LEFT_SAID) {
+                    failure
+                } else {
+                    Error::new(
+                        failure.kind(),
+                        crate::with_left(failure.message().to_string(), &left),
+                    )
+                };
+                life.failure = Some(failure.with_left(left));
             }
             Err(panic) => {
                 let what = panic
@@ -685,11 +684,13 @@ impl Inner {
                     ),
                     &report.left,
                 ),
-            )),
+            )
+            .with_left(report.left)),
             Some(report) if !report.left.is_empty() => Err(Error::new(
                 ErrorKind::Failed,
                 crate::with_left("stopped".to_string(), &report.left),
-            )),
+            )
+            .with_left(report.left)),
             _ => Ok(()),
         }
     }

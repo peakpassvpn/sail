@@ -17,7 +17,16 @@ class SailException(val code: Int, message: String) : Exception(message) {
         const val CANCELLED = 8
         const val TIMEOUT = 9
         const val WRONG_THREAD = 10
+        /** Also any code this binding does not name, from a newer sail. */
         const val INTERNAL = 11
+        /** An essential task panicked: the instance failed. */
+        const val PANICKED = 12
+        /** A reload changes what only a start sets up (a TUN): stop and start. */
+        const val NEEDS_RESTART = 13
+        /** A TUN's device name is in use. */
+        const val TUN_NAME_TAKEN = 14
+        /** A reload lost an inbound it was to replace on its own address. */
+        const val INBOUND_LOST = 15
     }
 }
 
@@ -34,8 +43,34 @@ data class State(
     /** idle, starting, running, stopping, stopped or failed. */
     val state: String,
     val error: String? = null,
+    /** The failure's kind: panicked, config, tun_name_taken, ... */
+    @SerialName("error_kind") val errorKind: String? = null,
+    /** What the failed run's teardown left in the system. */
+    val left: List<Left> = emptyList(),
     @SerialName("started_at_ms") val startedAtMs: Long? = null,
 )
+
+/** Something an instance's teardown could not undo in the system. */
+@Serializable
+data class Left(
+    /** tun, route, rule, dns, nft, wfp, file or task; more may come. */
+    val kind: String,
+    val resource: String,
+    val why: String,
+    /** The command that clears it by hand, where there is one. */
+    val clear: String? = null,
+)
+
+/** What a stop could not end or undo. */
+@Serializable
+data class StopReport(
+    val tasks: List<StopTask> = emptyList(),
+    @SerialName("waited_ms") val waitedMs: Long = 0,
+    val left: List<Left> = emptyList(),
+)
+
+@Serializable
+data class StopTask(val name: String, val count: Int)
 
 @Serializable
 data class Traffic(

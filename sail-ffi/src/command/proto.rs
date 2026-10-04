@@ -33,6 +33,26 @@ pub struct ServiceStatus {
     pub error: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(uint64, optional, tag = "3")]
     pub started_at_ms: ::core::option::Option<u64>,
+    /// The failure's kind, as sail's ErrorKind code names it.
+    #[prost(string, optional, tag = "4")]
+    pub error_kind: ::core::option::Option<::prost::alloc::string::String>,
+    /// What the failed run's teardown left in the system.
+    #[prost(message, repeated, tag = "5")]
+    pub left: ::prost::alloc::vec::Vec<LeftBehind>,
+}
+/// Something an instance's teardown could not undo in the system.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct LeftBehind {
+    /// tun, route, rule, dns, nft, wfp, file, task
+    #[prost(string, tag = "1")]
+    pub kind: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub resource: ::prost::alloc::string::String,
+    #[prost(string, tag = "3")]
+    pub why: ::prost::alloc::string::String,
+    /// The command that clears it by hand.
+    #[prost(string, optional, tag = "4")]
+    pub clear: ::core::option::Option<::prost::alloc::string::String>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct SubscribeLogRequest {
