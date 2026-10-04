@@ -700,7 +700,7 @@ jobs:
           fi
           base=$(git merge-base HEAD origin/master)
           git diff --name-only "$base" HEAD | tee changed.txt
-          if grep -qE '^(sail/src/protocol/tun/|sail/src/platform/|sail/src/runtime/teardown\.rs|sail/src/fault\.rs|sail/tests/test_teardown\.rs|sail/tests/scripts/macos_utun|\.github/workflows/ci\.yml$)' changed.txt; then
+          if grep -qE '^(sail/src/protocol/tun/|sail/src/platform/|sail/src/runtime/teardown\.rs|sail/src/fault\.rs|sail/tests/test_teardown\.rs|sail/tests/scripts/macos_|\.github/workflows/ci\.yml$)' changed.txt; then
             echo run=true >>"$GITHUB_OUTPUT"
           else
             echo run=false >>"$GITHUB_OUTPUT"
@@ -752,6 +752,13 @@ jobs:
             --target aarch64-apple-darwin --no-run --message-format=json \
             | jq -r 'select(.executable != null) | .executable')
           sudo "$bin" --ignored --nocapture --test-threads=1
+
+      # What macOS makes of a TUN's DNS given as a temporary dynamic-store
+      # key (the design in docs): is it the default resolver, and does a
+      # kill -9 of its session remove it.
+      - name: a TUN's DNS through the dynamic store
+        if: always()
+        run: sail/tests/scripts/macos_dns_probe.sh
 
       # Last: it takes the runner's own traffic, and may lose the runner.
       - name: a desktop's config (the default route)
