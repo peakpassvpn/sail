@@ -572,6 +572,17 @@ async fn kernel_cookie_under_load_scoped() {
         "flood: {} initiations; cookie replies to us: {}",
         sent, cookies
     );
+    if cookies == 0 && std::env::var_os("CI").is_none() {
+        // A kernel with many cores keeps up with the flood and never comes
+        // under load. In CI that stays a failure, so that the job cannot
+        // pass without testing this.
+        println!(
+            "skipped: the kernel never came under load ({} initiations), as on a host of \
+             many cores; nothing was tested",
+            sent
+        );
+        return;
+    }
     assert!(cookies >= 1, "the kernel never demanded a cookie");
     let got = got.expect("an echo reply within 15 s").unwrap();
     let (_, _, proto, body) = parse(&got.packet);
