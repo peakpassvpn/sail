@@ -58,6 +58,14 @@ pub const SAIL_EVENT_NETWORK: u32 = 6;
 /// release follows.
 pub const SAIL_EVENT_DISCONNECTED: u32 = 7;
 
+/// A task of the instance panicked: `{"task", "class": "contained" |
+/// "essential", "message", "count"}`, `count` the instance's contained
+/// panics so far. A contained panic ended that task alone and the instance
+/// goes on; an essential one failed it, which the state event tells too.
+/// Through stops and starts; `{"lagged": missed}` when the host fell
+/// behind and that many are gone. In the tunnel process only.
+pub const SAIL_EVENT_FAULT: u32 = 8;
+
 /// Intervals shorter are taken as this: a host cannot ask for a busy loop.
 const INTERVAL_MIN: Duration = Duration::from_millis(100);
 /// Lines to an event, at most.
@@ -405,8 +413,47 @@ fn produce(kind: u32, options: &Options, instance: &Arc<Instance>) -> Result<Pro
             let now = instance.manager().ok().map(|m| m.network().change_events());
             Box::new(move |sink| Box::pin(follow_network(sink, weak, now)))
         }
+        SAIL_EVENT_FAULT => {
+            let events = instance.core().events(sail::embed::Kinds::FAULT);
+            Box::new(move |sink| {
+                Box::pin(follow_embed(sink, events, |event| match event {
+                    sail::embed::Event::Fault(fault) => {
+                        serde_json::to_value(json::Fault::of(&fault)).ok()
+                    }
+                    _ => None,
+                }))
+            })
+        }
         other => return Err(Failure::invalid(format!("no event kind {}", other))),
     })
+}
+
+/// What embed tells of a kind, each event as `tell` makes it of JSON;
+/// `{"lagged": missed}` when the host fell behind on it. Through stops and
+/// starts, as embed's events go.
+async fn follow_embed(
+    mut out: impl Emit<serde_json::Value>,
+    events: impl futures::Stream<Item = sail::embed::Event> + Send + 'static,
+    tell: impl Fn(sail::embed::Event) -> Option<serde_json::Value> + Send + 'static,
+) {
+    use futures::StreamExt;
+    let mut events = Box::pin(events);
+    while out.open() {
+        let Some(event) = events.next().await else {
+            return;
+        };
+        let told = match event {
+            sail::embed::Event::Lagged { missed, .. } => {
+                Some(serde_json::json!({ "lagged": missed }))
+            }
+            event => tell(event),
+        };
+        if let Some(told) = told {
+            if !out.emit(told).await {
+                return;
+            }
+        }
+    }
 }
 
 /// Each change of network, while the instance runs; through stops and
@@ -520,6 +567,7 @@ pub(crate) async fn follow_status(
             down_total: s.down_total,
             connections: s.connections,
             memory: s.memory,
+            faults: s.faults,
         };
         if !out.emit(status).await {
             return;

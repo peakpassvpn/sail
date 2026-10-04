@@ -160,6 +160,16 @@
 #define SAIL_EVENT_DISCONNECTED 7
 
 /*
+ A task of the instance panicked: `{"task", "class": "contained" |
+ "essential", "message", "count"}`, `count` the instance's contained
+ panics so far. A contained panic ended that task alone and the instance
+ goes on; an essential one failed it, which the state event tells too.
+ Through stops and starts; `{"lagged": missed}` when the host fell
+ behind and that many are gone. In the tunnel process only.
+ */
+#define SAIL_EVENT_FAULT 8
+
+/*
  An instance, as the host holds it; 0 is none.
  */
 typedef uint64_t SailInstance;
@@ -534,8 +544,9 @@ int32_t sail_unsubscribe(SailSubscription subscription, char **err);
      "cache_dir", "log_to_system", "socket_protect", "sub_store"}`; on
      iOS and Android the "mobile" profile and the system log unless
      said), and the FFI's: `log_lines`, the lines of its log kept
-     (3000), `worker_threads`, 0 or unset for one thread, and
-     `stack_size` of each worker, in bytes.
+     (3000), `worker_threads`, 0 or unset for one thread,
+     `stack_size` of each worker, in bytes, and `stop_within_ms`, how
+     long a stop waits for the instance's tasks to end (2000).
  @param platform What the host does for it, or null for nothing; read
      during the call, its callbacks kept until `release`.
  @param out Takes the instance's handle.

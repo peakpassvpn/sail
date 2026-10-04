@@ -131,6 +131,8 @@ message Traffic {
   uint64 down_total = 2;
   uint64 connections = 3;
   uint64 memory = 4;
+  // The panics of tasks the instance went on after, in this run.
+  uint64 faults = 5;
 }
 
 message Status {
@@ -140,6 +142,7 @@ message Status {
   uint64 down_total = 4;
   uint64 connections = 5;
   uint64 memory = 6;
+  uint64 faults = 7;
 }
 
 message Connection {

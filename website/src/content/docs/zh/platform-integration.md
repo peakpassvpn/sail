@@ -69,7 +69,7 @@ Sail 将代理行为保留在 Rust 核心，把宿主特有能力注入边界。
 
 同一代理定义因此可以在应用中使用移动端内存预算，在中继中使用服务器预算。
 
-核心还接受 `socket_protect`、`sub_store`、`ui_download_url` 与 `asset_sources`。FFI 另有自己的设置：`log_lines`（保留的日志行数，默认 3000），以及 `worker_threads`（不设或为 0 时单线程）和 `stack_size`。未知设置是错误。在 iOS 与 Android 上，默认使用 `mobile` 配置档并写入系统日志。
+核心还接受 `socket_protect`、`sub_store`、`ui_download_url` 与 `asset_sources`。FFI 另有自己的设置：`log_lines`（保留的日志行数，默认 3000），`worker_threads`（不设或为 0 时单线程）和 `stack_size`，以及 `stop_within_ms`（停止时等待实例任务结束的时长，默认 2000）。未知设置是错误。在 iOS 与 Android 上，默认使用 `mobile` 配置档并写入系统日志。
 
 `asset_sources` 按资源文件名给出下载地址，如 `{"asn.mmdb": "https://..."}`：运行时 API 的 `POST /api/v1/runtime/assets/{name}/update` 在请求未给地址时使用它。Sail 没有默认来源，CLI 的默认来源属于 CLI 自己。
 

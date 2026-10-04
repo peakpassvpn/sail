@@ -69,6 +69,36 @@ pub struct State {
     pub started_at_ms: Option<u64>,
 }
 
+/// A fault event: a task of the instance panicked.
+#[derive(Serialize, Clone, PartialEq, Eq, Debug)]
+pub struct Fault {
+    /// The task's name: `inbound tcp`, `group health check`, ...
+    pub task: String,
+    /// `contained` (the task alone ended; the instance goes on) or
+    /// `essential` (the instance failed).
+    pub class: String,
+    /// What the panic said.
+    pub message: String,
+    /// The instance's contained panics so far, in this run.
+    pub count: u64,
+}
+
+impl Fault {
+    pub fn of(fault: &crate::control::events::Fault) -> Self {
+        use crate::runtime::scope::TaskClass;
+        Self {
+            task: fault.task.to_string(),
+            class: match fault.class {
+                TaskClass::Contained => "contained",
+                TaskClass::Essential => "essential",
+            }
+            .into(),
+            message: fault.message.clone(),
+            count: fault.count,
+        }
+    }
+}
+
 /// Something an instance's teardown could not undo in the system.
 #[derive(Serialize, Clone, PartialEq, Eq, Debug)]
 pub struct Left {
@@ -146,6 +176,9 @@ pub struct Traffic {
     pub connections: usize,
     /// The process's resident memory, in bytes; 0 where unknown.
     pub memory: u64,
+    /// The panics of tasks the instance went on after, in this run: each
+    /// is told as a fault event.
+    pub faults: u64,
 }
 
 impl Traffic {
@@ -155,6 +188,7 @@ impl Traffic {
             down_total: traffic.down_total,
             connections: traffic.connections,
             memory: crate::control::resident_memory(),
+            faults: traffic.faults,
         }
     }
 }
@@ -169,6 +203,8 @@ pub struct Status {
     pub down_total: u64,
     pub connections: usize,
     pub memory: u64,
+    /// As `Traffic::faults`.
+    pub faults: u64,
 }
 
 #[derive(Serialize, Clone)]
@@ -651,13 +687,17 @@ mod tests {
                                   clear: Some("nft delete table inet sail_tun0".into()) }],
                 started_at_ms: None,
             },
+            "fault": Fault {
+                task: "inbound tcp".into(), class: "contained".into(),
+                message: "index out of bounds".into(), count: 1,
+            },
             "stop_report": StopReport {
                 tasks: vec![StopTask { name: "inbound tcp".into(), count: 2 }],
                 waited_ms: 2000,
                 left: vec![],
             },
-            "traffic": Traffic { up_total: 1, down_total: 2, connections: 3, memory: 4 },
-            "status": Status { up: 1, down: 2, up_total: 3, down_total: 4, connections: 5, memory: 6 },
+            "traffic": Traffic { up_total: 1, down_total: 2, connections: 3, memory: 4, faults: 1 },
+            "status": Status { up: 1, down: 2, up_total: 3, down_total: 4, connections: 5, memory: 6, faults: 1 },
             "connection": Connection {
                 id: 12, network: "tcp".into(), inbound_type: "socks".into(),
                 inbound_tag: "in".into(), source: "127.0.0.1:5000".into(),

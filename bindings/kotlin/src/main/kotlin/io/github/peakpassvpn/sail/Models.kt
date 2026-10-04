@@ -78,6 +78,8 @@ data class Traffic(
     @SerialName("down_total") val downTotal: Long,
     val connections: Int,
     val memory: Long,
+    /** The panics of tasks the instance went on after, in this run. */
+    val faults: Long = 0,
 )
 
 /** A status event: the traffic, and its rate in bytes a second. */
@@ -89,7 +91,26 @@ data class Status(
     @SerialName("down_total") val downTotal: Long,
     val connections: Int,
     val memory: Long,
+    val faults: Long = 0,
 )
+
+/** A task of the instance panicked. */
+@Serializable
+data class Fault(
+    /** The task's name: inbound tcp, group health check, ... */
+    val task: String,
+    /** contained (the task alone ended) or essential (the instance failed). */
+    val `class`: String,
+    val message: String,
+    /** The instance's contained panics so far, in this run. */
+    val count: Long,
+)
+
+/** A fault event: a fault, or how many the host fell behind on. */
+sealed class FaultEvent {
+    data class Panicked(val fault: Fault) : FaultEvent()
+    data class Lagged(val missed: Long) : FaultEvent()
+}
 
 @Serializable
 data class Connection(

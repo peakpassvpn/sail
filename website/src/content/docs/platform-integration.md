@@ -69,7 +69,7 @@ Host tuning is passed separately from the portable proxy configuration, as the s
 
 Keeping these values separate lets the same proxy definition use a mobile memory budget in an app and a server budget in a relay.
 
-The core also takes `socket_protect`, `sub_store`, `ui_download_url` and `asset_sources`. The FFI adds its own: `log_lines`, the log lines kept (3000 by default), and `worker_threads` (unset or 0: one thread) with `stack_size`. An unknown setting is an error. On iOS and Android, the `mobile` profile and the system log are the defaults.
+The core also takes `socket_protect`, `sub_store`, `ui_download_url` and `asset_sources`. The FFI adds its own: `log_lines`, the log lines kept (3000 by default), `worker_threads` (unset or 0: one thread) with `stack_size`, and `stop_within_ms`, how long a stop waits for the instance's tasks (2000 by default). An unknown setting is an error. On iOS and Android, the `mobile` profile and the system log are the defaults.
 
 `asset_sources` maps an asset's name to the URL it is downloaded from, as `{"asn.mmdb": "https://..."}`: the runtime API's `POST /api/v1/runtime/assets/{name}/update` takes it when the request gives no URL. Sail has no default source; the CLI's are its own.
 

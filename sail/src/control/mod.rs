@@ -105,6 +105,8 @@ pub struct Traffic {
     pub down_total: u64,
     /// The connections open now.
     pub connections: usize,
+    /// The panics of tasks the instance went on after, in this run.
+    pub faults: u64,
 }
 
 /// A connection open now.
@@ -600,6 +602,7 @@ impl RuntimeManager {
             up_total,
             down_total,
             connections: self.stat_manager.live(),
+            faults: self.env.scope.faults(),
         }
     }
 

@@ -14,6 +14,7 @@ public enum EventKind: UInt32, Sendable {
     case network = 6
     /// A client's connection lost: the last event of its subscriptions.
     case disconnected = 7
+    case fault = 8
 }
 
 final class EventBox {
@@ -98,6 +99,11 @@ extension Sail {
         if let level { options["level"] = level }
         let json = String(data: try! JSONSerialization.data(withJSONObject: options), encoding: .utf8)
         return typed(.log, Log.self, options: json)
+    }
+
+    /// Each panic of a task of the instance; in the tunnel process only.
+    public func faults() -> AsyncThrowingStream<FaultEvent, Error> {
+        typed(.fault, FaultEvent.self, options: nil)
     }
 
     public func statuses(intervalMs: UInt64 = 1000) -> AsyncThrowingStream<Status, Error> {

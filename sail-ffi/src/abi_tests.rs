@@ -692,6 +692,24 @@ fn a_stop_tells_what_it_could_not_end_or_undo() {
     });
 }
 
+/// A stop's bound is the host's to set; the traffic counts the faults
+/// (none here), and their event is followed.
+#[test]
+fn faults_are_counted_and_followed() {
+    let _serial = serial();
+    within(Duration::from_secs(30), || {
+        let instance = new_instance(Some(r#"{"stop_within_ms": 500}"#), None);
+        let faults = Recorder::new();
+        subscribe(instance, SAIL_EVENT_FAULT, None, &faults, record);
+        start_on_free_port(instance, config);
+        let traffic = json_of(|out, err| unsafe { sail_traffic(instance, out, err) });
+        assert_eq!(traffic["faults"], 0, "{}", traffic);
+        stop(instance);
+        assert!(faults.events.lock().unwrap().is_empty());
+        sail_instance_free(instance);
+    });
+}
+
 #[test]
 fn instances_run_at_once_each_with_its_own_events() {
     let _serial = serial();

@@ -97,6 +97,9 @@ pub struct Traffic {
     pub connections: u64,
     #[prost(uint64, tag = "4")]
     pub memory: u64,
+    /// The panics of tasks the instance went on after, in this run.
+    #[prost(uint64, tag = "5")]
+    pub faults: u64,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct Status {
@@ -112,6 +115,8 @@ pub struct Status {
     pub connections: u64,
     #[prost(uint64, tag = "6")]
     pub memory: u64,
+    #[prost(uint64, tag = "7")]
+    pub faults: u64,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct Connection {

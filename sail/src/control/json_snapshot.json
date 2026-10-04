@@ -32,6 +32,12 @@
     "upload": 4,
     "user": "alice"
   },
+  "fault": {
+    "class": "contained",
+    "count": 1,
+    "message": "index out of bounds",
+    "task": "inbound tcp"
+  },
   "inbound_users": {
     "users": [
       "alice"
@@ -173,6 +179,7 @@
     "connections": 5,
     "down": 2,
     "down_total": 4,
+    "faults": 1,
     "memory": 6,
     "up": 1,
     "up_total": 3
@@ -190,6 +197,7 @@
   "traffic": {
     "connections": 3,
     "down_total": 2,
+    "faults": 1,
     "memory": 4,
     "up_total": 1
   },

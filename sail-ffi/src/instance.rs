@@ -93,6 +93,7 @@ struct FfiSettings {
     log_lines: Option<usize>,
     worker_threads: Option<usize>,
     stack_size: Option<usize>,
+    stop_within_ms: Option<u64>,
 }
 
 /// The state, as the host is told it.
@@ -129,10 +130,14 @@ impl Instance {
             None | Some(0) => embed::Threads::One,
             Some(n) => embed::Threads::Workers(n, ffi.stack_size.unwrap_or(STACK_SIZE)),
         };
+        let mut options = embed::Options::new();
+        if let Some(ms) = ffi.stop_within_ms {
+            options = options.stop_within(std::time::Duration::from_millis(ms));
+        }
         let callbacks = Callbacks::new(platform);
         let log = sail::app::logger::InstanceLog::new(ffi.log_lines.unwrap_or(LOG_LINES));
         let core = embed::Instance::new(
-            embed::Options::new()
+            options
                 .settings(settings)
                 .threads(threads)
                 .platform(Arc::new(FfiPlatform {
@@ -249,7 +254,12 @@ fn split_settings(settings: Option<&str>) -> Result<(FfiSettings, Option<String>
     let mut all: serde_json::Map<String, serde_json::Value> = serde_json::from_str(settings)
         .map_err(|e| Failure::new(crate::SAIL_ERR_CONFIG, format!("settings: {}", e)))?;
     let mut ffi = serde_json::Map::new();
-    for key in ["log_lines", "worker_threads", "stack_size"] {
+    for key in [
+        "log_lines",
+        "worker_threads",
+        "stack_size",
+        "stop_within_ms",
+    ] {
         if let Some(value) = all.remove(key) {
             ffi.insert(key.into(), value);
         }
@@ -266,8 +276,9 @@ fn split_settings(settings: Option<&str>) -> Result<(FfiSettings, Option<String>
 ///     "cache_dir", "log_to_system", "socket_protect", "sub_store"}`; on
 ///     iOS and Android the "mobile" profile and the system log unless
 ///     said), and the FFI's: `log_lines`, the lines of its log kept
-///     (3000), `worker_threads`, 0 or unset for one thread, and
-///     `stack_size` of each worker, in bytes.
+///     (3000), `worker_threads`, 0 or unset for one thread,
+///     `stack_size` of each worker, in bytes, and `stop_within_ms`, how
+///     long a stop waits for the instance's tasks to end (2000).
 /// @param platform What the host does for it, or null for nothing; read
 ///     during the call, its callbacks kept until `release`.
 /// @param out Takes the instance's handle.

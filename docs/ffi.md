@@ -46,7 +46,9 @@ sail_instance_free(instance);
   `cache_dir`, `log_to_system`, `socket_protect`, `sub_store`,
   `ui_download_url`, `asset_sources`), and the FFI's own: `log_lines`, the
   lines of its log kept (3000, as both sing-box apps keep), and
-  `worker_threads` (unset or 0: one thread) with `stack_size`. An unknown
+  `worker_threads` (unset or 0: one thread) with `stack_size`, and
+  `stop_within_ms`, how long a stop waits for the instance's tasks to end
+  (2000; what outlasts it is named in `sail_instance_stop_report`). An unknown
   setting is an error. On iOS and Android the "mobile" profile and the
   system log are the defaults.
 
@@ -165,8 +167,9 @@ and the next start with the same directories runs.
 
 | | Once | Followed (`sail_subscribe`) |
 | --- | --- | --- |
-| State | `sail_instance_state` | `SAIL_EVENT_STATE` |
-| Traffic | `sail_traffic` | `SAIL_EVENT_STATUS` (rates, each interval) |
+| State | `sail_instance_state`, `sail_instance_stop_report` | `SAIL_EVENT_STATE` |
+| Traffic | `sail_traffic` (with `faults`, the panics it went on after) | `SAIL_EVENT_STATUS` (rates, each interval) |
+| Faults | | `SAIL_EVENT_FAULT` (each panic of a task: its name, `contained` or `essential`, the message, the count; in the tunnel process only) |
 | Connections | `sail_connections`, `sail_close_connection`, `sail_close_all_connections` | `SAIL_EVENT_CONNECTIONS` |
 | Outbounds and groups | `sail_outbounds`, `sail_groups`, `sail_select` | `SAIL_EVENT_OUTBOUNDS` (on change) |
 | Delays | `sail_delay` (waits), `sail_url_test` (does not; a group's members), `sail_cancel` | through `SAIL_EVENT_OUTBOUNDS` |

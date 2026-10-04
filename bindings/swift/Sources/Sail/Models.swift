@@ -42,6 +42,34 @@ public struct State: Decodable, Equatable, Sendable {
     public let startedAtMs: UInt64?
 }
 
+/// A task of the instance panicked.
+public struct Fault: Decodable, Equatable, Sendable {
+    /// The task's name: inbound tcp, group health check, ...
+    public let task: String
+    /// contained (the task alone ended) or essential (the instance failed).
+    public let `class`: String
+    public let message: String
+    /// The instance's contained panics so far, in this run.
+    public let count: UInt64
+}
+
+/// A fault event: a fault, or how many the host fell behind on.
+public enum FaultEvent: Decodable, Equatable, Sendable {
+    case panicked(Fault)
+    case lagged(UInt64)
+
+    private enum Keys: String, CodingKey { case lagged }
+
+    public init(from decoder: Decoder) throws {
+        let keys = try decoder.container(keyedBy: Keys.self)
+        if let missed = try keys.decodeIfPresent(UInt64.self, forKey: .lagged) {
+            self = .lagged(missed)
+        } else {
+            self = .panicked(try Fault(from: decoder))
+        }
+    }
+}
+
 /// Something an instance's teardown could not undo in the system.
 public struct Left: Decodable, Equatable, Sendable {
     /// tun, route, rule, dns, nft, wfp, file or task; more may come.
@@ -69,6 +97,9 @@ public struct Traffic: Decodable, Equatable, Sendable {
     public let downTotal: UInt64
     public let connections: Int
     public let memory: UInt64
+    /// The panics of tasks the instance went on after, in this run; nil
+    /// from an older sail.
+    public let faults: UInt64?
 }
 
 /// A status event: the traffic, and its rate in bytes a second.
@@ -79,6 +110,7 @@ public struct Status: Decodable, Equatable, Sendable {
     public let downTotal: UInt64
     public let connections: Int
     public let memory: UInt64
+    public let faults: UInt64?
 }
 
 public struct Connection: Decodable, Equatable, Sendable {

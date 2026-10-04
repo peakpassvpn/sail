@@ -6,6 +6,9 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.long
 
 /**
  * What the host does for an instance; each is optional. Called on sail's
@@ -50,6 +53,7 @@ internal class EventSink(
 /** The kinds of events, as sail.h numbers them. */
 enum class EventKind(val code: Int) {
     STATE(1), LOG(2), STATUS(3), CONNECTIONS(4), OUTBOUNDS(5), NETWORK(6), DISCONNECTED(7),
+    FAULT(8),
 }
 
 /**
@@ -168,6 +172,13 @@ class Sail private constructor(private val handle: Long) : AutoCloseable {
             append('}')
         }
         return events(EventKind.LOG, options).map { json.decodeFromString(it) }
+    }
+
+    /** Each panic of a task of the instance; in the tunnel process only. */
+    fun faults(): Flow<FaultEvent> = events(EventKind.FAULT).map { text ->
+        val lagged = json.parseToJsonElement(text).jsonObject["lagged"]
+        if (lagged != null) FaultEvent.Lagged(lagged.jsonPrimitive.long)
+        else FaultEvent.Panicked(json.decodeFromString<Fault>(text))
     }
 
     fun statuses(intervalMs: Long = 1000): Flow<Status> =

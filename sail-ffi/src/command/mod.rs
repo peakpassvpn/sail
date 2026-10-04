@@ -133,6 +133,7 @@ impl From<&json::Traffic> for proto::Traffic {
             down_total: t.down_total,
             connections: t.connections as u64,
             memory: t.memory,
+            faults: t.faults,
         }
     }
 }
@@ -144,6 +145,7 @@ impl From<proto::Traffic> for json::Traffic {
             down_total: t.down_total,
             connections: t.connections as usize,
             memory: t.memory,
+            faults: t.faults,
         }
     }
 }
@@ -157,6 +159,7 @@ impl From<&json::Status> for proto::Status {
             down_total: s.down_total,
             connections: s.connections as u64,
             memory: s.memory,
+            faults: s.faults,
         }
     }
 }
@@ -170,6 +173,7 @@ impl From<proto::Status> for json::Status {
             down_total: s.down_total,
             connections: s.connections as usize,
             memory: s.memory,
+            faults: s.faults,
         }
     }
 }
