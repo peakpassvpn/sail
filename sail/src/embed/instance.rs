@@ -240,8 +240,11 @@ impl Instance {
     /// runtime gone, its listeners closed. A stop while it starts ends the
     /// start; one not running does nothing.
     pub async fn stop(&self) -> Result<(), Error> {
+        // Not running (failed, stopped, never started): nothing to ask, and
+        // no second teardown, which has run with the run's end; what it
+        // left, if anything, is told again.
         let Some(mut states) = self.inner().ask_stop() else {
-            return Ok(());
+            return self.inner().leftovers();
         };
         let _ = states
             .wait_for(|s| !matches!(s, State::Starting | State::Running { .. } | State::Stopping))
@@ -566,7 +569,11 @@ impl Inner {
     /// Told by the core, on the thread starting it, that the network it
     /// starts on is settled.
     fn settled(&self, env: Arc<crate::runtime::RuntimeEnv>) {
-        lock(&self.life).env = Some(env);
+        let mut life = lock(&self.life);
+        // This run's from here: a start that fails before it runs tells
+        // what its teardown left through it.
+        life.scope = Some(env.scope.clone());
+        life.env = Some(env);
     }
 
     /// Told by the core, on the thread starting it, that its outbounds
@@ -603,7 +610,24 @@ impl Inner {
             Ok(Ok(())) => life.phase = Phase::Stopped,
             Ok(Err(e)) => {
                 life.phase = Phase::Failed;
-                life.failure = Some(Error::from(e));
+                let failure = Error::from(e);
+                // A start that failed tells what its teardown left too.
+                let left = life
+                    .scope
+                    .as_ref()
+                    .and_then(|s| s.report())
+                    .map(|r| r.left)
+                    .unwrap_or_default();
+                life.failure = Some(
+                    if left.is_empty() || failure.message().contains(crate::LEFT_SAID) {
+                        failure
+                    } else {
+                        Error::new(
+                            failure.kind(),
+                            crate::with_left(failure.message().to_string(), &left),
+                        )
+                    },
+                );
             }
             Err(panic) => {
                 let what = panic
@@ -652,12 +676,19 @@ impl Inner {
     fn leftovers(&self) -> Result<(), Error> {
         let report = lock(&self.life).scope.as_ref().and_then(|s| s.report());
         match report {
-            Some(report) if !report.clean() => Err(Error::new(
+            Some(report) if !report.tasks.is_empty() => Err(Error::new(
                 ErrorKind::Timeout,
-                format!(
-                    "stopped, with tasks still running after {:?}: {:?}",
-                    report.waited, report.tasks
+                crate::with_left(
+                    format!(
+                        "stopped, with tasks still running after {:?}: {:?}",
+                        report.waited, report.tasks
+                    ),
+                    &report.left,
                 ),
+            )),
+            Some(report) if !report.left.is_empty() => Err(Error::new(
+                ErrorKind::Failed,
+                crate::with_left("stopped".to_string(), &report.left),
             )),
             _ => Ok(()),
         }

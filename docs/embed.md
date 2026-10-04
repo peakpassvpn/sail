@@ -87,7 +87,10 @@ same.
   connections dropped. A stream or datagram socket that was dialled through
   the instance then fails; it does not hang.
 - **Dropping.** Dropping the last clone of an `Instance` asks it to stop but
-  does not wait. Await `stop()` first.
+  does not wait: the instance's own thread stops it in the background,
+  in the order of a `stop()` (below), within `stop_within` and the
+  teardown steps' bounds (5 s each). A host that drops it and exits at
+  once can leave routes, rules or a TUN behind. Await `stop()` first.
 - **Errors.** `ErrorKind::WrongThread` never comes from these async calls.
   Only the blocking wrappers the C ABI uses give it, when they are called on
   one of the instance's own threads (from a `Platform` callback, for
@@ -507,3 +510,24 @@ unless `Options::stop_within` says otherwise.
   the bound is named in `stop()`'s `Timeout` error and in `stop_report()`
   (the tasks still running by name and count, and how long the stop
   waited).
+
+**What the instance changed in the system** (a TUN's routes, policy rules,
+nftables, DNS, Windows filters) is undone however the run ends: a
+`stop()`, a failure (an essential task's panic, a root task's), or a start
+that fails after the TUN came up. Every end goes the same way: what it
+changed in the system first, then the device, then the instance's tasks
+within the bound, then the runtime, shut down within the bound too, so
+that a blocking thread stuck past it does not hold the end up. A step that fails, panics or outlasts its bound is
+named, and the others still run:
+
+- `stop_report().left`: each `Left { kind, resource, why, clear }`, with
+  `clear` the one command that clears it by hand where there is one.
+- `stop()`'s error (`ErrorKind::Failed` when only resources are left), the
+  `Failed` state's error, and a failed start's error say the same in their
+  message, after "left in the system:".
+
+`stop()` on an instance that is not running (failed, stopped, or never
+started) is safe to call any number of times and returns at once: it
+asks for nothing and undoes nothing a second time, and tells again what
+the last run left, if anything.
+

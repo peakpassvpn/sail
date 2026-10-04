@@ -73,19 +73,24 @@ pub enum TaskClass {
     Essential,
 }
 
-/// What a stop could not end within its bound.
+/// What a stop could not end within its bound, and what the instance's
+/// teardown could not undo in the system.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct StopReport {
     /// The tasks still running, by name, with how many of each.
     pub tasks: Vec<(&'static str, usize)>,
     /// How long the stop waited.
     pub waited: Duration,
+    /// What is left in the system (routes, rules, filters, a device), each
+    /// with why and how to clear it by hand (runtime::teardown).
+    pub left: Vec<crate::runtime::teardown::Left>,
 }
 
 impl StopReport {
-    /// Whether everything ended.
+    /// Whether everything ended and nothing is left in the system.
     pub fn clean(&self) -> bool {
-        self.tasks.is_empty()
+        self.tasks.is_empty() && self.left.is_empty()
     }
 }
 
@@ -441,12 +446,19 @@ impl TaskScope {
         while !self.is_empty() && started.elapsed() < within {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
-        let report = StopReport {
-            tasks: self.tasks(),
-            waited: started.elapsed(),
-        };
-        *lock(&self.0.report) = Some(report.clone());
-        report
+        let mut report = lock(&self.0.report);
+        let report = report.get_or_insert_with(Default::default);
+        report.tasks = self.tasks();
+        report.waited = started.elapsed();
+        report.clone()
+    }
+
+    /// Records what the instance's teardown left, in the report of the
+    /// stop (one with no tasks left if there was none).
+    pub fn note_left(&self, left: Vec<crate::runtime::teardown::Left>) {
+        lock(&self.0.report)
+            .get_or_insert_with(Default::default)
+            .left = left;
     }
 
     /// What the last stop could not end.
@@ -748,6 +760,28 @@ mod tests {
             .failure()
             .unwrap()
             .contains("[router] panicked: broken state"));
+    }
+
+    /// What a teardown left goes into the stop's report, which is then
+    /// not clean, whether the stop came before or after.
+    #[tokio::test]
+    async fn what_a_teardown_left_is_in_the_report() {
+        let left = crate::runtime::teardown::Left {
+            kind: crate::runtime::teardown::LeftKind::Nft,
+            resource: "nft table inet sail_tun0".into(),
+            why: "timed out after 5s".into(),
+            clear: Some("nft delete table inet sail_tun0".into()),
+        };
+        let before = TaskScope::default();
+        before.note_left(vec![left.clone()]);
+        assert!(!before.report().unwrap().clean());
+        let after = TaskScope::default();
+        let report = after.stop(Duration::from_millis(10)).await;
+        assert!(report.clean());
+        after.note_left(vec![left.clone()]);
+        let report = after.report().unwrap();
+        assert_eq!(report.left, vec![left]);
+        assert!(!report.clean());
     }
 
     /// A root task's panic fails the instance and ends the task; nothing

@@ -1985,7 +1985,16 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
     if start.is_stopped() {
         return Ok(());
     }
-    let rt = new_runtime(&opts.runtime_opt, log)?;
+    // Every way out of the run from here, a failed start or an unwind as
+    // well as a stop, goes through `exit` (E2 teardown).
+    let exit = Exit {
+        rt: Some(new_runtime(&opts.runtime_opt, log)?),
+        env: env.clone(),
+        scope: scope.clone(),
+        stop_within,
+        stopped: false,
+    };
+    let rt = exit.runtime();
     let _g = rt.enter();
     // The build below is synchronous, on no task: what it spawns (groups'
     // health checks, among others) finds the scope through this thread
@@ -2034,6 +2043,10 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
     let running = runtime::running::Running::of(&config, &env);
     let mut instance = app::instance::Instance::build(&config, env.clone(), dial_defaults)
         .map_err(Error::Config)?;
+    // On a failed start from here, what the system was changed by is
+    // undone before what changed it drops (declared after it, so dropped
+    // before it).
+    let _undo_built = UndoFirst(env.teardown.clone());
     // Its outbounds are built: the host dials through them from here,
     // before the names the start itself asks for (rule-sets, providers)
     // and while those the groups' first checks ask for are answered.
@@ -2087,6 +2100,7 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
     // Without the API nothing is added to them.
     #[cfg_attr(not(any(feature = "api", feature = "clash-api")), allow(unused_mut))]
     let mut runners = instance.start().map_err(Error::Config)?;
+    let _undo_started = UndoFirst(env.teardown.clone());
 
     let runtime_manager = RuntimeManager::new(
         #[cfg(feature = "auto-reload")]
@@ -2265,12 +2279,12 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
         let mut starting = starting();
         if start.is_stopped() {
             drop((running, starting));
+            env.teardown.run_all();
             #[cfg(feature = "inbound-tun")]
             rt.block_on(stop_tun(tun_control));
             runtime_manager.stop_watching();
             instance.stop();
             drop(instance);
-            rt.shutdown_background();
             return Ok(());
         }
         running.insert(rt_id, runtime_manager.clone());
@@ -2293,18 +2307,29 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
     let tasks = tasks
         .into_iter()
         .map(|task| Box::pin(scope.root("root task", task)));
-    rt.block_on(scope.enter(futures::future::select_all(tasks)));
+    let (_, _, rest) = rt.block_on(scope.enter(futures::future::select_all(tasks)));
 
+    // In this order (design-notes, E2 teardown): what the instance changed
+    // in the system (routes, rules, filters, DNS); then the root tasks
+    // left, the TUN's among them, which closes the device; the instance;
+    // its tasks, within the bound; the runtime, within it too.
+    env.teardown.run_all();
+    drop(rest);
     runtime_manager.stop_watching();
     instance.stop();
     drop(instance);
-    // The instance's tasks, ended within the bound; what is left is said.
+    // What went with them (the device) is gone, or is said to be left.
+    env.teardown.check_all();
     let report = rt.block_on(scope.stop(stop_within));
-    if !report.clean() {
+    scope.note_left(env.teardown.left());
+    if !report.tasks.is_empty() {
         warn!(
             "stopped with tasks still running after {:?}: {:?}",
             report.waited, report.tasks
         );
+    }
+    for left in env.teardown.left() {
+        warn!("stopped, leaving {}", left);
     }
 
     let mut running = runtime_managers();
@@ -2316,14 +2341,83 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
     }
     drop(running);
 
-    rt.shutdown_background();
+    drop(_g);
+    exit.done();
 
     trace!("removed runtime {}", &rt_id);
 
     match scope.failure() {
-        Some(why) => Err(Error::Panicked(why)),
+        Some(why) => Err(Error::Panicked(with_left(why, &env.teardown.left()))),
         None => Ok(()),
     }
+}
+
+/// The way out of a run: whatever ends it, what the instance changed in
+/// the system is undone, its tasks are stopped within the bound (unless
+/// it unwinds), what is left is recorded, and the runtime is shut down
+/// within the bound too, never dropped, which would wait on its blocking
+/// threads however long (E2 teardown).
+struct Exit {
+    rt: Option<tokio::runtime::Runtime>,
+    env: Arc<runtime::RuntimeEnv>,
+    scope: runtime::scope::TaskScope,
+    stop_within: std::time::Duration,
+    /// The run's own end stopped the tasks already.
+    stopped: bool,
+}
+
+impl Exit {
+    fn runtime(&self) -> &tokio::runtime::Runtime {
+        // Some until it drops.
+        self.rt.as_ref().expect("the run's runtime")
+    }
+
+    /// The run ended, and stopped its tasks itself.
+    fn done(mut self) {
+        self.stopped = true;
+    }
+}
+
+impl Drop for Exit {
+    fn drop(&mut self) {
+        self.env.teardown.run_all();
+        // The runners and the instance dropped before this, declared after
+        // it: what went with them (the device) is gone, or is said left.
+        self.env.teardown.check_all();
+        if let Some(rt) = self.rt.take() {
+            if !self.stopped && !std::thread::panicking() {
+                rt.block_on(self.scope.stop(self.stop_within));
+            }
+            self.scope.note_left(self.env.teardown.left());
+            // What it still holds (a blocking thread with the device, a
+            // task's last drop) goes before the run is said to end, as a
+            // drop of the runtime would, but bounded: a thread stuck past
+            // it is left behind rather than waited for.
+            rt.shutdown_timeout(self.stop_within);
+        }
+    }
+}
+
+/// Undoes what the instance changed in the system when it drops: declared
+/// after what made the changes, so that it drops, and undoes, first.
+struct UndoFirst(runtime::teardown::Teardown);
+
+impl Drop for UndoFirst {
+    fn drop(&mut self) {
+        self.0.run_all();
+    }
+}
+
+/// How a message says what a teardown left.
+pub(crate) const LEFT_SAID: &str = "left in the system: ";
+
+/// `why`, and what the teardown left, if anything.
+pub(crate) fn with_left(why: String, left: &[runtime::teardown::Left]) -> String {
+    if left.is_empty() {
+        return why;
+    }
+    let left: Vec<String> = left.iter().map(|l| l.to_string()).collect();
+    format!("{}; {}{}", why, LEFT_SAID, left.join("; "))
 }
 
 /// How long the system is quiet after a change of network before sail

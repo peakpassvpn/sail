@@ -303,6 +303,7 @@ pub const PANICS_ARE_CAUGHT: bool = cfg!(panic = "unwind");
 
 pub use crate::control::events::Fault;
 pub use crate::runtime::scope::{StopReport, TaskClass};
+pub use crate::runtime::teardown::{Left, LeftKind};
 
 /// What this sail is: its release.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
