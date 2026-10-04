@@ -114,6 +114,12 @@ pub type Runner = futures::future::BoxFuture<'static, ()>;
 /// never bind costs a reload before it is refused.
 const LATE_BIND_WITHIN: std::time::Duration = std::time::Duration::from_secs(1);
 
+/// How long an inbound's listener task may take to end once aborted, its
+/// socket closing as it ends: a reload waits so long before binding the
+/// address again, a removal before it returns. A judgment value: an
+/// aborted task ends at its next turn on the runtime, in microseconds.
+const LISTENER_ENDS_WITHIN: std::time::Duration = std::time::Duration::from_secs(2);
+
 /// What the log says when a SIGHUP's reload took, and when it did not,
 /// before the reason; and how a refusal that only a restart gets past
 /// ends. A service manager's scripts read these (OpenWrt's init script
@@ -944,7 +950,7 @@ impl RuntimeManager {
             .stop_for(inbound_reload);
         for stopped in stopping {
             // Aborted, it ends at its next poll: 2 s is far more.
-            let _ = tokio::time::timeout(std::time::Duration::from_secs(2), stopped).await;
+            let _ = tokio::time::timeout(LISTENER_ENDS_WITHIN, stopped).await;
         }
         // An address is free a moment after its listener's task has ended:
         // a QUIC endpoint closes its socket once its connections are gone.
@@ -1173,11 +1179,13 @@ impl RuntimeManager {
             .map_err(Error::Config)
     }
 
-    /// `remove_inbound`, and how many connections it disconnected.
+    /// `remove_inbound`, and how many connections it disconnected. Once
+    /// it returns, the inbound's sockets are closed: its address can be
+    /// bound again, and a connection to it is refused.
     pub async fn remove_inbound_closing(&self, tag: &str) -> Result<usize, Error> {
         let _update = self.update.lock().await;
         // The lock goes before anything awaited.
-        let accepted = {
+        let (accepted, listeners) = {
             let mut inbounds = self
                 .inbound_manager
                 .lock()
@@ -1187,6 +1195,11 @@ impl RuntimeManager {
             }
             inbounds.remove_accepted(tag).map_err(Error::Config)?
         };
+        // An abort ends a listener's task, and closes its socket, at the
+        // task's next turn, after this: waited for here, as a reload waits
+        // before binding the address again.
+        let _ =
+            tokio::time::timeout(LISTENER_ENDS_WITHIN, futures::future::join_all(listeners)).await;
         #[cfg(feature = "auto-reload")]
         self.follow_certificates();
         // The listener has stopped. The connections the runtime lists are

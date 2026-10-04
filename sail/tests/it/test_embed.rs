@@ -495,6 +495,11 @@ async fn removing_an_inbound_closes_its_connections_only() {
     round_trip(&mut removed, b"removed").await;
 
     assert_eq!(instance.remove_inbound("system-proxy").await.unwrap(), 1);
+    // Closed on return, not a moment later: a connection is refused now.
+    assert!(
+        std::net::TcpStream::connect(("127.0.0.1", removed_port)).is_err(),
+        "the removed inbound still listens once the removal returned"
+    );
     let mut buf = [0u8; 1];
     let read = tokio::time::timeout(Duration::from_secs(5), removed.read(&mut buf))
         .await

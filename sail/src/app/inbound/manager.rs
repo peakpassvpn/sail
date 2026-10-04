@@ -36,7 +36,7 @@ use super::cat_listener::CatInboundListener;
 use super::tun_listener::TunInboundListener;
 
 /// A listener's task: ended, its socket is closed.
-type ListenerTask = tokio::task::JoinHandle<Result<(), futures::future::Aborted>>;
+pub(crate) type ListenerTask = tokio::task::JoinHandle<Result<(), futures::future::Aborted>>;
 
 pub struct InboundManager {
     stateful_resources: HashSet<String>,
@@ -465,10 +465,23 @@ impl InboundManager {
 
     /// `remove`, giving the TCP connections the inbound accepted, for the
     /// caller to disconnect.
-    pub fn remove_accepted(&mut self, tag: &str) -> Result<super::network_listener::Accepted> {
+    pub fn remove_accepted(
+        &mut self,
+        tag: &str,
+    ) -> Result<(super::network_listener::Accepted, Vec<ListenerTask>)> {
         let accepted = super::network_listener::Accepted::of(self.network_listeners.get(tag));
-        self.remove(tag)?;
-        Ok(accepted)
+        let listeners = self
+            .ended
+            .get_mut(tag)
+            .map(std::mem::take)
+            .unwrap_or_default();
+        if let Err(e) = self.remove(tag) {
+            if !listeners.is_empty() {
+                self.ended.insert(tag.to_string(), listeners);
+            }
+            return Err(e);
+        }
+        Ok((accepted, listeners))
     }
 
     /// Whether there is an inbound `tag`.
