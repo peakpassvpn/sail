@@ -50,7 +50,7 @@ fn the_api_lists_and_updates_assets() -> anyhow::Result<()> {
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
-    let id = 901;
+    let id = common::next_rt_id();
     let api_port = common::retry_port_clash(|| {
         let [api_port] = common::free_ports();
         let config = serde_json::json!({

@@ -19,9 +19,16 @@ use tracing::info;
 use sail::adapter::*;
 use sail::session::Session;
 
-static NEXT_RT_ID: AtomicU16 = AtomicU16::new(0);
+/// The runtime IDs the harness hands out begin here, far from the others
+/// of a test binary: `sail::embed` gives its instances the lowest free ID
+/// from 1 up, and a few tests start an instance under an ID of their own
+/// choosing, in the hundreds. Counted from 0, the harness met both: an
+/// instance made by `sail::embed` holds its ID before it starts, when the
+/// harness cannot see it is taken.
+const FIRST_RT_ID: u16 = 30_000;
 
-/// A runtime ID no other instance of the tests has.
+static NEXT_RT_ID: AtomicU16 = AtomicU16::new(FIRST_RT_ID);
+
 /// `path` as it goes into a configuration written as JSON text: with `/`
 /// for separators, which Windows takes too, so that a `\` is not read as
 /// an escape.
@@ -29,6 +36,7 @@ pub fn json_path(path: &Path) -> String {
     path.to_string_lossy().replace('\\', "/")
 }
 
+/// A runtime ID no other instance of the tests has.
 pub fn next_rt_id() -> sail::RuntimeId {
     NEXT_RT_ID.fetch_add(1, Ordering::Relaxed)
 }
