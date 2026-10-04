@@ -10,6 +10,7 @@
 //!
 //! Locks, with auto_route and, on Linux, with auto_redirect:
 //! - an essential task's panic, and the TUN runner's, leave nothing;
+//! - the TUN's netstack failing fails the instance, and leaves nothing;
 //! - a start that fails once the TUN is routed leaves nothing;
 //! - a teardown step that panics leaves its own resource alone, and the
 //!   others still go (Linux).
@@ -26,6 +27,8 @@ use std::time::{Duration, Instant};
 use anyhow::{bail, ensure, Context, Result};
 use sail::embed::{Config, Instance, Options, RunDir, State};
 use sail::fault::{self, Point};
+#[cfg(target_os = "linux")]
+use sail::runtime::teardown::LeftKind;
 
 #[cfg(target_os = "linux")]
 const TABLE: &str = "sail_sadtd0";
@@ -222,6 +225,15 @@ fn the_tun_runner_s_panic_leaves_nothing() -> Result<()> {
 
 #[test]
 #[ignore = "needs root: tests/scripts/auto_redirect_netns.sh, or CI's tun-macos"]
+fn the_netstack_s_failure_fails_it_and_leaves_nothing() -> Result<()> {
+    for &redirect in REDIRECT {
+        fails_and_leaves_nothing(redirect, Point::NetstackFails)?;
+    }
+    Ok(())
+}
+
+#[test]
+#[ignore = "needs root: tests/scripts/auto_redirect_netns.sh, or CI's tun-macos"]
 fn a_start_that_fails_once_routed_leaves_nothing() -> Result<()> {
     let _one = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
     for &redirect in REDIRECT {
@@ -273,8 +285,33 @@ fn a_panicking_step_leaves_its_own_and_the_rest_go() -> Result<()> {
     let before = settled()?;
     let sail = instance(&dir)?;
     sail.blocking_start(Config::Json(config(true)))?;
+    // The table goes at the end, whatever fails: the tests after this one
+    // compare with a system without it.
+    struct DropTable;
+    impl Drop for DropTable {
+        fn drop(&mut self) {
+            let _ = run("nft", &format!("delete table inet {}", TABLE));
+        }
+    }
+    let _table = DropTable;
     fault::arm(Point::TeardownStep(format!("nft table inet {}", TABLE)));
-    sail.blocking_stop(Duration::from_secs(10))?;
+    // The stop says what it left: the table, and how to clear it.
+    let stopped = sail.blocking_stop(Duration::from_secs(10));
+    let said = match stopped {
+        Ok(()) => bail!("the stop said nothing was left"),
+        Err(e) => e.to_string(),
+    };
+    ensure!(
+        said.contains(&format!("nft delete table inet {}", TABLE)),
+        "the stop names the table and its command: {}",
+        said
+    );
+    let left = sail.stop_report().map(|r| r.left).unwrap_or_default();
+    ensure!(
+        left.len() == 1 && left[0].kind == LeftKind::Nft,
+        "the report has the table alone: {:?}",
+        left
+    );
     // The table is left, and only it.
     ensure!(
         run("nft", "list tables")?.contains(TABLE),

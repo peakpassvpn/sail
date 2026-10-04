@@ -36,6 +36,8 @@ mod armed {
         EssentialTask,
         /// The TUN's runner, on the instance's own thread.
         TunRunner,
+        /// The TUN's netstack: it ends with an error.
+        NetstackFails,
         /// The start, once the TUN is routed: it fails with an error.
         StartFails,
         /// The teardown step of the resource whose name starts so.

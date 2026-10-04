@@ -34,6 +34,29 @@ use crate::net::netstack::{
 };
 
 /// What runs a TUN inbound, and how the instance controls it.
+/// Fails the instance: its TUN no longer carries anything, which a host
+/// must see rather than an instance that looks up.
+fn fail(why: String) {
+    error!("{}", why);
+    if let Some(scope) = crate::runtime::scope::here() {
+        scope.fail(why);
+    }
+}
+
+/// The netstack failing, when a test arms `fault::Point::NetstackFails`;
+/// never otherwise.
+async fn netstack_fault() -> String {
+    #[cfg(feature = "fault-injection")]
+    loop {
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        if crate::fault::take(|point| matches!(point, crate::fault::Point::NetstackFails)) {
+            return "fault injected: the TUN's netstack fails".to_string();
+        }
+    }
+    #[cfg(not(feature = "fault-injection"))]
+    std::future::pending().await
+}
+
 /// `runner`, which panics when a test arms `fault::Point::TunRunner`,
 /// beside an essential task that panics on `fault::Point::EssentialTask`.
 #[cfg(feature = "fault-injection")]
@@ -245,9 +268,13 @@ fn run<I: sail_netstack::PacketIo + 'static>(
         let runtime_finished = tokio::select! {
             result = &mut runtime => {
                 if let Err(e) = result {
-                    error!("netstack runner failed: {}", e);
+                    fail(format!("the TUN's netstack failed: {}", e));
                 }
                 true
+            }
+            why = netstack_fault() => {
+                fail(why);
+                false
             }
             () = accept_loop => {
                 error!("netstack accept loop stopped");

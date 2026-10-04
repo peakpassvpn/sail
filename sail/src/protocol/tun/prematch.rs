@@ -76,10 +76,7 @@ pub(crate) async fn serve(queue: Queue, tag: String, dispatcher: Arc<Dispatcher>
             }
         };
         let id = queued.id;
-        let unjudged = |protocol| match protocol {
-            Protocol::Tcp => Verdict::Accept,
-            _ => Verdict::Repeat { mark: marks.input },
-        };
+        let pass = |protocol| unjudged(protocol, marks);
         let Some(flow) = queued.flow else {
             give(&queue, id, Verdict::Accept);
             continue;
@@ -92,19 +89,53 @@ pub(crate) async fn serve(queue: Queue, tag: String, dispatcher: Arc<Dispatcher>
             Protocol::Icmp => None,
         };
         let Some(network) = network else {
-            give(&queue, id, unjudged(flow.protocol));
+            give(&queue, id, pass(flow.protocol));
             continue;
         };
         let Ok(permit) = in_flight.clone().try_acquire_owned() else {
-            give(&queue, id, unjudged(flow.protocol));
+            give(&queue, id, pass(flow.protocol));
             continue;
         };
         let (queue, dispatcher, tag) = (queue.clone(), dispatcher.clone(), tag.clone());
         crate::runtime::scope::spawn("tun prematch", async move {
             let _permit = permit;
+            // A judgment that panics or is aborted lets the packet go on
+            // unjudged, rather than leave it in the queue.
+            let mut pending = Pending {
+                queue: queue.clone(),
+                id,
+                unjudged: Some(unjudged(flow.protocol, marks)),
+            };
             let decision = judge(&dispatcher, network, flow.source, flow.destination, tag).await;
+            pending.unjudged = None;
             give(&queue, id, verdict(flow.protocol, decision, marks));
         });
+    }
+}
+
+/// What a packet gets when nothing judged it: TCP is let through (to be
+/// redirected), the rest goes into the TUN, as sing-tun does.
+fn unjudged(protocol: Protocol, marks: Marks) -> Verdict {
+    match protocol {
+        Protocol::Tcp => Verdict::Accept,
+        _ => Verdict::Repeat { mark: marks.input },
+    }
+}
+
+/// A packet being judged: dropped before its verdict is given, it gets
+/// the unjudged one. Nothing here can panic: it may run while a panic
+/// unwinds.
+struct Pending {
+    queue: std::sync::Arc<Queue>,
+    id: u32,
+    unjudged: Option<Verdict>,
+}
+
+impl Drop for Pending {
+    fn drop(&mut self) {
+        if let Some(verdict) = self.unjudged.take() {
+            give(&self.queue, self.id, verdict);
+        }
     }
 }
 
