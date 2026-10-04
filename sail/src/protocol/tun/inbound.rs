@@ -1225,6 +1225,24 @@ fn open_wintun(
         settings.auto_route,
     )
     .map_err(|e| anyhow!("[{}] inbound: {:#}", inbound.tag, e))?;
+    // The adapter closes with the last of its session's handles, which
+    // the runner holds; a thread waiting for packets holds one too, until
+    // the session is shut down. So the step shuts it down, the newest's
+    // steps (firewall rules, DNS, routes) having run before it, and a
+    // check, once the runner is dropped, sees the adapter gone.
+    let session = std::sync::Arc::downgrade(&device.session);
+    let teardown = &dispatcher.env().teardown;
+    teardown.push(crate::runtime::teardown::Step::new(
+        crate::runtime::teardown::LeftKind::Tun,
+        format!("the wintun session of {}", settings.name),
+        move || match session.upgrade() {
+            Some(session) => session
+                .shutdown()
+                .map_err(|e| std::io::Error::other(e.to_string())),
+            None => Ok(()),
+        },
+    ));
+    teardown.push_check(adapter_gone(&settings.name));
     let io = super::packet_io::WintunPacketIo::new(device.session, netstack.batch_size)?;
     run(
         inbound,
@@ -1234,6 +1252,37 @@ fn open_wintun(
         mtu,
         netstack,
     )
+}
+
+/// The check that the wintun adapter `name` went with its runner: it
+/// closes with its session's last handle; 1 s is room for a loaded system
+/// (judgment).
+#[cfg(target_os = "windows")]
+fn adapter_gone(name: &str) -> crate::runtime::teardown::Step {
+    use crate::runtime::teardown::{LeftKind, Step};
+    let adapter = name.to_owned();
+    Step::new(
+        LeftKind::Tun,
+        format!("the wintun adapter {}", name),
+        move || {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
+            loop {
+                if crate::platform::windows::ip_helper::Luid::by_alias(&adapter).is_err() {
+                    return Ok(());
+                }
+                if std::time::Instant::now() >= deadline {
+                    return Err(std::io::Error::other(
+                        "still there: something of the instance holds its session",
+                    ));
+                }
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+        },
+    )
+    .clear(format!(
+        "powershell -Command \"Get-NetAdapter -IncludeHidden -Name '{}' | ForEach-Object {{ pnputil /remove-device $_.PnPDeviceID }}\"",
+        name
+    ))
 }
 
 /// The TUN elsewhere: opened by the host, or through the tun crates.

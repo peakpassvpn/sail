@@ -47,12 +47,27 @@ unsafe impl Sync for StrictRoute {}
 
 impl Drop for StrictRoute {
     fn drop(&mut self) {
-        // SAFETY: the engine opened, closed once; its dynamic objects go.
-        unsafe { FwpmEngineClose0(self.engine) };
+        let _ = self.close_engine();
     }
 }
 
 impl StrictRoute {
+    /// Closes the engine, and with it the session's filters and sublayer;
+    /// what the system said if it could not.
+    pub(crate) fn close(mut self) -> io::Result<()> {
+        self.close_engine()
+    }
+
+    fn close_engine(&mut self) -> io::Result<()> {
+        let engine = std::mem::replace(&mut self.engine, std::ptr::null_mut());
+        if engine.is_null() {
+            return Ok(());
+        }
+        // SAFETY: the engine opened, closed once (the handle is taken out);
+        // its dynamic objects go with it.
+        check(unsafe { FwpmEngineClose0(engine) })
+    }
+
     /// The rules for the TUN of interface `index`, with IPv4 and IPv6
     /// addresses as said.
     pub(crate) fn start(index: u32, ipv4: bool, ipv6: bool) -> io::Result<StrictRoute> {

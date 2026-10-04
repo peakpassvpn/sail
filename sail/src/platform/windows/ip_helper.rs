@@ -122,6 +122,11 @@ impl Luid {
         Ok(guid)
     }
 
+    /// Whether the interface is there still: an adapter removed is not.
+    pub(crate) fn exists(self) -> bool {
+        self.row().is_ok()
+    }
+
     fn row(self) -> io::Result<MIB_IF_ROW2> {
         let mut row = MIB_IF_ROW2 {
             InterfaceLuid: self.raw(),

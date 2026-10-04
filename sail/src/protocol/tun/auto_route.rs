@@ -36,15 +36,11 @@ pub(crate) struct AutoRoute {
     /// routes. Run by the instance's teardown, or by the drop.
     teardown: Teardown,
     steps: Vec<StepId>,
-    #[cfg(target_os = "windows")]
-    backend: Arc<backend::Backend>,
 }
 
 impl Drop for AutoRoute {
     fn drop(&mut self) {
         self.teardown.run_each(&self.steps);
-        #[cfg(target_os = "windows")]
-        self.backend.stop();
         info!("auto_route removed");
     }
 }
@@ -137,8 +133,6 @@ impl AutoRoute {
             },
             teardown: teardown.clone(),
             steps: vec![teardown.push(routes_step(&backend, &routes, &settings.name))],
-            #[cfg(target_os = "windows")]
-            backend: backend.clone(),
         };
         for &prefix in &prefixes {
             backend
@@ -852,7 +846,7 @@ mod backend {
 mod backend {
     use std::io;
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-    use std::sync::Mutex;
+    use std::sync::{Arc, Mutex};
 
     use anyhow::{anyhow, Result};
 
@@ -860,6 +854,10 @@ mod backend {
     use crate::platform::sweep::Ledger;
     use crate::platform::windows::ip_helper::{self, Luid};
     use crate::platform::windows::wfp::StrictRoute;
+    use crate::runtime::teardown::{LeftKind, Step, StepId, Teardown};
+
+    /// winerror.h: what IP Helper says of an interface that is gone.
+    const ERROR_FILE_NOT_FOUND: i32 = 2;
 
     /// The routes are all of each family, as on Linux.
     pub(super) const ROUTES_OWN_NETWORK: bool = false;
@@ -873,6 +871,8 @@ mod backend {
     }
 
     pub(super) struct Backend {
+        /// The TUN's name, for what is told of it.
+        name: String,
         luid: Luid,
         index: u32,
         /// The address after the TUN's, of each family it has: the next
@@ -891,6 +891,7 @@ mod backend {
                 .index()
                 .map_err(|e| anyhow!("auto_route: {}: {}", settings.name, e))?;
             Ok(Backend {
+                name: settings.name.clone(),
                 luid,
                 index,
                 gateway4: settings.ipv4.map(|i| IpAddr::from(peer(i))),
@@ -913,24 +914,49 @@ mod backend {
             ip_helper::add_route(self.luid, prefix, self.gateway(prefix.0.is_ipv6())?)
         }
 
+        /// Removes the route; one gone already, or with its adapter, is as
+        /// wanted.
         pub(super) fn delete(&self, prefix: (IpAddr, u8)) -> io::Result<()> {
-            ip_helper::delete_route(self.luid, prefix, self.gateway(prefix.0.is_ipv6())?)
+            match ip_helper::delete_route(self.luid, prefix, self.gateway(prefix.0.is_ipv6())?) {
+                Err(e) if e.raw_os_error() == Some(ERROR_FILE_NOT_FOUND) => Ok(()),
+                other => other,
+            }
         }
 
-        /// No one command removes them by hand.
+        /// The command that removes them by hand: every route on the
+        /// adapter, which holds no other.
         pub(super) fn clear_routes(&self) -> Option<String> {
-            None
+            Some(format!(
+                "powershell -Command \"Get-NetRoute -InterfaceAlias '{}' | Remove-NetRoute -Confirm:$false\"",
+                self.name
+            ))
         }
 
         pub(super) fn routes_removed(&self) {}
 
         /// The routes are there: DNS goes to the address after the TUN's,
-        /// and, with strict_route, nowhere else.
+        /// and, with strict_route, nowhere else. Each is undone by a step
+        /// of `teardown`, into `steps`: the firewall rules, the newest, go
+        /// first, so that no moment blocks DNS with the TUN's own gone.
         pub(super) fn routed(
-            self: &std::sync::Arc<Self>,
-            _teardown: &crate::runtime::teardown::Teardown,
-            _steps: &mut Vec<crate::runtime::teardown::StepId>,
+            self: &Arc<Self>,
+            teardown: &Teardown,
+            steps: &mut Vec<StepId>,
         ) -> Result<()> {
+            // Before it is set: emptying a setting not made is harmless.
+            steps.push(teardown.push({
+                let this = self.clone();
+                Step::new(
+                    LeftKind::Dns,
+                    format!("the DNS servers of {}", self.name),
+                    move || this.undo_dns(),
+                )
+                .clear(format!(
+                    "netsh interface ip set dnsservers name=\"{0}\" source=static address=none & \
+                     netsh interface ipv6 set dnsservers name=\"{0}\" source=static address=none",
+                    self.name
+                ))
+            }));
             for (v6, gateway) in [(false, self.gateway4), (true, self.gateway6)] {
                 if let Some(gateway) = gateway {
                     self.luid
@@ -946,19 +972,48 @@ mod backend {
                 )
                 .map_err(|e| anyhow!("auto_route: strict_route: firewall rules: {}", e))?;
                 *self.rules.lock().unwrap_or_else(|e| e.into_inner()) = Some(rules);
+                // The session is dynamic: its filters go with the handle,
+                // or at the latest with the process.
+                steps.push(teardown.push({
+                    let this = self.clone();
+                    Step::new(
+                        LeftKind::Wfp,
+                        format!(
+                            "strict_route's firewall rules for {} (WFP session \"sail\")",
+                            self.name
+                        ),
+                        move || {
+                            let rules = this.rules.lock().unwrap_or_else(|e| e.into_inner()).take();
+                            rules.map_or(Ok(()), StrictRoute::close)
+                        },
+                    )
+                    .clear("stop the process that runs sail: the filters go with it")
+                }));
             }
             ip_helper::flush_dns_cache();
             Ok(())
         }
 
-        pub(super) fn stop(&self) {
-            drop(self.rules.lock().unwrap_or_else(|e| e.into_inner()).take());
+        /// Empties the adapter's DNS servers, of the families it has; an
+        /// adapter gone has none.
+        fn undo_dns(&self) -> io::Result<()> {
+            if !self.luid.exists() {
+                return Ok(());
+            }
+            let mut failed = Vec::new();
             for (v6, gateway) in [(false, self.gateway4), (true, self.gateway6)] {
                 if gateway.is_some() {
-                    let _ = self.luid.set_dns(v6, &[]);
+                    if let Err(e) = self.luid.set_dns(v6, &[]) {
+                        failed.push(format!("{}: {}", if v6 { "IPv6" } else { "IPv4" }, e));
+                    }
                 }
             }
             ip_helper::flush_dns_cache();
+            if failed.is_empty() {
+                Ok(())
+            } else {
+                Err(io::Error::other(failed.join("; ")))
+            }
         }
     }
 }

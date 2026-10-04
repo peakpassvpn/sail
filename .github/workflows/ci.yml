@@ -529,6 +529,30 @@ jobs:
           for test in "${skip[@]}"; do args+=(--skip "$test"); done
           cargo test --locked -p sail --target x86_64-pc-windows-msvc -- --exact "${args[@]}"
 
+      # A failing instance leaves nothing while its process lives on
+      # (tests/test_teardown.rs): sail in the test's own process, with a
+      # TUN, auto_route and strict_route (only 198.18.0.0/16, so the
+      # runner's own traffic stays out), failed by a fault the test arms
+      # (feature fault-injection). The runner is administrator; wintun.dll,
+      # release.yml's pinned one, goes beside the test.
+      # Run whatever the tests before did, so that one failure hides no other.
+      - name: teardown
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        env:
+          WINTUN_VERSION: 0.14.1
+          WINTUN_SHA256: 07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51
+        run: |
+          $zip = "$env:RUNNER_TEMP\wintun.zip"
+          Invoke-WebRequest "https://www.wintun.net/builds/wintun-$env:WINTUN_VERSION.zip" -OutFile $zip
+          if ((Get-FileHash $zip -Algorithm SHA256).Hash -ne $env:WINTUN_SHA256) { throw "wintun zip: not the pinned hash" }
+          Expand-Archive $zip "$env:RUNNER_TEMP\wintun"
+          $deps = "target\x86_64-pc-windows-msvc\debug\deps"
+          New-Item -ItemType Directory -Force $deps | Out-Null
+          Copy-Item "$env:RUNNER_TEMP\wintun\wintun\bin\amd64\wintun.dll" $deps
+          cargo test --locked -p sail --features fault-injection --target x86_64-pc-windows-msvc --test test_teardown -- --ignored --test-threads 1 --nocapture
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
   # Whether the bindings' tests run: on master, when dispatched, and on a
   # branch whose changes since master reach them (the bindings, the C ABI,
   # sail::embed, the JSON snapshot the models are checked against, the
