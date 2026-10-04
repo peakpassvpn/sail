@@ -171,6 +171,25 @@ impl TaskScope {
         }
     }
 
+    /// `fut`, a root task `run()` polls itself (a runner, the reload and
+    /// signal watchers): a panic in it fails the instance, as an essential
+    /// task's does, and ends it there instead of unwinding `run()`, which
+    /// then stops as on any end of a root task.
+    pub fn root<F: Future<Output = ()>>(
+        &self,
+        name: &'static str,
+        fut: F,
+    ) -> impl Future<Output = ()> {
+        let scope = self.clone();
+        std::panic::AssertUnwindSafe(fut)
+            .catch_unwind()
+            .map(move |result| {
+                if let Err(panic) = result {
+                    scope.panicked(TaskClass::Essential, name, &*panic);
+                }
+            })
+    }
+
     /// Names of the tasks registered now, with how many of each.
     pub fn tasks(&self) -> Vec<(&'static str, usize)> {
         let mut by_name: HashMap<&'static str, usize> = HashMap::new();
@@ -729,6 +748,16 @@ mod tests {
             .failure()
             .unwrap()
             .contains("[router] panicked: broken state"));
+    }
+
+    /// A root task's panic fails the instance and ends the task; nothing
+    /// unwinds past it.
+    #[tokio::test]
+    async fn a_root_task_s_panic_fails_the_instance_without_unwinding() {
+        let scope = TaskScope::default();
+        scope.root("root", async { panic!("a runner") }).await;
+        let why = scope.failure().expect("failed");
+        assert!(why.contains("root") && why.contains("a runner"), "{}", why);
     }
 
     /// A child is its future and `TASK_OVERHEAD` at most, as a task.

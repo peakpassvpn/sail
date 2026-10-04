@@ -2156,6 +2156,11 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
         async move { scope.failed().await }
     }));
     drop(building);
+    // Each root task's panic fails the instance through the scope rather
+    // than unwinding run(): the stop below runs as on any end.
+    let tasks = tasks
+        .into_iter()
+        .map(|task| Box::pin(scope.root("root task", task)));
     rt.block_on(scope.enter(futures::future::select_all(tasks)));
 
     runtime_manager.stop_watching();
