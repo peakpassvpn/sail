@@ -567,6 +567,21 @@ mod tests {
         assert_eq!(&buf[..n], b"z");
     }
 
+    /// A dialer's socket for a peer of a known address is not bound until
+    /// it first sends; a receive on it before then, as a NAT session's
+    /// downlink starts before its uplink sends, waits rather than fails.
+    #[tokio::test]
+    async fn a_receive_before_the_first_send_waits() {
+        let socket = Dialer::system()
+            .udp_socket(&"127.0.0.1:9".parse().unwrap())
+            .await
+            .unwrap();
+        let mut buf = [0u8; 8];
+        let waited =
+            tokio::time::timeout(Duration::from_millis(300), socket.recv_from(&mut buf)).await;
+        assert!(waited.is_err(), "the receive answered: {:?}", waited);
+    }
+
     /// The same of a dialer's socket, which every outbound, DNS server and
     /// QUIC endpoint takes.
     #[tokio::test]
