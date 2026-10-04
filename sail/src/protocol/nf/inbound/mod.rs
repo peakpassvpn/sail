@@ -913,7 +913,11 @@ unsafe fn init_nf<P: AsRef<OsStr>>(
         return Err(anyhow!("adding rule failed: {}", status));
     }
 
-    *UDP_SEND_SOCKET.write() = Some(std::net::UdpSocket::bind("0.0.0.0:0")?);
+    // Send-only, but Windows fails a send too for an earlier port
+    // unreachable, unless told not to.
+    let send = std::net::UdpSocket::bind("0.0.0.0:0")?;
+    crate::net::no_udp_connreset(socket2::SockRef::from(&send));
+    *UDP_SEND_SOCKET.write() = Some(send);
 
     let (tx, rx) = std::sync::mpsc::channel();
     *TX.lock() = Some(tx);

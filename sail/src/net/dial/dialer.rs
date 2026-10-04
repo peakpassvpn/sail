@@ -771,6 +771,7 @@ impl Dialer {
             spec, env, racing, ..
         } = self.socket()?;
         let socket = Socket::new(Domain::for_address(*indicator), Type::DGRAM, None)?;
+        crate::net::no_udp_connreset(SockRef::from(&socket));
         crate::net::dual_stack(SockRef::from(&socket), indicator)?;
         socket.set_nonblocking(true)?;
         crate::net::fit_largest_datagram(SockRef::from(&socket))?;

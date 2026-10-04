@@ -215,6 +215,7 @@ fn socket(target: &Target) -> Result<UdpSocket> {
             socket
         }
     };
+    crate::net::no_udp_connreset(socket2::SockRef::from(&socket));
     socket.set_nonblocking(true).map_err(e)?;
     UdpSocket::from_std(socket.into()).map_err(e)
 }

@@ -98,6 +98,7 @@ mod test_trojan;
 mod test_tryall;
 mod test_tuic;
 mod test_udp_large;
+mod test_udp_unreachable;
 mod test_uot;
 mod test_user_api;
 mod test_vless;

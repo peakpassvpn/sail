@@ -161,10 +161,52 @@ pub fn dual_stack(socket: SockRef, addr: &SocketAddr) -> io::Result<()> {
     }
 }
 
+/// Has Windows stop failing a UDP socket's next receive or send with
+/// WSAECONNRESET for an ICMP port unreachable that a datagram sent earlier
+/// to any peer drew (SIO_UDP_CONNRESET off), which it does on an
+/// unconnected socket too, as no other system does; a socket that relays
+/// for many peers would stall, or a connected one end, for one peer gone.
+/// Elsewhere nothing. Should the system refuse, the socket works as it
+/// did before: said once, at debug.
+pub fn no_udp_connreset(socket: SockRef) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::io::AsRawSocket;
+        use windows_sys::Win32::Networking::WinSock::{WSAIoctl, SIO_UDP_CONNRESET, SOCKET};
+        let off: u32 = 0;
+        let mut returned = 0u32;
+        // SAFETY: a socket, a 4-byte BOOL in, nothing out, no overlapped
+        // call.
+        let failed = unsafe {
+            WSAIoctl(
+                socket.as_raw_socket() as SOCKET,
+                SIO_UDP_CONNRESET,
+                &off as *const u32 as *const core::ffi::c_void,
+                std::mem::size_of::<u32>() as u32,
+                std::ptr::null_mut(),
+                0,
+                &mut returned,
+                std::ptr::null_mut(),
+                None,
+            )
+        } != 0;
+        if failed {
+            static SAID: std::sync::Once = std::sync::Once::new();
+            let e = io::Error::last_os_error();
+            SAID.call_once(|| {
+                debug!("udp: SIO_UDP_CONNRESET not set ({}): an ICMP port unreachable may fail a later receive", e)
+            });
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = socket;
+}
+
 /// A UDP socket bound to `addr`, as `std::net::UdpSocket::bind` binds it,
-/// but [`dual_stack`] on `::`.
+/// but [`dual_stack`] on `::`, and with [`no_udp_connreset`].
 pub fn bind_udp(addr: &SocketAddr) -> io::Result<std::net::UdpSocket> {
     let socket = Socket::new(Domain::for_address(*addr), Type::DGRAM, None)?;
+    no_udp_connreset(SockRef::from(&socket));
     dual_stack(SockRef::from(&socket), addr)?;
     socket.bind(&(*addr).into())?;
     Ok(socket.into())
@@ -472,6 +514,86 @@ pub async fn peek_tcp_one_off(lhs: Option<&mut AnyStream>) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An address nothing listens on: a port bound, then let go.
+    fn closed_port() -> SocketAddr {
+        let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        socket.local_addr().unwrap()
+    }
+
+    /// What `no_udp_connreset` is for: on Windows a socket that sent to a
+    /// closed port fails its next receive, unconnected as it is.
+    #[cfg(windows)]
+    #[test]
+    fn windows_fails_the_next_receive_after_a_port_unreachable() {
+        let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        socket
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        socket.send_to(b"x", closed_port()).unwrap();
+        let mut buf = [0u8; 8];
+        let e = socket.recv_from(&mut buf).unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::ConnectionReset, "{}", e);
+    }
+
+    /// A socket of `bind_udp`, which relays for many peers, sends to a
+    /// closed port and goes on: its next receive waits for a datagram
+    /// rather than fails, and it sends to and hears from an open one.
+    #[test]
+    fn a_port_unreachable_fails_neither_receive_nor_send() {
+        let socket = bind_udp(&"127.0.0.1:0".parse().unwrap()).unwrap();
+        let open = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        socket
+            .set_read_timeout(Some(Duration::from_millis(500)))
+            .unwrap();
+        open.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        socket.send_to(b"x", closed_port()).unwrap();
+        let mut buf = [0u8; 8];
+        let e = socket.recv_from(&mut buf).unwrap_err();
+        assert!(
+            matches!(
+                e.kind(),
+                io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+            ),
+            "{}",
+            e
+        );
+        socket.send_to(b"x", closed_port()).unwrap();
+        socket.send_to(b"y", open.local_addr().unwrap()).unwrap();
+        let (n, from) = open.recv_from(&mut buf).unwrap();
+        assert_eq!(&buf[..n], b"y");
+        open.send_to(b"z", from).unwrap();
+        let (n, _) = socket.recv_from(&mut buf).unwrap();
+        assert_eq!(&buf[..n], b"z");
+    }
+
+    /// The same of a dialer's socket, which every outbound, DNS server and
+    /// QUIC endpoint takes.
+    #[tokio::test]
+    async fn a_dialer_s_socket_goes_on_after_a_port_unreachable() {
+        let socket = Dialer::system()
+            .udp_socket(&"0.0.0.0:0".parse().unwrap())
+            .await
+            .unwrap();
+        let open = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        socket.send_to(b"x", closed_port()).await.unwrap();
+        let mut buf = [0u8; 8];
+        let waited =
+            tokio::time::timeout(Duration::from_millis(500), socket.recv_from(&mut buf)).await;
+        assert!(waited.is_err(), "the receive answered: {:?}", waited);
+        socket
+            .send_to(b"y", open.local_addr().unwrap())
+            .await
+            .unwrap();
+        let (n, from) = open.recv_from(&mut buf).await.unwrap();
+        assert_eq!(&buf[..n], b"y");
+        open.send_to(b"z", from).await.unwrap();
+        let (n, _) = tokio::time::timeout(Duration::from_secs(5), socket.recv_from(&mut buf))
+            .await
+            .expect("the answer in time")
+            .unwrap();
+        assert_eq!(&buf[..n], b"z");
+    }
 
     const ANY_V6: &str = "[::]:0";
 
