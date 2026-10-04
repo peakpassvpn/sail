@@ -2,7 +2,7 @@
 //! accept: traffic in and out of the TUN is let through by a drop-in fw4
 //! includes, as sing-tun writes it, and fw4 is reloaded.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 
 use anyhow::{anyhow, Result};
@@ -53,18 +53,24 @@ pub(crate) fn setup(tun: &str) -> Result<bool> {
 }
 
 /// Removes the drop-in of `tun`, if there is one, and reloads fw4.
-pub(crate) fn cleanup(tun: &str) {
+pub(crate) fn undo(tun: &str) -> std::io::Result<()> {
     let path = drop_in_path(tun);
-    if !Path::new(&path).exists() {
-        return;
+    match std::fs::remove_file(&path) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => {
+            return Err(std::io::Error::new(
+                e.kind(),
+                format!("{}: {}", path.display(), e),
+            ))
+        }
     }
-    if let Err(e) = std::fs::remove_file(&path) {
-        tracing::warn!("{}: {}", path.display(), e);
-        return;
-    }
-    if let Err(e) = reload() {
-        tracing::warn!("auto_redirect: fw4: {:#}", e);
-    }
+    crate::runtime::teardown::command_within("fw4", &["reload"], crate::runtime::teardown::WITHIN)
+}
+
+/// The command that removes the drop-in of `tun` by hand.
+pub(crate) fn clear_command(tun: &str) -> String {
+    format!("rm -f {} && fw4 reload", drop_in_path(tun).display())
 }
 
 #[cfg(test)]

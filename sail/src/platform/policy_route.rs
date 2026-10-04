@@ -153,15 +153,51 @@ impl PolicyRoutes {
     }
 
     /// Removes every rule of either family at the priorities sail uses,
-    /// whatever made it, as sing-tun does, and the table's routes.
+    /// whatever made it, as sing-tun does, and the table's routes; says
+    /// what it could not remove.
     #[cfg(target_os = "linux")]
-    pub(crate) fn cleanup(&self) {
-        match super::rtnetlink::Netlink::open() {
-            Ok(netlink) => {
-                let _ = self.cleanup_with(&netlink);
+    pub(crate) fn undo(&self) -> std::io::Result<()> {
+        let netlink = super::rtnetlink::Netlink::open()?;
+        let mut failed = Vec::new();
+        for family in [Family::V4, Family::V6] {
+            for priority in self.priorities() {
+                if let Err(e) = netlink.del_rules_at(family, priority) {
+                    failed.push(format!("rule at {} ({}): {}", priority, family, e));
+                }
             }
-            Err(e) => tracing::warn!("auto_redirect: removing the routing: {}", e),
+            match netlink.routes_in(family, self.table) {
+                Ok(routes) => {
+                    for route in routes {
+                        match netlink.del_route(&route) {
+                            Err(e) if super::rtnetlink::errno(&e) != Some(libc::ESRCH) => {
+                                failed.push(format!("a route of table {}: {}", self.table, e))
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                Err(e) => failed.push(format!(
+                    "routes of table {} ({}): {}",
+                    self.table, family, e
+                )),
+            }
         }
+        if failed.is_empty() {
+            Ok(())
+        } else {
+            Err(std::io::Error::other(failed.join("; ")))
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    /// The command that removes them by hand.
+    pub(crate) fn clear_command(&self) -> String {
+        clear_command(self.priorities(), Some(self.table))
+    }
+
+    #[cfg(target_os = "linux")]
+    fn priorities(&self) -> impl Iterator<Item = u32> {
+        (self.rule_index..=self.rule_index + RULE_SPAN).chain([self.fallback_rule_index])
     }
 
     /// Returns how many rules there were.
@@ -169,9 +205,7 @@ impl PolicyRoutes {
     fn cleanup_with(&self, netlink: &super::rtnetlink::Netlink) -> usize {
         let mut removed = 0;
         for family in [Family::V4, Family::V6] {
-            let priorities =
-                (self.rule_index..=self.rule_index + RULE_SPAN).chain([self.fallback_rule_index]);
-            for priority in priorities {
+            for priority in self.priorities() {
                 removed += netlink.del_rules_at(family, priority).unwrap_or(0);
             }
             for route in netlink.routes_in(family, self.table).unwrap_or_default() {
@@ -180,6 +214,24 @@ impl PolicyRoutes {
         }
         removed
     }
+}
+
+#[cfg(target_os = "linux")]
+/// The shell command that removes the ip rules at `priorities`, of both
+/// families, and the routes of `table`, by hand.
+pub(crate) fn clear_command(priorities: impl Iterator<Item = u32>, table: Option<u32>) -> String {
+    let priorities: Vec<String> = priorities.map(|p| p.to_string()).collect();
+    let mut command = format!(
+        "for p in {}; do while ip -4 rule del priority $p; do :; done; \
+         while ip -6 rule del priority $p; do :; done; done 2>/dev/null",
+        priorities.join(" ")
+    );
+    if let Some(table) = table {
+        command.push_str(&format!(
+            "; ip -4 route flush table {table}; ip -6 route flush table {table}"
+        ));
+    }
+    command
 }
 
 #[cfg(test)]
@@ -199,6 +251,17 @@ mod tests {
             route_address: Vec::new(),
             route_exclude_address: Vec::new(),
         }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn the_by_hand_command_names_every_priority_and_the_table() {
+        assert_eq!(
+            routes().clear_command(),
+            "for p in 9000 9001 9002 9003 9004 9005 9006 9007 9008 9009 9010 32768; do \
+             while ip -4 rule del priority $p; do :; done; while ip -6 rule del priority $p; \
+             do :; done; done 2>/dev/null; ip -4 route flush table 2022; ip -6 route flush table 2022"
+        );
     }
 
     #[test]

@@ -24,6 +24,10 @@ use crate::app::{SyncDnsClient, SyncOutboundManager, SyncRouter, SyncStatManager
 #[cfg(feature = "api")]
 use crate::app::api::api_server::ApiServer;
 
+// First: its macro is used by the modules below.
+#[macro_use]
+pub mod fault;
+
 pub mod adapter;
 #[cfg(feature = "alloc-stats")]
 pub mod alloc_stats;

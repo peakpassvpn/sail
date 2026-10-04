@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Runs tests/test_auto_redirect_linux.rs: builds two network namespaces, a
-# host whose traffic sail takes with a TUN and auto_redirect, and an
-# "internet", runs the test in the host's, and removes the namespaces again.
+# Runs tests/test_auto_redirect_linux.rs and test_teardown.rs: builds
+# two network namespaces, a host whose traffic sail takes with a TUN and
+# auto_redirect, and an "internet", runs the tests in the host's, and
+# removes the namespaces again.
 #
 # Needs root, iproute2, nftables and python3. Everything it changes is inside
 # the namespaces it creates; the host's own routing and firewall are
@@ -105,5 +106,9 @@ cd "$SAIL_DIR"
 # Built outside the namespaces, where cargo may reach the network.
 cargo build -p sail-cli
 cargo test -p sail --test test_auto_redirect_linux --no-run
+cargo test -p sail --features fault-injection --test test_teardown --no-run
 in_ns "$HOST" env SAIL_BIN="${CARGO_TARGET_DIR:-$SAIL_DIR/../target}/debug/sail" \
     cargo test --offline -p sail --test test_auto_redirect_linux "$@" -- --ignored --nocapture
+# sail in the test's own process, failed by the faults it arms.
+in_ns "$HOST" cargo test --offline -p sail --features fault-injection --test test_teardown \
+    "$@" -- --ignored --nocapture

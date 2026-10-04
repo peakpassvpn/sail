@@ -268,6 +268,7 @@ impl Instance {
                     settings,
                     &self.rule_sets,
                     &self.dispatcher.env().ledger,
+                    &self.dispatcher.env().teardown,
                 )
                 .map(|(routing, runner)| (TunRouting::Route(routing), runner)),
             };
@@ -282,6 +283,13 @@ impl Instance {
                     return Err(e);
                 }
             }
+        }
+        // A test's fault: the start fails once the TUN is routed.
+        #[cfg(feature = "fault-injection")]
+        if crate::fault::take(|point| matches!(point, crate::fault::Point::StartFails)) {
+            self.tun_control = None;
+            drop(runners);
+            anyhow::bail!("fault injected: the start fails once the TUN is routed");
         }
         Ok(runners)
     }

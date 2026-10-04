@@ -7,6 +7,7 @@
 //! Set up after the TUN device exists, and undone, in the reverse order,
 //! when the instance stops: see [`AutoRedirect`].
 
+use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
@@ -28,24 +29,18 @@ use crate::platform::nfqueue::Queue;
 use crate::platform::openwrt;
 use crate::platform::original_dst::{original_destination, unmapped};
 use crate::platform::policy_route::PolicyRoutes;
-use crate::platform::sweep::{Item, Ledger};
+use crate::platform::sweep::Item;
+use crate::runtime::teardown::{LeftKind, Step, StepId, Teardown};
 use crate::session::{Network, Session, SocksAddr};
 use crate::Runner;
 
 /// What auto_redirect set up; dropping it undoes it.
 pub(crate) struct AutoRedirect {
-    routes: PolicyRoutes,
-    /// Whether the ruleset may be there, to be deleted.
-    ruleset: bool,
-    /// Whether fw4's drop-in was written (OpenWrt).
-    fw4: bool,
     feed: RuleSetFeed,
-    /// What outlives a killed process, written down before it is made:
-    /// the rules, the routes that name no device, the table, the drop-in.
-    ledger: Ledger,
-    recorded: Vec<Item>,
-    /// The TUN's name, which its table and drop-in are named after.
-    tun: String,
+    /// The undoing of what it made: the routing, the ruleset, fw4's
+    /// drop-in. Run by the instance's teardown, or by the drop.
+    teardown: Teardown,
+    steps: Vec<StepId>,
 }
 
 /// The nftables table of the ruleset of the TUN `tun`: one each, so that
@@ -61,18 +56,7 @@ pub(crate) fn table_name(tun: &str) -> String {
 
 impl Drop for AutoRedirect {
     fn drop(&mut self) {
-        if self.ruleset {
-            if let Err(e) = ruleset::cleanup(&table_name(&self.tun)).commit() {
-                warn!("auto_redirect: removing the ruleset: {}", e);
-            }
-        }
-        if self.fw4 {
-            openwrt::cleanup(&self.tun);
-        }
-        self.routes.cleanup();
-        for item in &self.recorded {
-            self.ledger.forget(item);
-        }
+        self.teardown.run_each(&self.steps);
         info!("auto_redirect removed");
     }
 }
@@ -134,27 +118,31 @@ impl AutoRedirect {
         let batch = ruleset::setup(&ruleset_options)?;
 
         let routes = policy_routes(settings, options);
-        let ledger = dispatcher.env().ledger.clone();
+        let env = dispatcher.env();
+        let (ledger, teardown) = (env.ledger.clone(), env.teardown.clone());
+        let tun = settings.name.clone();
+        let table = table_name(&tun);
+        // What outlives a killed process, written down before it is made.
         // The TUN first: while one of its name is up, a live instance holds
         // what is named after it, and a sweep leaves the rest.
-        let mut recorded = vec![Item::Tun(settings.name.clone())];
-        recorded.extend(routes.rules().into_iter().map(Item::Rule));
+        let mut routing = vec![Item::Tun(tun.clone())];
+        routing.extend(routes.rules().into_iter().map(Item::Rule));
         // Those through the TUN go with it.
-        recorded.extend(
+        routing.extend(
             routes
                 .routes(0)
                 .into_iter()
                 .filter(|route| route.oif.is_none())
                 .map(Item::Route),
         );
-        recorded.push(Item::NftTable(table_name(&settings.name)));
-        recorded.push(Item::File(openwrt::drop_in_path(&settings.name)));
-        for item in &recorded {
+        let table_item = Item::NftTable(table.clone());
+        let drop_in = Item::File(openwrt::drop_in_path(&tun));
+        for item in routing.iter().chain([&table_item, &drop_in]) {
             ledger.record(item.clone());
         }
         if let Err(e) = routes.setup() {
             // It undid itself.
-            for item in &recorded {
+            for item in routing.iter().chain([&table_item, &drop_in]) {
                 ledger.forget(item);
             }
             return Err(e);
@@ -164,22 +152,66 @@ impl AutoRedirect {
             include: address_sets.include.clone(),
             exclude: address_sets.exclude.clone(),
         };
+        // From here, dropping it undoes what was done, newest first.
         let mut this = AutoRedirect {
-            routes,
-            ruleset: true,
-            fw4: false,
-            ledger,
-            recorded,
-            tun: settings.name.clone(),
+            teardown: teardown.clone(),
+            steps: Vec::new(),
             feed: RuleSetFeed {
                 sets: Arc::new(address_sets),
                 sender: Arc::new(sender),
             },
         };
+        this.steps.push(teardown.push({
+            let resource = format!(
+                "auto_redirect's ip rules, and the routes of table {}",
+                routes.table
+            );
+            let clear = routes.clear_command();
+            let ledger = ledger.clone();
+            Step::new(LeftKind::Rule, resource, move || {
+                routes.undo()?;
+                for item in &routing {
+                    ledger.forget(item);
+                }
+                Ok(())
+            })
+            .clear(clear)
+        }));
+        this.steps.push(teardown.push({
+            let ledger = ledger.clone();
+            let clear = format!("nft delete table inet {}", table);
+            Step::new(
+                LeftKind::Nft,
+                format!("nft table inet {}", table),
+                move || {
+                    ruleset::cleanup(&table)
+                        .commit()
+                        .map_err(|e| io::Error::other(e.to_string()))?;
+                    ledger.forget(&table_item);
+                    Ok(())
+                },
+            )
+            .clear(clear)
+        }));
         batch
             .commit()
             .map_err(|e| anyhow!("auto_redirect: nftables: {}", e))?;
-        this.fw4 = openwrt::setup(&settings.name)?;
+        // Before it is written: a reload that fails leaves the file.
+        this.steps.push(teardown.push({
+            let clear = openwrt::clear_command(&tun);
+            let tun = tun.clone();
+            Step::new(
+                LeftKind::File,
+                format!("fw4's drop-in {}", openwrt::drop_in_path(&tun).display()),
+                move || {
+                    openwrt::undo(&tun)?;
+                    ledger.forget(&drop_in);
+                    Ok(())
+                },
+            )
+            .clear(clear)
+        }));
+        openwrt::setup(&tun)?;
         info!("auto_redirect: TCP redirected to port {}", port);
 
         let tag = tag.to_owned();

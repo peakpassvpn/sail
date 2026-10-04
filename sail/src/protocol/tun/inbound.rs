@@ -34,6 +34,31 @@ use crate::net::netstack::{
 };
 
 /// What runs a TUN inbound, and how the instance controls it.
+/// `runner`, which panics when a test arms `fault::Point::TunRunner`,
+/// beside an essential task that panics on `fault::Point::EssentialTask`.
+#[cfg(feature = "fault-injection")]
+async fn with_faults(runner: impl std::future::Future<Output = ()>) {
+    // A judgment value: a test waits for the panic, 100 ms is quick enough.
+    const POLL: std::time::Duration = std::time::Duration::from_millis(100);
+    let essential = crate::runtime::scope::spawn_essential("fault: an essential task", async {
+        loop {
+            tokio::time::sleep(POLL).await;
+            fault_point!(crate::fault::Point::EssentialTask, "an essential task");
+        }
+    });
+    let faults = async {
+        loop {
+            tokio::time::sleep(POLL).await;
+            fault_point!(crate::fault::Point::TunRunner, "the TUN runner");
+        }
+    };
+    tokio::select! {
+        () = runner => {}
+        _ = faults => {}
+    }
+    essential.abort();
+}
+
 pub(crate) struct TunRunner {
     pub runner: Runner,
     pub control: NativeRuntimeControl,
@@ -254,6 +279,9 @@ fn run<I: sail_netstack::PacketIo + 'static>(
             }
         }
     });
+    // A test's faults (feature fault-injection; nothing otherwise).
+    #[cfg(feature = "fault-injection")]
+    let runner = Box::pin(with_faults(runner));
     Ok(TunRunner {
         runner,
         control: runtime_control,

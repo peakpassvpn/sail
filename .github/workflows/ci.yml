@@ -195,6 +195,22 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/master' }}
 
+      # fault-injection panics where a test arms it: no shipped build may
+      # have it. Nothing that makes one names it, and no feature of sail's
+      # pulls it in.
+      - name: fault-injection stays out of shipped builds
+        run: |
+          if grep -rn "fault-injection" .github/workflows/release.yml scripts/cross.sh \
+               scripts/release scripts/build_*.sh packaging sail-cli/Cargo.toml \
+               sail-ffi/Cargo.toml bindings; then
+            echo "::error::fault-injection is named where a shipped build is made"
+            exit 1
+          fi
+          if grep -n '"fault-injection"' sail/Cargo.toml; then
+            echo "::error::a feature of sail's pulls in fault-injection"
+            exit 1
+          fi
+
       - name: lint feature sets
         run: |
           set -e
@@ -219,7 +235,8 @@ jobs:
             outbound-provider,outbound-select,outbound-direct,inbound-socks \
             api,outbound-direct \
             outbound-fallback,outbound-direct \
-            config-clash,outbound-fallback,outbound-direct
+            config-clash,outbound-fallback,outbound-direct \
+            inbound-tun,outbound-direct,fault-injection
           do
             echo "::group::$features"
             cargo clippy -p sail --no-default-features --features "$features" --all-targets
@@ -648,7 +665,7 @@ jobs:
           fi
           base=$(git merge-base HEAD origin/master)
           git diff --name-only "$base" HEAD | tee changed.txt
-          if grep -qE '^(sail/src/protocol/tun/|sail/src/platform/|sail/tests/scripts/macos_utun|\.github/workflows/ci\.yml$)' changed.txt; then
+          if grep -qE '^(sail/src/protocol/tun/|sail/src/platform/|sail/src/runtime/teardown\.rs|sail/src/fault\.rs|sail/tests/test_teardown\.rs|sail/tests/scripts/macos_utun|\.github/workflows/ci\.yml$)' changed.txt; then
             echo run=true >>"$GITHUB_OUTPUT"
           else
             echo run=false >>"$GITHUB_OUTPUT"
@@ -690,6 +707,16 @@ jobs:
 
       - name: utun, names and routes
         run: SAIL=target/aarch64-apple-darwin/debug/sail sail/tests/scripts/macos_utun.sh
+
+      # sail in the test's own process, failed by faults it arms (feature
+      # fault-injection): nothing of it is left in the routing table, and
+      # it starts again. As root, the test binary alone.
+      - name: what a failing instance leaves
+        run: |
+          bin=$(cargo test --locked -p sail --features fault-injection --test test_teardown \
+            --target aarch64-apple-darwin --no-run --message-format=json \
+            | jq -r 'select(.executable != null) | .executable')
+          sudo "$bin" --ignored --nocapture --test-threads=1
 
       # Last: it takes the runner's own traffic, and may lose the runner.
       - name: a desktop's config (the default route)

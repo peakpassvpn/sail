@@ -14,6 +14,7 @@
 //!   to the address after the TUN's, and strict_route adds firewall rules
 //!   that keep DNS off every other interface.
 
+use std::io;
 use std::net::IpAddr;
 use std::sync::{Arc, Mutex};
 
@@ -25,24 +26,73 @@ use super::inbound::TunSettings;
 use crate::app::router::rule_set::RuleSets;
 use crate::platform::auto_route as plan;
 use crate::platform::sweep::Ledger;
+use crate::runtime::teardown::{LeftKind, Step, StepId, Teardown};
 use crate::Runner;
 
 /// What auto_route set up; dropping it undoes it.
 pub(crate) struct AutoRoute {
-    backend: Arc<backend::Backend>,
-    /// The routes added, removed on stop.
-    routes: Arc<Mutex<Vec<(IpAddr, u8)>>>,
     feed: RouteSetFeed,
+    /// The undoing of what it made, newest first: DNS, the rules, the
+    /// routes. Run by the instance's teardown, or by the drop.
+    teardown: Teardown,
+    steps: Vec<StepId>,
+    #[cfg(target_os = "windows")]
+    backend: Arc<backend::Backend>,
 }
 
 impl Drop for AutoRoute {
     fn drop(&mut self) {
-        let routes = self.routes.lock().unwrap_or_else(|e| e.into_inner());
-        for &prefix in routes.iter() {
-            let _ = self.backend.delete(prefix);
-        }
+        self.teardown.run_each(&self.steps);
+        #[cfg(target_os = "windows")]
         self.backend.stop();
         info!("auto_route removed");
+    }
+}
+
+/// The routes added, until they are removed: then none are added again,
+/// whatever a rule-set says.
+#[derive(Default)]
+struct Routed {
+    prefixes: Vec<(IpAddr, u8)>,
+    undone: bool,
+}
+
+fn lock(routed: &Mutex<Routed>) -> std::sync::MutexGuard<'_, Routed> {
+    routed.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// The step that removes the routes added into the TUN `tun`, as they are
+/// when it runs.
+fn routes_step(backend: &Arc<backend::Backend>, routed: &Arc<Mutex<Routed>>, tun: &str) -> Step {
+    let (backend, routed) = (backend.clone(), routed.clone());
+    let clear = backend.clear_routes();
+    let step = Step::new(
+        LeftKind::Route,
+        format!("auto_route's routes into {}", tun),
+        move || {
+            let prefixes = {
+                let mut routed = lock(&routed);
+                routed.undone = true;
+                std::mem::take(&mut routed.prefixes)
+            };
+            let failed: Vec<String> = prefixes
+                .into_iter()
+                .filter_map(|prefix| {
+                    let e = backend.delete(prefix).err()?;
+                    Some(format!("{}/{}: {}", prefix.0, prefix.1, e))
+                })
+                .collect();
+            backend.routes_removed();
+            if failed.is_empty() {
+                Ok(())
+            } else {
+                Err(io::Error::other(failed.join("; ")))
+            }
+        },
+    );
+    match clear {
+        Some(clear) => step.clear(clear),
+        None => step,
     }
 }
 
@@ -54,6 +104,7 @@ impl AutoRoute {
         settings: &TunSettings,
         rule_sets: &RuleSets,
         ledger: &Ledger,
+        teardown: &Teardown,
     ) -> Result<(AutoRoute, Runner)> {
         let selection = &settings.route;
         let prefix = |inet: &cidr::IpInet| (inet.address(), inet.network_length());
@@ -76,27 +127,26 @@ impl AutoRoute {
         };
         let prefixes = sets.prefixes(rule_sets)?;
         let backend = Arc::new(backend::Backend::start(settings, ledger)?);
-        let routes = Arc::new(Mutex::new(Vec::new()));
+        let routes = Arc::new(Mutex::new(Routed::default()));
         let (sender, feed) = watch::channel(rule_sets.clone());
         // From here, dropping it undoes what was done.
-        let this = AutoRoute {
-            backend: backend.clone(),
-            routes: routes.clone(),
+        let mut this = AutoRoute {
             feed: RouteSetFeed {
                 sets: Arc::new(sets.clone()),
                 sender: Arc::new(sender),
             },
+            teardown: teardown.clone(),
+            steps: vec![teardown.push(routes_step(&backend, &routes, &settings.name))],
+            #[cfg(target_os = "windows")]
+            backend: backend.clone(),
         };
         for &prefix in &prefixes {
             backend
                 .add(prefix)
                 .map_err(|e| anyhow!("auto_route: route {}/{}: {}", prefix.0, prefix.1, e))?;
-            routes
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .push(prefix);
+            lock(&routes).prefixes.push(prefix);
         }
-        backend.routed()?;
+        backend.routed(teardown, &mut this.steps)?;
         info!(
             "auto_route: {} routes into {}",
             prefixes.len(),
@@ -168,7 +218,7 @@ impl RouteSets {
     async fn follow(
         self,
         mut feed: watch::Receiver<RuleSets>,
-        routes: Arc<Mutex<Vec<(IpAddr, u8)>>>,
+        routes: Arc<Mutex<Routed>>,
         backend: Arc<backend::Backend>,
     ) {
         if self.include.is_empty() && self.exclude.is_empty() {
@@ -182,17 +232,20 @@ impl RouteSets {
                     return;
                 }
             };
-            let mut routes = routes.lock().unwrap_or_else(|e| e.into_inner());
+            let mut routed = lock(&routes);
+            if routed.undone {
+                return;
+            }
             // Adding first leaves no moment without a route.
-            for &prefix in wanted.iter().filter(|p| !routes.contains(p)) {
+            for &prefix in wanted.iter().filter(|p| !routed.prefixes.contains(p)) {
                 if let Err(e) = backend.add(prefix) {
                     warn!("auto_route: route {}/{}: {}", prefix.0, prefix.1, e);
                 }
             }
-            for &prefix in routes.iter().filter(|p| !wanted.contains(p)) {
+            for &prefix in routed.prefixes.iter().filter(|p| !wanted.contains(p)) {
                 let _ = backend.delete(prefix);
             }
-            *routes = wanted;
+            routed.prefixes = wanted;
         };
         let mut first = true;
         loop {
@@ -277,7 +330,7 @@ mod backend {
     use std::io;
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
     use std::process::{Command, Stdio};
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
 
     use anyhow::{anyhow, Result};
     use tracing::{debug, info, warn};
@@ -286,6 +339,7 @@ mod backend {
     use crate::platform::auto_route::{self as plan, RuleOptions, RULE_SPAN};
     use crate::platform::rtnetlink::{self as rtnl, Netlink};
     use crate::platform::sweep::{Item, Ledger};
+    use crate::runtime::teardown::{command_within, LeftKind, Step, StepId, Teardown, WITHIN};
 
     /// The routes are all of each family: the rules choose.
     pub(super) const ROUTES_OWN_NETWORK: bool = false;
@@ -305,8 +359,6 @@ mod backend {
         table: u32,
         rule_index: u32,
         rules: Vec<plan::Rule>,
-        /// Whether systemd-resolved was told of the TUN's DNS.
-        resolved: AtomicBool,
         /// The rules are written down here before they are added: they
         /// outlive a killed process, unlike the TUN and its routes.
         ledger: Ledger,
@@ -327,7 +379,6 @@ mod backend {
                 table: settings.route.table_index,
                 rule_index: settings.route.rule_index,
                 rules: plan::rules(&rule_options(settings)),
-                resolved: AtomicBool::new(false),
                 ledger: ledger.clone(),
                 server: settings
                     .ipv4
@@ -358,13 +409,57 @@ mod backend {
             self.netlink.add_route(&self.route(prefix))
         }
 
+        /// Removes the route; one gone already, with its device (ENODEV
+        /// names the device gone) or by another's hand, is as wanted.
         pub(super) fn delete(&self, prefix: (IpAddr, u8)) -> io::Result<()> {
-            self.netlink.del_route(&self.route(prefix))
+            match self.netlink.del_route(&self.route(prefix)) {
+                Err(e) if matches!(rtnl::errno(&e), Some(libc::ESRCH | libc::ENODEV)) => Ok(()),
+                other => other,
+            }
         }
 
+        /// The command that removes the routes by hand.
+        pub(super) fn clear_routes(&self) -> Option<String> {
+            Some(format!(
+                "ip -4 route flush table {table}; ip -6 route flush table {table}",
+                table = self.table
+            ))
+        }
+
+        pub(super) fn routes_removed(&self) {}
+
         /// The routes are there: the rules send traffic to them, and DNS.
-        pub(super) fn routed(&self) -> Result<()> {
+        /// Each is undone by a step of `teardown`, registered before it is
+        /// made, into `steps`.
+        pub(super) fn routed(
+            self: &Arc<Self>,
+            teardown: &Teardown,
+            steps: &mut Vec<StepId>,
+        ) -> Result<()> {
             self.ledger.record(Item::Tun(self.tun.clone()));
+            let last = self.rule_index + RULE_SPAN;
+            steps.push(teardown.push({
+                let this = self.clone();
+                Step::new(
+                    LeftKind::Rule,
+                    format!(
+                        "auto_route's ip rules at priorities {} to {}",
+                        self.rule_index, last
+                    ),
+                    move || {
+                        this.undo_rules()?;
+                        for rule in &this.rules {
+                            this.ledger.forget(&Item::Rule(to_netlink(rule)));
+                        }
+                        this.ledger.forget(&Item::Tun(this.tun.clone()));
+                        Ok(())
+                    },
+                )
+                .clear(crate::platform::policy_route::clear_command(
+                    self.rule_index..=last,
+                    None,
+                ))
+            }));
             for rule in &self.rules {
                 let rule_ = to_netlink(rule);
                 self.ledger.record(Item::Rule(rule_.clone()));
@@ -374,23 +469,45 @@ mod backend {
             }
             if let Some(server) = self.server.filter(|_| in_the_host_s_namespace()) {
                 let name = self.tun.as_str();
-                let server = server.to_string();
-                let set = resolvectl(&["dns", name, &server])
-                    && resolvectl(&["domain", name, "~."])
-                    && resolvectl(&["default-route", name, "true"]);
-                self.resolved.store(set, Ordering::Relaxed);
+                // Told of the server, resolved has the link's DNS to revert.
+                if resolvectl(&["dns", name, &server.to_string()]) {
+                    steps.push(teardown.push({
+                        let this = self.clone();
+                        Step::new(
+                            LeftKind::Dns,
+                            format!("systemd-resolved's DNS for {}", self.tun),
+                            move || {
+                                // Its link gone, resolved has forgotten it.
+                                if this.netlink.link_index(&this.tun).ok() != Some(this.index) {
+                                    return Ok(());
+                                }
+                                command_within("resolvectl", &["revert", &this.tun], WITHIN)
+                            },
+                        )
+                        .clear(format!("resolvectl revert {}", self.tun))
+                    }));
+                    let _ = resolvectl(&["domain", name, "~."])
+                        && resolvectl(&["default-route", name, "true"]);
+                }
             }
             Ok(())
         }
 
-        pub(super) fn stop(&self) {
-            self.remove_rules();
-            for rule in &self.rules {
-                self.ledger.forget(&Item::Rule(to_netlink(rule)));
+        /// Removes the rules at auto_route's priorities, saying what it
+        /// could not.
+        fn undo_rules(&self) -> io::Result<()> {
+            let mut failed = Vec::new();
+            for family in [rtnl::Family::V4, rtnl::Family::V6] {
+                for priority in self.rule_index..=self.rule_index + RULE_SPAN {
+                    if let Err(e) = self.netlink.del_rules_at(family, priority) {
+                        failed.push(format!("at {} ({}): {}", priority, family, e));
+                    }
+                }
             }
-            self.ledger.forget(&Item::Tun(self.tun.clone()));
-            if self.resolved.load(Ordering::Relaxed) {
-                resolvectl(&["revert", &self.tun]);
+            if failed.is_empty() {
+                Ok(())
+            } else {
+                Err(io::Error::other(failed.join("; ")))
             }
         }
 
@@ -532,17 +649,10 @@ mod backend {
         (pid != 0).then_some(pid)
     }
 
+    /// Whether resolvectl did as `args` say; without systemd-resolved the
+    /// system's DNS stays as it is.
     fn resolvectl(args: &[&str]) -> bool {
-        match Command::new("resolvectl")
-            .args(args)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-        {
-            Ok(status) => status.success(),
-            // No systemd-resolved: the system's DNS stays as it is.
-            Err(_) => false,
-        }
+        command_within("resolvectl", args, WITHIN).is_ok()
     }
 
     #[cfg(test)]
@@ -661,16 +771,22 @@ mod backend {
                 .socket
                 .delete(prefix, self.gateway(prefix.0.is_ipv6())?)
             {
-                // The utun's own network goes with its address: gone
-                // already is as wanted.
-                Err(e)
-                    if crate::platform::route_socket::errno(&e) == Some(libc::ESRCH)
-                        && self.is_own(prefix) =>
-                {
-                    Ok(())
-                }
+                // Gone already, with the utun (the utun's own network goes
+                // with its address) or by another's hand, is as wanted.
+                Err(e) if crate::platform::route_socket::errno(&e) == Some(libc::ESRCH) => Ok(()),
                 other => other,
             }
+        }
+
+        /// No one command removes them by hand; they go with the utun.
+        pub(super) fn clear_routes(&self) -> Option<String> {
+            None
+        }
+
+        /// Names cached while the routes were there resolved to what they
+        /// no longer route to.
+        pub(super) fn routes_removed(&self) {
+            flush_dns_cache();
         }
 
         /// Whether `prefix` is one of the utun's own networks.
@@ -682,13 +798,13 @@ mod backend {
 
         /// The routes are there: names cached before them resolved to
         /// what they no longer route to.
-        pub(super) fn routed(&self) -> Result<()> {
+        pub(super) fn routed(
+            self: &std::sync::Arc<Self>,
+            _teardown: &crate::runtime::teardown::Teardown,
+            _steps: &mut Vec<crate::runtime::teardown::StepId>,
+        ) -> Result<()> {
             flush_dns_cache();
             Ok(())
-        }
-
-        pub(super) fn stop(&self) {
-            flush_dns_cache();
         }
     }
 
@@ -801,9 +917,20 @@ mod backend {
             ip_helper::delete_route(self.luid, prefix, self.gateway(prefix.0.is_ipv6())?)
         }
 
+        /// No one command removes them by hand.
+        pub(super) fn clear_routes(&self) -> Option<String> {
+            None
+        }
+
+        pub(super) fn routes_removed(&self) {}
+
         /// The routes are there: DNS goes to the address after the TUN's,
         /// and, with strict_route, nowhere else.
-        pub(super) fn routed(&self) -> Result<()> {
+        pub(super) fn routed(
+            self: &std::sync::Arc<Self>,
+            _teardown: &crate::runtime::teardown::Teardown,
+            _steps: &mut Vec<crate::runtime::teardown::StepId>,
+        ) -> Result<()> {
             for (v6, gateway) in [(false, self.gateway4), (true, self.gateway6)] {
                 if let Some(gateway) = gateway {
                     self.luid

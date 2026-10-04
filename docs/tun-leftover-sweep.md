@@ -234,6 +234,31 @@ needs.
    through it are gone, and the routing table of both families equals the
    one before the start.
 
+## An instance that fails while its process lives on
+
+The sweep is for a process that died. An embedding host's process (a privileged service, an app) outlives its instances: one that fails, from an essential task's panic or a start that fails partway, must leave nothing behind while the process goes on, or say exactly what it left.
+
+Each resource registers a step that undoes it (`runtime/teardown.rs`) as soon as it exists, and the steps run newest first, so a TUN's routes, rules and filters go before the TUN itself. On a normal stop the order is the same.
+
+| system | steps (newest first) |
+|---|---|
+| Linux, auto_route | systemd-resolved's DNS for the link (`resolvectl revert`); the ip rules at its priorities; its routes |
+| Linux, auto_redirect | fw4's drop-in; the nftables table `sail_<tun>`; the ip rules and the routes of its table |
+| macOS | its routes through the utun, then the DNS cache is flushed |
+| Windows | WFP, the adapter's DNS, the routes, the Wintun adapter |
+
+Each step runs at most once, on a thread of its own, within 5 s (a judgment value; the calls take milliseconds). A command it runs (resolvectl, `fw4 reload`) is killed at the bound, and the netlink and nftables sockets have a receive timeout. A step that fails, panics or times out leaves its resource, and the others still run.
+
+What is left is reported (`Left`): a kind for a program to act on, the resource, why, and the one command that clears it by hand where there is one, e.g. `nft delete table inet sail_tun0`. On Linux the ledger keeps what a failed step left, so the next start, in this process or another, sweeps it.
+
+Nothing on this path may panic, as it also runs while a panic unwinds, where a second panic would abort the host:
+
+- The Teardown itself takes poisoned locks as they are, indexes nothing, and catches a step's panic on the step's thread.
+- The Drops of AutoRoute and AutoRedirect only run their own steps.
+- StrictRoute's Drop closes a handle, and the Wintun packet I/O's Drop shuts its session; neither can panic.
+
+`tests/test_teardown.rs` runs sail in the test's own process. A fault it arms (feature `fault-injection`, which no shipped build has: CI fails a release workflow or cross script that names it) fails the instance: an essential task's panic, the TUN runner's, a start that fails once the TUN is routed, or one step's panic. The test then checks that the routing tables, rules, nftables tables and links are as before, and that the instance starts again. It runs on Linux in the netns suite and on macOS in CI's tun-macos job.
+
 ## Open questions
 
 - Windows: answered. A Wintun adapter, with its routes and DNS, survives

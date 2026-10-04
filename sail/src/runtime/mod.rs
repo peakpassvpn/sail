@@ -12,6 +12,7 @@ pub(crate) mod resource;
 pub(crate) mod running;
 pub mod scope;
 pub(crate) mod stamp;
+pub mod teardown;
 #[cfg(feature = "auto-reload")]
 pub(crate) mod watch;
 
@@ -212,6 +213,9 @@ pub struct RuntimeEnv {
     /// The instance's tasks (scope.rs): a stop ends them, a panic in one
     /// is dealt with by its class.
     pub scope: scope::TaskScope,
+    /// How to undo what the instance changed in the system, run however
+    /// it ends (teardown.rs).
+    pub teardown: teardown::Teardown,
     /// The TUNs' names by inbound tag, as the start settled them; a reload
     /// keeps a chosen one.
     pub tun_names: Arc<std::sync::Mutex<std::collections::BTreeMap<String, TunName>>>,
