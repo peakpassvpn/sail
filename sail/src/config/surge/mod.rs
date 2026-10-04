@@ -151,17 +151,22 @@ pub fn parse_with(
     }
 
     let value: Value = out.into_json();
+    // Its inline rules' adjacent lines merged before the model is read,
+    // each still told and numbered as itself; a lowering's own, never a
+    // native configuration.
+    let mut value = value;
+    let told = super::inline::merge(&mut value);
     let mut config: Config = serde_path_to_error::deserialize(value).map_err(|e| {
         anyhow!(
             "{}: {} (as sail reads it)",
-            super::model::path(&e),
+            super::inline::original(&super::model::path(&e), &told),
             e.inner()
         )
     })?;
-    config.validate()?;
-    // Its inline rules' adjacent lines merged, each still told and
-    // numbered as itself; a lowering's own, never a native configuration.
-    super::inline::merge(&mut config.route.rules);
+    config
+        .validate()
+        .map_err(|e| anyhow!("{}", super::inline::original(&format!("{:#}", e), &told)))?;
+    super::inline::attach(&mut config.route.rules, told);
     config.warnings = warnings;
     Ok(config)
 }

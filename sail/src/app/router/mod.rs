@@ -2877,16 +2877,16 @@ mod tests {
             { "domain_suffix": ["example.test"], "outbound": "b" },
         ]);
         let build = |merged: bool| {
-            let mut config = crate::config::Config::from_json(
-                &serde_json::json!({
-                    "outbounds": [{ "type": "direct", "tag": "a" }, { "type": "direct", "tag": "b" }],
-                    "route": { "rules": rules.clone(), "final": "b" },
-                })
-                .to_string(),
-            )
-            .unwrap();
-            if merged {
-                crate::config::inline::merge(&mut config.route.rules);
+            let mut json = serde_json::json!({
+                "outbounds": [{ "type": "direct", "tag": "a" }, { "type": "direct", "tag": "b" }],
+                "route": { "rules": rules.clone(), "final": "b" },
+            });
+            // As a Clash or Surge lowering merges: in the JSON, before the
+            // model is read, which then learns what each rule was.
+            let told = merged.then(|| crate::config::inline::merge(&mut json));
+            let mut config = crate::config::Config::from_json(&json.to_string()).unwrap();
+            if let Some(told) = told {
+                crate::config::inline::attach(&mut config.route.rules, told);
             }
             let dns = DnsClient::new(&config.dns, Default::default(), &Default::default())
                 .unwrap()
