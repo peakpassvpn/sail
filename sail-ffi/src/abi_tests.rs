@@ -128,6 +128,33 @@ fn start(instance: SailInstance, config: &str) {
     });
 }
 
+/// Starts `instance` with the configuration `config` makes for a port
+/// free a moment ago, and returns that port. A port picked free is free
+/// only until another test takes it before the start binds it; then the
+/// start is tried again on another, a few times.
+fn start_on_free_port(instance: SailInstance, config: impl Fn(u16) -> String) -> u16 {
+    let mut last = String::new();
+    for _ in 0..5 {
+        let port = free_port();
+        let text = CString::new(config(port)).unwrap();
+        let mut err = std::ptr::null_mut();
+        let code = unsafe { sail_instance_start(instance, text.as_ptr(), &mut err) };
+        if code == SAIL_OK {
+            return port;
+        }
+        last = if err.is_null() {
+            String::new()
+        } else {
+            take(err)
+        };
+        // "Address already in use"; Windows: "Only one usage of each socket address".
+        if !last.contains("in use") && !last.contains("Only one usage") {
+            break;
+        }
+    }
+    panic!("start: {}", last);
+}
+
 fn stop(instance: SailInstance) {
     ok("stop", |err| sail_instance_stop(instance, 10_000, err));
 }
@@ -646,8 +673,7 @@ fn starts_and_stops_leave_nothing_behind() {
 fn instances_run_at_once_each_with_its_own_events() {
     let _serial = serial();
     within(Duration::from_secs(60), || {
-        let ports: Vec<u16> = (0..4).map(|_| free_port()).collect();
-        let instances: Vec<SailInstance> = ports.iter().map(|_| new_instance(None, None)).collect();
+        let instances: Vec<SailInstance> = (0..4).map(|_| new_instance(None, None)).collect();
         let logs: Vec<Arc<Recorder>> = instances
             .iter()
             .map(|i| {
@@ -656,17 +682,15 @@ fn instances_run_at_once_each_with_its_own_events() {
                 logs
             })
             .collect();
+        // Started at once, each on a port of its own, bound as it starts.
         let starters: Vec<_> = instances
             .iter()
-            .zip(&ports)
-            .map(|(i, p)| {
-                let (i, config) = (*i, config(*p));
-                std::thread::spawn(move || start(i, &config))
+            .map(|i| {
+                let i = *i;
+                std::thread::spawn(move || start_on_free_port(i, config))
             })
             .collect();
-        for s in starters {
-            s.join().unwrap();
-        }
+        let ports: Vec<u16> = starters.into_iter().map(|s| s.join().unwrap()).collect();
         for (i, port) in ports.iter().enumerate() {
             echo_through(*port);
             let own = format!("127.0.0.1:{}", port);
