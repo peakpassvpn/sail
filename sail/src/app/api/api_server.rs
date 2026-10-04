@@ -254,6 +254,7 @@ mod handlers {
             e @ crate::Error::InboundLost { .. } => {
                 error(StatusCode::INTERNAL_SERVER_ERROR, "inbound_lost", e)
             }
+            e @ crate::Error::NoInbound(_) => error(StatusCode::NOT_FOUND, "not_found", e),
             e => error(StatusCode::INTERNAL_SERVER_ERROR, "internal", e),
         }
     }

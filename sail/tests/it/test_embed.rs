@@ -508,7 +508,7 @@ async fn removing_an_inbound_closes_its_connections_only() {
             .await
             .unwrap_err()
             .kind(),
-        ErrorKind::Config
+        ErrorKind::NotFound
     );
 
     // And back again.

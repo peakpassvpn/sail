@@ -471,6 +471,11 @@ impl InboundManager {
         Ok(accepted)
     }
 
+    /// Whether there is an inbound `tag`.
+    pub fn has(&self, tag: &str) -> bool {
+        self.handlers.contains_key(tag)
+    }
+
     /// Stops listening for the inbound `tag` and removes it. Connections it
     /// accepted go on.
     pub fn remove(&mut self, tag: &str) -> Result<()> {

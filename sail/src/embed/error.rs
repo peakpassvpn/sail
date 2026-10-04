@@ -157,6 +157,7 @@ impl From<crate::Error> for Error {
             crate::Error::Panicked(_) => ErrorKind::Panicked,
             crate::Error::NeedsRestart(_) => ErrorKind::NeedsRestart,
             crate::Error::InboundLost { .. } => ErrorKind::InboundLost,
+            crate::Error::NoInbound(_) => ErrorKind::NotFound,
             _ => ErrorKind::Internal,
         };
         let message = match e {

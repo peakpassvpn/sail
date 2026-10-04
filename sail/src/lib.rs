@@ -88,6 +88,9 @@ pub enum Error {
     /// it was.
     #[error("[{tag}] inbound: lost: {reason}")]
     InboundLost { tag: String, reason: String },
+    /// The inbound named, to remove, is not there.
+    #[error("[{0}] inbound: does not exist")]
+    NoInbound(String),
 }
 
 impl From<app::inbound::manager::Refused> for Error {
@@ -1166,12 +1169,16 @@ impl RuntimeManager {
     pub async fn remove_inbound_closing(&self, tag: &str) -> Result<usize, Error> {
         let _update = self.update.lock().await;
         // The lock goes before anything awaited.
-        let accepted = self
-            .inbound_manager
-            .lock()
-            .map_err(|_| Error::RuntimeManager)?
-            .remove_accepted(tag)
-            .map_err(Error::Config)?;
+        let accepted = {
+            let mut inbounds = self
+                .inbound_manager
+                .lock()
+                .map_err(|_| Error::RuntimeManager)?;
+            if !inbounds.has(tag) {
+                return Err(Error::NoInbound(tag.to_string()));
+            }
+            inbounds.remove_accepted(tag).map_err(Error::Config)?
+        };
         #[cfg(feature = "auto-reload")]
         self.follow_certificates();
         // The listener has stopped. The connections the runtime lists are
