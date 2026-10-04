@@ -81,11 +81,12 @@ in_ns "$ROUTER" ip -6 route add local ::/0 dev lo table 100
 if command -v nft >/dev/null; then
     in_ns "$ROUTER" nft -f - <<'EOF'
 table inet sailtp {
-    chain redirect {
+    # Not "redirect" and "tproxy": nft 1.0 reads them as keywords.
+    chain nat_redirect {
         type nat hook prerouting priority dstnat; policy accept;
         iifname "r0" tcp dport 33220 redirect to :33201
     }
-    chain tproxy {
+    chain mangle_tproxy {
         type filter hook prerouting priority mangle; policy accept;
         iifname "r0" meta nfproto ipv4 tcp dport 33230 meta mark set 1 tproxy ip to :33202 accept
         iifname "r0" meta nfproto ipv4 udp dport 33231 meta mark set 1 tproxy ip to :33202 accept
