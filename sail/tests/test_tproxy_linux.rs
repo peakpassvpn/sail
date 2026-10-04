@@ -79,6 +79,21 @@ fn run_in<T: Send + 'static>(ns: &'static File, f: impl FnOnce() -> T + Send + '
     .expect("thread in namespace panicked")
 }
 
+/// The sail instance the tests share.
+static SAIL_IDS: OnceLock<Vec<sail::RuntimeId>> = OnceLock::new();
+
+/// Fails, saying so, when the shared instance stopped before a test is
+/// done, rather than with the connection that found nothing listening.
+fn sail_still_runs() {
+    for &id in SAIL_IDS.get().into_iter().flatten() {
+        assert!(
+            sail::is_running(id),
+            "the shared sail instance {} stopped early",
+            id
+        );
+    }
+}
+
 /// Starts, once for every test, the echo servers in the server namespace
 /// and sail here, in the router's.
 fn setup() -> &'static File {
@@ -105,7 +120,10 @@ fn setup() -> &'static File {
                 .build()
                 .unwrap()
         });
-        common::run_sail_instances(rt, vec![CONFIG.to_string()]).expect("start sail");
+        let ids = common::run_sail_instances(rt, vec![CONFIG.to_string()]).expect("start sail");
+        // Every test shares it, past the thread of the first, which starts it.
+        common::keep_running(&ids);
+        let _ = SAIL_IDS.set(ids);
         namespace("SAILTP_CLIENT_NS")
     })
 }
@@ -135,6 +153,7 @@ fn udp_echo(socket: UdpSocket) {
 /// checks that what it sends comes back.
 fn tcp_round_trip(ip: &'static str, port: u16) {
     let client = setup();
+    sail_still_runs();
     run_in(client, move || {
         let target = SocketAddr::new(ip.parse().unwrap(), port);
         let mut stream = TcpStream::connect_timeout(&target, TIMEOUT)
@@ -151,12 +170,14 @@ fn tcp_round_trip(ip: &'static str, port: u16) {
         writing.join().unwrap().unwrap();
         assert!(echoed == payload, "echo from {} differs", target);
     });
+    sail_still_runs();
 }
 
 /// Sends datagrams from the client to `ip`:`port`, which the router
 /// diverts, and checks that each reply comes back, from that very address.
 fn udp_round_trip(ip: &'static str, port: u16) {
     let client = setup();
+    sail_still_runs();
     run_in(client, move || {
         let target = SocketAddr::new(ip.parse().unwrap(), port);
         let bind: SocketAddr = if target.is_ipv4() {
@@ -181,6 +202,7 @@ fn udp_round_trip(ip: &'static str, port: u16) {
             assert_eq!(&buf[..n], &payload[..]);
         }
     });
+    sail_still_runs();
 }
 
 #[test]

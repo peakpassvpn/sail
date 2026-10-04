@@ -757,9 +757,7 @@ jobs:
   # nft_tproxy, nf_tproxy_ipv4/6, nft_socket, nft_queue, nfnetlink_queue,
   # nft_fib, nft_ct load; /dev/net/tun; systemd-resolved; nftables 1.0.9
   # installed if missing), so nothing of the suites is left to the test
-  # host. tproxy alone does not fail the job yet: it fails on master, here
-  # and on the test host alike (a regression since it was added), and is
-  # shown until its fix lands.
+  # host.
   netns-linux-paths:
     runs-on: ubuntu-latest
     outputs:
@@ -848,8 +846,6 @@ jobs:
 
       - name: tproxy
         if: always() && steps.build.outcome == 'success'
-        # Until the regression is fixed: see the header.
-        continue-on-error: true
         run: sudo -E env "PATH=$PATH" sail/tests/scripts/tproxy_netns.sh
 
       - name: a network switch

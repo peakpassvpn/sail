@@ -458,6 +458,13 @@ pub fn run_sail_instances_in(
     Ok(sail_rt_ids)
 }
 
+/// Leaves `ids` running when the thread that started them ends: for an
+/// instance a test binary starts once and its tests share, until the
+/// process ends.
+pub fn keep_running(ids: &[sail::RuntimeId]) {
+    let _ = STARTED.try_with(|started| started.borrow_mut().0.retain(|id| !ids.contains(id)));
+}
+
 /// The instances a thread started and has not shut down. A test that fails
 /// before `shutdown_instances` leaves them running; they are shut down when
 /// its thread ends, so that its ports are free again.
@@ -473,6 +480,13 @@ impl Drop for Started {
         if ids.is_empty() {
             return;
         }
+        // Said, for an instance other threads may still use: a test that
+        // shares one past its own thread calls `keep_running`.
+        eprintln!(
+            "test harness: the thread that started sail instance(s) {:?} ended without \
+             shutting them down; shutting them down now",
+            ids
+        );
         // On a thread of its own: this thread's locals, which shutting an
         // instance down may use, are being destroyed.
         let stop = std::thread::spawn(move || {
