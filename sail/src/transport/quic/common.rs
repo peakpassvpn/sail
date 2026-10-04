@@ -453,8 +453,36 @@ pub fn endpoint_on(
         quinn_btls::helpers::default_endpoint_config(),
         server,
         Arc::new(RecvBackoff::new(socket)),
-        Arc::new(quinn::TokioRuntime),
+        Arc::new(ScopedRuntime(crate::runtime::scope::here())),
     )
+}
+
+/// tokio, as quinn runs on it, but what quinn spawns (an endpoint's driver,
+/// each connection's) is in the scope of the instance that made the
+/// endpoint: ended by its stop and named in its report, on the host's
+/// runtime too, where no runtime shutdown would end it.
+#[derive(Debug)]
+struct ScopedRuntime(Option<crate::runtime::scope::TaskScope>);
+
+impl Runtime for ScopedRuntime {
+    fn new_timer(&self, i: std::time::Instant) -> Pin<Box<dyn quinn::AsyncTimer>> {
+        quinn::TokioRuntime.new_timer(i)
+    }
+
+    fn spawn(&self, future: Pin<Box<dyn std::future::Future<Output = ()> + Send>>) {
+        drop(match &self.0 {
+            Some(scope) => scope.spawn("quic driver", future),
+            None => crate::runtime::scope::spawn("quic driver", future),
+        });
+    }
+
+    fn wrap_udp_socket(&self, t: std::net::UdpSocket) -> io::Result<Arc<dyn AsyncUdpSocket>> {
+        quinn::TokioRuntime.wrap_udp_socket(t)
+    }
+
+    fn now(&self) -> std::time::Instant {
+        quinn::TokioRuntime.now()
+    }
 }
 
 /// A proxied TCP connection: one bidirectional QUIC stream, and `G`, kept
