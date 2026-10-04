@@ -32,7 +32,7 @@ impl OutboundStreamHandler for Handler {
         stream: Option<AnyStream>,
     ) -> io::Result<AnyStream> {
         tracing::trace!("handling outbound stream");
-        let mut stream = stream.ok_or_else(|| io::Error::other("invalid input"))?;
+        let stream = stream.ok_or_else(|| io::Error::other("invalid input"))?;
         let auth = match (&self.username, &self.password) {
             (auth_username, _) if auth_username.is_empty() => None,
             (auth_username, auth_password) => Some(Auth {
@@ -40,19 +40,24 @@ impl OutboundStreamHandler for Handler {
                 password: auth_password.to_owned(),
             }),
         };
+        // async-socks5 writes a message a field at a time and flushes at its
+        // end: buffered, each message goes out in one write, not one a byte.
+        // Reads are not buffered, so nothing after the reply is taken.
+        let mut buffered = tokio::io::BufWriter::new(stream);
         match &sess.destination {
             SocksAddr::Ip(a) => {
-                let _ = async_socks5::connect(&mut stream, a.to_owned(), auth)
+                let _ = async_socks5::connect(&mut buffered, a.to_owned(), auth)
                     .map_err(io::Error::other)
                     .await?;
             }
             SocksAddr::Domain(domain, port) => {
-                let _ = async_socks5::connect(&mut stream, (domain.to_owned(), *port), auth)
+                let _ = async_socks5::connect(&mut buffered, (domain.to_owned(), *port), auth)
                     .map_err(io::Error::other)
                     .await?;
             }
         }
-        Ok(stream)
+        tokio::io::AsyncWriteExt::flush(&mut buffered).await?;
+        Ok(buffered.into_inner())
     }
 }
 
@@ -124,13 +129,63 @@ mod tests {
         });
 
         let client_stream = tokio::net::TcpStream::connect(addr).await.unwrap();
-        let result = handler
-            .handle(&sess, None, Some(Box::new(client_stream)))
-            .await;
+        let writes = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let counted = CountWrites {
+            inner: client_stream,
+            writes: writes.clone(),
+        };
+        let result = handler.handle(&sess, None, Some(Box::new(counted))).await;
         assert!(
             result.is_ok(),
             "the handshake failed: {}",
             result.err().unwrap()
         );
+        // The greeting (3 bytes) and the request (4 + 1 + 10 + 2), each in
+        // one write.
+        assert_eq!(*writes.lock().unwrap(), vec![3, 17]);
+    }
+
+    /// A stream that notes the length of every write made to it.
+    struct CountWrites<S> {
+        inner: S,
+        writes: std::sync::Arc<std::sync::Mutex<Vec<usize>>>,
+    }
+
+    impl<S: tokio::io::AsyncRead + Unpin> tokio::io::AsyncRead for CountWrites<S> {
+        fn poll_read(
+            mut self: std::pin::Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+            buf: &mut tokio::io::ReadBuf<'_>,
+        ) -> std::task::Poll<io::Result<()>> {
+            std::pin::Pin::new(&mut self.inner).poll_read(cx, buf)
+        }
+    }
+
+    impl<S: tokio::io::AsyncWrite + Unpin> tokio::io::AsyncWrite for CountWrites<S> {
+        fn poll_write(
+            mut self: std::pin::Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+            buf: &[u8],
+        ) -> std::task::Poll<io::Result<usize>> {
+            let polled = std::pin::Pin::new(&mut self.inner).poll_write(cx, buf);
+            if let std::task::Poll::Ready(Ok(n)) = polled {
+                self.writes.lock().unwrap().push(n);
+            }
+            polled
+        }
+
+        fn poll_flush(
+            mut self: std::pin::Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<io::Result<()>> {
+            std::pin::Pin::new(&mut self.inner).poll_flush(cx)
+        }
+
+        fn poll_shutdown(
+            mut self: std::pin::Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<io::Result<()>> {
+            std::pin::Pin::new(&mut self.inner).poll_shutdown(cx)
+        }
     }
 }
