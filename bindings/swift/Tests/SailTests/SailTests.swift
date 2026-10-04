@@ -170,11 +170,16 @@ final class SailTests: XCTestCase {
             "stop_report": { try check(StopReport.self, "stop_report") },
             "fault": { try check(Fault.self, "fault") },
             "reload_report": { try check(ReloadReport.self, "reload_report") },
+            "routed": { try check(Routed.self, "routed") },
+            "dns_exchange": { try check(DnsExchange.self, "dns_exchange") },
+            "group_switch": { try check(GroupSwitch.self, "group_switch") },
+            "dial_failed": { try check(DialFailed.self, "dial_failed") },
+            "user_event": { try check(UserEvent.self, "user_event") },
             "status": { try check(Status.self, "status") },
             "traffic": { try check(Traffic.self, "traffic") },
         ]
         // What the management API answers with, or an event read as text.
-        let notModelled: Set<String> = ["network", "users", "stats", "inbounds", "inbound_users", "user_event"]
+        let notModelled: Set<String> = ["network", "users", "stats", "inbounds", "inbound_users"]
         for key in snapshot.keys where !notModelled.contains(key) {
             guard let model = models[key] else {
                 XCTFail("the snapshot's \(key) has no model here: add one, or say why not")

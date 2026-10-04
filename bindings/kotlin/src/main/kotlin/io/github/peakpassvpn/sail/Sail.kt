@@ -53,7 +53,7 @@ internal class EventSink(
 /** The kinds of events, as sail.h numbers them. */
 enum class EventKind(val code: Int) {
     STATE(1), LOG(2), STATUS(3), CONNECTIONS(4), OUTBOUNDS(5), NETWORK(6), DISCONNECTED(7),
-    FAULT(8),
+    FAULT(8), ROUTED(9), DNS(10), GROUP(11), DIAL(12), USER(13),
 }
 
 /**
@@ -189,6 +189,26 @@ class Sail private constructor(private val handle: Long) : AutoCloseable {
         val lagged = json.parseToJsonElement(text).jsonObject["lagged"]
         if (lagged != null) FaultEvent.Lagged(lagged.jsonPrimitive.long)
         else FaultEvent.Panicked(json.decodeFromString<Fault>(text))
+    }
+
+    /** Each connection once routed and dialled; in the tunnel process only. */
+    fun routedConnections(): Flow<Told<Routed>> = told(EventKind.ROUTED)
+
+    /** Each DNS query answered or failed; in the tunnel process only. */
+    fun dnsExchanges(): Flow<Told<DnsExchange>> = told(EventKind.DNS)
+
+    /** Each switch of a group's member; in the tunnel process only. */
+    fun groupSwitches(): Flow<Told<GroupSwitch>> = told(EventKind.GROUP)
+
+    /** Failed dials, a chain's once a second at most; in the tunnel process only. */
+    fun dialFailures(): Flow<Told<DialFailed>> = told(EventKind.DIAL)
+
+    /** What happens to users; in the tunnel process only. */
+    fun userEvents(): Flow<Told<UserEvent>> = told(EventKind.USER)
+
+    private inline fun <reified T> told(kind: EventKind): Flow<Told<T>> = events(kind).map { text ->
+        val lagged = json.parseToJsonElement(text).jsonObject["lagged"]
+        if (lagged != null) Told.Lagged(lagged.jsonPrimitive.long) else Told.Event(json.decodeFromString<T>(text))
     }
 
     fun statuses(intervalMs: Long = 1000): Flow<Status> =

@@ -133,6 +133,221 @@ impl ReloadReport {
     }
 }
 
+/// A connection routed, and dialled where the rules sent it to an outbound:
+/// the routed event.
+#[derive(Serialize, Clone, PartialEq, Eq, Debug)]
+pub struct Routed {
+    /// Its id among the connections listed, while it is open; none for
+    /// one that never opened (a reject, a failed dial).
+    pub id: Option<u64>,
+    /// `tcp` or `udp`.
+    pub network: String,
+    pub inbound: String,
+    pub source: String,
+    /// Where it went, as the rules saw it.
+    pub destination: String,
+    /// What the client asked for, where that differs (a fake IP mapped
+    /// back, a domain sniffed).
+    pub request_destination: Option<String>,
+    pub domain: Option<String>,
+    /// `request`, `fake_ip`, `sniffed` or `reverse_mapping`.
+    pub domain_source: Option<String>,
+    pub sniffed_protocol: Option<String>,
+    /// The index of the rule that matched, none for the final outbound.
+    pub rule: Option<u32>,
+    pub rule_text: Option<String>,
+    /// `outbound`, `reject`, `drop` or `hijack_dns`.
+    pub action: String,
+    /// The outbounds it went through, the group first.
+    pub chain: Vec<String>,
+    /// The address it was dialled to.
+    pub target: Option<String>,
+    /// How long the dial took, when it connected.
+    pub connect_ms: Option<u64>,
+    /// Why the dial failed, when it did.
+    pub connect_error: Option<String>,
+}
+
+impl Routed {
+    pub fn of(r: &crate::control::events::RoutedConnection) -> Self {
+        use crate::control::events::{DomainSource, RouteAction};
+        Self {
+            id: r.id,
+            network: r.network.to_string(),
+            inbound: r.inbound.clone(),
+            source: r.source.to_string(),
+            destination: r.destination.to_string(),
+            request_destination: r.request_destination.as_ref().map(|d| d.to_string()),
+            domain: r.domain.clone(),
+            domain_source: r.domain_source.map(|s| {
+                match s {
+                    DomainSource::Request => "request",
+                    DomainSource::FakeIp => "fake_ip",
+                    DomainSource::Sniffed => "sniffed",
+                    DomainSource::ReverseMapping => "reverse_mapping",
+                }
+                .to_string()
+            }),
+            sniffed_protocol: r.sniffed_protocol.map(str::to_string),
+            rule: r.rule,
+            rule_text: r.rule_text.clone(),
+            action: match r.action {
+                RouteAction::Outbound => "outbound",
+                RouteAction::Reject => "reject",
+                RouteAction::Drop => "drop",
+                RouteAction::HijackDns => "hijack_dns",
+            }
+            .into(),
+            chain: r.chain.clone(),
+            target: r.target.map(|t| t.to_string()),
+            connect_ms: match &r.connect {
+                Some(Ok(took)) => Some(took.as_millis() as u64),
+                _ => None,
+            },
+            connect_error: match &r.connect {
+                Some(Err(kind)) => Some(kind.to_string()),
+                _ => None,
+            },
+        }
+    }
+}
+
+/// A DNS query answered or failed: the DNS event.
+#[derive(Serialize, Clone, PartialEq, Eq, Debug)]
+pub struct DnsExchange {
+    /// The name asked, without its final dot.
+    pub name: String,
+    /// The type asked, as DNS names it (`A`, `AAAA`, `HTTPS`, ...), and
+    /// its number.
+    pub qtype: String,
+    pub qtype_code: u16,
+    /// The server that answered or failed; none where a rule answered.
+    pub server: Option<String>,
+    /// `exchanged`, `cached`, `optimistic` or `rule`.
+    pub source: String,
+    /// The response code (`NOERROR`, `NXDOMAIN`, ...) and its number, when
+    /// answered.
+    pub rcode: Option<String>,
+    pub rcode_code: Option<u16>,
+    /// Why it failed, when it did.
+    pub error: Option<String>,
+    /// The first 16 records of the answer section.
+    pub answers: Vec<String>,
+    pub answers_total: u32,
+    pub ttl: Option<u32>,
+    /// How long the server took; none from the cache or a rule.
+    pub duration_ms: Option<u64>,
+    /// Which attempt of a sequential server, from 1.
+    pub attempt: Option<u32>,
+    /// Asked by the instance itself, rather than by a client.
+    pub for_instance: bool,
+}
+
+impl DnsExchange {
+    pub fn of(e: &crate::control::events::DnsExchange) -> Self {
+        use crate::control::events::{DnsOutcome, DnsSource};
+        let (rcode, rcode_code, error) = match &e.outcome {
+            DnsOutcome::Answered { rcode, rcode_code } => {
+                (Some(rcode.clone()), Some(*rcode_code), None)
+            }
+            DnsOutcome::Failed { error } => (None, None, Some(error.clone())),
+        };
+        Self {
+            name: e.name.clone(),
+            qtype: e.qtype.clone(),
+            qtype_code: e.qtype_code,
+            server: e.server.clone(),
+            source: match e.source {
+                DnsSource::Exchanged => "exchanged",
+                DnsSource::Cached => "cached",
+                DnsSource::Optimistic => "optimistic",
+                DnsSource::Rule => "rule",
+            }
+            .into(),
+            rcode,
+            rcode_code,
+            error,
+            answers: e.answers.clone(),
+            answers_total: e.answers_total,
+            ttl: e.ttl,
+            duration_ms: e.duration.map(|d| d.as_millis() as u64),
+            attempt: e.attempt,
+            for_instance: e.for_instance,
+        }
+    }
+}
+
+/// A group took another member: the group event.
+#[derive(Serialize, Clone, PartialEq, Eq, Debug)]
+pub struct GroupSwitch {
+    pub group: String,
+    pub from: Option<String>,
+    pub to: String,
+    /// `member_down`, `test_failed`, `recovered`, `all_down`, `pinned`,
+    /// `unpinned`, `selected`, `faster` or `members_changed`.
+    pub reason: String,
+}
+
+impl GroupSwitch {
+    pub fn of(s: &crate::control::events::GroupSwitch) -> Self {
+        use crate::control::events::SwitchReason;
+        Self {
+            group: s.group.clone(),
+            from: s.from.clone(),
+            to: s.to.clone(),
+            reason: match s.reason {
+                SwitchReason::MemberDown => "member_down",
+                SwitchReason::TestFailed => "test_failed",
+                SwitchReason::Recovered => "recovered",
+                SwitchReason::AllDown => "all_down",
+                SwitchReason::Pinned => "pinned",
+                SwitchReason::Unpinned => "unpinned",
+                SwitchReason::Selected => "selected",
+                SwitchReason::Faster => "faster",
+                SwitchReason::MembersChanged => "members_changed",
+            }
+            .into(),
+        }
+    }
+}
+
+/// Dials through a chain failed: the dial event, one for each chain a
+/// second at most.
+#[derive(Serialize, Clone, PartialEq, Eq, Debug)]
+pub struct DialFailed {
+    /// The outbounds, the group first.
+    pub chain: String,
+    /// The last failure's destination, as `log.redact` leaves it.
+    pub destination: String,
+    /// The last failure's error.
+    pub error: String,
+    /// `dial`, `handshake` or `transfer`.
+    pub stage: String,
+    /// Whether a group goes on to another member.
+    pub more_to_try: bool,
+    /// The failures through the chain since its event before.
+    pub count: u64,
+}
+
+impl DialFailed {
+    pub fn of(f: &crate::control::events::DialFailure, count: u64) -> Self {
+        use crate::control::events::DialStage;
+        Self {
+            chain: f.chain.clone(),
+            destination: f.destination.clone(),
+            error: f.kind.to_string(),
+            stage: match f.stage {
+                DialStage::Dial => "dial",
+                DialStage::Handshake => "handshake",
+                DialStage::Transfer => "transfer",
+            }
+            .into(),
+            more_to_try: f.more_to_try,
+            count,
+        }
+    }
+}
+
 /// A fault event: a task of the instance panicked.
 #[derive(Serialize, Clone, PartialEq, Eq, Debug)]
 pub struct Fault {
@@ -760,6 +975,29 @@ mod tests {
                     endpoint: Some("wg".into()),
                     options: vec!["route.default_mark".into()],
                 }],
+            },
+            "routed": Routed {
+                id: Some(7), network: "tcp".into(), inbound: "tun-in".into(),
+                source: "172.19.0.1:50000".into(), destination: "example.com:443".into(),
+                request_destination: Some("198.18.0.3:443".into()), domain: Some("example.com".into()),
+                domain_source: Some("fake_ip".into()), sniffed_protocol: Some("tls".into()),
+                rule: Some(2), rule_text: Some("domain_suffix=example.com => proxy".into()),
+                action: "outbound".into(), chain: vec!["proxy".into(), "a".into()],
+                target: Some("203.0.113.5:443".into()), connect_ms: Some(31), connect_error: None,
+            },
+            "dns_exchange": DnsExchange {
+                name: "example.com".into(), qtype: "A".into(), qtype_code: 1,
+                server: Some("remote".into()), source: "exchanged".into(),
+                rcode: Some("NOERROR".into()), rcode_code: Some(0), error: None,
+                answers: vec!["203.0.113.5".into()], answers_total: 1, ttl: Some(60),
+                duration_ms: Some(12), attempt: None, for_instance: false,
+            },
+            "group_switch": GroupSwitch {
+                group: "auto".into(), from: Some("a".into()), to: "b".into(), reason: "member_down".into(),
+            },
+            "dial_failed": DialFailed {
+                chain: "proxy/a".into(), destination: "example.com:443".into(),
+                error: "connection refused".into(), stage: "dial".into(), more_to_try: true, count: 3,
             },
             "fault": Fault {
                 task: "inbound tcp".into(), class: "contained".into(),

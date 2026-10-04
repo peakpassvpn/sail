@@ -65,6 +65,36 @@ pub const SAIL_EVENT_DISCONNECTED: u32 = 7;
 /// Through stops and starts; `{"lagged": missed}` when the host fell
 /// behind and that many are gone. In the tunnel process only.
 pub const SAIL_EVENT_FAULT: u32 = 8;
+/// Each connection once it is routed, and dialled where the rules sent it
+/// to an outbound: `{"id", "network", "inbound", "source", "destination",
+/// "request_destination", "domain", "domain_source", "sniffed_protocol",
+/// "rule", "rule_text", "action": "outbound" | "reject" | "drop" |
+/// "hijack_dns", "chain", "target", "connect_ms", "connect_error"}`; the
+/// short ones, the rejected and the failed too, which a list of the
+/// connections open misses. Built only while someone follows them.
+/// `{"lagged": missed}` as for faults. In the tunnel process only.
+pub const SAIL_EVENT_ROUTED: u32 = 9;
+/// Each DNS query answered or failed, a client's or the instance's own:
+/// `{"name", "qtype", "qtype_code", "server", "source": "exchanged" |
+/// "cached" | "optimistic" | "rule", "rcode", "rcode_code", "error",
+/// "answers", "answers_total", "ttl", "duration_ms", "attempt",
+/// "for_instance"}`. Built only while someone follows them. `{"lagged":
+/// missed}` as for faults. In the tunnel process only.
+pub const SAIL_EVENT_DNS: u32 = 10;
+/// A group took another member: `{"group", "from", "to", "reason":
+/// "member_down" | "test_failed" | "recovered" | "all_down" | "pinned" |
+/// "unpinned" | "selected" | "faster" | "members_changed"}`.
+/// `{"lagged": missed}` as for faults. In the tunnel process only.
+pub const SAIL_EVENT_GROUP: u32 = 11;
+/// Dials through a chain failed, one event for each chain a second at
+/// most: `{"chain", "destination", "error", "stage": "dial" | "handshake" |
+/// "transfer", "more_to_try", "count"}`. `{"lagged": missed}` as for
+/// faults. In the tunnel process only.
+pub const SAIL_EVENT_DIAL: u32 = 12;
+/// What happened to a user: `{"event": "shut" | "removed", "user",
+/// "over_quota", "expired", "inbound"}`. `{"lagged": missed}` as for
+/// faults. In the tunnel process only.
+pub const SAIL_EVENT_USER: u32 = 13;
 
 /// Intervals shorter are taken as this: a host cannot ask for a busy loop.
 const INTERVAL_MIN: Duration = Duration::from_millis(100);
@@ -424,8 +454,79 @@ fn produce(kind: u32, options: &Options, instance: &Arc<Instance>) -> Result<Pro
                 }))
             })
         }
+        SAIL_EVENT_ROUTED => {
+            embed_events(instance, sail::embed::Kinds::ROUTE, |event| match event {
+                sail::embed::Event::Routed(routed) => {
+                    serde_json::to_value(json::Routed::of(&routed)).ok()
+                }
+                _ => None,
+            })
+        }
+        SAIL_EVENT_DNS => embed_events(instance, sail::embed::Kinds::DNS, |event| match event {
+            sail::embed::Event::DnsExchange(e) => {
+                serde_json::to_value(json::DnsExchange::of(&e)).ok()
+            }
+            _ => None,
+        }),
+        SAIL_EVENT_GROUP => {
+            embed_events(instance, sail::embed::Kinds::GROUP, |event| match event {
+                sail::embed::Event::GroupSwitched(s) => {
+                    serde_json::to_value(json::GroupSwitch::of(&s)).ok()
+                }
+                _ => None,
+            })
+        }
+        SAIL_EVENT_DIAL => embed_events(instance, sail::embed::Kinds::DIAL, |event| match event {
+            sail::embed::Event::DialFailed { failure, count } => {
+                serde_json::to_value(json::DialFailed::of(&failure, count)).ok()
+            }
+            _ => None,
+        }),
+        SAIL_EVENT_USER => embed_events(instance, sail::embed::Kinds::USER, |event| match event {
+            sail::embed::Event::User(user) => {
+                user_event(user).and_then(|u| serde_json::to_value(u).ok())
+            }
+            _ => None,
+        }),
         other => return Err(Failure::invalid(format!("no event kind {}", other))),
     })
+}
+
+/// A user's event, as the management API tells it; none for a kind this
+/// sail does not tell yet.
+fn user_event(event: sail::embed::UserEvent) -> Option<json::UserEvent> {
+    Some(match event {
+        sail::embed::UserEvent::Shut {
+            user,
+            over_quota,
+            expired,
+        } => json::UserEvent {
+            event: "shut",
+            user,
+            over_quota,
+            expired,
+            inbound: None,
+        },
+        sail::embed::UserEvent::Removed { user, inbound } => json::UserEvent {
+            event: "removed",
+            user,
+            over_quota: false,
+            expired: false,
+            inbound: Some(inbound),
+        },
+        _ => return None,
+    })
+}
+
+/// The producer of embed's events of `kinds`, each told as `tell` makes
+/// it of JSON (`follow_embed`).
+fn embed_events(
+    instance: &Arc<Instance>,
+    kinds: sail::embed::Kinds,
+    tell: fn(sail::embed::Event) -> Option<serde_json::Value>,
+) -> Producer {
+    let events = instance.core().events(kinds);
+    Box::new(move |sink| Box::pin(follow_embed(sink, events, tell)))
 }
 
 /// What embed tells of a kind, each event as `tell` makes it of JSON;

@@ -119,6 +119,88 @@ data class ReloadNote(
     val options: List<String> = emptyList(),
 )
 
+/** An event of a kind that can lag: the event, or how many the host missed. */
+sealed class Told<out T> {
+    data class Event<T>(val value: T) : Told<T>()
+    data class Lagged(val missed: Long) : Told<Nothing>()
+}
+
+/** A connection routed, and dialled where the rules sent it. */
+@Serializable
+data class Routed(
+    val id: Long? = null,
+    val network: String,
+    val inbound: String,
+    val source: String,
+    val destination: String,
+    @SerialName("request_destination") val requestDestination: String? = null,
+    val domain: String? = null,
+    /** request, fake_ip, sniffed or reverse_mapping. */
+    @SerialName("domain_source") val domainSource: String? = null,
+    @SerialName("sniffed_protocol") val sniffedProtocol: String? = null,
+    val rule: Int? = null,
+    @SerialName("rule_text") val ruleText: String? = null,
+    /** outbound, reject, drop or hijack_dns. */
+    val action: String,
+    val chain: List<String> = emptyList(),
+    val target: String? = null,
+    @SerialName("connect_ms") val connectMs: Long? = null,
+    @SerialName("connect_error") val connectError: String? = null,
+)
+
+/** A DNS query answered or failed. */
+@Serializable
+data class DnsExchange(
+    val name: String,
+    val qtype: String,
+    @SerialName("qtype_code") val qtypeCode: Int,
+    val server: String? = null,
+    /** exchanged, cached, optimistic or rule. */
+    val source: String,
+    val rcode: String? = null,
+    @SerialName("rcode_code") val rcodeCode: Int? = null,
+    val error: String? = null,
+    val answers: List<String> = emptyList(),
+    @SerialName("answers_total") val answersTotal: Long,
+    val ttl: Long? = null,
+    @SerialName("duration_ms") val durationMs: Long? = null,
+    val attempt: Int? = null,
+    @SerialName("for_instance") val forInstance: Boolean,
+)
+
+/** A group took another member. */
+@Serializable
+data class GroupSwitch(
+    val group: String,
+    val from: String? = null,
+    val to: String,
+    /** member_down, test_failed, recovered, all_down, pinned, unpinned, selected, faster or members_changed. */
+    val reason: String,
+)
+
+/** Dials through a chain failed, since its event before. */
+@Serializable
+data class DialFailed(
+    val chain: String,
+    val destination: String,
+    val error: String,
+    /** dial, handshake or transfer. */
+    val stage: String,
+    @SerialName("more_to_try") val moreToTry: Boolean,
+    val count: Long,
+)
+
+/** What happened to a user. */
+@Serializable
+data class UserEvent(
+    /** shut (over its quota or past its expiry) or removed (from an inbound). */
+    val event: String,
+    val user: String,
+    @SerialName("over_quota") val overQuota: Boolean = false,
+    val expired: Boolean = false,
+    val inbound: String? = null,
+)
+
 /** A task of the instance panicked. */
 @Serializable
 data class Fault(

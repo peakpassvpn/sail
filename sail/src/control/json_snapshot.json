@@ -32,11 +32,43 @@
     "upload": 4,
     "user": "alice"
   },
+  "dial_failed": {
+    "chain": "proxy/a",
+    "count": 3,
+    "destination": "example.com:443",
+    "error": "connection refused",
+    "more_to_try": true,
+    "stage": "dial"
+  },
+  "dns_exchange": {
+    "answers": [
+      "203.0.113.5"
+    ],
+    "answers_total": 1,
+    "attempt": null,
+    "duration_ms": 12,
+    "error": null,
+    "for_instance": false,
+    "name": "example.com",
+    "qtype": "A",
+    "qtype_code": 1,
+    "rcode": "NOERROR",
+    "rcode_code": 0,
+    "server": "remote",
+    "source": "exchanged",
+    "ttl": 60
+  },
   "fault": {
     "class": "contained",
     "count": 1,
     "message": "index out of bounds",
     "task": "inbound tcp"
+  },
+  "group_switch": {
+    "from": "a",
+    "group": "auto",
+    "reason": "member_down",
+    "to": "b"
   },
   "inbound_users": {
     "users": [
@@ -146,6 +178,27 @@
       }
     ],
     "path": "inbounds_only"
+  },
+  "routed": {
+    "action": "outbound",
+    "chain": [
+      "proxy",
+      "a"
+    ],
+    "connect_error": null,
+    "connect_ms": 31,
+    "destination": "example.com:443",
+    "domain": "example.com",
+    "domain_source": "fake_ip",
+    "id": 7,
+    "inbound": "tun-in",
+    "network": "tcp",
+    "request_destination": "198.18.0.3:443",
+    "rule": 2,
+    "rule_text": "domain_suffix=example.com => proxy",
+    "sniffed_protocol": "tls",
+    "source": "172.19.0.1:50000",
+    "target": "203.0.113.5:443"
   },
   "rule_sets": {
     "rule_sets": [

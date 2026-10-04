@@ -366,10 +366,11 @@ pub(crate) fn produce(
                 "the network is followed in the tunnel process, as libbox's apps follow it",
             ))
         }
-        SAIL_EVENT_FAULT => {
+        SAIL_EVENT_FAULT | SAIL_EVENT_ROUTED | SAIL_EVENT_DNS | SAIL_EVENT_GROUP
+        | SAIL_EVENT_DIAL | SAIL_EVENT_USER => {
             return Err(Failure::new(
                 crate::SAIL_ERR_UNSUPPORTED,
-                "faults are followed in the tunnel process",
+                "this kind of event is followed in the tunnel process",
             ))
         }
         other => return Err(Failure::invalid(format!("no event kind {}", other))),

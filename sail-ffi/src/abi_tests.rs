@@ -692,6 +692,34 @@ fn a_stop_tells_what_it_could_not_end_or_undo() {
     });
 }
 
+/// A connection through it is told once routed; the other kinds are
+/// followed, quiet here.
+#[test]
+fn what_happens_is_told_as_it_happens() {
+    let _serial = serial();
+    within(Duration::from_secs(30), || {
+        let instance = new_instance(None, None);
+        let routed = Recorder::new();
+        subscribe(instance, SAIL_EVENT_ROUTED, None, &routed, record);
+        let quiet = Recorder::new();
+        for kind in [
+            SAIL_EVENT_DNS,
+            SAIL_EVENT_GROUP,
+            SAIL_EVENT_DIAL,
+            SAIL_EVENT_USER,
+        ] {
+            subscribe(instance, kind, None, &quiet, record);
+        }
+        let port = start_on_free_port(instance, config);
+        echo_through(port);
+        routed.wait(SAIL_EVENT_ROUTED, |e| {
+            e["inbound"] == "socks-in" && e["action"] == "outbound"
+        });
+        stop(instance);
+        sail_instance_free(instance);
+    });
+}
+
 /// An inbound added while it runs listens and carries connections; removed,
 /// it closes them and listens no more; one not there is not found.
 #[test]

@@ -106,11 +106,16 @@ class SailTest {
             "stop_report" to StopReport.serializer(),
             "fault" to Fault.serializer(),
             "reload_report" to ReloadReport.serializer(),
+            "routed" to Routed.serializer(),
+            "dns_exchange" to DnsExchange.serializer(),
+            "group_switch" to GroupSwitch.serializer(),
+            "dial_failed" to DialFailed.serializer(),
+            "user_event" to UserEvent.serializer(),
             "status" to Status.serializer(),
             "traffic" to Traffic.serializer(),
         )
         // What the management API answers with, or an event read as text.
-        val notModelled = setOf("network", "users", "stats", "inbounds", "inbound_users", "user_event")
+        val notModelled = setOf("network", "users", "stats", "inbounds", "inbound_users")
         for ((key, value) in snapshot) {
             if (key in notModelled) continue
             val model = assertNotNull(models[key], "the snapshot's $key has no model here: add one, or say why not")

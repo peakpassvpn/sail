@@ -65,6 +65,96 @@ public struct ReloadNote: Decodable, Equatable, Sendable {
     public let options: [String]
 }
 
+/// An event of a kind that can lag: the event, or how many of its kind the
+/// host fell behind on and missed.
+public enum Told<T: Decodable & Equatable & Sendable>: Decodable, Equatable, Sendable {
+    case event(T)
+    case lagged(UInt64)
+
+    private enum Keys: String, CodingKey { case lagged }
+
+    public init(from decoder: Decoder) throws {
+        let keys = try decoder.container(keyedBy: Keys.self)
+        if let missed = try keys.decodeIfPresent(UInt64.self, forKey: .lagged) {
+            self = .lagged(missed)
+        } else {
+            self = .event(try T(from: decoder))
+        }
+    }
+}
+
+/// A connection routed, and dialled where the rules sent it.
+public struct Routed: Decodable, Equatable, Sendable {
+    public let id: UInt64?
+    public let network: String
+    public let inbound: String
+    public let source: String
+    public let destination: String
+    public let requestDestination: String?
+    public let domain: String?
+    /// request, fake_ip, sniffed or reverse_mapping.
+    public let domainSource: String?
+    public let sniffedProtocol: String?
+    public let rule: UInt32?
+    public let ruleText: String?
+    /// outbound, reject, drop or hijack_dns.
+    public let action: String
+    public let chain: [String]
+    public let target: String?
+    public let connectMs: UInt64?
+    public let connectError: String?
+}
+
+/// A DNS query answered or failed.
+public struct DnsExchange: Decodable, Equatable, Sendable {
+    public let name: String
+    public let qtype: String
+    public let qtypeCode: UInt16
+    public let server: String?
+    /// exchanged, cached, optimistic or rule.
+    public let source: String
+    public let rcode: String?
+    public let rcodeCode: UInt16?
+    public let error: String?
+    public let answers: [String]
+    public let answersTotal: UInt32
+    public let ttl: UInt32?
+    public let durationMs: UInt64?
+    public let attempt: UInt32?
+    public let forInstance: Bool
+}
+
+/// A group took another member.
+public struct GroupSwitch: Decodable, Equatable, Sendable {
+    public let group: String
+    public let from: String?
+    public let to: String
+    /// member_down, test_failed, recovered, all_down, pinned, unpinned,
+    /// selected, faster or members_changed.
+    public let reason: String
+}
+
+/// Dials through a chain failed, since its event before.
+public struct DialFailed: Decodable, Equatable, Sendable {
+    public let chain: String
+    public let destination: String
+    public let error: String
+    /// dial, handshake or transfer.
+    public let stage: String
+    public let moreToTry: Bool
+    public let count: UInt64
+}
+
+/// What happened to a user.
+public struct UserEvent: Decodable, Equatable, Sendable {
+    /// shut (over its quota or past its expiry) or removed (from an inbound).
+    public let event: String
+    public let user: String
+    public let overQuota: Bool
+    public let expired: Bool
+    public let inbound: String?
+}
+
 /// A task of the instance panicked.
 public struct Fault: Decodable, Equatable, Sendable {
     /// The task's name: inbound tcp, group health check, ...

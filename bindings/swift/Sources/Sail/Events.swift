@@ -15,6 +15,11 @@ public enum EventKind: UInt32, Sendable {
     /// A client's connection lost: the last event of its subscriptions.
     case disconnected = 7
     case fault = 8
+    case routed = 9
+    case dns = 10
+    case group = 11
+    case dial = 12
+    case user = 13
 }
 
 final class EventBox {
@@ -104,6 +109,31 @@ extension Sail {
     /// Each panic of a task of the instance; in the tunnel process only.
     public func faults() -> AsyncThrowingStream<FaultEvent, Error> {
         typed(.fault, FaultEvent.self, options: nil)
+    }
+
+    /// Each connection once routed and dialled; in the tunnel process only.
+    public func routedConnections() -> AsyncThrowingStream<Told<Routed>, Error> {
+        typed(.routed, Told<Routed>.self, options: nil)
+    }
+
+    /// Each DNS query answered or failed; in the tunnel process only.
+    public func dnsExchanges() -> AsyncThrowingStream<Told<DnsExchange>, Error> {
+        typed(.dns, Told<DnsExchange>.self, options: nil)
+    }
+
+    /// Each switch of a group's member; in the tunnel process only.
+    public func groupSwitches() -> AsyncThrowingStream<Told<GroupSwitch>, Error> {
+        typed(.group, Told<GroupSwitch>.self, options: nil)
+    }
+
+    /// Failed dials, a chain's once a second at most; in the tunnel process only.
+    public func dialFailures() -> AsyncThrowingStream<Told<DialFailed>, Error> {
+        typed(.dial, Told<DialFailed>.self, options: nil)
+    }
+
+    /// What happens to users; in the tunnel process only.
+    public func userEvents() -> AsyncThrowingStream<Told<UserEvent>, Error> {
+        typed(.user, Told<UserEvent>.self, options: nil)
     }
 
     public func statuses(intervalMs: UInt64 = 1000) -> AsyncThrowingStream<Status, Error> {

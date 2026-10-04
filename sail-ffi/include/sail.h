@@ -170,6 +170,51 @@
 #define SAIL_EVENT_FAULT 8
 
 /*
+ Each connection once it is routed, and dialled where the rules sent it
+ to an outbound: `{"id", "network", "inbound", "source", "destination",
+ "request_destination", "domain", "domain_source", "sniffed_protocol",
+ "rule", "rule_text", "action": "outbound" | "reject" | "drop" |
+ "hijack_dns", "chain", "target", "connect_ms", "connect_error"}`; the
+ short ones, the rejected and the failed too, which a list of the
+ connections open misses. Built only while someone follows them.
+ `{"lagged": missed}` as for faults. In the tunnel process only.
+ */
+#define SAIL_EVENT_ROUTED 9
+
+/*
+ Each DNS query answered or failed, a client's or the instance's own:
+ `{"name", "qtype", "qtype_code", "server", "source": "exchanged" |
+ "cached" | "optimistic" | "rule", "rcode", "rcode_code", "error",
+ "answers", "answers_total", "ttl", "duration_ms", "attempt",
+ "for_instance"}`. Built only while someone follows them. `{"lagged":
+ missed}` as for faults. In the tunnel process only.
+ */
+#define SAIL_EVENT_DNS 10
+
+/*
+ A group took another member: `{"group", "from", "to", "reason":
+ "member_down" | "test_failed" | "recovered" | "all_down" | "pinned" |
+ "unpinned" | "selected" | "faster" | "members_changed"}`.
+ `{"lagged": missed}` as for faults. In the tunnel process only.
+ */
+#define SAIL_EVENT_GROUP 11
+
+/*
+ Dials through a chain failed, one event for each chain a second at
+ most: `{"chain", "destination", "error", "stage": "dial" | "handshake" |
+ "transfer", "more_to_try", "count"}`. `{"lagged": missed}` as for
+ faults. In the tunnel process only.
+ */
+#define SAIL_EVENT_DIAL 12
+
+/*
+ What happened to a user: `{"event": "shut" | "removed", "user",
+ "over_quota", "expired", "inbound"}`. `{"lagged": missed}` as for
+ faults. In the tunnel process only.
+ */
+#define SAIL_EVENT_USER 13
+
+/*
  An instance, as the host holds it; 0 is none.
  */
 typedef uint64_t SailInstance;
