@@ -5,7 +5,8 @@
 //! quinn sees a single server address, the first port. Datagrams to it go
 //! to the current port instead, and datagrams from any port of the server
 //! come back as from it. After a hop the previous socket is still read, for
-//! what was in flight to it.
+//! what was in flight to it. An error of it is read past; one that keeps
+//! failing is let go.
 
 use std::fmt;
 use std::io::{self, IoSliceMut};
@@ -18,6 +19,12 @@ use anyhow::{anyhow, Result};
 use quinn::udp::{RecvMeta, Transmit};
 use quinn::{AsyncUdpSocket, UdpPoller};
 use rand::seq::SliceRandom;
+use tracing::debug;
+
+/// How many errors in a row, in one read, the previous socket may give
+/// before it is let go. A judgment: enough to read past a transient one,
+/// such as a reset on Windows, without spinning on a socket that is broken.
+const PREVIOUS_ERRORS: usize = 4;
 
 /// The server's ports, from sing-box's `server_ports`: each a port or a
 /// range, "20000:30000" (or "20000-30000").
@@ -129,6 +136,23 @@ impl HopSocket {
         }
     }
 
+    /// Lets go of the previous socket, when it keeps failing, unless a hop
+    /// has put another in its place.
+    fn retire(&self, previous: &Arc<dyn AsyncUdpSocket>) {
+        let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
+        if state
+            .previous
+            .as_ref()
+            .is_some_and(|p| Arc::ptr_eq(p, previous))
+        {
+            state.previous = None;
+            debug!(
+                "hysteria2 port hopping: previous socket failed {} times, let go",
+                PREVIOUS_ERRORS
+            );
+        }
+    }
+
     fn poll_one(
         &self,
         socket: &Arc<dyn AsyncUdpSocket>,
@@ -202,14 +226,21 @@ impl AsyncUdpSocket for HopSocket {
         if let Poll::Ready(r) = self.poll_one(&current, cx, bufs, meta) {
             return Poll::Ready(r);
         }
-        match previous {
-            // An error of the old socket is no reason to stop.
-            Some(previous) => match self.poll_one(&previous, cx, bufs, meta) {
-                Poll::Ready(Ok(n)) => Poll::Ready(Ok(n)),
-                _ => Poll::Pending,
-            },
-            None => Poll::Pending,
+        let Some(previous) = previous else {
+            return Poll::Pending;
+        };
+        // An error of the old socket is no reason to stop. It is read again,
+        // so that it yields what came after the error or waits with this
+        // task's waker; returning on the error would leave it unwatched.
+        for _ in 0..PREVIOUS_ERRORS {
+            match self.poll_one(&previous, cx, bufs, meta) {
+                Poll::Ready(Ok(n)) => return Poll::Ready(Ok(n)),
+                Poll::Ready(Err(_)) => continue,
+                Poll::Pending => return Poll::Pending,
+            }
         }
+        self.retire(&previous);
+        Poll::Pending
     }
 
     fn local_addr(&self) -> io::Result<SocketAddr> {
@@ -289,6 +320,106 @@ mod tests {
             assert_ne!(random_port(&ports, Some(2)), 2);
         }
         assert_eq!(random_port(&[7], Some(7)), 7);
+    }
+
+    /// A socket that gives what it was told to, in order, then waits.
+    #[derive(Debug)]
+    struct Scripted(std::sync::Mutex<std::collections::VecDeque<io::Result<Vec<u8>>>>);
+
+    impl Scripted {
+        fn new(script: Vec<io::Result<Vec<u8>>>) -> Arc<Self> {
+            Arc::new(Self(std::sync::Mutex::new(script.into())))
+        }
+
+        /// One that fails on every read.
+        fn failing() -> Arc<Self> {
+            let reset = || Err(io::Error::from(io::ErrorKind::ConnectionReset));
+            Self::new((0..64).map(|_| reset()).collect())
+        }
+    }
+
+    #[derive(Debug)]
+    struct Writable;
+
+    impl UdpPoller for Writable {
+        fn poll_writable(self: Pin<&mut Self>, _: &mut Context) -> Poll<io::Result<()>> {
+            Poll::Ready(Ok(()))
+        }
+    }
+
+    impl AsyncUdpSocket for Scripted {
+        fn create_io_poller(self: Arc<Self>) -> Pin<Box<dyn UdpPoller>> {
+            Box::pin(Writable)
+        }
+
+        fn try_send(&self, _: &Transmit) -> io::Result<()> {
+            Ok(())
+        }
+
+        fn poll_recv(
+            &self,
+            _: &mut Context,
+            bufs: &mut [IoSliceMut<'_>],
+            meta: &mut [RecvMeta],
+        ) -> Poll<io::Result<usize>> {
+            match self.0.lock().unwrap().pop_front() {
+                Some(Ok(datagram)) => {
+                    bufs[0][..datagram.len()].copy_from_slice(&datagram);
+                    meta[0] = RecvMeta {
+                        addr: SocketAddr::new(std::net::Ipv4Addr::LOCALHOST.into(), 2),
+                        len: datagram.len(),
+                        stride: datagram.len(),
+                        ..Default::default()
+                    };
+                    Poll::Ready(Ok(1))
+                }
+                Some(Err(e)) => Poll::Ready(Err(e)),
+                None => Poll::Pending,
+            }
+        }
+
+        fn local_addr(&self) -> io::Result<SocketAddr> {
+            Ok("127.0.0.1:1".parse().unwrap())
+        }
+    }
+
+    /// A hop socket whose current socket has nothing to read, and whose
+    /// previous one is `previous`.
+    fn hopped_from(previous: Arc<Scripted>) -> HopSocket {
+        let hop = HopSocket::new(std::net::Ipv4Addr::LOCALHOST.into(), vec![1, 2], previous);
+        hop.hop(Scripted::new(vec![]));
+        hop
+    }
+
+    fn recv(hop: &HopSocket, buf: &mut [u8]) -> Poll<io::Result<usize>> {
+        let mut cx = Context::from_waker(futures::task::noop_waker_ref());
+        let mut bufs = [IoSliceMut::new(buf)];
+        let mut meta = [RecvMeta::default()];
+        hop.poll_recv(&mut cx, &mut bufs, &mut meta)
+    }
+
+    /// An error of the previous socket is read past, to what came after it.
+    #[test]
+    fn the_previous_socket_is_read_past_an_error() {
+        let hop = hopped_from(Scripted::new(vec![
+            Err(io::ErrorKind::ConnectionReset.into()),
+            Ok(b"late".to_vec()),
+        ]));
+        let mut buf = [0u8; 16];
+        match recv(&hop, &mut buf) {
+            Poll::Ready(Ok(1)) => assert_eq!(&buf[..4], b"late"),
+            other => panic!("expected the late datagram, got {:?}", other),
+        }
+        assert!(hop.sockets().previous.is_some());
+    }
+
+    /// A previous socket that keeps failing is let go.
+    #[test]
+    fn a_failing_previous_socket_is_let_go() {
+        let hop = hopped_from(Scripted::failing());
+        let mut buf = [0u8; 16];
+        assert!(recv(&hop, &mut buf).is_pending());
+        assert!(hop.sockets().previous.is_none());
     }
 
     /// A connection keeps going across hops: between a server's own port,
