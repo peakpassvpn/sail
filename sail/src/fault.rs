@@ -32,6 +32,8 @@ mod armed {
     /// Where a fault can be armed.
     #[derive(Clone, Debug, PartialEq, Eq)]
     pub enum Point {
+        /// A contained task: the task of a TCP connection an inbound accepted.
+        ContainedTask,
         /// An essential task of an instance with a TUN.
         EssentialTask,
         /// The TUN's runner, on the instance's own thread.

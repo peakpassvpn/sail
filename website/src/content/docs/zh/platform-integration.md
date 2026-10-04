@@ -177,7 +177,7 @@ CLI 是最简单的宿主，即使最终产品嵌入库也很有用。先用它�
 
 ## 错误边界
 
-FFI 调用返回稳定的错误码：`SAIL_ERR_INVALID_ARGUMENT`、`SAIL_ERR_NO_INSTANCE`、`SAIL_ERR_STATE`、`SAIL_ERR_CONFIG`、`SAIL_ERR_IO`、`SAIL_ERR_NOT_FOUND`、`SAIL_ERR_UNSUPPORTED`、`SAIL_ERR_CANCELLED`、`SAIL_ERR_TIMEOUT`、`SAIL_ERR_WRONG_THREAD`、`SAIL_ERR_INTERNAL`、`SAIL_ERR_PANICKED`、`SAIL_ERR_NEEDS_RESTART`、`SAIL_ERR_TUN_NAME_TAKEN` 与 `SAIL_ERR_INBOUND_LOST`；头文件没有列出的错误码（来自更新的 Sail）按 `SAIL_ERR_INTERNAL` 处理。实例失败后，`sail_instance_state` 给出失败类别（`error_kind`）以及这次运行在系统里留下的东西（`left`，每项附手动清理的命令）；`sail_instance_stop_report` 给出上一次停止没能结束或撤销的内容。Sail 内部 panic 在 release 构建中会终止进程，与 libbox 中 Go panic 的行为相同；debug 构建会捕获它：实例以 `SAIL_ERR_PANICKED` 失败。
+FFI 调用返回稳定的错误码：`SAIL_ERR_INVALID_ARGUMENT`、`SAIL_ERR_NO_INSTANCE`、`SAIL_ERR_STATE`、`SAIL_ERR_CONFIG`、`SAIL_ERR_IO`、`SAIL_ERR_NOT_FOUND`、`SAIL_ERR_UNSUPPORTED`、`SAIL_ERR_CANCELLED`、`SAIL_ERR_TIMEOUT`、`SAIL_ERR_WRONG_THREAD`、`SAIL_ERR_INTERNAL`、`SAIL_ERR_PANICKED`、`SAIL_ERR_NEEDS_RESTART`、`SAIL_ERR_TUN_NAME_TAKEN` 与 `SAIL_ERR_INBOUND_LOST`；头文件没有列出的错误码（来自更新的 Sail）按 `SAIL_ERR_INTERNAL` 处理。实例失败后，`sail_instance_state` 给出失败类别（`error_kind`）以及这次运行在系统里留下的东西（`left`，每项附手动清理的命令）；`sail_instance_stop_report` 给出上一次停止没能结束或撤销的内容。XCFramework 与 AAR 在 panic 时会展开（unwind）：Sail 内部的 panic 不会结束 App 或网络扩展。连接任务中的 panic 只结束该任务（发出 `SAIL_EVENT_FAULT`），关键任务中的 panic 使实例以 `SAIL_ERR_PANICKED` 失败，调用本身的 panic 使该调用返回 `SAIL_ERR_PANICKED`。sail-cli 与路由器安装包遇到 panic 仍会终止进程。
 
 配置错误设计为可离线发现。在把新配置用于正在运行的 VPN 会话前，先运行 `sail_check_config` 与 `sail_test_outbounds`。
 

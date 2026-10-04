@@ -84,7 +84,9 @@ pub const SAIL_ERR_WRONG_THREAD: i32 = 10;
 /// this header does not name, from a newer sail, is taken as this one.
 pub const SAIL_ERR_INTERNAL: i32 = 11;
 /// An essential task of the instance panicked, or a lock a panic poisoned
-/// was met: the instance failed (`"error_kind": "panicked"`).
+/// was met: the instance failed (`"error_kind": "panicked"`); or the call
+/// itself panicked. Only in a build that unwinds, as the XCFramework and
+/// the AAR are: elsewhere a panic ends the process.
 pub const SAIL_ERR_PANICKED: i32 = 12;
 /// A reload adds, removes or changes what only a start sets up (a TUN):
 /// nothing changed; stop and start to apply it.
@@ -190,10 +192,22 @@ impl From<sail::control::ControlError> for Failure {
 }
 
 /// Runs an entry point: its code, and its message written to `err`. No
-/// panic unwinds into the host.
+/// panic unwinds into the host: one in the call itself fails the call with
+/// SAIL_ERR_PANICKED and what it said (in a build that unwinds, as the
+/// mobile libraries are; elsewhere a panic ends the process before this).
 pub(crate) fn call(err: *mut *mut c_char, body: impl FnOnce() -> Result<(), Failure>) -> i32 {
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(body))
-        .unwrap_or_else(|_| Err(Failure::new(SAIL_ERR_INTERNAL, "sail panicked")));
+    let result =
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(body)).unwrap_or_else(|panic| {
+            let what = panic
+                .downcast_ref::<&str>()
+                .map(|s| s.to_string())
+                .or_else(|| panic.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "a panic".to_string());
+            Err(Failure::new(
+                SAIL_ERR_PANICKED,
+                format!("sail panicked in this call: {}", what),
+            ))
+        });
     let (code, message) = match result {
         Ok(()) => (SAIL_OK, None),
         Err(f) => (f.code, Some(f.message)),
@@ -275,8 +289,11 @@ pub(crate) unsafe fn opt_str_arg<'a>(
 #[no_mangle]
 pub unsafe extern "C" fn sail_free_string(s: *mut c_char) {
     if !s.is_null() {
-        // SAFETY: sail made it with CString::into_raw.
-        drop(unsafe { CString::from_raw(s) });
+        // No panic unwinds into the host, as `call` keeps the rest.
+        let _ = std::panic::catch_unwind(|| {
+            // SAFETY: sail made it with CString::into_raw.
+            drop(unsafe { CString::from_raw(s) });
+        });
     }
 }
 
@@ -307,12 +324,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_panic_becomes_an_internal_error_with_its_message() {
+    fn a_panic_becomes_a_panicked_error_with_its_message() {
         let mut err = std::ptr::null_mut();
-        assert_eq!(call(&mut err, || panic!("boom")), SAIL_ERR_INTERNAL);
+        assert_eq!(call(&mut err, || panic!("boom")), SAIL_ERR_PANICKED);
         let message = unsafe { CStr::from_ptr(err) }.to_str().unwrap().to_owned();
         unsafe { sail_free_string(err) };
-        assert_eq!(message, "sail panicked");
+        assert_eq!(message, "sail panicked in this call: boom");
         assert_eq!(call(&mut err, || Ok(())), SAIL_OK);
         assert!(err.is_null());
         assert_eq!(

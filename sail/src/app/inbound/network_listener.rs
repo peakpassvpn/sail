@@ -313,6 +313,8 @@ async fn handle_tcp_listen(
         let nat_manager_cloned = nat_manager.clone();
         let removed = until_removed(removed_rx.clone());
         crate::runtime::scope::spawn("inbound tcp", async move {
+            #[cfg(feature = "fault-injection")]
+            fault_point!(crate::fault::Point::ContainedTask, "a connection's task");
             // Handle each TCP stream, for as long as its inbound is there.
             tokio::select! {
                 result = handle_inbound_tcp_stream(

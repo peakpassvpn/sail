@@ -160,6 +160,14 @@ jobs:
           SAIL_SCOPE_STRICT: "1"
         run: cargo test -p sail -p sail-netstack -p sail-ffi
 
+      # The mobile libraries' profile unwinds: a contained panic leaves the
+      # instance and the host process running. Built as dist-mobile is, but
+      # without LTO, which the panic strategy does not depend on.
+      - name: a panic in a mobile build
+        env:
+          CARGO_PROFILE_DIST_MOBILE_LTO: "false"
+        run: cargo test --locked -p sail --profile dist-mobile --features fault-injection --test test_panic_unwind
+
       - name: BoringSSL linked
         run: scripts/prebuilt-boringssl.sh --check "$(rustc -vV | sed -n 's/^host:[[:space:]]*//p')"
 

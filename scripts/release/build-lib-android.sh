@@ -24,6 +24,7 @@ SAIL_RUSTFLAGS+=" --remap-path-prefix=$(rustc --print sysroot)=/rust"
 SAIL_RUSTFLAGS+=" --print native-static-libs"
 export SAIL_RUSTFLAGS
 
-scripts/cross.sh "$target" build --locked --profile dist -p sail-ffi
+# dist-mobile: dist, unwinding on a panic (Cargo.toml).
+scripts/cross.sh "$target" build --locked --profile dist-mobile -p sail-ffi
 mkdir -p "$out/$abi"
-cp "target/$target/dist/libsail.a" "$out/$abi/libsail.a"
+cp "target/$target/dist-mobile/libsail.a" "$out/$abi/libsail.a"

@@ -41,6 +41,7 @@ CFG_COMMIT_DATE=$(git log --format="%ci" -n 1)
 sysroot=$(rustc --print sysroot)
 export RUSTFLAGS="--remap-path-prefix=$ROOT=/sail --remap-path-prefix=${CARGO_HOME:-$HOME/.cargo}=/cargo --remap-path-prefix=$sysroot=/rust"
 export CARGO_PROFILE_DIST_SPLIT_DEBUGINFO=packed
+export CARGO_PROFILE_DIST_MOBILE_SPLIT_DEBUGINFO=packed
 
 MACOS="aarch64-apple-darwin x86_64-apple-darwin"
 IOS=aarch64-apple-ios
@@ -58,7 +59,8 @@ cli() {
 		"$ROOT/scripts/release/package-cli.sh" "$target" "$version" "$work/$target/sail" "$out"
 }
 
-# sail-ffi's static library for one target, left in <out>/lib/<target>; it
+# sail-ffi's static library for one target, built with the dist-mobile
+# profile (dist, unwinding on a panic: Cargo.toml), left in <out>/lib/<target>; it
 # prints the system libraries it needs, which the module map links. The thin
 # library keeps its symbols but not its debug information (the app that
 # links it makes the dSYM); the full one goes with the symbols. Split before
@@ -66,9 +68,9 @@ cli() {
 slice() {
 	local target=$1
 	RUSTFLAGS="$RUSTFLAGS --print native-static-libs" \
-		cargo build --locked --profile dist -p sail-ffi --target "$target"
+		cargo build --locked --profile dist-mobile -p sail-ffi --target "$target"
 	mkdir -p "$out/lib/$target"
-	cp "target/$target/dist/libsail.a" "$out/lib/$target/libsail.a"
+	cp "target/$target/dist-mobile/libsail.a" "$out/lib/$target/libsail.a"
 	"$ROOT/scripts/release/split-symbols.sh" "$out/lib/$target/libsail.a" "$work/symbols-$target" >/dev/null
 	mv "$work/symbols-$target/libsail.a" "$out/symbols/libsail-$target.a"
 }

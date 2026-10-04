@@ -46,6 +46,19 @@ strip = false
 [profile.dist.package.btls-sys]
 debug = false
 
+# The mobile libraries, the XCFramework and the AAR: dist, unwinding on a
+# panic. In them a panic in sail is caught as docs/embed.md says (a task's
+# ends that task alone, an essential one fails the instance, what it changed
+# in the system is undone) and the app or the network extension lives on;
+# sail-cli, the routers' packages and the other dist builds still abort.
+# Decided 2026-10-04.
+[profile.dist-mobile]
+inherits = "dist"
+panic = "unwind"
+
+[profile.dist-mobile.package.btls-sys]
+debug = false
+
 # A router's build: every feature, smaller for its flash. Measured on
 # armv7 musl: 19.1 MB at dist, about 11 MB here; forwarding CPU on x86_64
 # within the judged limit (-2 to +6% per GiB for direct, ss and trojan).

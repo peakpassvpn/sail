@@ -498,16 +498,15 @@ in sail takes the host down. Assert it at start:
 `assert!(sail::embed::PANICS_ARE_CAUGHT)`. Under `panic = "abort"` any
 panic ends the process, as in sail-cli's release build.
 
-**The released libraries are built with `panic = "abort"`:** the
-XCFramework, the AAR and the C libraries a release ships, as sail-cli and
-the router packages. In them a panic anywhere in sail, in one connection's
-task as well, ends the host process (on iOS the network extension, which
-the system restarts only with on-demand rules; on Android the process the
-`VpnService` runs in), and nothing below holds: no task is caught, no
-teardown runs (the next start's sweep clears what the process left on
-Linux and macOS; Windows's filters go with the process). Everything this
-section says holds in a build with `panic = "unwind"`: a host that builds
-sail itself, or a debug build. `PANICS_ARE_CAUGHT` says which a host has.
+**Which released builds unwind.** The mobile libraries, the XCFramework
+and the AAR, are built with `panic = "unwind"` (the `dist-mobile` profile):
+in them all this section says holds, and the app or the network extension
+lives on a panic in sail. sail-cli, the router packages and the other
+release builds are built with `panic = "abort"`: there a panic anywhere in
+sail, in one connection's task as well, ends the process, and nothing
+below holds (the next start's sweep clears what the process left on Linux
+and macOS; Windows's filters go with the process). A host that builds sail
+itself chooses; `PANICS_ARE_CAUGHT` says which a build has.
 
 Every task sail runs for an instance is in the instance's scope, of one of
 two classes:

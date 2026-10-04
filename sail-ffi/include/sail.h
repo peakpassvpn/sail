@@ -84,7 +84,9 @@
 
 /*
  An essential task of the instance panicked, or a lock a panic poisoned
- was met: the instance failed (`"error_kind": "panicked"`).
+ was met: the instance failed (`"error_kind": "panicked"`); or the call
+ itself panicked. Only in a build that unwinds, as the XCFramework and
+ the AAR are: elsewhere a panic ends the process.
  */
 #define SAIL_ERR_PANICKED 12
 

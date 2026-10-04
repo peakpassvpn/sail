@@ -71,23 +71,23 @@ message. The codes are stable: `SAIL_ERR_INVALID_ARGUMENT`,
 `SAIL_ERR_CONFIG`, `SAIL_ERR_IO`, `SAIL_ERR_NOT_FOUND`,
 `SAIL_ERR_UNSUPPORTED`, `SAIL_ERR_CANCELLED`, `SAIL_ERR_TIMEOUT`,
 `SAIL_ERR_WRONG_THREAD`, `SAIL_ERR_INTERNAL`, `SAIL_ERR_PANICKED` (an
-essential task panicked: the instance failed; only in a build with
-`panic = "unwind"`, as debug builds are: the released library aborts on a
-panic), `SAIL_ERR_NEEDS_RESTART` (a
+essential task panicked and the instance failed, or the call itself
+panicked; in a build that unwinds, as the XCFramework and the AAR are), `SAIL_ERR_NEEDS_RESTART` (a
 reload changes what only a start sets up), `SAIL_ERR_TUN_NAME_TAKEN`,
 `SAIL_ERR_INBOUND_LOST` (a reload lost an inbound it was replacing). A code
 the host's header does not name, from a newer sail, is taken as
 `SAIL_ERR_INTERNAL`.
 
-**Panics.** The released library (the XCFramework, the AAR, the C
-library of a release) is built with `panic = "abort"`: a panic anywhere in
-sail ends the host process, whichever call or task it is in, and no
-`SAIL_ERR_PANICKED`, no `SAIL_EVENT_FAULT`, no teardown follows. On iOS
-the network extension ends (the system restarts it only with on-demand
-rules); on Android the process the `VpnService` runs in ends. What
-docs/embed.md says of panics (a task's ends that task alone, an essential
-one fails the instance, what it changed in the system is undone) holds in
-a build with `panic = "unwind"` only, as debug builds are.
+**Panics.** The XCFramework and the AAR are built with `panic =
+"unwind"` (the `dist-mobile` profile): a panic in sail never ends the app
+or the network extension. A panic in a task of the instance's is told as
+`SAIL_EVENT_FAULT`; one in a contained task ends that task alone, one in
+an essential task fails the instance (`"error_kind": "panicked"`, what it
+changed in the system undone, as docs/embed.md says). A panic in a call
+itself fails the call with `SAIL_ERR_PANICKED`; none unwinds into the
+host. A C library built with `panic = "abort"`, as sail-cli and the
+router packages are, ends its process on any panic instead, and none of
+this follows.
 
 **Failures and stops.** `sail_instance_state` gives a failure's kind
 (`"error_kind"`) and what the failed run's teardown left in the system
