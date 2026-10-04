@@ -38,9 +38,11 @@ config() { # extra-fields name
 JSON
 }
 
+# The utun the start routed: auto_route logs its routes once they are all
+# in, after the utun is up (waiting for "is up" read the routes too soon).
 up_name() { # log -> the name the start logged
   for _ in $(seq 1 150); do
-    name=$(sed -n 's/.*inbound: tun \(utun[0-9]*\) is up.*/\1/p' "$1" 2>/dev/null | head -1)
+    name=$(sed -n 's/.*auto_route: [0-9]* routes into \(utun[0-9]*\).*/\1/p' "$1" 2>/dev/null | head -1)
     [ -n "$name" ] && { echo "$name"; return 0; }
     sleep 0.1
   done
@@ -99,7 +101,7 @@ echo "== interfaces before"; ifconfig -l
 echo "== 1: no interface_name: a free utun is chosen"
 config "" a
 sudo -n "$SAIL" -c "$W/a.json" > "$W/a.out" 2>&1 & SUDO_A=$!
-NAME=$(up_name "$W/a.log") || fail "no 'tun ... is up' line"
+NAME=$(up_name "$W/a.log") || fail "no 'auto_route: ... routes into' line"
 A=$(sail_pid "$SUDO_A") || fail "no sail under sudo $SUDO_A"
 echo "chosen: $NAME (sail pid $A)"
 ifconfig "$NAME" >/dev/null || fail "$NAME does not exist"
@@ -135,7 +137,7 @@ routes_gone "$NAME"
 echo "== 4: a second unset start chooses again, and stops cleanly"
 config "" c
 sudo -n "$SAIL" -c "$W/c.json" > "$W/c.out" 2>&1 & SUDO_C=$!
-NAME2=$(up_name "$W/c.log") || fail "no 'tun ... is up' line on the second start"
+NAME2=$(up_name "$W/c.log") || fail "no 'auto_route: ... routes into' line on the second start"
 C=$(sail_pid "$SUDO_C") || fail "no sail under sudo $SUDO_C"
 echo "chosen: $NAME2 (sail pid $C)"
 routes_through "$NAME2"
@@ -152,7 +154,7 @@ sudo -n route -n add -net 198.18.0.0/15 "$GW"
 echo "before: 198.18.0.1 through $(via inet 198.18.0.1)"
 config "" e
 sudo -n "$SAIL" -c "$W/e.json" > "$W/e.out" 2>&1 & SUDO_E=$!
-NAME5=$(up_name "$W/e.log") || fail "no 'tun ... is up' line"
+NAME5=$(up_name "$W/e.log") || fail "no 'auto_route: ... routes into' line"
 E=$(sail_pid "$SUDO_E") || fail "no sail under sudo $SUDO_E"
 echo "while up: 198.18.0.1 through $(via inet 198.18.0.1)"
 grep -h "replaced the route" "$W/e.log" || fail "no warning naming the route replaced"

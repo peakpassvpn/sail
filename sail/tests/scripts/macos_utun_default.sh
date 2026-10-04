@@ -40,9 +40,11 @@ JSON
 
 via() { route -n get -"$1" "$2" 2>/dev/null | sed -n 's/^ *interface: //p'; }
 
+# The utun the start routed: auto_route logs its routes once they are all
+# in, after the utun is up (waiting for "is up" read the routes too soon).
 up_name() {
   for _ in $(seq 1 150); do
-    name=$(sed -n 's/.*inbound: tun \(utun[0-9]*\) is up.*/\1/p' "$1" 2>/dev/null | head -1)
+    name=$(sed -n 's/.*auto_route: [0-9]* routes into \(utun[0-9]*\).*/\1/p' "$1" 2>/dev/null | head -1)
     [ -n "$name" ] && { echo "$name"; return 0; }
     sleep 0.1
   done
@@ -58,7 +60,7 @@ run_once() { # how it ends: TERM or KILL
   # The watchdog first: whatever happens, sail is gone in 60 s.
   (sleep 60; sudo -n pkill -9 -f "^$SAIL -c $W/") & watchdog=$!
   sudo -n "$SAIL" -c "$W/d.json" > "$W/d.out" 2>&1 &
-  name=$(up_name "$W/d.log") || fail "no 'tun ... is up' line"
+  name=$(up_name "$W/d.log") || fail "no 'auto_route: ... routes into' line"
   pid=$(pgrep -f "^$SAIL -c $W/d.json" | head -1)
   sleep 1
   echo "== up as $name; the table now, against before:"
