@@ -747,3 +747,111 @@ jobs:
         if: always()
         timeout-minutes: 10
         run: SAIL=target/aarch64-apple-darwin/debug/sail sail/tests/scripts/macos_utun_default.sh
+
+  # The Linux netns suites (sail/tests/scripts/*_netns.sh), as root on a
+  # runner, each in network namespaces of its own: the TUN with auto_route
+  # and auto_redirect, what a failing instance leaves (in-process, feature
+  # fault-injection), a kill's leftovers swept, tproxy, and a network
+  # switch. Like tun-macos: on master, by hand, and on branches touching
+  # them. The runner has all they need (measured: tun, nf_tables, nft_redir,
+  # nft_tproxy, nf_tproxy_ipv4/6, nft_socket, nft_queue, nfnetlink_queue,
+  # nft_fib, nft_ct load; /dev/net/tun; systemd-resolved; nftables 1.0.9
+  # installed if missing), so nothing of the suites is left to the test
+  # host. tproxy alone does not fail the job yet: it fails on master, here
+  # and on the test host alike (a regression since it was added), and is
+  # shown until its fix lands.
+  netns-linux-paths:
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.paths.outputs.run }}
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: what changed
+        id: paths
+        run: |
+          if [ "$GITHUB_REF" = refs/heads/master ] || [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            echo run=true >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+          base=$(git merge-base HEAD origin/master)
+          git diff --name-only "$base" HEAD | tee changed.txt
+          if grep -qE '^(sail/src/protocol/tun/|sail/src/net/netstack/|sail/src/platform/|sail/src/runtime/|sail/src/fault\.rs|sail/tests/scripts/[a-z_]+_netns\.sh|sail/tests/test_[a-z_]+_linux\.rs|sail/tests/test_teardown\.rs|\.github/workflows/ci\.yml$)' changed.txt; then
+            echo run=true >>"$GITHUB_OUTPUT"
+          else
+            echo run=false >>"$GITHUB_OUTPUT"
+          fi
+
+  netns-linux:
+    needs: netns-linux-paths
+    if: needs.netns-linux-paths.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CARGO_PROFILE_DEV_DEBUG: 0
+      CARGO_INCREMENTAL: 0
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: install rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+
+      # The fork's BoringSSL, as the header says.
+      - name: prebuilt BoringSSL
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/prebuilt-boringssl.sh "$(rustc -vV | sed -n 's/^host:[[:space:]]*//p')"
+
+      - name: cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+
+      # What the suites need of the kernel and the system, said in the log
+      # whether there or not: a missing one shows here before a test fails.
+      - name: what the runner has
+        run: |
+          uname -r
+          command -v nft >/dev/null || sudo apt-get install -y -qq nftables
+          nft --version
+          for module in tun nf_tables nft_redir nft_tproxy nf_tproxy_ipv4 nf_tproxy_ipv6 \
+              nft_socket nft_queue nfnetlink_queue nft_fib nft_ct; do
+            if sudo modprobe "$module" 2>/dev/null; then echo "module $module: loaded"; else echo "module $module: MISSING"; fi
+          done
+          ls -l /dev/net/tun
+          resolvectl status 2>&1 | head -4 || true
+
+      # As the runner, so that the suites' own builds, as root, find it done.
+      - name: build
+        id: build
+        run: |
+          cargo build --locked -p sail-cli
+          cargo test --locked -p sail --no-run --test test_auto_redirect_linux \
+            --test test_auto_route_linux --test test_network_switch_linux --test test_tproxy_linux
+          cargo test --locked -p sail --features fault-injection --test test_teardown --no-run
+
+      - name: auto_redirect, and what a failing instance leaves
+        if: always() && steps.build.outcome == 'success'
+        run: sudo -E env "PATH=$PATH" sail/tests/scripts/auto_redirect_netns.sh
+
+      - name: auto_route
+        if: always() && steps.build.outcome == 'success'
+        run: sudo -E env "PATH=$PATH" sail/tests/scripts/auto_route_netns.sh
+
+      - name: tproxy
+        if: always() && steps.build.outcome == 'success'
+        # Until the regression is fixed: see the header.
+        continue-on-error: true
+        run: sudo -E env "PATH=$PATH" sail/tests/scripts/tproxy_netns.sh
+
+      - name: a network switch
+        if: always() && steps.build.outcome == 'success'
+        run: sudo -E env "PATH=$PATH" sail/tests/scripts/network_switch_netns.sh
