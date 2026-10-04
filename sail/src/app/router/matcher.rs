@@ -1060,7 +1060,7 @@ impl Conditions {
         let asns = match rule.ip_asn.is_empty() {
             true => None,
             false => {
-                let mut numbers = rule.ip_asn.clone();
+                let mut numbers = rule.ip_asn.to_vec();
                 numbers.sort_unstable();
                 numbers.dedup();
                 Some(Asns {
@@ -1149,7 +1149,7 @@ impl Conditions {
                 .collect::<Result<Vec<_>>>()
         };
         let parts = Parts {
-            inbounds: rule.inbound.clone(),
+            inbounds: rule.inbound.to_vec(),
             ip_version,
             networks: rule
                 .network
@@ -1160,7 +1160,7 @@ impl Conditions {
                     _ => Err(anyhow!("{}: unknown network \"{}\"", field("network"), net)),
                 })
                 .collect::<Result<_>>()?,
-            auth_users: rule.auth_user.clone(),
+            auth_users: rule.auth_user.to_vec(),
             protocols: rule
                 .protocol
                 .iter()
@@ -1191,14 +1191,14 @@ impl Conditions {
                 "source_port_range",
             )?,
             ports: ports(&rule.port, &rule.port_range, "port_range")?,
-            process_names: rule.process_name.clone(),
-            process_paths: rule.process_path.clone(),
+            process_names: rule.process_name.to_vec(),
+            process_paths: rule.process_path.to_vec(),
             process_path_regex: patterns(&field("process_path_regex"), &rule.process_path_regex)?,
             process_name_regex: patterns(&field("process_name_regex"), &rule.process_name_regex)?,
-            package_names: rule.package_name.clone(),
+            package_names: rule.package_name.to_vec(),
             package_name_regex: patterns(&field("package_name_regex"), &rule.package_name_regex)?,
-            process_users: rule.user.clone(),
-            process_user_ids: rule.user_id.clone(),
+            process_users: rule.user.to_vec(),
+            process_user_ids: rule.user_id.to_vec(),
             http_user_agent: patterns(
                 &field("http_user_agent"),
                 &rule
@@ -1221,13 +1221,13 @@ impl Conditions {
             } else {
                 extras.query_types
             },
-            preferred_by: rule.preferred_by.clone(),
+            preferred_by: rule.preferred_by.to_vec(),
             source_macs: rule
                 .source_mac_address
                 .iter()
                 .map(|m| normalized_mac(m))
                 .collect(),
-            source_hostnames: rule.source_hostname.clone(),
+            source_hostnames: rule.source_hostname.to_vec(),
             network: NetworkConditions::compile(rule, path)?,
             #[cfg(feature = "rule-set")]
             rule_sets,
@@ -1778,9 +1778,9 @@ pub(crate) mod tests {
     #[test]
     fn domains_match_by_kind() {
         let m = matcher(model::Rule {
-            domain: vec!["exact.org".into()],
-            domain_suffix: vec!["google.com".into(), ".cn".into()],
-            domain_keyword: vec!["tube".into()],
+            domain: vec!["exact.org".into()].into(),
+            domain_suffix: vec!["google.com".into(), ".cn".into()].into(),
+            domain_keyword: vec!["tube".into()].into(),
             ..Default::default()
         });
         assert!(m.matches(&domain("exact.org", 80)));
@@ -1802,7 +1802,8 @@ pub(crate) mod tests {
                 "192.168.0.0/16".into(),
                 "10.0.0.1/32".into(),
                 "fd00::/8".into(),
-            ],
+            ]
+            .into(),
             ..Default::default()
         });
         assert!(m.matches(&ip("192.168.1.100", 80)));
@@ -1820,7 +1821,7 @@ pub(crate) mod tests {
     #[test]
     fn a_suffix_with_a_leading_dot_matches_subdomains_only() {
         let m = matcher(model::Rule {
-            domain_suffix: vec![".dot.example".into(), "plain.example".into()],
+            domain_suffix: vec![".dot.example".into(), "plain.example".into()].into(),
             ..Default::default()
         });
         assert!(!m.matches(&domain("dot.example", 80)));
@@ -1835,9 +1836,9 @@ pub(crate) mod tests {
     #[test]
     fn destination_conditions_are_alternatives() {
         let m = matcher(model::Rule {
-            domain_suffix: vec!["example.com".into()],
-            ip_cidr: vec!["10.0.0.0/8".into()],
-            port: vec![443],
+            domain_suffix: vec!["example.com".into()].into(),
+            ip_cidr: vec!["10.0.0.0/8".into()].into(),
+            port: vec![443].into(),
             ..Default::default()
         });
         assert!(m.matches(&domain("example.com", 443)));
@@ -1856,10 +1857,10 @@ pub(crate) mod tests {
     #[test]
     fn ports_networks_and_inbounds() {
         let m = matcher(model::Rule {
-            port: vec![22],
-            port_range: vec!["1024:5000".into()],
-            network: vec!["tcp".into()],
-            inbound: vec!["socks".into()],
+            port: vec![22].into(),
+            port_range: vec!["1024:5000".into()].into(),
+            network: vec!["tcp".into()].into(),
+            inbound: vec!["socks".into()].into(),
             ..Default::default()
         });
         let mut sess = Session {
@@ -1883,7 +1884,7 @@ pub(crate) mod tests {
     #[test]
     fn users_match_by_name() {
         let m = matcher(model::Rule {
-            auth_user: vec!["alice".into()],
+            auth_user: vec!["alice".into()].into(),
             ..Default::default()
         });
         let mut sess = Session::default();
@@ -1899,14 +1900,14 @@ pub(crate) mod tests {
         for (rule, message) in [
             (
                 model::Rule {
-                    ip_cidr: vec!["10.0.0.0/33".into()],
+                    ip_cidr: vec!["10.0.0.0/33".into()].into(),
                     ..Default::default()
                 },
                 "ip_cidr: invalid CIDR",
             ),
             (
                 model::Rule {
-                    network: vec!["sctp".into()],
+                    network: vec!["sctp".into()].into(),
                     ..Default::default()
                 },
                 "network: unknown network",

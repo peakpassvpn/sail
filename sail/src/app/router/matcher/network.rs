@@ -83,7 +83,7 @@ impl NetworkConditions {
             }
         }
         Ok(NetworkConditions {
-            ssid: rule.wifi_ssid.clone(),
+            ssid: rule.wifi_ssid.to_vec(),
             ssid_regex: super::patterns(&field("wifi_ssid_regex"), &rule.wifi_ssid_regex)?,
             bssid,
             bssid_regex: caseless(&field("wifi_bssid_regex"), &rule.wifi_bssid_regex)?,
@@ -91,7 +91,7 @@ impl NetworkConditions {
             expensive: rule.network_is_expensive,
             constrained: rule.network_is_constrained,
             gateways,
-            mcc_mnc: rule.network_mcc_mnc.clone(),
+            mcc_mnc: rule.network_mcc_mnc.to_vec(),
         })
     }
 

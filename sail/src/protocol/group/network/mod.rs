@@ -78,15 +78,15 @@ impl Branch {
     /// Its conditions, as a routing rule has them.
     fn rule(&self) -> model::Rule {
         model::Rule {
-            wifi_ssid: self.wifi_ssid.clone(),
-            wifi_bssid: self.wifi_bssid.clone(),
-            network_type: self.network_type.clone(),
+            wifi_ssid: self.wifi_ssid.clone().into(),
+            wifi_bssid: self.wifi_bssid.clone().into(),
+            network_type: self.network_type.clone().into(),
             network_is_expensive: self.network_is_expensive,
             network_is_constrained: self.network_is_constrained,
-            wifi_ssid_regex: self.wifi_ssid_regex.clone(),
-            wifi_bssid_regex: self.wifi_bssid_regex.clone(),
-            network_gateway: self.network_gateway.clone(),
-            network_mcc_mnc: self.network_mcc_mnc.clone(),
+            wifi_ssid_regex: self.wifi_ssid_regex.clone().into(),
+            wifi_bssid_regex: self.wifi_bssid_regex.clone().into(),
+            network_gateway: self.network_gateway.clone().into(),
+            network_mcc_mnc: self.network_mcc_mnc.clone().into(),
             ..Default::default()
         }
     }

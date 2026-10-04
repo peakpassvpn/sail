@@ -1175,54 +1175,54 @@ impl DnsRule {
     fn combined_conditions(&self) -> Rule {
         Rule {
             kind: self.kind,
-            query_type: self.query_type.clone(),
-            preferred_by: self.preferred_by.clone(),
+            query_type: self.query_type.clone().into(),
+            preferred_by: self.preferred_by.clone().into(),
             clash_mode: self.clash_mode.clone(),
-            inbound: self.inbound.clone(),
+            inbound: self.inbound.clone().into(),
             ip_version: self.ip_version,
-            network: self.network.clone(),
-            auth_user: self.auth_user.clone(),
-            protocol: self.protocol.clone(),
-            domain: self.domain.clone(),
-            domain_suffix: self.domain_suffix.clone(),
-            domain_keyword: self.domain_keyword.clone(),
-            domain_regex: self.domain_regex.clone(),
-            geosite: self.geosite.clone(),
-            external: self.external.clone(),
-            source_ip_cidr: self.source_ip_cidr.clone(),
+            network: self.network.clone().into(),
+            auth_user: self.auth_user.clone().into(),
+            protocol: self.protocol.clone().into(),
+            domain: self.domain.clone().into(),
+            domain_suffix: self.domain_suffix.clone().into(),
+            domain_keyword: self.domain_keyword.clone().into(),
+            domain_regex: self.domain_regex.clone().into(),
+            geosite: self.geosite.clone().into(),
+            external: self.external.clone().into(),
+            source_ip_cidr: self.source_ip_cidr.clone().into(),
             source_ip_is_private: self.source_ip_is_private,
-            source_mac_address: self.source_mac_address.clone(),
-            source_hostname: self.source_hostname.clone(),
-            source_port: self.source_port.clone(),
-            source_port_range: self.source_port_range.clone(),
-            port: self.port.clone(),
-            port_range: self.port_range.clone(),
-            process_name: self.process_name.clone(),
-            process_path: self.process_path.clone(),
-            process_path_regex: self.process_path_regex.clone(),
-            process_name_regex: self.process_name_regex.clone(),
-            package_name: self.package_name.clone(),
-            package_name_regex: self.package_name_regex.clone(),
-            user: self.user.clone(),
-            user_id: self.user_id.clone(),
-            wifi_ssid: self.wifi_ssid.clone(),
-            wifi_bssid: self.wifi_bssid.clone(),
-            network_type: self.network_type.clone(),
+            source_mac_address: self.source_mac_address.clone().into(),
+            source_hostname: self.source_hostname.clone().into(),
+            source_port: self.source_port.clone().into(),
+            source_port_range: self.source_port_range.clone().into(),
+            port: self.port.clone().into(),
+            port_range: self.port_range.clone().into(),
+            process_name: self.process_name.clone().into(),
+            process_path: self.process_path.clone().into(),
+            process_path_regex: self.process_path_regex.clone().into(),
+            process_name_regex: self.process_name_regex.clone().into(),
+            package_name: self.package_name.clone().into(),
+            package_name_regex: self.package_name_regex.clone().into(),
+            user: self.user.clone().into(),
+            user_id: self.user_id.clone().into(),
+            wifi_ssid: self.wifi_ssid.clone().into(),
+            wifi_bssid: self.wifi_bssid.clone().into(),
+            network_type: self.network_type.clone().into(),
             network_is_expensive: self.network_is_expensive,
             network_is_constrained: self.network_is_constrained,
-            wifi_ssid_regex: self.wifi_ssid_regex.clone(),
-            wifi_bssid_regex: self.wifi_bssid_regex.clone(),
-            network_gateway: self.network_gateway.clone(),
-            network_mcc_mnc: self.network_mcc_mnc.clone(),
-            rule_set: self.rule_set.clone(),
+            wifi_ssid_regex: self.wifi_ssid_regex.clone().into(),
+            wifi_bssid_regex: self.wifi_bssid_regex.clone().into(),
+            network_gateway: self.network_gateway.clone().into(),
+            network_mcc_mnc: self.network_mcc_mnc.clone().into(),
+            rule_set: self.rule_set.clone().into(),
             rule_set_ip_cidr_match_source: self.rule_set_ip_cidr_match_source,
-            ip_cidr: self.ip_cidr.clone(),
+            ip_cidr: self.ip_cidr.clone().into(),
             ip_is_private: self.ip_is_private,
             ip_accept_any: self.ip_accept_any,
             response_rcode: self.response_rcode.map(|r| r.0),
-            response_answer: self.response_answer.clone(),
-            response_ns: self.response_ns.clone(),
-            response_extra: self.response_extra.clone(),
+            response_answer: self.response_answer.clone().into(),
+            response_ns: self.response_ns.clone().into(),
+            response_extra: self.response_extra.clone().into(),
             match_response: self.match_response.clone(),
             invert: self.invert,
             mode: self.mode,
@@ -2080,7 +2080,11 @@ impl GroupProviders {
 #[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Route {
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(
+        default,
+        deserialize_with = "exactly::deserialize",
+        skip_serializing_if = "Vec::is_empty"
+    )]
     pub rules: Vec<Rule>,
     /// The rule-sets rules name, by tag.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -2231,67 +2235,67 @@ pub struct Rule {
 
     /// Record types, by name (`A`, `AAAA`, `HTTPS`) or number: of a DNS
     /// query, and so never of a connection.
-    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
-    pub query_type: Vec<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "List::is_empty")]
+    pub query_type: List<serde_json::Value>,
     /// Tags of DNS servers, one of which prefers the name: of a DNS query,
     /// and so never of a connection.
-    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
-    pub preferred_by: Vec<String>,
+    #[serde(default, skip_serializing_if = "List::is_empty")]
+    pub preferred_by: List<String>,
     /// The mode of Clash's API: matches while it is that, whatever the
     /// case; never without an API.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub clash_mode: Option<String>,
     /// Tags of the inbounds a connection came in through.
-    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
-    pub inbound: Vec<String>,
+    #[serde(default, skip_serializing_if = "List::is_empty")]
+    pub inbound: List<String>,
     /// 4 or 6: the family of the destination address.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ip_version: Option<u8>,
     /// `tcp`, `udp`.
-    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
-    pub network: Vec<String>,
+    #[serde(default, skip_serializing_if = "List::is_empty")]
+    pub network: List<String>,
     /// Names of the users an inbound authenticated.
-    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
-    pub auth_user: Vec<String>,
+    #[serde(default, skip_serializing_if = "List::is_empty")]
+    pub auth_user: List<String>,
     /// The protocols a `sniff` rule found, by sing-box's names: `tls`,
     /// `http`, `quic`, `dns`, `stun`, `bittorrent`, `dtls`.
-    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
-    pub protocol: Vec<String>,
-    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
-    pub domain: Vec<String>,
-    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
-    pub domain_suffix: Vec<String>,
-    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
-    pub domain_keyword: Vec<String>,
-    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
-    pub domain_regex: Vec<String>,
+    #[serde(default, skip_serializing_if = "List::is_empty")]
+    pub protocol: List<String>,
+    #[serde(default, skip_serializing_if = "List::is_empty")]
+    pub domain: List<String>,
+    #[serde(default, skip_serializing_if = "List::is_empty")]
+    pub domain_suffix: List<String>,
+    #[serde(default, skip_serializing_if = "List::is_empty")]
+    pub domain_keyword: List<String>,
+    #[serde(default, skip_serializing_if = "List::is_empty")]
+    pub domain_regex: List<String>,
     /// Site groups, looked up in `site.dat` in the asset directory. A sail
     /// extension: sing-box has dropped its GeoIP and GeoSite databases.
-    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
-    pub geosite: Vec<String>,
+    #[serde(default, skip_serializing_if = "List::is_empty")]
+    pub geosite: List<String>,
     /// Country codes, looked up in `geo.mmdb` in the asset directory; a
     /// sail extension, as `geosite` is.
-    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
-    pub geoip: Vec<String>,
+    #[serde(default, skip_serializing_if = "List::is_empty")]
+    pub geoip: List<String>,
     /// A sail extension: `mmdb:<file>:<code>` or `site:<file>:<code>`, for
     /// data files other than the default ones.
-    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
-    pub external: Vec<String>,
-    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
-    pub source_ip_cidr: Vec<String>,
+    #[serde(default, skip_serializing_if = "List::is_empty")]
+    pub external: List<String>,
+    #[serde(default, skip_serializing_if = "List::is_empty")]
+    pub source_ip_cidr: List<String>,
     /// The source address is not a public one.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub source_ip_is_private: bool,
     /// MAC addresses of the LAN device the connection comes from, as the
     /// neighbor table and DHCP leases know it (sing-box's, since 1.14).
-    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
-    pub source_mac_address: Vec<String>,
+    #[serde(default, skip_serializing_if = "List::is_empty")]
+    pub source_mac_address: List<String>,
     /// Host names of the LAN device the connection comes from, as its DHCP
     /// lease has it.
-    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
-    pub source_hostname: Vec<String>,
-    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
-    pub ip_cidr: Vec<String>,
+    #[serde(default, skip_serializing_if = "List::is_empty")]
+    pub source_hostname: List<String>,
+    #[serde(default, skip_serializing_if = "List::is_empty")]
+    pub ip_cidr: List<String>,
     /// The destination address, or one the domain resolved to, is not a
     /// public one.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -2299,19 +2303,19 @@ pub struct Rule {
     /// A sail extension, for Surge's `USER-AGENT`: patterns the User-Agent
     /// of a plain HTTP request a `sniff` rule read matches, whole and with
     /// case, `*` any run of characters and `?` any one.
-    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
-    pub http_user_agent: Vec<String>,
+    #[serde(default, skip_serializing_if = "List::is_empty")]
+    pub http_user_agent: List<String>,
     /// A sail extension, for Surge's `URL-REGEX`: regular expressions found
     /// in the URL of a plain HTTP request a `sniff` rule read,
     /// `http://host/path?query`.
-    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
-    pub url_regex: Vec<String>,
+    #[serde(default, skip_serializing_if = "List::is_empty")]
+    pub url_regex: List<String>,
     /// A sail extension, for Surge's `IP-ASN`: the autonomous systems the
     /// destination address, or one the domain resolved to, belongs to, as
     /// `asn.mmdb` in the asset directory (GeoLite2-ASN's format, or
     /// ipinfo's) has them.
-    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
-    pub ip_asn: Vec<u32>,
+    #[serde(default, skip_serializing_if = "List::is_empty")]
+    pub ip_asn: List<u32>,
     /// A DNS rule's: the response it matches has an address.
     #[serde(skip)]
     pub ip_accept_any: bool,
@@ -2322,65 +2326,65 @@ pub struct Rule {
     /// among its answers, as the configuration writes them; parsed when
     /// the rule is compiled.
     #[serde(skip)]
-    pub response_answer: Vec<String>,
+    pub response_answer: List<String>,
     /// A DNS rule's: among its name servers.
     #[serde(skip)]
-    pub response_ns: Vec<String>,
+    pub response_ns: List<String>,
     /// A DNS rule's: among its additional records.
     #[serde(skip)]
-    pub response_extra: Vec<String>,
+    pub response_extra: List<String>,
     /// A DNS rule's, combined by a logical one: the evaluated response it
     /// matches, rather than the one of the rule it is within.
     #[serde(skip)]
     pub match_response: Option<ResponseRef>,
-    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
-    pub source_port: Vec<u16>,
+    #[serde(default, skip_serializing_if = "List::is_empty")]
+    pub source_port: List<u16>,
     /// Inclusive port ranges, as `port_range` writes them.
-    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
-    pub source_port_range: Vec<String>,
-    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
-    pub port: Vec<u16>,
+    #[serde(default, skip_serializing_if = "List::is_empty")]
+    pub source_port_range: List<String>,
+    #[serde(default, skip_serializing_if = "List::is_empty")]
+    pub port: List<u16>,
     /// Inclusive port ranges, as sing-box writes them: `1000:2000`, `:1024`,
     /// `8000:`.
-    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
-    pub port_range: Vec<String>,
+    #[serde(default, skip_serializing_if = "List::is_empty")]
+    pub port_range: List<String>,
     /// The name of the program a connection comes from, its path's last
     /// part.
-    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
-    pub process_name: Vec<String>,
-    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
-    pub process_path: Vec<String>,
-    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
-    pub process_path_regex: Vec<String>,
+    #[serde(default, skip_serializing_if = "List::is_empty")]
+    pub process_name: List<String>,
+    #[serde(default, skip_serializing_if = "List::is_empty")]
+    pub process_path: List<String>,
+    #[serde(default, skip_serializing_if = "List::is_empty")]
+    pub process_path_regex: List<String>,
     /// A sail extension, as Mihomo's `PROCESS-NAME-REGEX`: regular
     /// expressions the program's name, its path's last part, matches.
-    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
-    pub process_name_regex: Vec<String>,
+    #[serde(default, skip_serializing_if = "List::is_empty")]
+    pub process_name_regex: List<String>,
     /// Android packages: the app the host says opened the connection
     /// (`find_connection_owner`); an error without a host that tells.
-    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
-    pub package_name: Vec<String>,
-    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
-    pub package_name_regex: Vec<String>,
+    #[serde(default, skip_serializing_if = "List::is_empty")]
+    pub package_name: List<String>,
+    #[serde(default, skip_serializing_if = "List::is_empty")]
+    pub package_name_regex: List<String>,
     /// The user a connection's app runs as, by name and by id, as the host
     /// tells it; an error without a host that tells.
-    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
-    pub user: Vec<String>,
-    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
-    pub user_id: Vec<i32>,
+    #[serde(default, skip_serializing_if = "List::is_empty")]
+    pub user: List<String>,
+    #[serde(default, skip_serializing_if = "List::is_empty")]
+    pub user_id: List<i32>,
     /// The name of the Wi-Fi network the host is on, whole and with case.
     /// This and the other conditions on the network match the network as
     /// the host tells it or sail detects it at the time; one on something
     /// not known of it does not match.
-    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
-    pub wifi_ssid: Vec<String>,
+    #[serde(default, skip_serializing_if = "List::is_empty")]
+    pub wifi_ssid: List<String>,
     /// The address of the Wi-Fi access point, `aa:bb:cc:dd:ee:ff`, in any
     /// case, with `:` or `-`, or as 12 hex digits.
-    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
-    pub wifi_bssid: Vec<String>,
+    #[serde(default, skip_serializing_if = "List::is_empty")]
+    pub wifi_bssid: List<String>,
     /// The kind of network: `wifi`, `cellular`, `ethernet`, `other`.
-    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
-    pub network_type: Vec<String>,
+    #[serde(default, skip_serializing_if = "List::is_empty")]
+    pub network_type: List<String>,
     /// The network is metered, as the system says.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub network_is_expensive: bool,
@@ -2389,23 +2393,23 @@ pub struct Rule {
     pub network_is_constrained: bool,
     /// A sail extension, for Surge's `SSID:`: regular expressions found in
     /// the Wi-Fi network's name, with case.
-    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
-    pub wifi_ssid_regex: Vec<String>,
+    #[serde(default, skip_serializing_if = "List::is_empty")]
+    pub wifi_ssid_regex: List<String>,
     /// A sail extension, for Surge's `BSSID:`: regular expressions found in
     /// the access point's address as `aa:bb:cc:dd:ee:ff`, whatever the case.
-    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
-    pub wifi_bssid_regex: Vec<String>,
+    #[serde(default, skip_serializing_if = "List::is_empty")]
+    pub wifi_bssid_regex: List<String>,
     /// A sail extension, for Surge's `ROUTER:`: the address of the default
     /// gateway.
-    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
-    pub network_gateway: Vec<String>,
+    #[serde(default, skip_serializing_if = "List::is_empty")]
+    pub network_gateway: List<String>,
     /// A sail extension, for Surge's `MCCMNC:` and `CELLULAR-CARRIER`: the
     /// cellular carrier, its MCC and MNC as 5 or 6 digits; only off Wi-Fi.
-    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
-    pub network_mcc_mnc: Vec<String>,
+    #[serde(default, skip_serializing_if = "List::is_empty")]
+    pub network_mcc_mnc: List<String>,
     /// Tags of rule-sets, any of whose rules matching matches.
-    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
-    pub rule_set: Vec<String>,
+    #[serde(default, skip_serializing_if = "List::is_empty")]
+    pub rule_set: List<String>,
     /// The rule-sets' `ip_cidr` match the source address, not the
     /// destination.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -2546,8 +2550,8 @@ pub struct Rule {
     /// `direct`: the types of interface its `fallback` strategy falls back
     /// to. Its `network_type` is not one: a rule's `network_type` is its
     /// condition, as in sing-box.
-    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
-    pub fallback_network_type: Vec<crate::net::network::NetworkType>,
+    #[serde(default, skip_serializing_if = "List::is_empty")]
+    pub fallback_network_type: List<crate::net::network::NetworkType>,
     /// `reject`: how.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub method: Option<RejectMethod>,
@@ -2577,8 +2581,8 @@ pub struct Rule {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub client_subnet: Option<Prefix>,
     /// `sniff`: the protocols to look for; all of them when empty.
-    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
-    pub sniffer: Vec<Sniffer>,
+    #[serde(default, skip_serializing_if = "List::is_empty")]
+    pub sniffer: List<Sniffer>,
     /// `sniff`: how long to wait for the first bytes; 300ms when unset.
     /// `resolve`: how long to wait for the answer; `dns.timeout` when
     /// unset.
@@ -2600,8 +2604,8 @@ pub struct Rule {
     /// `sniff`, a sail extension: a domain found that one of these
     /// rule-sets matches is not taken, neither matched nor connected to, as
     /// Mihomo's sniffer `skip-domain` has it.
-    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
-    pub skip_rule_set: Vec<String>,
+    #[serde(default, skip_serializing_if = "List::is_empty")]
+    pub skip_rule_set: List<String>,
     /// `resolve`, a sail extension: a domain that does not resolve, or not in
     /// time, has no addresses, and matching goes on, as Mihomo's IP rules
     /// have it; rather than the connection failing, as in sing-box.
@@ -2624,7 +2628,7 @@ pub struct Rule {
     /// numbered as the rule it was (`config::inline`); empty for any other
     /// rule. Not configuration: never read from or written to one.
     #[serde(skip)]
-    pub lines: Vec<Line>,
+    pub lines: List<Line>,
     /// The index the rule had in `route.rules` before lines were merged,
     /// which its matches are reported by; none when nothing was merged,
     /// and its place is that index.
@@ -3123,7 +3127,7 @@ impl Rule {
             skip_default_domain_resolver: self.skip_default_domain_resolver,
             domain_strategy: self.domain_strategy,
             network_strategy: self.network_strategy,
-            fallback_network_type: self.fallback_network_type.clone(),
+            fallback_network_type: self.fallback_network_type.to_vec(),
             fallback_delay: self.fallback_delay,
             ..Default::default()
         }
@@ -3987,6 +3991,190 @@ pub mod listable {
     }
 }
 
+/// Reads an array into a `Vec` of the length its input says, rather than
+/// of serde's cautious guess, grown by doubling: `route.rules` is read from
+/// a JSON value already in memory, whose length is exact, and a guess for
+/// thousands of rules would reserve up to twice what they take.
+mod exactly {
+    use serde::de::{self, Deserialize, Deserializer};
+
+    pub fn deserialize<'de, T: Deserialize<'de>, D: Deserializer<'de>>(
+        de: D,
+    ) -> Result<Vec<T>, D::Error> {
+        struct Visitor<T>(std::marker::PhantomData<T>);
+
+        impl<'de, T: Deserialize<'de>> de::Visitor<'de> for Visitor<T> {
+            type Value = Vec<T>;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("a sequence")
+            }
+
+            fn visit_seq<A: de::SeqAccess<'de>>(self, mut seq: A) -> Result<Vec<T>, A::Error> {
+                let mut v = Vec::with_capacity(seq.size_hint().unwrap_or(0));
+                while let Some(item) = seq.next_element()? {
+                    v.push(item);
+                }
+                Ok(v)
+            }
+        }
+
+        de.deserialize_seq(Visitor(std::marker::PhantomData))
+    }
+}
+
+/// A list a [`Rule`] holds, read and written as [`listable`] reads and
+/// writes a `Vec`: one value, or an array of them. 8 bytes rather than a
+/// `Vec`'s 24, and nothing allocated while empty, as almost all of a rule's
+/// are: a profile of thousands of rules is read into as many `Rule`s at
+/// once, and each has some fifty lists.
+#[derive(Clone, PartialEq, Eq, Hash)]
+// The box is the point: an empty list is a null pointer, not three words.
+#[allow(clippy::box_collection)]
+pub struct List<T>(Option<Box<Vec<T>>>);
+
+impl<T> List<T> {
+    pub const fn new() -> Self {
+        Self(None)
+    }
+
+    // Never `Some` of an empty `Vec`: every way in keeps it so.
+    pub fn is_empty(&self) -> bool {
+        self.0.is_none()
+    }
+
+    pub fn as_slice(&self) -> &[T] {
+        self.0.as_deref().map_or(&[], Vec::as_slice)
+    }
+
+    pub fn push(&mut self, value: T) {
+        self.0.get_or_insert_with(Default::default).push(value);
+    }
+
+    pub fn retain(&mut self, keep: impl FnMut(&T) -> bool) {
+        if let Some(v) = &mut self.0 {
+            v.retain(keep);
+            if v.is_empty() {
+                self.0 = None;
+            }
+        }
+    }
+
+    pub fn clear(&mut self) {
+        self.0 = None;
+    }
+
+    pub fn into_vec(self) -> Vec<T> {
+        self.0.map_or_else(Vec::new, |v| *v)
+    }
+}
+
+impl<T> Default for List<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<T: std::fmt::Debug> std::fmt::Debug for List<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        self.as_slice().fmt(f)
+    }
+}
+
+impl<T> std::ops::Deref for List<T> {
+    type Target = [T];
+
+    fn deref(&self) -> &[T] {
+        self.as_slice()
+    }
+}
+
+impl<T> std::ops::DerefMut for List<T> {
+    fn deref_mut(&mut self) -> &mut [T] {
+        self.0.as_deref_mut().map_or(&mut [], Vec::as_mut_slice)
+    }
+}
+
+impl<T> From<Vec<T>> for List<T> {
+    fn from(v: Vec<T>) -> Self {
+        Self((!v.is_empty()).then(|| Box::new(v)))
+    }
+}
+
+impl<T, const N: usize> From<[T; N]> for List<T> {
+    fn from(v: [T; N]) -> Self {
+        Vec::from(v).into()
+    }
+}
+
+impl<T> From<List<T>> for Vec<T> {
+    fn from(v: List<T>) -> Self {
+        v.into_vec()
+    }
+}
+
+impl<T> FromIterator<T> for List<T> {
+    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
+        iter.into_iter().collect::<Vec<T>>().into()
+    }
+}
+
+impl<T> Extend<T> for List<T> {
+    fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
+        let mut v = std::mem::take(self).into_vec();
+        v.extend(iter);
+        *self = v.into();
+    }
+}
+
+impl<T> IntoIterator for List<T> {
+    type Item = T;
+    type IntoIter = std::vec::IntoIter<T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.into_vec().into_iter()
+    }
+}
+
+impl<'a, T> IntoIterator for &'a List<T> {
+    type Item = &'a T;
+    type IntoIter = std::slice::Iter<'a, T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.as_slice().iter()
+    }
+}
+
+impl<T: PartialEq<U>, U> PartialEq<Vec<U>> for List<T> {
+    fn eq(&self, other: &Vec<U>) -> bool {
+        self.as_slice() == other.as_slice()
+    }
+}
+
+impl<T: PartialEq<U>, U, const N: usize> PartialEq<[U; N]> for List<T> {
+    fn eq(&self, other: &[U; N]) -> bool {
+        self.as_slice() == other.as_slice()
+    }
+}
+
+impl<T: PartialEq<U>, U> PartialEq<[U]> for List<T> {
+    fn eq(&self, other: &[U]) -> bool {
+        self.as_slice() == other
+    }
+}
+
+impl<T: serde::Serialize> serde::Serialize for List<T> {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        self.as_slice().serialize(s)
+    }
+}
+
+impl<'de, T: serde::Deserialize<'de>> serde::Deserialize<'de> for List<T> {
+    fn deserialize<D: serde::Deserializer<'de>>(de: D) -> Result<Self, D::Error> {
+        listable::deserialize(de).map(Self::from)
+    }
+}
+
 /// Reads the options of the inbound or outbound `tag` into its protocol's
 /// options type, naming the field at fault on failure.
 pub fn parse_options<T: serde::de::DeserializeOwned>(
@@ -4016,6 +4204,65 @@ pub(super) fn path<E>(e: &serde_path_to_error::Error<E>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A rule's lists take 8 bytes each, empty or not, rather than a
+    /// `Vec`'s 24: a rule is 864 bytes, where it was 1,616, and a profile
+    /// of thousands of rules is read into as many at once.
+    #[cfg(target_pointer_width = "64")]
+    #[test]
+    fn a_rule_holds_its_lists_in_8_bytes() {
+        assert_eq!(std::mem::size_of::<List<String>>(), 8);
+        assert!(
+            std::mem::size_of::<Rule>() <= 864,
+            "{}",
+            std::mem::size_of::<Rule>()
+        );
+    }
+
+    /// A list reads one value or an array of them, and writes an array, as
+    /// a `Vec` read through `listable` did; empty, it holds nothing.
+    #[test]
+    fn a_list_reads_and_writes_as_a_vec_did() {
+        let one: List<String> = serde_json::from_value(serde_json::json!("a")).unwrap();
+        let two: List<u16> = serde_json::from_value(serde_json::json!([1, 2])).unwrap();
+        let none: List<u16> = serde_json::from_value(serde_json::json!([])).unwrap();
+        assert_eq!(one, ["a"]);
+        assert_eq!(two, [1, 2]);
+        assert!(none.is_empty() && none == List::new());
+        assert_eq!(
+            serde_json::to_value(&one).unwrap(),
+            serde_json::json!(["a"])
+        );
+        let mut l = List::new();
+        l.push(3);
+        l.retain(|n| *n != 3);
+        assert_eq!(l, List::<i32>::new());
+        let rule: Rule =
+            serde_json::from_value(serde_json::json!({ "domain": "a.test", "port": [443] }))
+                .unwrap();
+        assert_eq!(
+            serde_json::to_value(&rule).unwrap(),
+            serde_json::json!({ "domain": ["a.test"], "port": [443] })
+        );
+    }
+
+    /// `route.rules` is read into a `Vec` of exactly as many rules, not of
+    /// serde's guess grown by doubling, which at 3,000 rules reserves 4,852.
+    #[test]
+    fn route_rules_reserve_what_they_take() {
+        let rules: Vec<serde_json::Value> = (0..3000)
+            .map(|i| serde_json::json!({ "domain": format!("d{}.test", i), "outbound": "a" }))
+            .collect();
+        let config = crate::config::Config::from_json(
+            &serde_json::json!({
+                "outbounds": [{ "type": "direct", "tag": "a" }],
+                "route": { "rules": rules },
+            })
+            .to_string(),
+        )
+        .unwrap();
+        assert_eq!(config.route.rules.capacity(), 3000);
+    }
 
     /// Printed, a configuration shows none of its secrets.
     #[test]

@@ -557,18 +557,22 @@ impl Rule {
             .iter()
             .map(|line| {
                 let mut alone = model::Rule {
-                    domain: Vec::new(),
-                    domain_suffix: Vec::new(),
-                    domain_keyword: Vec::new(),
-                    lines: Vec::new(),
+                    domain: model::List::new(),
+                    domain_suffix: model::List::new(),
+                    domain_keyword: model::List::new(),
+                    lines: model::List::new(),
                     index: None,
                     ..rule.clone()
                 };
                 let value = line.value.to_ascii_lowercase();
                 match line.kind {
-                    model::LineKind::Domain => alone.domain = vec![line.value.clone()],
-                    model::LineKind::Suffix => alone.domain_suffix = vec![line.value.clone()],
-                    model::LineKind::Keyword => alone.domain_keyword = vec![line.value.clone()],
+                    model::LineKind::Domain => alone.domain = vec![line.value.clone()].into(),
+                    model::LineKind::Suffix => {
+                        alone.domain_suffix = vec![line.value.clone()].into()
+                    }
+                    model::LineKind::Keyword => {
+                        alone.domain_keyword = vec![line.value.clone()].into()
+                    }
                 }
                 Told {
                     index: line.index,

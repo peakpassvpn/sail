@@ -72,7 +72,7 @@ pub(crate) fn merge(config: &mut Value) -> Told {
 pub(crate) fn attach(rules: &mut [Rule], told: Told) {
     for (rule, (index, lines)) in rules.iter_mut().zip(told.0) {
         rule.index = Some(index);
-        rule.lines = lines;
+        rule.lines = lines.into();
     }
 }
 
