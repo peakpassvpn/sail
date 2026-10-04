@@ -74,6 +74,33 @@ routes_through() { # name: every routed and own destination goes through it
   done
 }
 
+# The system DNS sail sets while the TUN runs: the address after the
+# TUN's (172.19.0.1/30), as the default resolver (platform/sc_dns.rs).
+DNS_SERVER=172.19.0.2
+dns_first() { # the TUN's resolver is #1 in scutil --dns
+  scutil --dns | awk '/^resolver #1$/{on=1} on&&/^$/{exit} on' |
+    grep -q "nameserver\[0\] : $DNS_SERVER"
+}
+dns_gone() { # no resolver has the TUN's server, within a second
+  for _ in $(seq 1 10); do
+    scutil --dns | grep -q "nameserver\[[0-9]*\] : $DNS_SERVER" || return 0
+    sleep 0.1
+  done
+  return 1
+}
+# The dynamic-store key of the TUN `$1`'s DNS, as sc_dns::key makes it
+# (FNV-1a of the name; bash's arithmetic wraps at 64 bits as Rust's does).
+dns_key() {
+  local h=-3750763034362895579 i c
+  for ((i = 0; i < ${#1}; i++)); do
+    printf -v c '%d' "'${1:i:1}"
+    h=$(( (h ^ c) * 1099511628211 ))
+  done
+  printf 'State:/Network/Service/5A11D0E5-%04X-4%03X-8%03X-%012X/DNS' \
+    $(( (h >> 48) & 0xffff )) $(( (h >> 36) & 0xfff )) $(( (h >> 24) & 0xfff )) \
+    $(( h & 0xffffffffffff ))
+}
+
 routes_gone() { # name: none of them goes through it
   local name=$1 family dest got
   for pair in "inet $V4_ROUTED" "inet6 $V6_ROUTED"; do
@@ -108,6 +135,8 @@ ifconfig "$NAME" >/dev/null || fail "$NAME does not exist"
 echo "OK: $NAME exists"
 ifconfig "$NAME"
 routes_through "$NAME"
+dns_first || { scutil --dns | head -20; fail "the TUN's DNS is not resolver #1"; }
+echo "OK: $DNS_SERVER is resolver #1"
 
 echo "== 2: a configured name already taken fails the start"
 config ", \"interface_name\": \"$NAME\"" b
@@ -133,6 +162,14 @@ sleep 0.5
 if ifconfig "$NAME" >/dev/null 2>&1; then fail "$NAME left"; fi
 echo "OK: $NAME gone"
 routes_gone "$NAME"
+dns_gone || fail "the TUN's DNS outlived a kill -9"
+echo "OK: the TUN's DNS went with it"
+
+# What a writer that did not add it as temporary left, at the key the
+# next start uses (it chooses $NAME again, now free): replaced, then gone.
+LEFT=$(dns_key "$NAME")
+printf '%s\n' "d.init" "d.add ServerAddresses * 10.0.0.53" 'd.add SupplementalMatchDomains * ""' \
+  "set $LEFT" | sudo -n scutil
 
 echo "== 4: a second unset start chooses again, and stops cleanly"
 config "" c
@@ -141,11 +178,19 @@ NAME2=$(up_name "$W/c.log") || fail "no 'auto_route: ... routes into' line on th
 C=$(sail_pid "$SUDO_C") || fail "no sail under sudo $SUDO_C"
 echo "chosen: $NAME2 (sail pid $C)"
 routes_through "$NAME2"
+dns_first || fail "the TUN's DNS is not resolver #1 on the second start"
+if [ "$NAME2" = "$NAME" ]; then
+  scutil <<< "show $LEFT" | grep -q "$DNS_SERVER" || fail "the left key was not replaced"
+  echo "OK: the key left at $LEFT was replaced"
+fi
 sudo -n kill -TERM "$C"
 gone "$C" || fail "sail $C still runs 10 s after SIGTERM"
 wait "$SUDO_C" 2>/dev/null || true
 if ifconfig "$NAME2" >/dev/null 2>&1; then fail "$NAME2 left after a stop"; fi
 routes_gone "$NAME2"
+dns_gone || fail "the TUN's DNS is left after a stop"
+scutil <<< "show $LEFT" | grep -q "ServerAddresses" && { sudo -n scutil <<< "remove $LEFT"; fail "a key is left at $LEFT"; }
+echo "OK: the TUN's DNS gone after a stop"
 echo "OK: all"
 
 echo "== 5: a route already there for a routed prefix (someone's static route)"

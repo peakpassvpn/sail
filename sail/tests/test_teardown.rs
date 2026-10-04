@@ -102,6 +102,14 @@ fn system() -> Result<String> {
         }
     }
     out.push_str(&format!("$ ifconfig -l\n{}", run("ifconfig", "-l")?));
+    // The resolvers' servers, which sail's DNS joins while the TUN runs.
+    out.push_str("$ scutil --dns (servers)\n");
+    for line in run("scutil", "--dns")?.lines() {
+        if line.starts_with("resolver #") || line.contains("nameserver[") {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
     Ok(out)
 }
 

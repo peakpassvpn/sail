@@ -491,6 +491,28 @@ A UDP socket's family is the first destination's. An IPv6 one also sends
 to IPv4 addresses, and an IPv4 one cannot reach IPv6. On a network with
 NAT64 and no IPv4, IPv4 destinations go through its prefix.
 
+## The system's DNS
+
+A TUN with `auto_route` points the system's DNS at the address after the
+TUN's, while it runs, the same way on each system:
+
+- **Linux:** systemd-resolved, for the TUN's link, where sail runs in
+  resolved's own network namespace.
+- **Windows:** the Wintun adapter's DNS.
+- **macOS:** a resolver with no domain, which macOS ranks first. It is one
+  temporary key in the dynamic store, `State:/Network/Service/<id>/DNS`,
+  with an id made from the TUN's name. No real network service's DNS is
+  touched. The system removes the key with the process that added it,
+  after a kill -9 too. sail adds it again when a network change took it
+  (a configd restart).
+
+It is undone with the routes, before the device, on every end, and a DNS
+that cannot be undone is in `stop_report().left` with `LeftKind::Dns`.
+
+When the host opens the TUN (`Platform::opens_tun`, as an app's
+NetworkExtension or VpnService does), sail neither routes nor sets the
+system's DNS: the host does both.
+
 ## Leftovers after a kill
 
 An instance that changes the system (a TUN, its routes and rules) writes

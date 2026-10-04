@@ -733,7 +733,7 @@ jobs:
         run: cargo build --locked -p sail-cli --target aarch64-apple-darwin
 
       - name: route socket tests
-        run: cargo test --locked -p sail --lib --target aarch64-apple-darwin -- platform::route_socket
+        run: cargo test --locked -p sail --lib --target aarch64-apple-darwin -- platform::route_socket platform::sc_dns
 
       # A datagram to lo0's link-local fe80::1 keeps its zone through
       # sail::embed's dial_udp (Linux runs it on the runner's Ethernet).

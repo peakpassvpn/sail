@@ -40,6 +40,8 @@ pub(crate) mod openwrt;
 #[cfg(target_os = "macos")]
 pub(crate) mod route_socket;
 #[cfg(all(target_os = "macos", feature = "inbound-tun"))]
+pub(crate) mod sc_dns;
+#[cfg(all(target_os = "macos", feature = "inbound-tun"))]
 pub(crate) mod utun;
 
 // Linux only, like nft, whose netlink framing it uses.

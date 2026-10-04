@@ -38,7 +38,7 @@ marked *to verify*:
 | Linux | auto_redirect ip rules, incl. the fallback rule at `fallback_rule_index` | **no** |
 | Linux | auto_redirect nftables table `inet sail_<tun>` | **no** |
 | OpenWrt | fw4 drop-in `/etc/nftables.d/0-sail-auto-redirect-<tun>.nft` | **no** (a file) |
-| macOS | utun device and the routes through it | yes: utun goes with its control socket *(measured: the tun-macos CI job)* |
+| macOS | utun device, the routes through it, and the system DNS key | yes: utun goes with its control socket, the DNS key with the session that added it as temporary *(both measured: the tun-macos CI job)* |
 | Windows | Wintun adapter (named, GUID from the name) | yes: Wintun removes it when the process that created it dies *(measured, see below)* |
 | Windows | routes and DNS on that adapter | yes: they go with the adapter *(measured)* |
 | Windows | strict_route WFP filters and sublayer | yes: they are in a dynamic WFP session (`FWPM_SESSION_FLAG_DYNAMIC`) *(measured)* |
@@ -244,7 +244,7 @@ Each resource registers a step that undoes it (`runtime/teardown.rs`) as soon as
 |---|---|
 | Linux, auto_route | systemd-resolved's DNS for the link (`resolvectl revert`); the ip rules at its priorities; its routes |
 | Linux, auto_redirect | fw4's drop-in; the nftables table `sail_<tun>`; the ip rules and the routes of its table |
-| macOS | its routes through the utun, then the DNS cache is flushed |
+| macOS | the system DNS (its temporary dynamic-store key); its routes through the utun, then the DNS cache is flushed |
 | Windows | WFP, the adapter's DNS, the routes, the Wintun adapter |
 
 Each step runs at most once, on a thread of its own, within 5 s (a judgment value; the calls take milliseconds). A command it runs (resolvectl, `fw4 reload`) is killed at the bound, and the netlink and nftables sockets have a receive timeout. A step that fails, panics or times out leaves its resource, and the others still run.

@@ -146,6 +146,14 @@ impl AutoRoute {
             prefixes.len(),
             settings.name
         );
+        #[cfg(target_os = "macos")]
+        let runner = {
+            let keep = backend.clone().keep_dns();
+            Box::pin(async move {
+                futures::future::join(sets.follow(feed, routes, backend), keep).await;
+            })
+        };
+        #[cfg(not(target_os = "macos"))]
         let runner = Box::pin(sets.follow(feed, routes, backend));
         Ok((this, runner))
     }
@@ -689,9 +697,15 @@ mod backend {
 
     use anyhow::{anyhow, Result};
 
-    use super::super::inbound::TunSettings;
-    use crate::platform::route_socket::RouteSocket;
+    use std::sync::{Arc, Mutex};
+
+    use tracing::{info, warn};
+
+    use super::super::inbound::{peer, TunSettings};
+    use crate::platform::route_socket::{RouteMonitor, RouteSocket};
+    use crate::platform::sc_dns::{self, TunDns};
     use crate::platform::sweep::Ledger;
+    use crate::runtime::teardown::{LeftKind, Step, StepId, Teardown};
 
     /// The utun is point-to-point: its network needs a route.
     pub(super) const ROUTES_OWN_NETWORK: bool = true;
@@ -719,6 +733,12 @@ mod backend {
         ipv6: Option<IpAddr>,
         /// The utun's own networks, as its addresses and prefixes give them.
         own: Vec<cidr::IpCidr>,
+        tun: String,
+        /// The address after the TUN's, of each family it has: its DNS
+        /// server, as on Linux and Windows.
+        dns_servers: Vec<IpAddr>,
+        /// The system DNS while the TUN runs (platform/sc_dns.rs).
+        dns: Mutex<Option<TunDns>>,
     }
 
     impl Backend {
@@ -726,6 +746,14 @@ mod backend {
             Ok(Backend {
                 socket: RouteSocket::open()
                     .map_err(|e| anyhow!("auto_route: routing socket: {}", e))?,
+                tun: settings.name.clone(),
+                dns_servers: settings
+                    .ipv4
+                    .map(|i| IpAddr::from(peer(i)))
+                    .into_iter()
+                    .chain(settings.ipv6.map(|i| IpAddr::from(peer(i))))
+                    .collect(),
+                dns: Mutex::new(None),
                 ipv4: settings.ipv4.map(|i| i.address().into()),
                 ipv6: settings.ipv6.map(|i| i.address().into()),
                 own: settings
@@ -790,15 +818,75 @@ mod backend {
                 .any(|net| net.network_length() == len && net.contains(&address))
         }
 
-        /// The routes are there: names cached before them resolved to
-        /// what they no longer route to.
+        /// The routes are there: the system's DNS goes to the TUN, and
+        /// names cached before resolved to what they no longer route to.
+        /// The DNS is undone by a step of `teardown`, registered before it
+        /// is set, into `steps`. A DNS that cannot be set is said, and the
+        /// start goes on, as on Linux.
         pub(super) fn routed(
-            self: &std::sync::Arc<Self>,
-            _teardown: &crate::runtime::teardown::Teardown,
-            _steps: &mut Vec<crate::runtime::teardown::StepId>,
+            self: &Arc<Self>,
+            teardown: &Teardown,
+            steps: &mut Vec<StepId>,
         ) -> Result<()> {
+            if !self.dns_servers.is_empty() {
+                let this = self.clone();
+                steps.push(
+                    teardown.push(
+                        Step::new(
+                            LeftKind::Dns,
+                            format!("the system DNS for {}", self.tun),
+                            move || {
+                                let dns = this.dns.lock().unwrap_or_else(|e| e.into_inner()).take();
+                                match dns {
+                                    // Closing its session removes it too.
+                                    Some(dns) => dns.remove(),
+                                    None => Ok(()),
+                                }
+                            },
+                        )
+                        .clear(format!(
+                            "sudo scutil <<< \"remove {}\"",
+                            sc_dns::key(&self.tun)
+                        )),
+                    ),
+                );
+                match TunDns::set(&self.tun, &self.dns_servers) {
+                    Ok(dns) => {
+                        *self.dns.lock().unwrap_or_else(|e| e.into_inner()) = Some(dns);
+                    }
+                    Err(e) => warn!("auto_route: the system DNS is not set to the TUN: {}", e),
+                }
+            }
             flush_dns_cache();
             Ok(())
+        }
+
+        /// Sets the system DNS again when the network changed and took it
+        /// (configd restarted; a wake): on each notice of the routing
+        /// socket. Never ends while the TUN runs.
+        pub(super) async fn keep_dns(self: Arc<Self>) {
+            let monitor = match RouteMonitor::open() {
+                Ok(monitor) => monitor,
+                Err(e) => {
+                    warn!("auto_route: not following the system DNS: {}", e);
+                    return std::future::pending().await;
+                }
+            };
+            while monitor.changed().await.is_ok() {
+                let restored = match &*self.dns.lock().unwrap_or_else(|e| e.into_inner()) {
+                    Some(dns) => dns.restore(),
+                    None => Ok(false),
+                };
+                match restored {
+                    Ok(true) => info!(
+                        "auto_route: the system DNS for {} was gone; set again",
+                        self.tun
+                    ),
+                    Ok(false) => {}
+                    Err(e) => warn!("auto_route: the system DNS for {}: {}", self.tun, e),
+                }
+            }
+            std::future::pending().await
         }
     }
 
