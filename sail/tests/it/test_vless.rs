@@ -252,7 +252,8 @@ fn transfer(configs: Vec<String>, socks_port: u16, inner_tls: bool) -> anyhow::R
         let udp_addr = udp.local_addr()?;
         let udp_echo = tokio::spawn(async move {
             let mut buf = vec![0u8; 65536];
-            while let Ok((n, from)) = udp.recv_from(&mut buf).await {
+            loop {
+                let (n, from) = crate::common::recv_past_errors(&udp, &mut buf).await;
                 let _ = udp.send_to(&buf[..n], from).await;
             }
         });

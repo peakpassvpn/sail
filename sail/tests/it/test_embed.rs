@@ -397,7 +397,8 @@ async fn a_datagram_to_a_link_local_address_keeps_its_zone() {
     let to = echo.local_addr().unwrap();
     tokio::spawn(async move {
         let mut buf = [0u8; 1500];
-        while let Ok((n, from)) = echo.recv_from(&mut buf).await {
+        loop {
+            let (n, from) = crate::common::recv_past_errors(&echo, &mut buf).await;
             let _ = echo.send_to(&buf[..n], from).await;
         }
     });
@@ -915,12 +916,7 @@ async fn a_host_service_asked_during_the_start_dials_back_and_reads_the_network(
     tokio::spawn(async move {
         let mut buf = [0u8; 1500];
         loop {
-            // An answer sent to a socket already closed comes back, on
-            // Windows, as an error of the next receive: it lives on.
-            let Ok((n, from)) = upstream.recv_from(&mut buf).await else {
-                tokio::time::sleep(Duration::from_millis(1)).await;
-                continue;
-            };
+            let (n, from) = common::recv_past_errors(&upstream, &mut buf).await;
             let _ = upstream.send_to(&dns_answer(&buf[..n]), from).await;
         }
     });
@@ -964,10 +960,7 @@ async fn a_host_service_asked_during_the_start_dials_back_and_reads_the_network(
         async move {
             let mut buf = [0u8; 1500];
             loop {
-                let Ok((n, from)) = service.recv_from(&mut buf).await else {
-                    tokio::time::sleep(Duration::from_millis(1)).await;
-                    continue;
-                };
+                let (n, from) = common::recv_past_errors(&service, &mut buf).await;
                 let query = buf[..n].to_vec();
                 let (instance, asked, service) = (instance.clone(), asked.clone(), service.clone());
                 tokio::spawn(async move {

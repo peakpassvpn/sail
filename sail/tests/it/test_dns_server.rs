@@ -307,7 +307,8 @@ fn dns_answers_outlive_a_restart_in_the_cache_file() -> anyhow::Result<()> {
         let asked = asked.clone();
         tokio::spawn(async move {
             let mut buf = [0u8; 1500];
-            while let Ok((n, peer)) = socket.recv_from(&mut buf).await {
+            loop {
+                let (n, peer) = crate::common::recv_past_errors(&socket, &mut buf).await;
                 let Ok(q) = Message::from_vec(&buf[..n]) else {
                     continue;
                 };

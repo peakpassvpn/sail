@@ -25,7 +25,8 @@ async fn udp_server() -> (u16, Arc<AtomicUsize>) {
     let counter = count.clone();
     tokio::spawn(async move {
         let mut buf = [0u8; 1500];
-        while let Ok((n, peer)) = socket.recv_from(&mut buf).await {
+        loop {
+            let (n, peer) = crate::common::recv_past_errors(&socket, &mut buf).await;
             let Ok(query) = Message::from_vec(&buf[..n]) else {
                 continue;
             };

@@ -328,6 +328,21 @@ pub async fn run_tcp_echo_server(
     Ok((local_addr, fut))
 }
 
+/// The next datagram on `socket`, past the receives that fail. On Windows
+/// a datagram sent to a socket already closed comes back as an error of
+/// the sender's next receive (WSAECONNRESET): a stub server that stopped
+/// at it would answer nothing after, and what asks it later would fail
+/// for no fault of sail's. Every UDP stub of the tests receives through
+/// this.
+pub async fn recv_past_errors(socket: &UdpSocket, buf: &mut [u8]) -> (usize, std::net::SocketAddr) {
+    loop {
+        match socket.recv_from(buf).await {
+            Ok(received) => return received,
+            Err(_) => tokio::time::sleep(Duration::from_millis(1)).await,
+        }
+    }
+}
+
 pub async fn run_udp_echo_server(
     addr: &str,
 ) -> anyhow::Result<(
@@ -345,10 +360,7 @@ pub async fn run_udp_echo_server(
         // Holds any UDP payload.
         let mut buf = vec![0u8; 65536];
         loop {
-            let (n, raddr) = socket
-                .recv_from(&mut buf)
-                .await
-                .map_err(|e| anyhow::anyhow!("recv udp failed: {}", e))?;
+            let (n, raddr) = recv_past_errors(&socket, &mut buf).await;
             let _ = socket
                 .send_to(&buf[..n], &raddr)
                 .await

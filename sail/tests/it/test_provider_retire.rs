@@ -299,7 +299,8 @@ mod quic_relay {
         let (f, b) = (front.clone(), back.clone());
         tokio::spawn(async move {
             let mut buf = vec![0u8; 65536];
-            while let Ok((n, from)) = f.recv_from(&mut buf).await {
+            loop {
+                let (n, from) = crate::common::recv_past_errors(&f, &mut buf).await;
                 *seen.lock().unwrap() = Some(from);
                 let _ = b.send(&buf[..n]).await;
             }

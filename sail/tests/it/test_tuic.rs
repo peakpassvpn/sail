@@ -107,7 +107,8 @@ mod tuic {
         let addr = socket.local_addr()?;
         Ok((addr, async move {
             let mut buf = vec![0u8; 65536];
-            while let Ok((n, from)) = socket.recv_from(&mut buf).await {
+            loop {
+                let (n, from) = crate::common::recv_past_errors(&socket, &mut buf).await;
                 let _ = socket.send_to(&buf[..n], from).await;
             }
         }))

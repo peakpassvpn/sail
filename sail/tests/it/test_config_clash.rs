@@ -238,7 +238,8 @@ async fn udp_dns_server(answer: std::net::Ipv4Addr) -> u16 {
     let port = socket.local_addr().unwrap().port();
     tokio::spawn(async move {
         let mut buf = [0u8; 1500];
-        while let Ok((n, peer)) = socket.recv_from(&mut buf).await {
+        loop {
+            let (n, peer) = crate::common::recv_past_errors(&socket, &mut buf).await;
             let Ok(query) = Message::from_vec(&buf[..n]) else {
                 continue;
             };

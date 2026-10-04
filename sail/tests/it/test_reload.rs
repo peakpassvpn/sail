@@ -138,7 +138,8 @@ async fn counting_dns_server(
     let counted = asked.clone();
     tokio::spawn(async move {
         let mut buf = [0u8; 1500];
-        while let Ok((n, peer)) = socket.recv_from(&mut buf).await {
+        loop {
+            let (n, peer) = crate::common::recv_past_errors(&socket, &mut buf).await;
             let Ok(query) = Message::from_vec(&buf[..n]) else {
                 continue;
             };
