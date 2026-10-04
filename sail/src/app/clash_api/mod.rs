@@ -117,7 +117,6 @@ pub(crate) fn serve(
         .as_deref()
         .filter(|p| !p.is_empty())
         .map(|p| PathBuf::from(rm.env().data_path(p)));
-    let scope = rm.env().scope.clone();
     let clash = Arc::new(Clash {
         secret: api.secret.clone().unwrap_or_default(),
         origins: api.access_control_allow_origin.clone(),
@@ -135,14 +134,7 @@ pub(crate) fn serve(
     let addr = listener.local_addr()?;
     listener.set_nonblocking(true)?;
     let listener = tokio::net::TcpListener::from_std(listener)?;
-    // axum spawns each connection on a task of its own, which carries no
-    // scope: each request runs in the instance's, so that what a handler
-    // spawns is the instance's (E2). The connections themselves end with
-    // the runtime.
-    let app =
-        router(clash.clone()).layer(middleware::from_fn(move |request: Request, next: Next| {
-            scope.enter(next.run(request))
-        }));
+    let app = router(clash.clone());
     info!("clash_api: serving on {}", addr);
     Ok(Box::pin(async move {
         #[cfg(feature = "http-client")]
@@ -151,10 +143,39 @@ pub(crate) fn serve(
         });
         #[cfg(not(feature = "http-client"))]
         drop(clash);
-        if let Err(e) = axum::serve(listener, app).await {
-            warn!("clash_api: {}", e);
-        }
+        accept(listener, app).await
     }))
+}
+
+/// Serves `app` on what `listener` accepts, each connection on a task of
+/// the instance's scope (what its handlers spawn is the instance's, and it
+/// ends with the instance), where axum's own serve would spawn one with
+/// none. A WebSocket's task is axum's; its frames come from a task of the
+/// scope, see `streams`.
+async fn accept(listener: tokio::net::TcpListener, app: Router) {
+    use hyper_util::{
+        rt::{TokioExecutor, TokioIo},
+        server::conn::auto::Builder,
+        service::TowerToHyperService,
+    };
+    loop {
+        let stream = match listener.accept().await {
+            Ok((stream, _)) => stream,
+            Err(e) => {
+                // Out of descriptors, mostly: a moment for some to free up.
+                warn!("clash_api: accept: {}", e);
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                continue;
+            }
+        };
+        let app = app.clone();
+        crate::runtime::scope::spawn("clash api connection", async move {
+            let _ = Builder::new(TokioExecutor::new())
+                .http1_only()
+                .serve_connection_with_upgrades(TokioIo::new(stream), TowerToHyperService::new(app))
+                .await;
+        });
+    }
 }
 
 fn router(clash: Arc<Clash>) -> Router {

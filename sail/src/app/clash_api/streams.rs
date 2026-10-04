@@ -17,21 +17,34 @@ use serde_json::{json, Value};
 
 use super::{ApiError, Clash};
 
-/// `frames`, over the WebSocket asked for, or as JSON lines.
+/// `frames`, over the WebSocket asked for, or as JSON lines; either ends
+/// when the instance stops, or the client goes.
 pub(super) fn send<S>(ws: Option<WebSocketUpgrade>, frames: S) -> Response
 where
     S: Stream<Item = Value> + Send + 'static,
 {
+    let frames = scoped(frames);
     match ws {
         Some(ws) => ws
             .on_upgrade(|mut socket| async move {
                 let mut frames = std::pin::pin!(frames);
-                while let Some(frame) = frames.next().await {
+                loop {
+                    // A client that closes is seen while no frame comes.
+                    let frame = tokio::select! {
+                        frame = frames.next() => frame,
+                        message = socket.recv() => match message {
+                            Some(Ok(Message::Close(_))) | Some(Err(_)) | None => break,
+                            Some(Ok(_)) => continue,
+                        },
+                    };
+                    let Some(frame) = frame else { break };
                     let text = format!("{}\n", frame);
                     if socket.send(Message::Text(text)).await.is_err() {
-                        break;
+                        return;
                     }
                 }
+                // The frames ended, with the instance: said, not dropped.
+                let _ = socket.send(Message::Close(None)).await;
             })
             .into_response(),
         None => (
@@ -40,6 +53,31 @@ where
         )
             .into_response(),
     }
+}
+
+/// `frames`, made by a task of the instance's scope: what reads them is
+/// not the scope's (the task axum spawns for a WebSocket, a connection's
+/// for a streamed body), so they end when the instance stops, which aborts
+/// that task, and the task ends when the client goes.
+fn scoped<S>(frames: S) -> impl Stream<Item = Value> + Send + 'static
+where
+    S: Stream<Item = Value> + Send + 'static,
+{
+    let (tx, rx) = tokio::sync::mpsc::channel(16);
+    crate::runtime::scope::spawn("clash api stream", async move {
+        let mut frames = std::pin::pin!(frames);
+        loop {
+            let frame = tokio::select! {
+                () = tx.closed() => return,
+                frame = frames.next() => frame,
+            };
+            let Some(frame) = frame else { return };
+            if tx.send(frame).await.is_err() {
+                return;
+            }
+        }
+    });
+    futures::stream::unfold(rx, |mut rx| async move { rx.recv().await.map(|f| (f, rx)) })
 }
 
 /// Every second.

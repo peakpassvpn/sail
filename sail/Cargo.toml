@@ -202,7 +202,7 @@ mux = ["h2", "http"]
 plugin = ["async-ffi", "libloading"]
 api = ["axum", "hyper-util"]
 # The Clash API, which dashboards (yacd, metacubexd) control an instance through.
-clash-api = ["axum", "axum/ws", "axum/query", "miniz_oxide"]
+clash-api = ["axum", "axum/ws", "axum/query", "hyper-util", "miniz_oxide"]
 auto-reload = ["notify"]
 # Counts allocations, for the measurement builds of the performance
 # regression checks; never in a released build.

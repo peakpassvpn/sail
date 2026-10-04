@@ -910,3 +910,88 @@ fn a_dashboard_is_downloaded_and_the_configuration_reloaded() -> anyhow::Result<
         Err(panic) => std::panic::resume_unwind(panic),
     }
 }
+
+// dashboard -> (clash api)sail, embedded: a dashboard's streams end when
+// the instance stops -- the /traffic WebSocket with a close, a /traffic
+// stream of JSON lines at its end -- rather than outlive it on the host's
+// runtime, and the stop leaves no task of the API behind.
+#[cfg(all(
+    feature = "clash-api",
+    feature = "outbound-direct",
+    feature = "tokio-tungstenite"
+))]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_dashboard_s_streams_end_with_the_instance() -> anyhow::Result<()> {
+    use futures::StreamExt;
+    use sail::embed::{Config, Instance, Options};
+    use std::time::Duration;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let secret = sail::generate::secret();
+    let [port] = common::free_ports();
+    let config = serde_json::json!({
+        "clash_api": {
+            "external_controller": format!("127.0.0.1:{}", port),
+            "secret": secret,
+        },
+        "outbounds": [{ "type": "direct", "tag": "direct" }],
+    })
+    .to_string();
+    let instance = Instance::new(Options::new())?;
+    instance.start(Config::Json(config)).await?;
+
+    let url = format!("ws://127.0.0.1:{}/traffic?token={}", port, secret);
+    let (mut ws, _) = tokio_tungstenite::connect_async(url).await?;
+    tokio::time::timeout(Duration::from_secs(5), ws.next())
+        .await?
+        .expect("a frame")?;
+
+    let mut lines = tokio::net::TcpStream::connect(("127.0.0.1", port)).await?;
+    lines
+        .write_all(
+            format!(
+                "GET /traffic HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Bearer {}\r\n\r\n",
+                secret
+            )
+            .as_bytes(),
+        )
+        .await?;
+    let mut buf = vec![0u8; 4096];
+    let n = tokio::time::timeout(Duration::from_secs(5), lines.read(&mut buf)).await??;
+    assert!(
+        String::from_utf8_lossy(&buf[..n]).starts_with("HTTP/1.1 200"),
+        "{}",
+        String::from_utf8_lossy(&buf[..n])
+    );
+
+    instance.stop().await?;
+    // The WebSocket is closed, not left open.
+    let ended = tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            match ws.next().await {
+                None | Some(Err(_)) => return,
+                Some(Ok(m)) if m.is_close() => return,
+                Some(Ok(_)) => {}
+            }
+        }
+    })
+    .await;
+    assert!(ended.is_ok(), "the WebSocket outlived the instance");
+    // The stream of JSON lines ends.
+    let ended = tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            match lines.read(&mut buf).await {
+                Ok(0) | Err(_) => return,
+                Ok(_) => {}
+            }
+        }
+    })
+    .await;
+    assert!(
+        ended.is_ok(),
+        "the stream of JSON lines outlived the instance"
+    );
+    let report = instance.stop_report().expect("a stop report");
+    assert!(report.clean(), "{:?}", report);
+    Ok(())
+}
