@@ -692,6 +692,31 @@ fn a_stop_tells_what_it_could_not_end_or_undo() {
     });
 }
 
+/// A reload tells what became of the inbound: the same configuration
+/// again leaves it untouched, and nothing else is built again.
+#[test]
+fn a_reload_tells_what_became_of_each_inbound() {
+    let _serial = serial();
+    within(Duration::from_secs(30), || {
+        let instance = new_instance(None, None);
+        let port = start_on_free_port(instance, config);
+        let text = CString::new(config(port)).unwrap();
+        let report = json_of(|out, err| unsafe {
+            sail_instance_reload_report(instance, text.as_ptr(), out, err)
+        });
+        assert_eq!(report["path"], "inbounds_only", "{}", report);
+        assert_eq!(
+            report["inbounds"],
+            serde_json::json!([{ "tag": "socks-in", "change": "untouched" }]),
+            "{}",
+            report
+        );
+        assert_eq!(report["notes"], serde_json::json!([]), "{}", report);
+        stop(instance);
+        sail_instance_free(instance);
+    });
+}
+
 /// A stop's bound is the host's to set; the traffic counts the faults
 /// (none here), and their event is followed.
 #[test]

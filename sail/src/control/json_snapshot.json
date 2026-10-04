@@ -128,6 +128,25 @@
       }
     ]
   },
+  "reload_report": {
+    "inbounds": [
+      {
+        "change": "replaced",
+        "tag": "in"
+      }
+    ],
+    "notes": [
+      {
+        "endpoint": "wg",
+        "kind": "endpoint_keeps_defaults",
+        "options": [
+          "route.default_mark"
+        ],
+        "text": "[wg] endpoint: route.default_mark changed; it goes on with what it was built with: applies at the next start"
+      }
+    ],
+    "path": "inbounds_only"
+  },
   "rule_sets": {
     "rule_sets": [
       {

@@ -32,7 +32,7 @@ Sail 将代理行为保留在 Rust 核心，把宿主特有能力注入边界。
 1. 在 `SailPlatform` 中填好回调，调用 `sail_instance_new(settings, &platform, &instance, &err)`。实例此时处于空闲状态。
 2. 用 `sail_instance_start`（配置文本）或 `sail_instance_start_file` 启动。Sail 能读的格式都可以：sing-box JSON、Clash YAML 或 Surge 配置。实例运行起来后调用返回，失败时返回原因。
 3. 推送网络状态，并用 `sail_subscribe` 跟随实例。
-4. 用 `sail_instance_reload` 重载：传入新配置，或重新读取原文件。
+4. 用 `sail_instance_reload` 重载：传入新配置，或重新读取原文件。`sail_instance_reload_report` 做同样的事，并说明每个入站的结果（只有被移除或被替换的入站会断开连接），以及是否只重建了入站。
 5. 用 `sail_instance_stop(instance, timeout_ms, &err)` 停止，再调用 `sail_instance_free`。实例停止后调用平台的 `release`，此后 Sail 不再调用任何回调。
 
 实例停止或启动失败后可以再次启动。启动过程中调用停止会结束这次启动，返回 `SAIL_ERR_CANCELLED`。

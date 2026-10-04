@@ -94,6 +94,31 @@ data class Status(
     val faults: Long = 0,
 )
 
+/** What a reload did. */
+@Serializable
+data class ReloadReport(
+    /** full, or inbounds_only: the rest, and what it held, kept as it ran. */
+    val path: String,
+    val inbounds: List<ReloadedInbound> = emptyList(),
+    val notes: List<ReloadNote> = emptyList(),
+)
+
+@Serializable
+data class ReloadedInbound(
+    val tag: String,
+    /** untouched, reloaded, added, removed, replaced; only removed and replaced closed connections. */
+    val change: String,
+)
+
+@Serializable
+data class ReloadNote(
+    /** endpoint_keeps_defaults; more may come. */
+    val kind: String,
+    val text: String,
+    val endpoint: String? = null,
+    val options: List<String> = emptyList(),
+)
+
 /** A task of the instance panicked. */
 @Serializable
 data class Fault(

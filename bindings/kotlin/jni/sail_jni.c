@@ -265,6 +265,18 @@ STRING_CALL(setNetworkState, sail_set_network_state)
 STRING_CALL(updateProvider, sail_update_provider)
 STRING_CALL(updateRuleSet, sail_update_rule_set)
 
+/* A reload, answering what it did as JSON. */
+JNIEXPORT jstring JNICALL NATIVE(instanceReloadReport)(JNIEnv *env, jclass cls, jlong h, jstring config) {
+    (void)cls;
+    const char *c = c_string(env, config);
+    char *out = NULL;
+    char *err = NULL;
+    int32_t code = sail_instance_reload_report((SailInstance)h, c, &out, &err);
+    done(env, config, c);
+    if (failed(env, code, err)) return NULL;
+    return take(env, out);
+}
+
 /* A call answering JSON. */
 #define JSON_CALL(name, function)                                             \
     JNIEXPORT jstring JNICALL NATIVE(name)(JNIEnv *env, jclass cls, jlong h) { \

@@ -235,14 +235,23 @@ impl Instance {
     }
 
     pub(crate) fn reload(&self, config: Option<String>) -> Result<(), Failure> {
+        self.reload_report(config).map(|_| ())
+    }
+
+    /// Reloads it, and tells what the reload did.
+    pub(crate) fn reload_report(
+        &self,
+        config: Option<String>,
+    ) -> Result<json::ReloadReport, Failure> {
         if self.on_own_thread() {
             return Err(Failure::new(
                 crate::SAIL_ERR_WRONG_THREAD,
                 "called on a thread of the instance's own, where it would wait on itself",
             ));
         }
-        futures::executor::block_on(self.core.reload(config.map(embed::Config::Json)))?;
-        Ok(())
+        let report =
+            futures::executor::block_on(self.core.reload(config.map(embed::Config::Json)))?;
+        Ok(json::ReloadReport::of(&report))
     }
 }
 
@@ -360,6 +369,42 @@ pub unsafe extern "C" fn sail_instance_reload(
                 )),
             },
         }
+    })
+}
+
+/// `sail_instance_reload`, telling what it did, as JSON: `{"path": "full" |
+/// "inbounds_only", "inbounds": [{"tag", "change": "untouched" |
+/// "reloaded" | "added" | "removed" | "replaced"}], "notes": [{"kind":
+/// "endpoint_keeps_defaults", "text", "endpoint", "options"}]}`. Only the
+/// inbounds removed and replaced had their connections closed; with
+/// `inbounds_only`, the outbounds, groups, DNS and routing, and what they
+/// held, are those that ran. A reload that fails tells nothing and leaves
+/// the instance as it was.
+///
+/// @return SAIL_ERR_NEEDS_RESTART when it adds, removes or changes what
+///     only a start sets up (a TUN); SAIL_ERR_INBOUND_LOST when an inbound
+///     it was to replace on its own address listens no more;
+///     SAIL_ERR_UNSUPPORTED through a command service client.
+#[no_mangle]
+pub unsafe extern "C" fn sail_instance_reload_report(
+    instance: SailInstance,
+    config: *const c_char,
+    out: *mut *mut c_char,
+    err: *mut *mut c_char,
+) -> i32 {
+    call(err, || {
+        let config = unsafe { opt_str_arg(config, "config") }?.map(str::to_owned);
+        let report = match target(instance)? {
+            Target::Local(instance) => instance.reload_report(config)?,
+            #[cfg(feature = "command-server")]
+            Target::Remote(_) => {
+                return Err(Failure::new(
+                    crate::SAIL_ERR_UNSUPPORTED,
+                    "a reload's report is not told through a command service client",
+                ))
+            }
+        };
+        out_json(out, &report)
     })
 }
 

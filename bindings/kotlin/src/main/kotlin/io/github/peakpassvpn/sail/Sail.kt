@@ -97,6 +97,10 @@ class Sail private constructor(private val handle: Long) : AutoCloseable {
     fun start(config: String) = Native.instanceStart(handle, config)
     fun startFile(path: String) = Native.instanceStartFile(handle, path)
     fun reload(config: String? = null) = Native.instanceReload(handle, config)
+
+    /** [reload], telling what became of each inbound; in the tunnel process only. */
+    fun reloadReport(config: String? = null): ReloadReport =
+        json.decodeFromString(Native.instanceReloadReport(handle, config))
     fun stop(timeoutMs: Int = 10_000) = Native.instanceStop(handle, timeoutMs)
     fun serve(options: String?) = Native.instanceServe(handle, options)
 

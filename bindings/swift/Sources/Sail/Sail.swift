@@ -176,6 +176,14 @@ public final class Sail {
         }
     }
 
+    /// `reload`, telling what became of each inbound; in the tunnel process
+    /// only.
+    public func reloadReport(config: String? = nil) throws -> ReloadReport {
+        try withOptionalCString(config) { config in
+            try decode(ReloadReport.self, json { sail_instance_reload_report(handle, config, $0, $1) })
+        }
+    }
+
     /// Stops it, waiting up to `timeoutMs` (0: asks only).
     public func stop(timeoutMs: UInt32 = 10_000) throws {
         try check { sail_instance_stop(handle, timeoutMs, $0) }

@@ -69,6 +69,70 @@ pub struct State {
     pub started_at_ms: Option<u64>,
 }
 
+/// What a reload did.
+#[derive(Serialize, Clone, PartialEq, Eq, Debug)]
+pub struct ReloadReport {
+    /// `full`: everything built again; `inbounds_only`: nothing but the
+    /// inbounds differed, and the outbounds, groups, DNS and routing (and
+    /// what they held) are those that ran.
+    pub path: String,
+    /// Each inbound the configuration has, in its order, then those it no
+    /// longer has.
+    pub inbounds: Vec<ReloadedInbound>,
+    /// What the reload took and did not reach everything with.
+    pub notes: Vec<ReloadNote>,
+}
+
+#[derive(Serialize, Clone, PartialEq, Eq, Debug)]
+pub struct ReloadedInbound {
+    pub tag: String,
+    /// `untouched`, `reloaded`, `added`, `removed`, `replaced` or `lost`:
+    /// only the removed and the replaced had their connections closed.
+    pub change: String,
+}
+
+#[derive(Serialize, Clone, PartialEq, Eq, Debug)]
+pub struct ReloadNote {
+    /// `endpoint_keeps_defaults`; more may come.
+    pub kind: String,
+    /// As a person reads it.
+    pub text: String,
+    /// The endpoint it concerns, for `endpoint_keeps_defaults`.
+    pub endpoint: Option<String>,
+    /// The options it concerns, as the configuration names them.
+    pub options: Vec<String>,
+}
+
+impl ReloadReport {
+    pub fn of(report: &crate::control::ReloadReport) -> Self {
+        Self {
+            path: report.path.name().into(),
+            inbounds: report
+                .inbounds
+                .iter()
+                .map(|(tag, change)| ReloadedInbound {
+                    tag: tag.clone(),
+                    change: change.name().into(),
+                })
+                .collect(),
+            notes: report
+                .notes
+                .iter()
+                .map(|note| match note {
+                    crate::control::ReloadNote::EndpointKeepsDefaults { endpoint, options } => {
+                        ReloadNote {
+                            kind: "endpoint_keeps_defaults".into(),
+                            text: note.to_string(),
+                            endpoint: Some(endpoint.clone()),
+                            options: options.iter().map(|o| o.to_string()).collect(),
+                        }
+                    }
+                })
+                .collect(),
+        }
+    }
+}
+
 /// A fault event: a task of the instance panicked.
 #[derive(Serialize, Clone, PartialEq, Eq, Debug)]
 pub struct Fault {
@@ -686,6 +750,16 @@ mod tests {
                                   why: "timed out after 5s".into(),
                                   clear: Some("nft delete table inet sail_tun0".into()) }],
                 started_at_ms: None,
+            },
+            "reload_report": ReloadReport {
+                path: "inbounds_only".into(),
+                inbounds: vec![ReloadedInbound { tag: "in".into(), change: "replaced".into() }],
+                notes: vec![ReloadNote {
+                    kind: "endpoint_keeps_defaults".into(),
+                    text: "[wg] endpoint: route.default_mark changed; it goes on with what it was built with: applies at the next start".into(),
+                    endpoint: Some("wg".into()),
+                    options: vec!["route.default_mark".into()],
+                }],
             },
             "fault": Fault {
                 task: "inbound tcp".into(), class: "contained".into(),

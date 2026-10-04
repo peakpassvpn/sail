@@ -105,6 +105,7 @@ class SailTest {
             "state" to State.serializer(),
             "stop_report" to StopReport.serializer(),
             "fault" to Fault.serializer(),
+            "reload_report" to ReloadReport.serializer(),
             "status" to Status.serializer(),
             "traffic" to Traffic.serializer(),
         )

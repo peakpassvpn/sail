@@ -42,6 +42,29 @@ public struct State: Decodable, Equatable, Sendable {
     public let startedAtMs: UInt64?
 }
 
+/// What a reload did.
+public struct ReloadReport: Decodable, Equatable, Sendable {
+    /// full, or inbounds_only: the rest, and what it held, kept as it ran.
+    public let path: String
+    public let inbounds: [ReloadedInbound]
+    public let notes: [ReloadNote]
+}
+
+public struct ReloadedInbound: Decodable, Equatable, Sendable {
+    public let tag: String
+    /// untouched, reloaded, added, removed, replaced; only removed and
+    /// replaced closed connections.
+    public let change: String
+}
+
+public struct ReloadNote: Decodable, Equatable, Sendable {
+    /// endpoint_keeps_defaults; more may come.
+    public let kind: String
+    public let text: String
+    public let endpoint: String?
+    public let options: [String]
+}
+
 /// A task of the instance panicked.
 public struct Fault: Decodable, Equatable, Sendable {
     /// The task's name: inbound tcp, group health check, ...

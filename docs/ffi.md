@@ -36,6 +36,10 @@ sail_instance_free(instance);
   own; `sail_instance_start` returns once it runs, or with why it failed.
 - It can be started again after it stopped or failed, reloaded while it
   runs (with a new configuration, or its file again), stopped, and freed.
+  `sail_instance_reload_report` reloads and tells what became of each
+  inbound (only those removed or replaced lost their connections), whether
+  only the inbounds were built again (`"path": "inbounds_only"`), and what
+  did not reach a running endpoint.
   Any number of instances run at once, each with its own log.
 - A stop while the instance starts ends the start: the start returns
   `SAIL_ERR_CANCELLED`. Stopping an instance not running does nothing.

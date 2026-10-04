@@ -584,6 +584,26 @@ int32_t sail_instance_start_file(SailInstance instance, const char *path, char *
 int32_t sail_instance_reload(SailInstance instance, const char *config, char **err);
 
 /*
+ `sail_instance_reload`, telling what it did, as JSON: `{"path": "full" |
+ "inbounds_only", "inbounds": [{"tag", "change": "untouched" |
+ "reloaded" | "added" | "removed" | "replaced"}], "notes": [{"kind":
+ "endpoint_keeps_defaults", "text", "endpoint", "options"}]}`. Only the
+ inbounds removed and replaced had their connections closed; with
+ `inbounds_only`, the outbounds, groups, DNS and routing, and what they
+ held, are those that ran. A reload that fails tells nothing and leaves
+ the instance as it was.
+
+ @return SAIL_ERR_NEEDS_RESTART when it adds, removes or changes what
+     only a start sets up (a TUN); SAIL_ERR_INBOUND_LOST when an inbound
+     it was to replace on its own address listens no more;
+     SAIL_ERR_UNSUPPORTED through a command service client.
+ */
+int32_t sail_instance_reload_report(SailInstance instance,
+                                    const char *config,
+                                    char **out,
+                                    char **err);
+
+/*
  Stops the instance, and waits up to `timeout_ms` for it to have
  stopped; 0 asks without waiting. A stop while it starts ends the
  start. Stopping one not running does nothing. Called on a thread of

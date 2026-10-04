@@ -32,7 +32,7 @@ A host normally follows this sequence:
 1. Fill a `SailPlatform` with its callbacks, and call `sail_instance_new(settings, &platform, &instance, &err)`. The instance is idle.
 2. Start it with `sail_instance_start` (configuration text) or `sail_instance_start_file`. Any format Sail reads is taken: sing-box JSON, Clash YAML or a Surge profile. The call returns once the instance runs, or with why it failed.
 3. Push the network state, and follow the instance with `sail_subscribe`.
-4. Reload with `sail_instance_reload`, with a new configuration or its file again.
+4. Reload with `sail_instance_reload`, with a new configuration or its file again; `sail_instance_reload_report` does the same and tells what became of each inbound (only those removed or replaced lose their connections) and whether only the inbounds were rebuilt.
 5. Stop with `sail_instance_stop(instance, timeout_ms, &err)`, then `sail_instance_free`. The platform's `release` is called once the instance has stopped; Sail calls no callback after it.
 
 An instance can be started again after it stopped or failed. A stop while it starts ends the start with `SAIL_ERR_CANCELLED`.
