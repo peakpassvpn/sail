@@ -121,6 +121,9 @@ pub struct Teardown(Arc<Inner>);
 struct Inner {
     /// The last id given, and the steps not run yet, oldest first.
     steps: Mutex<(u64, Vec<(StepId, Step)>)>,
+    /// Checks that what goes by itself once its owner drops (a TUN device
+    /// with its runner) has gone: run after the steps and those drops.
+    checks: Mutex<Vec<Step>>,
     left: Mutex<Vec<Left>>,
 }
 
@@ -128,6 +131,7 @@ impl std::fmt::Debug for Teardown {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Teardown")
             .field("pending", &lock(&self.0.steps).1.len())
+            .field("checks", &lock(&self.0.checks).len())
             .field("left", &lock(&self.0.left).len())
             .finish()
     }
@@ -177,6 +181,23 @@ impl Teardown {
         }
     }
 
+    /// Registers a check that `check_all` runs, once the instance's
+    /// runners are dropped: that what their drop removes is gone.
+    pub fn push_check(&self, check: Step) {
+        lock(&self.0.checks).push(check);
+    }
+
+    /// Runs every check not run yet, newest first.
+    pub fn check_all(&self) {
+        loop {
+            let check = lock(&self.0.checks).pop();
+            match check {
+                Some(check) => self.execute(check),
+                None => return,
+            }
+        }
+    }
+
     /// What could not be undone, of every step run so far.
     pub fn left(&self) -> Vec<Left> {
         lock(&self.0.left).clone()
@@ -219,9 +240,12 @@ fn undo_within(undo: Undo, within: Duration) -> Result<(), String> {
     let slot = Arc::new(Mutex::new(Some(undo)));
     let (tx, rx) = mpsc::sync_channel(1);
     let theirs = slot.clone();
+    // What the step logs is the instance's, as on the thread that runs it.
+    let log = crate::app::logger::current();
     let spawned = std::thread::Builder::new()
         .name("sail-teardown".into())
         .spawn(move || {
+            let _log = crate::app::logger::enter(log);
             let undo = lock(&theirs).take();
             if let Some(undo) = undo {
                 let _ = tx.send(caught(undo));
@@ -390,6 +414,19 @@ mod tests {
         assert!(start.elapsed() < Duration::from_secs(2));
         assert_eq!(ran.load(Ordering::SeqCst), 1);
         assert_eq!(teardown.left()[0].why, "timed out after 50ms");
+    }
+
+    #[test]
+    fn checks_run_apart_from_the_steps() {
+        let order = Arc::new(Mutex::new(Vec::new()));
+        let teardown = Teardown::default();
+        teardown.push_check(counting(&order, "device gone"));
+        teardown.push(counting(&order, "routes"));
+        teardown.run_all();
+        assert_eq!(*lock(&order), ["routes"]);
+        teardown.check_all();
+        teardown.check_all();
+        assert_eq!(*lock(&order), ["routes", "device gone"]);
     }
 
     #[test]

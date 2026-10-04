@@ -1298,6 +1298,13 @@ fn open_device(
         settings.name = name;
     }
     info!("[{}] inbound: tun {} is up", inbound.tag, settings.name);
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    if opened_here {
+        dispatcher
+            .env()
+            .teardown
+            .push_check(device_gone(&settings.name));
+    }
     #[cfg(target_os = "macos")]
     if let Some(ipv6) = settings.ipv6.filter(|_| cfg_opened_here(&dispatcher)) {
         crate::platform::utun::add_ipv6_address(
@@ -1315,6 +1322,39 @@ fn open_device(
         mtu,
         netstack,
     )
+}
+
+/// The check that the TUN `name` went with its runner. The kernel
+/// removes it as its descriptor closes; 1 s is room for a loaded system
+/// (judgment).
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn device_gone(name: &str) -> crate::runtime::teardown::Step {
+    use crate::runtime::teardown::{LeftKind, Step};
+    let tun = name.to_owned();
+    let check = Step::new(LeftKind::Tun, format!("the TUN {}", name), move || {
+        let Ok(c_name) = std::ffi::CString::new(tun.as_str()) else {
+            return Ok(());
+        };
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
+        loop {
+            // SAFETY: a NUL-terminated name.
+            if unsafe { libc::if_nametoindex(c_name.as_ptr()) } == 0 {
+                return Ok(());
+            }
+            if std::time::Instant::now() >= deadline {
+                return Err(std::io::Error::other(
+                    "still there: something of the instance holds its descriptor",
+                ));
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+    });
+    // A utun goes only with its descriptor; a Linux TUN can be deleted.
+    if cfg!(target_os = "linux") {
+        check.clear(format!("ip link delete {}", name))
+    } else {
+        check
+    }
 }
 
 /// Whether this instance, not its host, opened the device.
