@@ -9,7 +9,9 @@ pub mod cache_file;
 pub mod options;
 pub mod platform;
 pub(crate) mod resource;
+pub(crate) mod running;
 pub mod scope;
+pub(crate) mod stamp;
 #[cfg(feature = "auto-reload")]
 pub(crate) mod watch;
 

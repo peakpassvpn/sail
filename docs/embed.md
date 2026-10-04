@@ -122,7 +122,38 @@ by default in sail-ffi). A Rust host that picks sail's features keeps it.
 everything new before it replaces anything, so a reload that fails changes
 nothing.
 
-| | after a reload |
+**What did not change is left alone.** A configuration that differs from
+what runs in its `inbounds` (and `user_limits`) alone changes the
+inbounds and builds nothing else again: the outbounds are those that
+ran, with the multiplexed and QUIC sessions they hold; the groups keep
+their member, their checks and what they measured; the DNS client keeps
+its cache; the routing and the rule-sets are untouched.
+`ReloadReport::path` says which it was: `InboundsOnly`, or `Full`, where
+the rest of this section applies.
+
+- "The same" is told of the configuration as it is read, not of its
+  text: spacing, the order of keys and defaults written out do not count.
+- A file the configuration names is not seen by that comparison. Those
+  sail follows itself are taken when they change, with no reload: an
+  inbound's certificate and key, a local rule-set. Those it reads once,
+  when what names them is built, are looked at by size and time of
+  modification at each reload, and one written since makes the reload a
+  full one: root certificates (`certificate_path`,
+  `certificate_directory_path`), an outbound's certificate and key files,
+  a provider's or a rule-set's file other than a followed local one, the
+  geo databases. A directory is seen to change when an entry is added or
+  removed, not when a file in it is rewritten.
+- An outbound added or removed while it ran (`add_outbound`,
+  `remove_outbound`) is not in the configuration: the reload after is a
+  full one, and goes by the configuration.
+- A reload with the very configuration that runs is one of the inbounds
+  alone that finds them untouched: it no longer empties the DNS cache or
+  starts the groups' checks over. To have everything built again, change
+  something else, or stop and start.
+
+A full reload:
+
+| | after a full reload |
 |---|---|
 | inbounds | those the configuration has are those that run. Compared by tag with those running: one that is the same is not touched; one whose users, certificate or key alone changed gets them, its listener kept; a new one is built and listens; one the configuration no longer has is removed; one changed otherwise (its port, its type, its transport) is replaced. A TUN is set up only at a start: see below |
 | connections already open | kept, on the outbound they were routed through, except those of an inbound removed or replaced, which are closed (tested: `sail/tests/it/test_reload_inbounds.rs`, where connections on an untouched inbound carry on through a reload byte for byte) |

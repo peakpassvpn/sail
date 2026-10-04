@@ -75,6 +75,7 @@ mod test_redaction;
 mod test_reload;
 mod test_reload_inbounds;
 mod test_reload_sessions;
+mod test_reload_untouched;
 mod test_route_actions;
 mod test_route_dial_domain;
 mod test_route_dns;

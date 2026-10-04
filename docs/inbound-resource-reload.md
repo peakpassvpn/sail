@@ -109,6 +109,10 @@ Socket preparation/acceptance hooks, including TCP Brutal, are retained.
   than silently keeping a stale referenced handler. No built-in inbound
   factory currently declares another inbound as a dependency. Unchanged
   unsupported device inbounds continue to operate.
+- A configuration reload whose configuration differs from what runs in
+  its inbounds alone touches nothing but the inbounds: outbounds, groups,
+  DNS and routing are not built again (`docs/embed.md`, "What did not
+  change is left alone").
 - TUN/NF devices, routing setup and NAT session identity are untouched.
 - This implements the resource mechanism and embedding-host entry point,
   not the separate 3.5 authenticated HTTP management platform, nor arbitrary

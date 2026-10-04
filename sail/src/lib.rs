@@ -162,6 +162,10 @@ pub struct RuntimeManager {
     /// How many reloads took, for tests: what follows a file must not
     /// reload the whole instance.
     reloads: portable_atomic::AtomicU64,
+    /// What it runs, without its inbounds: what tells a reload that
+    /// changes the inbounds alone. None once something else was changed
+    /// while it ran (an outbound added or removed), until the next reload.
+    running: Mutex<Option<runtime::running::Running>>,
     /// The instance itself, for what it starts to call back into.
     #[cfg_attr(not(feature = "auto-reload"), allow(dead_code))]
     this: std::sync::Weak<Self>,
@@ -203,6 +207,7 @@ impl RuntimeManager {
         Arc::new_cyclic(|this| Self {
             this: this.clone(),
             reloads: portable_atomic::AtomicU64::new(0),
+            running: Mutex::new(None),
             handle: tokio::runtime::Handle::current(),
             config_path,
             #[cfg(feature = "auto-reload")]
@@ -646,6 +651,21 @@ impl RuntimeManager {
                 protocol::tun::inbound::resolve_names(&mut config.inbounds, &names, &self.env.host);
             config
         };
+        // What did not change is left alone: a configuration that differs
+        // from what runs in its inbounds alone changes the inbounds, and
+        // nothing else is built again.
+        let inbounds_alone = self
+            .running
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .is_some_and(|running| running.differs_in_inbounds_alone(&config));
+        if inbounds_alone {
+            return self.apply_inbounds(&config).await;
+        }
+        // The files it names, before any is read: the next reload tells by
+        // them whether one was written since.
+        let running = runtime::running::Running::of(&config, &self.env);
         self.env.neighbors.start_if_needed(&config);
         self.env
             .network
@@ -744,46 +764,8 @@ impl RuntimeManager {
         if let Some(feed) = &self.tun_rule_sets {
             feed.check(&rule_sets).map_err(Error::Config)?;
         }
-        // The last step that can fail. An inbound that goes and holds an
-        // address a new one takes stops first, and the new one binds once
-        // its socket is closed; one that does not bind puts those stopped
-        // back, listening as they were, and the reload fails with all
-        // else untouched.
-        let stopping = self
-            .inbound_manager
-            .lock()
-            .map_err(|_| Error::RuntimeManager)?
-            .stop_for(&mut inbound_reload);
-        for stopped in stopping {
-            // Aborted, it ends at its next poll: 2 s is far more.
-            let _ = tokio::time::timeout(std::time::Duration::from_secs(2), stopped).await;
-        }
-        // An address is free a moment after its listener's task has ended:
-        // a QUIC endpoint closes its socket once its connections are gone.
-        // The bind is tried again for that long before the reload gives up
-        // and puts back what it stopped.
-        let giving_up = tokio::time::Instant::now() + LATE_BIND_WITHIN;
-        loop {
-            let bound = self
-                .inbound_manager
-                .lock()
-                .map_err(|_| Error::RuntimeManager)?
-                .bind_late(&mut inbound_reload);
-            match bound {
-                Ok(()) => break,
-                Err(_) if tokio::time::Instant::now() < giving_up => {
-                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-                }
-                Err(failed) => {
-                    return Err(self
-                        .inbound_manager
-                        .lock()
-                        .map_err(|_| Error::RuntimeManager)?
-                        .put_back(&mut inbound_reload, failed)
-                        .into());
-                }
-            }
-        }
+        // The last step that can fail.
+        self.rebind_for(&mut inbound_reload).await?;
         // Acquire the last fallible lock before publishing anything. Held
         // in a block of its own: nothing is awaited with it.
         let mut reloaded = {
@@ -816,23 +798,7 @@ impl RuntimeManager {
         if let Some(feed) = &self.tun_rule_sets {
             feed.publish(rule_sets.clone());
         }
-        // What the inbounds that went had accepted goes with them, as
-        // when one is removed: those listed, then those in their handshake
-        // or carrying streams. Nothing is accepted under their tags
-        // meanwhile; the new ones run from here, on the new routing.
-        for tag in &reloaded.gone {
-            let closed = self.close_connections_of(tag).await;
-            info!(
-                "[{}] inbound: stopped by the reload; {} of its connections closed",
-                tag, closed
-            );
-        }
-        for accepted in std::mem::take(&mut reloaded.accepted) {
-            accepted.disconnect();
-        }
-        if let Ok(mut inbounds) = self.inbound_manager.lock() {
-            inbounds.start_reloaded(reloaded.take_starting());
-        }
+        self.finish_inbounds(&mut reloaded).await;
         {
             let mut updater = self
                 .rule_set_updater
@@ -868,16 +834,124 @@ impl RuntimeManager {
         self.detect_network(net::network::ChangeReason::State);
         #[cfg(feature = "auto-reload")]
         self.follow_certificates_read(&inbound_files);
+        *self.running.lock().unwrap_or_else(|e| e.into_inner()) = Some(running);
         self.reloads
             .fetch_add(1, portable_atomic::Ordering::Relaxed);
+        Ok(control::ReloadReport {
+            path: control::ReloadPath::Full,
+            inbounds: reloaded.changes,
+        })
+    }
+
+    /// A reload of the inbounds alone: `config` is what runs but for its
+    /// inbounds and its users' limits. The outbounds, their sessions, the
+    /// groups, the DNS client and its cache, the routing and the rule-sets
+    /// are not built again: they are those that ran before.
+    async fn apply_inbounds(
+        &self,
+        config: &config::Config,
+    ) -> Result<control::ReloadReport, Error> {
+        #[cfg(feature = "auto-reload")]
+        let inbound_files = app::inbound::follow::about_to_read(&config.inbounds, &self.env);
+        let mut inbound_reload = self
+            .inbound_manager
+            .lock()
+            .map_err(|_| Error::RuntimeManager)?
+            .prepare_reload(&config.inbounds)?;
+        self.rebind_for(&mut inbound_reload).await?;
+        let mut reloaded = self
+            .inbound_manager
+            .lock()
+            .map_err(|_| Error::RuntimeManager)?
+            .commit_reload(inbound_reload);
+        self.env
+            .users
+            .set_limits(user::UserRegistry::configured(config));
+        self.finish_inbounds(&mut reloaded).await;
+        self.prune_stats(config);
+        #[cfg(feature = "auto-reload")]
+        self.follow_certificates_read(&inbound_files);
+        self.reloads
+            .fetch_add(1, portable_atomic::Ordering::Relaxed);
+        info!("only the inbounds differ: nothing else is built again");
+        Ok(control::ReloadReport {
+            path: control::ReloadPath::InboundsOnly,
+            inbounds: reloaded.changes,
+        })
+    }
+
+    /// Frees the addresses the new inbounds of `reload` wait for, and
+    /// binds them: an inbound that goes and holds an address a new one
+    /// takes stops first, and the new one binds once its socket is
+    /// closed; one that does not bind puts those stopped back, listening
+    /// as they were, and the reload fails with all else untouched.
+    async fn rebind_for(
+        &self,
+        inbound_reload: &mut app::inbound::manager::PreparedReload,
+    ) -> Result<(), Error> {
+        let stopping = self
+            .inbound_manager
+            .lock()
+            .map_err(|_| Error::RuntimeManager)?
+            .stop_for(inbound_reload);
+        for stopped in stopping {
+            // Aborted, it ends at its next poll: 2 s is far more.
+            let _ = tokio::time::timeout(std::time::Duration::from_secs(2), stopped).await;
+        }
+        // An address is free a moment after its listener's task has ended:
+        // a QUIC endpoint closes its socket once its connections are gone.
+        // The bind is tried again for that long before the reload gives up
+        // and puts back what it stopped.
+        let giving_up = tokio::time::Instant::now() + LATE_BIND_WITHIN;
+        loop {
+            let bound = self
+                .inbound_manager
+                .lock()
+                .map_err(|_| Error::RuntimeManager)?
+                .bind_late(inbound_reload);
+            match bound {
+                Ok(()) => break,
+                Err(_) if tokio::time::Instant::now() < giving_up => {
+                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                }
+                Err(failed) => {
+                    return Err(self
+                        .inbound_manager
+                        .lock()
+                        .map_err(|_| Error::RuntimeManager)?
+                        .put_back(inbound_reload, failed)
+                        .into());
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Ends what the inbounds a reload stopped had accepted, and runs the
+    /// new ones.
+    async fn finish_inbounds(&self, reloaded: &mut app::inbound::manager::Reloaded) {
+        // What the inbounds that went had accepted goes with them, as
+        // when one is removed: those listed, then those in their handshake
+        // or carrying streams. Nothing is accepted under their tags
+        // meanwhile; the new ones run from here, on the new routing.
+        for tag in &reloaded.gone {
+            let closed = self.close_connections_of(tag).await;
+            info!(
+                "[{}] inbound: stopped by the reload; {} of its connections closed",
+                tag, closed
+            );
+        }
+        for accepted in std::mem::take(&mut reloaded.accepted) {
+            accepted.disconnect();
+        }
+        if let Ok(mut inbounds) = self.inbound_manager.lock() {
+            inbounds.start_reloaded(reloaded.take_starting());
+        }
         for (tag, change) in &reloaded.changes {
             if *change != control::InboundChange::Untouched {
                 info!("[{}] inbound: {} by the reload", tag, change.name());
             }
         }
-        Ok(control::ReloadReport {
-            inbounds: reloaded.changes,
-        })
     }
 
     /// Closes the connections listed under the inbound `tag`; how many.
@@ -939,6 +1013,9 @@ impl RuntimeManager {
         let mut order = (**self.order.load()).clone();
         order.push(outbound.tag.clone());
         self.order.store(Arc::new(order));
+        // What runs is no longer the configuration: the next reload
+        // builds it all.
+        *self.running.lock().unwrap_or_else(|e| e.into_inner()) = None;
         info!("added outbound [{}]", outbound.tag);
         Ok(())
     }
@@ -965,6 +1042,7 @@ impl RuntimeManager {
         let mut order = (**self.order.load()).clone();
         order.retain(|t| t != tag);
         self.order.store(Arc::new(order));
+        *self.running.lock().unwrap_or_else(|e| e.into_inner()) = None;
         info!("removed outbound [{}]", tag);
         Ok(())
     }
@@ -1914,6 +1992,9 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
     // waits for is fetched, and one written until then is read again then.
     #[cfg(feature = "auto-reload")]
     let inbound_files = app::inbound::follow::about_to_read(&config.inbounds, &env);
+    // What it runs, and the files it names as they are before they are
+    // read: what tells a later reload that changes the inbounds alone.
+    let running = runtime::running::Running::of(&config, &env);
     let mut instance = app::instance::Instance::build(&config, env.clone(), dial_defaults)
         .map_err(Error::Config)?;
     // Its outbounds are built: the host dials through them from here,
@@ -1995,6 +2076,10 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
         runtime_manager.follow_certificates_read(&inbound_files);
     }
 
+    *runtime_manager
+        .running
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = Some(running);
     runtime_manager.set_assets(&config);
     #[cfg(feature = "api")]
     if let Some((listeners, secret)) = api_listeners {

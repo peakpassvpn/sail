@@ -19,7 +19,7 @@ use super::resource::{self, StreamGeneration, StreamResource};
 
 mod reload;
 pub use reload::InboundChange;
-pub(crate) use reload::Refused;
+pub(crate) use reload::{PreparedReload, Refused, Reloaded};
 
 /// Nothing is published until every candidate (and the other reloadable
 /// components) has been built successfully. Commit itself cannot fail.

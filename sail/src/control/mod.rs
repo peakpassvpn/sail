@@ -32,7 +32,36 @@ pub use dial::{Dialed, Dialer, DIAL_INBOUND};
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 #[non_exhaustive]
 pub struct ReloadReport {
+    /// How much was built again: a host tells by it why what its
+    /// connections went through was kept, or was not.
+    pub path: ReloadPath,
     pub inbounds: Vec<(String, InboundChange)>,
+}
+
+/// How much a reload built again.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
+pub enum ReloadPath {
+    /// Everything the configuration has: the outbounds and groups, the
+    /// DNS client, the routing and the rule-sets were built anew, and what
+    /// they held of state is as docs/embed.md tells of a reload.
+    #[default]
+    Full,
+    /// The inbounds alone, the configuration being otherwise what ran:
+    /// the outbounds and their sessions, the groups and what they know,
+    /// the DNS client and its cache, the routing and the rule-sets are
+    /// those that ran before, untouched.
+    InboundsOnly,
+}
+
+impl ReloadPath {
+    /// As the API and the log tell it.
+    pub fn name(self) -> &'static str {
+        match self {
+            ReloadPath::Full => "full",
+            ReloadPath::InboundsOnly => "inbounds_only",
+        }
+    }
 }
 pub use inbounds::{InboundError, InboundInfo};
 pub use providers::{Failure, ProviderInfo, RuleSetInfo, SourceKind, SubscriptionInfo};

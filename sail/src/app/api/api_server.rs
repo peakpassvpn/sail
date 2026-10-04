@@ -171,10 +171,12 @@ mod handlers {
 
     /// Reloads from the configuration file: 200 once the new one runs;
     /// otherwise the old one runs on, and the error tells why.
-    /// The body tells what became of each inbound: `{"inbounds": [{"tag",
-    /// "change"}]}`, `change` one of untouched, reloaded, added, removed,
-    /// replaced. Only the removed and the replaced had their connections
-    /// closed.
+    /// The body tells what became of each inbound: `{"path", "inbounds":
+    /// [{"tag", "change"}]}`, `change` one of untouched, reloaded, added,
+    /// removed, replaced. Only the removed and the replaced had their
+    /// connections closed. `path` is `inbounds_only` when nothing but the
+    /// inbounds differed from what ran, and nothing else was built again;
+    /// `full` otherwise.
     pub async fn runtime_reload(State(rm): State<Arc<RuntimeManager>>) -> Response {
         match rm.reload_reporting().await {
             Ok(report) => {
@@ -183,7 +185,8 @@ mod handlers {
                     .iter()
                     .map(|(tag, change)| serde_json::json!({ "tag": tag, "change": change.name() }))
                     .collect();
-                Json(serde_json::json!({ "inbounds": inbounds })).into_response()
+                Json(serde_json::json!({ "path": report.path.name(), "inbounds": inbounds }))
+                    .into_response()
             }
             Err(e) => {
                 warn!("reload failed, the configuration running is kept: {:#}", e);
