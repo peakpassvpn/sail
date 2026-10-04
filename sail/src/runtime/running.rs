@@ -134,6 +134,10 @@ fn unwritten(rules: &[Rule], digest: &mut Digest) -> Option<()> {
                 &rule.response_ns,
                 &rule.response_extra,
                 &rule.match_response,
+                // Inline lines a Clash or Surge lowering merged, and the
+                // index each rule had: what a match reports.
+                &rule.lines,
+                &rule.index,
             )
         )
         .ok()?;
@@ -365,9 +369,9 @@ mod tests {
     #[test]
     fn what_is_not_written_out_is_counted() {
         let model = include_str!("../config/model.rs");
-        // `Config::warnings`, and six fields of `Rule` that are a DNS
-        // rule's.
-        assert_eq!(model.matches("#[serde(skip)]").count(), 7);
+        // `Config::warnings`, six fields of `Rule` that are a DNS rule's,
+        // and `Rule::lines` and `Rule::index`, a lowering's merge.
+        assert_eq!(model.matches("#[serde(skip)]").count(), 9);
         // `Experimental::clash_api`.
         assert_eq!(model.matches("skip_serializing)]").count(), 1);
     }

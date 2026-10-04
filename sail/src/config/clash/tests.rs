@@ -2340,3 +2340,22 @@ fn a_provider_s_size_limit_and_path() {
         assert!(super::parse_in(yaml, Some(std::path::Path::new("/srv/sail/other"))).is_err());
     }
 }
+
+/// A converted profile's inline lines, adjacent with one target, become one
+/// rule, each line numbered as it was in the lowered `route.rules`.
+#[test]
+fn adjacent_inline_lines_with_one_target_merge() {
+    let config = load(
+        "proxies: [{ name: P, type: socks5, server: 127.0.0.1, port: 1 }]\n\
+         rules:\n  - DOMAIN-SUFFIX,a.test,P\n  - DOMAIN,b.test,P\n  - DOMAIN-KEYWORD,c,P\n  \
+         - IP-CIDR,10.0.0.0/8,P,no-resolve\n  - DOMAIN-SUFFIX,d.test,DIRECT\n  - MATCH,P\n",
+    );
+    let rules = &config.route.rules;
+    // The two clash_mode rules the lowering puts first, the merged run,
+    // IP-CIDR, d.test.
+    assert_eq!(rules.len(), 5, "{:#?}", rules);
+    let merged: Vec<u32> = rules[2].lines.iter().map(|l| l.index).collect();
+    assert_eq!(merged, [2, 3, 4]);
+    assert_eq!(rules[3].index, Some(5));
+    assert_eq!((rules[4].index, rules[4].lines.len()), (Some(6), 0));
+}

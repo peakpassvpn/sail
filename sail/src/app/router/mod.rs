@@ -404,6 +404,54 @@ struct Rule {
     action: Action,
     /// The rule told, for the Clash API.
     about: describe::About,
+    /// Its index in `route.rules` as written, before inline lines were
+    /// merged: what its matches are reported by.
+    index: u32,
+    /// The inline lines merged into it, each told and numbered as the rule
+    /// it was; empty for any other rule.
+    lines: Box<[Told]>,
+}
+
+/// An inline line merged into a rule (`config::inline`), as the rule it
+/// was: its domain, its index, and its `matched`, as it would have had.
+struct Told {
+    index: u32,
+    kind: model::LineKind,
+    value: Box<str>,
+    matched: std::sync::Arc<str>,
+}
+
+impl Rule {
+    /// The rule a match of it reports, its `matched` and index: of a rule
+    /// lines were merged into, the first line the domain matches, as the
+    /// unmerged rules would have matched it.
+    fn reported(&self, facts: &Facts) -> (&std::sync::Arc<str>, u32) {
+        let domain = facts.domain().map(str::to_ascii_lowercase);
+        let first = domain.as_deref().and_then(|domain| {
+            self.lines.iter().find(|line| {
+                let value = line.value.as_ref();
+                match line.kind {
+                    model::LineKind::Domain => domain == value,
+                    model::LineKind::Suffix => match value.strip_prefix('.') {
+                        Some(parent) => domain
+                            .strip_suffix(parent)
+                            .is_some_and(|rest| rest.ends_with('.')),
+                        None => {
+                            domain == value
+                                || domain
+                                    .strip_suffix(value)
+                                    .is_some_and(|rest| rest.ends_with('.'))
+                        }
+                    },
+                    model::LineKind::Keyword => domain.contains(value),
+                }
+            })
+        });
+        match first {
+            Some(line) => (&line.matched, line.index),
+            None => (&self.about.matched, self.index),
+        }
+    }
 }
 
 /// Where a walk over the rules stopped.
@@ -503,10 +551,39 @@ impl Rule {
             Action::Sniff(how) if rule.on_demand => Action::ArmSniff(how),
             action => action,
         };
+        // Each merged line, told as the rule of its one domain it was.
+        let lines = rule
+            .lines
+            .iter()
+            .map(|line| {
+                let mut alone = model::Rule {
+                    domain: Vec::new(),
+                    domain_suffix: Vec::new(),
+                    domain_keyword: Vec::new(),
+                    lines: Vec::new(),
+                    index: None,
+                    ..rule.clone()
+                };
+                let value = line.value.to_ascii_lowercase();
+                match line.kind {
+                    model::LineKind::Domain => alone.domain = vec![line.value.clone()],
+                    model::LineKind::Suffix => alone.domain_suffix = vec![line.value.clone()],
+                    model::LineKind::Keyword => alone.domain_keyword = vec![line.value.clone()],
+                }
+                Told {
+                    index: line.index,
+                    kind: line.kind,
+                    value: value.into(),
+                    matched: describe::About::of(&alone).matched,
+                }
+            })
+            .collect();
         Ok(Rule {
             matcher: Matcher::at(rule, path, env, rule_sets)?,
             action,
             about: describe::About::of(rule),
+            index: rule.index.unwrap_or(0),
+            lines,
         })
     }
 }
@@ -553,7 +630,18 @@ impl Router {
             .rules
             .iter()
             .enumerate()
-            .map(|(i, rule)| Rule::new(rule, &format!("route.rules[{}]", i), env, rule_sets, dial))
+            .map(|(i, rule)| {
+                let index = rule.index.unwrap_or(u32::try_from(i).unwrap_or(u32::MAX));
+                let mut built = Rule::new(
+                    rule,
+                    &format!("route.rules[{}]", index),
+                    env,
+                    rule_sets,
+                    dial,
+                )?;
+                built.index = index;
+                Ok(built)
+            })
             .collect()
     }
 
@@ -630,10 +718,15 @@ impl Router {
     /// the one a configuration error's `route.rules[i]` names. Each rule
     /// has a `matched` of its own, so two written alike are told apart.
     pub(crate) fn rule_index(&self, matched: &std::sync::Arc<str>) -> Option<u32> {
-        self.rules
-            .iter()
-            .position(|rule| std::sync::Arc::ptr_eq(&rule.about.matched, matched))
-            .and_then(|i| u32::try_from(i).ok())
+        self.rules.iter().find_map(|rule| {
+            if std::sync::Arc::ptr_eq(&rule.about.matched, matched) {
+                return Some(rule.index);
+            }
+            rule.lines
+                .iter()
+                .find(|line| std::sync::Arc::ptr_eq(&line.matched, matched))
+                .map(|line| line.index)
+        })
     }
 
     pub async fn pick_route(
@@ -719,7 +812,9 @@ impl Router {
         let mut armed_sniff: Option<&SniffAction> = None;
         let mut armed_resolve: Option<&Resolve> = None;
         let mut resolve_taken = false;
-        for (i, rule) in self.rules.iter().enumerate() {
+        for rule in self.rules.iter() {
+            // As written, before inline lines were merged.
+            let i = rule.index;
             if armed_sniff.is_some() || armed_resolve.is_some() {
                 let needs = rule.matcher.needs();
                 if let Some(action) = armed_sniff {
@@ -769,7 +864,7 @@ impl Router {
                     debug!("rule {} routes to {}", i, tag);
                     options.apply(sess);
                     sess.matched_rule_set = rule.matcher.narrow_rule_set(&facts);
-                    sess.matched_rule = Some(rule.about.matched.clone());
+                    sess.matched_rule = Some(rule.reported(&facts).0.clone());
                     return Ok(Stop::Route(tag.clone()));
                 }
                 // Only pre-match bypasses; elsewhere a bypass with an
@@ -782,7 +877,7 @@ impl Router {
                     debug!("rule {} routes to {}", i, tag);
                     options.apply(sess);
                     sess.matched_rule_set = rule.matcher.narrow_rule_set(&facts);
-                    sess.matched_rule = Some(rule.about.matched.clone());
+                    sess.matched_rule = Some(rule.reported(&facts).0.clone());
                     return Ok(Stop::Route(tag.clone()));
                 }
                 Action::Bypass(None) => {}
@@ -797,12 +892,12 @@ impl Router {
                 Action::Reject(reject) => {
                     let drop = reject.drops();
                     debug!("rule {} rejects{}", i, if drop { ", dropping" } else { "" });
-                    sess.matched_rule = Some(rule.about.matched.clone());
+                    sess.matched_rule = Some(rule.reported(&facts).0.clone());
                     return Ok(Stop::Reject { drop });
                 }
                 Action::HijackDns => {
                     debug!("rule {} hijacks dns", i);
-                    sess.matched_rule = Some(rule.about.matched.clone());
+                    sess.matched_rule = Some(rule.reported(&facts).0.clone());
                     return Ok(Stop::HijackDns);
                 }
                 // As in sing-box 1.14.1, whose router acts on a direct rule
@@ -2760,6 +2855,94 @@ mod tests {
         assert_eq!(
             err,
             "route.final: [PASS] is a pass outbound, and no rule comes after final"
+        );
+    }
+
+    /// Inline lines merged (`config::inline`, for Clash and Surge) route a
+    /// connection as the rules they were, and report it so: the rule and
+    /// index of the first line it matches, as unmerged. A rule of another
+    /// kind or target between two lines keeps them apart.
+    #[cfg(any(feature = "config-clash", feature = "config-surge"))]
+    #[tokio::test]
+    async fn merged_lines_route_and_report_as_the_rules_they_were() {
+        let rules = serde_json::json!([
+            { "domain_suffix": ["example.test"], "outbound": "a" },
+            { "domain_suffix": ["sub.example.test"], "outbound": "a" },
+            { "domain_keyword": ["kw"], "outbound": "a" },
+            { "domain": ["x.test"], "outbound": "a" },
+            { "domain_suffix": ["y.test"], "outbound": "b" },
+            { "domain_suffix": ["z.test"], "outbound": "b" },
+            { "port": [8080], "outbound": "a" },
+            { "domain_suffix": ["w.test"], "outbound": "b" },
+            { "domain_suffix": ["example.test"], "outbound": "b" },
+        ]);
+        let build = |merged: bool| {
+            let mut config = crate::config::Config::from_json(
+                &serde_json::json!({
+                    "outbounds": [{ "type": "direct", "tag": "a" }, { "type": "direct", "tag": "b" }],
+                    "route": { "rules": rules.clone(), "final": "b" },
+                })
+                .to_string(),
+            )
+            .unwrap();
+            if merged {
+                crate::config::inline::merge(&mut config.route.rules);
+            }
+            let dns = DnsClient::new(&config.dns, Default::default(), &Default::default())
+                .unwrap()
+                .into_shared();
+            Router::new(&config.route, dns, &RuntimeEnv::default()).unwrap()
+        };
+        let (plain, merged) = (build(false), build(true));
+        assert_eq!(plain.rules.len(), 9);
+        assert_eq!(merged.rules.len(), 4, "0-3, 4-5, 6, 7-8");
+        let told = |router: &Router, sess: &Session| {
+            let matched = sess.matched_rule.clone();
+            let index = matched.as_ref().and_then(|m| router.rule_index(m));
+            (matched.map(|m| m.to_string()), index)
+        };
+        for (host, port) in [
+            ("a.example.test", 443),
+            ("sub.example.test", 443),
+            ("foo-kw.test", 443),
+            ("x.test", 443),
+            ("www.x.test", 443),
+            ("y.test", 443),
+            ("q.z.test", 443),
+            ("w.test", 8080),
+            ("w.test", 443),
+            ("nothing.test", 443),
+        ] {
+            let at = || Session {
+                destination: SocksAddr::Domain(host.into(), port),
+                ..Default::default()
+            };
+            let (mut a, mut b) = (at(), at());
+            let decided = (pick(&plain, &mut a).await, pick(&merged, &mut b).await);
+            assert_eq!(decided.0, decided.1, "{host}:{port}");
+            assert_eq!(told(&plain, &a), told(&merged, &b), "{host}:{port}");
+        }
+        // The second line of a run reports itself; a line after a merged
+        // run keeps its index.
+        let mut sess = Session {
+            destination: SocksAddr::Domain("www.sub.example.test".into(), 443),
+            ..Default::default()
+        };
+        pick(&merged, &mut sess).await;
+        assert_eq!(
+            told(&merged, &sess).1,
+            Some(0),
+            "example.test, written first"
+        );
+        let mut sess = Session {
+            destination: SocksAddr::Domain("q.z.test".into(), 443),
+            ..Default::default()
+        };
+        pick(&merged, &mut sess).await;
+        assert_eq!(told(&merged, &sess).1, Some(5));
+        assert_eq!(
+            told(&merged, &sess).0.as_deref(),
+            Some("domain_suffix=z.test => route(b)")
         );
     }
 }

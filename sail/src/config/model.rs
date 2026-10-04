@@ -2614,6 +2614,34 @@ pub struct Rule {
     /// replaces its options.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub on_demand: bool,
+
+    /// The inline Clash or Surge lines merged into this rule, each told and
+    /// numbered as the rule it was (`config::inline`); empty for any other
+    /// rule. Not configuration: never read from or written to one.
+    #[serde(skip)]
+    pub lines: Vec<Line>,
+    /// The index the rule had in `route.rules` before lines were merged,
+    /// which its matches are reported by; none when nothing was merged,
+    /// and its place is that index.
+    #[serde(skip)]
+    pub index: Option<u32>,
+}
+
+/// An inline line merged into a rule: its one domain, and its index in
+/// `route.rules` before the merge.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Line {
+    pub index: u32,
+    pub kind: LineKind,
+    pub value: String,
+}
+
+/// Which of a rule's domain fields a merged line's domain was in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LineKind {
+    Domain,
+    Suffix,
+    Keyword,
 }
 
 /// Which dials of a connection to an address go to the name known for

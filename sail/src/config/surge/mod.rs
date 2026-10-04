@@ -159,6 +159,9 @@ pub fn parse_with(
         )
     })?;
     config.validate()?;
+    // Its inline rules' adjacent lines merged, each still told and
+    // numbered as itself; a lowering's own, never a native configuration.
+    super::inline::merge(&mut config.route.rules);
     config.warnings = warnings;
     Ok(config)
 }

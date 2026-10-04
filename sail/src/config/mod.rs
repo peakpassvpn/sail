@@ -10,6 +10,8 @@ use anyhow::{anyhow, Result};
 pub mod clash;
 pub mod external_rule;
 pub mod geosite;
+#[cfg(any(feature = "config-clash", feature = "config-surge"))]
+pub(crate) mod inline;
 pub mod model;
 pub mod rule_set;
 pub mod share_link;
