@@ -77,6 +77,9 @@ pub fn manager(
         &Default::default(),
     )?
     .into_shared();
+    // What the groups start as they are built goes into env's scope, as
+    // an instance's does while it is built.
+    let _building = env.scope.building();
     OutboundManager::new(&config.outbounds, &dial_defaults, env, dns_client)
 }
 

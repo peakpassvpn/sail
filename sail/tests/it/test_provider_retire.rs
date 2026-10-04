@@ -104,7 +104,7 @@ mod harness {
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()?;
-        rt.block_on(async {
+        rt.block_on(common::scoped(async {
             let dial = Arc::new(sail::net::DialDefaults::new(&config.route)?);
             let env = Arc::new(sail::runtime::RuntimeEnv {
                 options: common::runtime_options(),
@@ -245,7 +245,7 @@ mod harness {
                 tokio::time::sleep(Duration::from_millis(50)).await;
             }
             anyhow::Ok(())
-        })
+        }))
     }
 }
 

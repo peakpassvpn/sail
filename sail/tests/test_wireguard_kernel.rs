@@ -33,6 +33,8 @@
     feature = "outbound-socks",
     feature = "outbound-direct",
 ))]
+// Tests drive tasks of their own.
+#![allow(clippy::disallowed_methods)]
 
 #[path = "it/common.rs"]
 mod common;

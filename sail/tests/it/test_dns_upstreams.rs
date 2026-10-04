@@ -366,7 +366,7 @@ fn client_with(
 }
 
 async fn lookup(client: &DnsClient, host: &str) -> anyhow::Result<Vec<IpAddr>> {
-    client.lookup(host).await
+    crate::common::scoped(client.lookup(host)).await
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -707,9 +707,7 @@ async fn servers_are_reached_through_their_detour() {
             .set_dispatcher(Arc::downgrade(&dispatcher));
 
         for host in ["a.example", "b.example"] {
-            let ips = dns_client
-                .load()
-                .lookup(host)
+            let ips = crate::common::scoped(dns_client.load().lookup(host))
                 .await
                 .unwrap_or_else(|e| panic!("{}: {}", server, e));
             assert_eq!(ips, vec![IpAddr::V4(ANSWER)], "{}", server);

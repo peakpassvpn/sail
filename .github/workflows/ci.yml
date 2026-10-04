@@ -153,7 +153,11 @@ jobs:
       # command service included) in one run, so that sail is built once
       # for all three. sail-ffi adds sail's auto-reload feature, so sail's
       # tests run with it on; the features job builds sail without it.
+      # A task spawned outside any instance's scope aborts the run (E2):
+      # one on a task of its own would only panic where tokio catches it.
       - name: test
+        env:
+          SAIL_SCOPE_STRICT: "1"
         run: cargo test -p sail -p sail-netstack -p sail-ffi
 
       - name: BoringSSL linked
@@ -408,6 +412,8 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/master' }}
 
       - name: test sail
+        env:
+          SAIL_SCOPE_STRICT: "1"
         run: cargo test -p sail
 
       - name: BoringSSL linked

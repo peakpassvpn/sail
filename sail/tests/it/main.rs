@@ -6,6 +6,8 @@
 //! Tests stay a binary of their own under `tests/` when they need a process
 //! to themselves or are run by name (`--test`): root, network namespaces, or
 //! a single test thread.
+// Tests drive tasks of their own.
+#![allow(clippy::disallowed_methods)]
 
 mod common;
 mod test_connection_life;

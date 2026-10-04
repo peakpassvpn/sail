@@ -46,6 +46,18 @@ pub fn next_rt_id() -> sail::RuntimeId {
 ///
 /// The port is free when returned, but not held: another process may take
 /// it before the test binds it. `retry_port_clash` covers that.
+/// The scope of what a test drives directly, without an instance: what
+/// sail's parts spawn goes into a scope, as an instance's does.
+pub fn test_scope() -> sail::runtime::scope::TaskScope {
+    static SCOPE: std::sync::OnceLock<sail::runtime::scope::TaskScope> = std::sync::OnceLock::new();
+    SCOPE.get_or_init(Default::default).clone()
+}
+
+/// `fut`, run in the tests' scope (`test_scope`).
+pub fn scoped<F: std::future::Future>(fut: F) -> impl std::future::Future<Output = F::Output> {
+    test_scope().enter(fut)
+}
+
 pub fn free_port() -> u16 {
     static TAKEN: std::sync::Mutex<Option<std::collections::HashSet<u16>>> =
         std::sync::Mutex::new(None);

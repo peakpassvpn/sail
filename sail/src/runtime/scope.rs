@@ -12,6 +12,8 @@
 //!
 //! In doubt, essential: a stopped instance is visible, a silently dead
 //! updater is not.
+// The one place sail spawns on tokio directly: the scope itself.
+#![allow(clippy::disallowed_methods)]
 
 use portable_atomic::{AtomicU64, Ordering};
 use std::collections::HashMap;
@@ -32,7 +34,8 @@ const SHARDS: usize = 16;
 pub const TASK_OVERHEAD: usize = 128;
 
 /// How long a stop waits for the instance's tasks to end, unless the host
-/// says: a judgment value, to be measured (design-notes, E2).
+/// says. Measured against: an instance holding 550 connections stops in
+/// 12–23 ms at the median and 133 ms at the most (design-notes, E2).
 pub const STOP_WITHIN: Duration = Duration::from_secs(2);
 
 tokio::task_local! {
@@ -642,22 +645,51 @@ where
 
 static UNSCOPED: AtomicU64 = AtomicU64::new(0);
 
-/// A task with no scope there is: a mistake, never silent. Each call site
-/// (a task's name) warns once, and every one is counted. Until every area
-/// spawns through the scope (E2 S2a–e) it is spawned as before; S2f turns
-/// this into an assertion, with the whole integration suite at zero.
+/// A task with no scope there is: a mistake, never silent. It is counted
+/// (`unscoped_count`) and warned of once per call site (a task's name),
+/// and in a debug build it fails the assertion: every area spawns through
+/// the scope (E2 S2a–e), and the whole integration suite runs with none
+/// (S2f's criterion). In a debug build, `SAIL_SCOPE_STRICT` aborts the
+/// process there, so that a spawn on a task of its own, whose panic tokio
+/// would catch, still fails the run (CI's test jobs set it), and
+/// `SAIL_SCOPE_REPORT` prints where it was and goes on, to list them all.
 fn unscoped_note(name: &'static str) {
     static WARNED: Mutex<Vec<&'static str>> = Mutex::new(Vec::new());
     let n = UNSCOPED.fetch_add(1, Ordering::Relaxed) + 1;
-    let mut warned = lock(&WARNED);
-    if !warned.contains(&name) {
-        warned.push(name);
-        tracing::warn!(
-            "task [{}] spawned outside any instance's scope ({} so far): a stop will not end it",
-            name,
-            n
-        );
+    {
+        let mut warned = lock(&WARNED);
+        if !warned.contains(&name) {
+            warned.push(name);
+            tracing::warn!(
+                "task [{}] spawned outside any instance's scope ({} so far): a stop will not end it",
+                name,
+                n
+            );
+        }
     }
+    if cfg!(debug_assertions) {
+        if std::env::var_os("SAIL_SCOPE_STRICT").is_some() {
+            eprintln!(
+                "task [{}] spawned outside any instance's scope: aborting",
+                name
+            );
+            std::process::abort();
+        }
+        if std::env::var_os("SAIL_SCOPE_REPORT").is_some() {
+            eprintln!(
+                "UNSCOPED [{}] on {:?}\n{}",
+                name,
+                std::thread::current().name(),
+                std::backtrace::Backtrace::force_capture()
+            );
+            return;
+        }
+    }
+    debug_assert!(
+        false,
+        "task [{}] spawned outside any instance's scope",
+        name
+    );
 }
 
 /// How many tasks were spawned outside any instance's scope, in this

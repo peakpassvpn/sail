@@ -1,3 +1,6 @@
+// Unit tests drive tasks of their own; sail's tasks go through the scope.
+#![cfg_attr(test, allow(clippy::disallowed_methods))]
+
 use std::collections::HashMap;
 use std::io;
 use std::sync::mpsc::sync_channel;

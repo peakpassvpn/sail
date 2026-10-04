@@ -7,6 +7,8 @@
 //! hanging.
 
 #![cfg(feature = "tls")]
+// Tests drive tasks of their own.
+#![allow(clippy::disallowed_methods)]
 
 use std::io;
 use std::pin::Pin;

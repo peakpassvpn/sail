@@ -1,3 +1,9 @@
 disallowed-types = [
     { path = "std::sync::atomic::AtomicU64", reason = "32-bit mips has no 64-bit atomics: use portable_atomic::AtomicU64, the same type and instructions elsewhere, so that sail builds for mipsel (OpenWrt's MT7621 routers)" },
 ]
+disallowed-methods = [
+    { path = "tokio::spawn", reason = "an instance's task goes through its scope (sail::runtime::scope: spawn, spawn_essential, spawn_child), so that a stop ends it and a panic is caught by its class (E2)" },
+    { path = "tokio::task::spawn_blocking", reason = "an instance's blocking work goes through its scope (sail::runtime::scope::spawn_blocking) (E2)" },
+    { path = "tokio::runtime::Handle::spawn", reason = "spawn on a runtime through the scope (TaskScope::spawn_on) (E2)" },
+    { path = "tokio::task::JoinSet::spawn", reason = "a set's tasks carry the scope (sail::runtime::scope::spawn_child) (E2)" },
+]

@@ -45,7 +45,7 @@ async fn node(
     let mut pc = PeerConfig::new(peer_public);
     pc.allowed_ips = vec![(peer_ip.parse::<IpAddr>().unwrap(), 32)];
     let id = dev.add_peer(pc).unwrap();
-    let (wg, rx) = WireGuard::spawn(dev, Arc::new(sock));
+    let (wg, rx) = crate::common::scoped(async { WireGuard::spawn(dev, Arc::new(sock)) }).await;
     (wg, rx, addr, id)
 }
 

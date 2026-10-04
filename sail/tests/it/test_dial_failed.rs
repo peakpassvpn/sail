@@ -52,9 +52,13 @@ impl Instance {
         let dns_client = DnsClient::new(&config.dns, dial.clone(), &env)
             .unwrap()
             .into_shared();
+        // What the groups start as they are built goes into env's scope,
+        // as an instance's does while it is built.
+        let building = env.scope.building();
         let manager = Arc::new(arc_swap::ArcSwap::from_pointee(
             OutboundManager::new(&config.outbounds, &dial, &env, dns_client.clone()).unwrap(),
         ));
+        drop(building);
         let router = Arc::new(arc_swap::ArcSwap::from_pointee(
             Router::new(&config.route, dns_client.clone(), &env).unwrap(),
         ));

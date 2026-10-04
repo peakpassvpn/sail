@@ -7,6 +7,8 @@
 //! those the direct outbound marks, which take the veth to the namespace, so
 //! nothing loops back into the TUN.
 #![cfg(target_os = "linux")]
+// Tests drive tasks of their own.
+#![allow(clippy::disallowed_methods)]
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::process::{Child, Command, Stdio};

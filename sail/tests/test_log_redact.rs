@@ -4,6 +4,8 @@
 //! level is.
 
 #![cfg(all(feature = "inbound-mixed", feature = "outbound-direct"))]
+// Tests drive tasks of their own.
+#![allow(clippy::disallowed_methods)]
 
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};

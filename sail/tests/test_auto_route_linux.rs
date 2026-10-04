@@ -29,6 +29,8 @@
 //! namespace once set the host's eth0's servers by the namespace's
 //! interface numbers.
 #![cfg(target_os = "linux")]
+// Tests drive tasks of their own.
+#![allow(clippy::disallowed_methods)]
 
 use std::net::UdpSocket;
 use std::path::PathBuf;

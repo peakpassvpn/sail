@@ -42,6 +42,8 @@
 //! cookie reply, and completes on the retry that carries mac2.
 
 #![cfg(feature = "wireguard")]
+// Tests drive tasks of their own.
+#![allow(clippy::disallowed_methods)]
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::Arc;

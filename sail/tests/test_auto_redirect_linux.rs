@@ -24,6 +24,8 @@
 //!   nftables table) goes when the next starts, even one with no TUN, and
 //!   another's rule at one of its priorities stays.
 #![cfg(target_os = "linux")]
+// Tests drive tasks of their own.
+#![allow(clippy::disallowed_methods)]
 
 use std::net::UdpSocket;
 use std::path::{Path, PathBuf};

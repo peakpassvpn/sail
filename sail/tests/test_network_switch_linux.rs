@@ -9,6 +9,8 @@
 //! sockets follow the default interface) within 2 s. The 5.5 harness
 //! measures how fast; this test says whether it is right.
 #![cfg(target_os = "linux")]
+// Tests drive tasks of their own.
+#![allow(clippy::disallowed_methods)]
 
 use std::process::Command;
 use std::time::{Duration, Instant};

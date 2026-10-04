@@ -20,6 +20,8 @@
 //! - A panic inside sail aborts the process in release builds, as a Go
 //!   panic in libbox does.
 #![allow(clippy::missing_safety_doc)]
+// The host's side: its tasks are the host's, not an instance's.
+#![allow(clippy::disallowed_methods)]
 
 use std::ffi::{c_char, CStr, CString};
 

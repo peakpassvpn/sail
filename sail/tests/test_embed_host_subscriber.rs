@@ -3,6 +3,8 @@
 //! gets its own lines, at its own level. A binary of its own: the global
 //! subscriber is the process's.
 #![cfg(all(feature = "outbound-direct", feature = "inbound-socks"))]
+// Tests drive tasks of their own.
+#![allow(clippy::disallowed_methods)]
 
 use std::time::Duration;
 

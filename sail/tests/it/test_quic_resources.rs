@@ -141,7 +141,11 @@ async fn open_within(
         destination: SocksAddr::from(address),
         ..Default::default()
     };
-    Ok(tokio::time::timeout(limit, handler.stream()?.handle(&sess, None, None)).await??)
+    let opened = common::scoped(tokio::time::timeout(
+        limit,
+        handler.stream()?.handle(&sess, None, None),
+    ));
+    Ok(opened.await??)
 }
 
 async fn ping(stream: &mut AnyStream) -> Result<()> {
@@ -253,14 +257,14 @@ fn quic_users_and_certificates_rotate_without_disconnecting_sessions() -> Result
                 destination: SocksAddr::from(udp_address),
                 ..Default::default()
             };
-            let datagram = old_handler.datagram()?.handle(&sess, None).await?;
+            let datagram = common::scoped(old_handler.datagram()?.handle(&sess, None)).await?;
             let (mut recv, mut send) = datagram.split();
             udp_ping(&mut *recv, &mut *send, udp_address).await?;
             // A user every configuration keeps keeps its sessions.
             let (_kept_client, kept_handler) = client(protocol, port, "keeper", &first.cert.pem())?;
             let mut kept_stream = open(&kept_handler, address).await?;
             ping(&mut kept_stream).await?;
-            let datagram = kept_handler.datagram()?.handle(&sess, None).await?;
+            let datagram = common::scoped(kept_handler.datagram()?.handle(&sess, None)).await?;
             let (mut kept_recv, mut kept_send) = datagram.split();
             udp_ping(&mut *kept_recv, &mut *kept_send, udp_address).await?;
 

@@ -144,7 +144,7 @@ impl ReloadEvents {
 
     pub(crate) fn new(reload: mpsc::Sender<SyncSender<Result<(), crate::Error>>>) -> Self {
         let (events, mut rx) = mpsc::channel(1);
-        let task = tokio::spawn(async move {
+        let task = crate::runtime::scope::spawn_essential("config reload events", async move {
             while rx.recv().await.is_some() {
                 loop {
                     match tokio::time::timeout(Duration::from_millis(250), rx.recv()).await {
@@ -158,7 +158,11 @@ impl ReloadEvents {
                     break;
                 }
                 // Never block the runtime or the notify callback on reload.
-                if let Ok(Ok(Err(error))) = tokio::task::spawn_blocking(move || result.recv()).await
+                if let Ok(Ok(Err(error))) =
+                    crate::runtime::scope::spawn_blocking("config reload wait", move || {
+                        result.recv()
+                    })
+                    .await
                 {
                     tracing::warn!(
                         "resource file reload failed; keeping previous resources: {}",

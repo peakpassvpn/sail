@@ -117,6 +117,7 @@ pub(crate) fn serve(
         .as_deref()
         .filter(|p| !p.is_empty())
         .map(|p| PathBuf::from(rm.env().data_path(p)));
+    let scope = rm.env().scope.clone();
     let clash = Arc::new(Clash {
         secret: api.secret.clone().unwrap_or_default(),
         origins: api.access_control_allow_origin.clone(),
@@ -134,7 +135,14 @@ pub(crate) fn serve(
     let addr = listener.local_addr()?;
     listener.set_nonblocking(true)?;
     let listener = tokio::net::TcpListener::from_std(listener)?;
-    let app = router(clash.clone());
+    // axum spawns each connection on a task of its own, which carries no
+    // scope: each request runs in the instance's, so that what a handler
+    // spawns is the instance's (E2). The connections themselves end with
+    // the runtime.
+    let app =
+        router(clash.clone()).layer(middleware::from_fn(move |request: Request, next: Next| {
+            scope.enter(next.run(request))
+        }));
     info!("clash_api: serving on {}", addr);
     Ok(Box::pin(async move {
         #[cfg(feature = "http-client")]
