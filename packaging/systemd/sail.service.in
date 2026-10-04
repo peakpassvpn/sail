@@ -14,10 +14,11 @@ ExecStart=@SAIL_BINARY@ --config ${SAIL_CONFIG} --data-dir ${SAIL_DATA_DIR} --ca
 # A reload is checked before it is sent: a configuration that fails the
 # check fails `systemctl reload`, and one that fails in the process leaves
 # the configuration before running. A reload takes DNS, outbounds, routing
-# and inbounds' users and TLS certificates; one that adds or removes an
-# inbound, or changes one otherwise (listen address, port, protocol
-# settings), is refused in the process with an error in the journal, while
-# `systemctl reload` still succeeds: those need `systemctl restart`.
+# and the inbounds: added, removed and changed ones are applied, and the
+# connections of one removed or replaced are closed. One that adds, removes
+# or changes a TUN inbound is refused in the process with an error in the
+# journal, while `systemctl reload` still succeeds: that needs
+# `systemctl restart`.
 ExecReload=@SAIL_BINARY@ --config ${SAIL_CONFIG} --data-dir ${SAIL_DATA_DIR} --cache-dir ${SAIL_CACHE_DIR} --profile ${SAIL_PROFILE} --test
 ExecReload=/bin/kill -HUP $MAINPID
 # SIGTERM stops taking connections and lets those open finish, 30 s at

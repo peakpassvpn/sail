@@ -26,18 +26,40 @@ leaves the one before running (the journal says so), and connections open
 keep what they were made with. The unit's `ExecReload` first runs the same
 `--test` check as `ExecStartPre`, so a configuration that fails it fails
 `systemctl reload` without reaching the process, then sends `SIGHUP`.
-A reload never rebinds a listener: one that adds or removes an inbound, or
-changes an inbound's `listen`, `listen_port` or other settings beyond its
-users and TLS certificates, is refused as a whole, and needs a restart.
+A reload compares the inbounds by tag, and the configuration is what runs:
+
+- one unchanged is left alone;
+- one whose users, certificate or key alone changed is reloaded in place,
+  its listener and connections kept;
+- one added is built and listens;
+- one removed stops, and its connections are closed;
+- one changed otherwise (`listen`, `listen_port`, its type, transport,
+  ...) is replaced, and the old one's connections are closed;
+- an inbound added through the API and not written to the file is
+  removed, as the file does not have it.
+
+The journal names each one (`[tag] inbound: added by the reload`, and
+likewise removed, replaced, reloaded). Nothing is half applied: a reload
+that cannot bind what it adds or replaces fails, and the inbounds before
+keep listening, their connections untouched (one replaced on its own
+address is given 1 s to bind, as a QUIC endpoint frees its port a moment
+after it stops); only when another program took the address meanwhile is
+the one that gave it up lost, and the error names it. A TUN
+inbound is the exception: adding, removing or changing one refuses the
+whole reload ("only at a start; restart to apply"), and nothing changes.
 
 | Edited | `systemctl reload` | Takes effect |
 |---|---|---|
 | DNS, outbounds, routing, an inbound's users or TLS certificates | applies it | at once, for new connections |
-| an inbound added, removed, or changed otherwise | succeeds, but the process refuses it and logs the error; the configuration before keeps running | only with `systemctl restart` |
+| an inbound added, removed, or changed otherwise (not a TUN) | applies it; a removed or replaced inbound's connections are closed | at once |
+| a TUN inbound added, removed, or changed | succeeds, but the process refuses it and logs the error; the configuration before keeps running | only with `systemctl restart` |
 
 `systemctl reload` succeeding means the configuration passed `--test` and
-the signal was sent, not that it was applied: after an inbound edit, use
-`systemctl restart`, or check the journal (`journalctl -u sail`).
+the signal was sent, not that it was applied: a reload the process
+refuses, a TUN edit or a port that cannot be bound, is in the journal
+(`journalctl -u sail`) and nowhere else: `SIGHUP: reloaded` when it was
+applied, `SIGHUP: the configuration is not loaded, the one before runs on`
+with the error when it was not.
 
 ## Files and privilege modes
 

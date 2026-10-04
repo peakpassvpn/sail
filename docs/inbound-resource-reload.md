@@ -100,10 +100,11 @@ Socket preparation/acceptance hooks, including TCP Brutal, are retained.
 ## Deliberate boundaries
 
 - Listener tags, protocols, addresses, ports, UDP timeouts, transport,
-  multiplex and fallback settings cannot change through resource reload.
-  Unsupported edits return an error; use the existing add/remove API or
-  restart for structural changes. Inbound additions/removals in a file
-  reload are also rejected rather than silently ignored.
+  multiplex and fallback settings cannot change through resource reload:
+  a configuration reload that changes them replaces the inbound instead,
+  closing its connections, and one that adds or removes an inbound builds
+  or removes it (a TUN inbound aside, which needs a restart). See
+  `docs/systemd-deployment.md`.
 - Custom inbound dependency graphs remain rejected for resource edits rather
   than silently keeping a stale referenced handler. No built-in inbound
   factory currently declares another inbound as a dependency. Unchanged
