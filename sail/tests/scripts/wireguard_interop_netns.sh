@@ -21,6 +21,7 @@ set -euo pipefail
 
 KERNEL=sailwg-a
 SAIL=sailwg-b
+SAIL_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 KEYS=
 
 cleanup() {
@@ -75,6 +76,10 @@ if [ "$(in_ns "$KERNEL" ss -Hulnp 'sport = :7' | grep -c socat)" != 2 ]; then
     echo "the UDP echo servers did not both start"
     exit 1
 fi
+
+cd "$SAIL_DIR"
+# Built outside the namespaces, where cargo may reach the network.
+cargo test -p sail --features wireguard --test test_wireguard_interop --no-run
 
 in_ns "$SAIL" env WG_KERNEL_PUBLIC="$(wg pubkey <"$KEYS/kernel.key")" \
     WG_SAIL_PRIVATE="$(cat "$KEYS/sail.key")" \

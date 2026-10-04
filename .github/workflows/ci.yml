@@ -751,13 +751,14 @@ jobs:
   # The Linux netns suites (sail/tests/scripts/*_netns.sh), as root on a
   # runner, each in network namespaces of its own: the TUN with auto_route
   # and auto_redirect, what a failing instance leaves (in-process, feature
-  # fault-injection), a kill's leftovers swept, tproxy, and a network
-  # switch. Like tun-macos: on master, by hand, and on branches touching
-  # them. The runner has all they need (measured: tun, nf_tables, nft_redir,
-  # nft_tproxy, nf_tproxy_ipv4/6, nft_socket, nft_queue, nfnetlink_queue,
-  # nft_fib, nft_ct load; /dev/net/tun; systemd-resolved; nftables 1.0.9
-  # installed if missing), so nothing of the suites is left to the test
-  # host.
+  # fault-injection), a kill's leftovers swept, tproxy, a network switch,
+  # and WireGuard against the kernel's. Like tun-macos: on master, by hand,
+  # and on branches touching them. The runner has all they need (measured:
+  # tun, nf_tables, nft_redir, nft_tproxy, nf_tproxy_ipv4/6, nft_socket,
+  # nft_queue, nfnetlink_queue, nft_fib, nft_ct, wireguard load;
+  # /dev/net/tun; systemd-resolved; nftables 1.0.9, wireguard-tools and
+  # socat installed if missing), so nothing of the suites is left to the
+  # test host.
   netns-linux-paths:
     runs-on: ubuntu-latest
     outputs:
