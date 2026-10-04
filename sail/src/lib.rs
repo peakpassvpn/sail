@@ -621,8 +621,14 @@ impl RuntimeManager {
         };
         let _update = self.update.lock().await;
         info!("reloading from config file: {}", config_path);
-        let config = config::from_file_for(config_path, &self.env.host).map_err(Error::Config)?;
-        let report = self.apply(config).await?;
+        let config = config::from_file_for(config_path, &self.env.host).map_err(Error::Config);
+        // Taken or refused, a document was read and dropped.
+        let report = match config {
+            Ok(config) => self.apply(config).await,
+            Err(e) => Err(e),
+        };
+        runtime::memory::freed();
+        let report = report?;
         info!("reloaded from config file: {}", config_path);
         Ok(report)
     }
@@ -640,7 +646,9 @@ impl RuntimeManager {
     ) -> Result<control::ReloadReport, Error> {
         let _update = self.update.lock().await;
         info!("reloading with the configuration given");
-        let report = self.apply(config).await?;
+        let report = self.apply(config).await;
+        runtime::memory::freed();
+        let report = report?;
         info!("reloaded with the configuration given");
         Ok(report)
     }
@@ -2156,7 +2164,10 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
         }
     }
 
-    drop(config); // explicitly free the memory
+    // Explicitly free the memory; what the load freed may go back to the
+    // system now.
+    drop(config);
+    runtime::memory::freed();
 
     // Monitor reload signal.
     let rm = runtime_manager.clone();

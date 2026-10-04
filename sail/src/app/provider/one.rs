@@ -318,6 +318,8 @@ impl Provider {
             // The groups that take its members, at once rather than when
             // their tasks come to it.
             manager.merge_groups();
+            // The document read and dropped: what it took may go back.
+            crate::runtime::memory::freed();
         }
         Ok(())
     }

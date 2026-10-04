@@ -182,7 +182,7 @@ impl Remote {
             let state = self.state();
             state.loaded.then(|| state.etag.clone()).flatten()
         };
-        match http::get(
+        let parsed = match http::get(
             dispatcher,
             &via,
             &self.client.headers,
@@ -195,9 +195,18 @@ impl Remote {
             http::Response::NotModified => {
                 debug!("rule-set [{}]: unchanged", self.tag);
                 self.state().updated = Some(SystemTime::now());
+                false
             }
             http::Response::Body { data, etag, .. } => {
-                let set = RuleSet::read(&data, self.format, self.behavior, &self.env)?;
+                let set = match RuleSet::read(&data, self.format, self.behavior, &self.env) {
+                    Ok(set) => set,
+                    Err(e) => {
+                        // Refused, it was read and dropped all the same.
+                        drop(data);
+                        crate::runtime::memory::freed();
+                        return Err(e);
+                    }
+                };
                 self.set.publish(Arc::new(set));
                 {
                     let mut state = self.state();
@@ -209,7 +218,12 @@ impl Remote {
                 if let Err(e) = self.save(&data) {
                     warn!("rule-set [{}]: not cached: {}", self.tag, e);
                 }
+                true
             }
+        };
+        // The document read and dropped: what it took may go back.
+        if parsed {
+            crate::runtime::memory::freed();
         }
         if let Err(e) = self.save_meta() {
             warn!("rule-set [{}]: not cached: {}", self.tag, e);

@@ -497,7 +497,37 @@ static ALLOC: sail::alloc_stats::Counting = sail::alloc_stats::Counting;
 #[global_allocator]
 static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
+/// mimalloc gives freed memory back lazily, as later allocations run, and
+/// an idle process after a load makes none: without this it would keep a
+/// load's peak for good. Run where sail says a load's memory was freed
+/// (sail::runtime::memory): on the task that loaded it, which a reload on
+/// a multi-thread runtime may have resumed on another worker; mi_collect
+/// gives back the calling thread's free pages and the segments threads
+/// abandoned. Measured on the router profile's runtime, at start and
+/// reload.
+#[cfg(all(
+    target_env = "musl",
+    not(any(target_arch = "mips", target_arch = "mips64")),
+    not(feature = "alloc-stats")
+))]
+fn give_memory_back() {
+    extern "C" {
+        // mimalloc.h's `void mi_collect(bool force)`, unchanged since 1.0,
+        // in the libmimalloc the mimalloc crate links.
+        fn mi_collect(force: bool);
+    }
+    // SAFETY: it takes and returns nothing to uphold, and mimalloc is the
+    // global allocator.
+    unsafe { mi_collect(true) }
+}
+
 fn main() {
+    #[cfg(all(
+        target_env = "musl",
+        not(any(target_arch = "mips", target_arch = "mips64")),
+        not(feature = "alloc-stats")
+    ))]
+    sail::runtime::memory::on_memory_freed(give_memory_back);
     #[cfg(feature = "alloc-stats")]
     if let Some(path) = std::env::var_os("SAIL_ALLOC_STATS") {
         sail::alloc_stats::write_every(path.into(), std::time::Duration::from_millis(100));
@@ -716,6 +746,25 @@ fn file_limit_target(hard: libc::rlim_t) -> libc::rlim_t {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// give_memory_back declares mimalloc's mi_collect by hand, which no
+    /// compiler checks against the C library: it was checked against
+    /// mimalloc.h in libmimalloc-sys 0.1.49. Another version fails here
+    /// until its mi_collect is checked again and this updated.
+    #[test]
+    fn mi_collect_is_declared_as_the_locked_mimalloc_has_it() {
+        let lock = include_str!("../../Cargo.lock");
+        let version = lock
+            .split("[[package]]")
+            .find(|p| p.contains("name = \"libmimalloc-sys\""))
+            .and_then(|p| p.lines().find_map(|l| l.strip_prefix("version = ")))
+            .map(|v| v.trim_matches('"'));
+        assert_eq!(
+            version,
+            Some("0.1.49"),
+            "libmimalloc-sys changed: check mi_collect in its mimalloc.h against give_memory_back"
+        );
+    }
 
     #[cfg(unix)]
     #[test]

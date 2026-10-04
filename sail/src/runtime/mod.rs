@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 pub mod cache_file;
+pub mod memory;
 pub mod options;
 pub mod platform;
 pub(crate) mod resource;

@@ -98,6 +98,22 @@ same.
 
 Running on the host's own runtime is planned (stage E2), with the same API.
 
+## Memory
+
+sail leaves the allocator to whoever links it, and never calls one. A
+start, a reload, and a provider's or rule-set's update parse a document and
+drop it; an allocator that gives freed memory back to the system only as
+later allocations run keeps that peak while the instance idles.
+`sail::runtime::memory::on_memory_freed` registers what gives it back.
+sail runs it after a start, after each reload, and after a provider's or a
+rule-set's update, whether the document was taken or refused: on the task
+that loaded it, never on a connection's path. It is process-wide, and the
+first registration stays: two instances run the same one, each after its
+own loads. The `sail` command registers mimalloc's collect. A host
+registers what its own allocator needs, or nothing: glibc's malloc keeps
+freed memory too, which `malloc_trim(0)` gives back; an allocator that
+returns memory by itself needs nothing.
+
 ## Logging
 
 - **Without a subscriber of your own.** sail logs as its configuration's
