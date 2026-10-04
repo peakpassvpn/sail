@@ -453,9 +453,13 @@ pub fn enter(log: Option<Arc<InstanceLog>>) -> LogScope {
     LogScope(Some(CURRENT.with(|c| c.replace(log))))
 }
 
-/// The log of the instance whose thread this is, for a thread it starts.
+/// The log of the instance whose thread this is, for a thread it starts;
+/// else, on a thread not the instance's (a host's runtime's), that of the
+/// instance whose task runs on it.
 pub fn current() -> Option<Arc<InstanceLog>> {
-    CURRENT.with(|c| c.borrow().clone())
+    CURRENT
+        .with(|c| c.borrow().clone())
+        .or_else(|| crate::runtime::scope::TaskScope::current().and_then(|s| s.log()))
 }
 
 /// Puts back the log this thread logged to before.

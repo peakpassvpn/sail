@@ -485,6 +485,7 @@ pub fn run_sail_instances_in(
         let config = sail::config::from_string_for(&config, &host)
             .map_err(|e| anyhow::anyhow!("parse config failed: {}", e))?;
         let opts = sail::StartOptions {
+            signals: false,
             config: sail::Config::Internal(Box::new(config)),
             #[cfg(feature = "auto-reload")]
             auto_reload: false,

@@ -42,6 +42,7 @@ fn a_local_rule_set_follows_its_file_without_a_reload() -> Result<()> {
     let id = common::next_rt_id();
     let path = config_path.to_string_lossy().to_string();
     let opts = sail::StartOptions {
+        signals: false,
         config: sail::Config::File(path),
         auto_reload: true,
         runtime_opt: sail::RuntimeOption::SingleThread,

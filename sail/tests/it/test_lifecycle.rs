@@ -59,6 +59,7 @@ fn config(port: u16, rule_set_port: Option<u16>) -> serde_json::Value {
 
 fn options(config: sail::Config) -> sail::StartOptions {
     sail::StartOptions {
+        signals: false,
         config,
         #[cfg(feature = "auto-reload")]
         auto_reload: false,

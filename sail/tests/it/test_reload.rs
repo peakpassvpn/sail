@@ -58,6 +58,7 @@ fn a_failed_reload_changes_nothing_on(port: u16) -> anyhow::Result<()> {
         .build()?;
     let id = common::next_rt_id();
     let opts = sail::StartOptions {
+        signals: false,
         config: sail::Config::File(path.to_string_lossy().to_string()),
         #[cfg(feature = "auto-reload")]
         auto_reload: false,
@@ -206,6 +207,7 @@ fn dns_servers_reload_on(port: u16) -> anyhow::Result<()> {
 
     let id = common::next_rt_id();
     let opts = sail::StartOptions {
+        signals: false,
         config: sail::Config::File(path.to_string_lossy().to_string()),
         #[cfg(feature = "auto-reload")]
         auto_reload: false,

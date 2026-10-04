@@ -127,6 +127,7 @@ pub fn run_with_options(
         runtime_opt,
         runtime,
         host,
+        signals: true,
     };
     crate::start(rt_id, opts)
 }

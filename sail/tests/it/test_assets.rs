@@ -63,6 +63,7 @@ fn the_api_lists_and_updates_assets() -> anyhow::Result<()> {
         });
         std::fs::write(&path, config.to_string())?;
         let opts = sail::StartOptions {
+            signals: false,
             config: sail::Config::File(path.to_string_lossy().to_string()),
             #[cfg(feature = "auto-reload")]
             auto_reload: false,

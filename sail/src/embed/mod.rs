@@ -85,6 +85,22 @@ pub enum Threads {
     Workers(usize, usize),
 }
 
+/// Where an instance's tasks run.
+#[derive(Debug, Clone, Default)]
+#[non_exhaustive]
+pub enum Runtime {
+    /// A runtime of its own, as `Threads` says: the default.
+    #[default]
+    Own,
+    /// The host's: a multi-thread runtime with I/O and timers enabled,
+    /// which outlives the instance's stop and does not shut down on a
+    /// task's panic (`unhandled_panic(ShutdownRuntime)`). `start()`
+    /// refuses a current-thread one, or one without I/O or timers
+    /// (`InvalidArgument`). The instance still runs on a thread of
+    /// sail's, blocked on this handle for the instance's life.
+    Host(tokio::runtime::Handle),
+}
+
 /// How an instance is made: `Options::new()`, then its setters.
 #[derive(Default)]
 pub struct Options {
@@ -92,6 +108,7 @@ pub struct Options {
     platform: Option<Arc<dyn Platform>>,
     log_lines: usize,
     threads: Option<Threads>,
+    runtime: Runtime,
     clash_modes: bool,
     log: Option<Arc<crate::app::logger::InstanceLog>>,
     stop_within: Option<Duration>,
@@ -182,8 +199,15 @@ impl Options {
     }
 
     /// The threads its runtime runs on; the profile's when unset.
+    /// Ignored under `Runtime::Host`.
     pub fn threads(mut self, threads: Threads) -> Self {
         self.threads = Some(threads);
+        self
+    }
+
+    /// Whose runtime its tasks run on: its own unless set.
+    pub fn runtime(mut self, runtime: Runtime) -> Self {
+        self.runtime = runtime;
         self
     }
 

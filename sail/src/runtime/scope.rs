@@ -106,6 +106,9 @@ struct Inner {
     failed: tokio::sync::watch::Sender<Option<String>>,
     events: crate::control::events::EventHub,
     report: Mutex<Option<StopReport>>,
+    /// The instance's log: what its tasks log goes there, on whatever
+    /// thread they run (a host's runtime's too).
+    log: std::sync::OnceLock<Arc<crate::app::logger::InstanceLog>>,
 }
 
 /// An instance's tasks. Cheap to clone; every clone the same.
@@ -145,7 +148,19 @@ impl TaskScope {
             failed: tokio::sync::watch::channel(None).0,
             events,
             report: Mutex::new(None),
+            log: std::sync::OnceLock::new(),
         }))
+    }
+
+    /// Makes `log` the log of what the scope's tasks log: the threads they
+    /// run on need not be the instance's own.
+    pub(crate) fn set_log(&self, log: Arc<crate::app::logger::InstanceLog>) {
+        let _ = self.0.log.set(log);
+    }
+
+    /// The instance's log, once set.
+    pub(crate) fn log(&self) -> Option<Arc<crate::app::logger::InstanceLog>> {
+        self.0.log.get().cloned()
     }
 
     /// Runs `fut` in this scope: what it spawns through `sail::spawn` is
@@ -348,6 +363,8 @@ impl TaskScope {
         let registered = Registered(scope.clone(), id);
         tokio::task::spawn_blocking(move || {
             let _registered = registered;
+            // A host's blocking thread logs to no instance of its own.
+            let _log = scope.log().map(|log| crate::app::logger::enter(Some(log)));
             match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
                 Ok(output) => output,
                 Err(panic) => {

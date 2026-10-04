@@ -20,6 +20,7 @@ fn a_port_in_use_fails_the_start() {
     let (tx, rx) = mpsc::channel();
     std::thread::spawn(move || {
         let opts = sail::StartOptions {
+            signals: false,
             config: sail::Config::Str(config),
             #[cfg(feature = "auto-reload")]
             auto_reload: false,

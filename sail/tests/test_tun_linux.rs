@@ -192,6 +192,7 @@ impl Sail {
             sail::start(
                 id,
                 sail::StartOptions {
+                    signals: false,
                     config: sail::Config::Str(config),
                     #[cfg(feature = "auto-reload")]
                     auto_reload: false,

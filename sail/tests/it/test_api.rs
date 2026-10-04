@@ -220,6 +220,7 @@ fn a_reload_that_fails_says_why_and_keeps_what_runs() -> anyhow::Result<()> {
             config(api_port, serde_json::json!([{ "type": "direct" }])),
         )?;
         let opts = sail::StartOptions {
+            signals: false,
             config: sail::Config::File(path.to_string_lossy().to_string()),
             #[cfg(feature = "auto-reload")]
             auto_reload: false,

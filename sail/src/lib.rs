@@ -91,6 +91,10 @@ pub enum Error {
     /// The inbound named, to remove, is not there.
     #[error("[{0}] inbound: does not exist")]
     NoInbound(String),
+    /// The host's runtime is not one an instance runs on: current-thread,
+    /// or without I/O or timers.
+    #[error("{0}")]
+    HostRuntime(String),
 }
 
 impl From<app::inbound::manager::Refused> for Error {
@@ -1860,12 +1864,65 @@ fn log_warnings(config: &config::Config) {
     }
 }
 
-/// The instance's runtime; what its threads log goes to `log`.
+/// The runtime an instance runs on: its own, or the host's.
+enum InstanceRuntime {
+    Own(tokio::runtime::Runtime),
+    Host(tokio::runtime::Handle),
+}
+
+impl InstanceRuntime {
+    fn block_on<F: std::future::Future>(&self, future: F) -> F::Output {
+        match self {
+            InstanceRuntime::Own(rt) => rt.block_on(future),
+            InstanceRuntime::Host(handle) => handle.block_on(future),
+        }
+    }
+
+    fn enter(&self) -> tokio::runtime::EnterGuard<'_> {
+        match self {
+            InstanceRuntime::Own(rt) => rt.enter(),
+            InstanceRuntime::Host(handle) => handle.enter(),
+        }
+    }
+
+    fn handle(&self) -> &tokio::runtime::Handle {
+        match self {
+            InstanceRuntime::Own(rt) => rt.handle(),
+            InstanceRuntime::Host(handle) => handle,
+        }
+    }
+}
+
+/// The host's runtime, as an instance takes it: a multi-thread one with
+/// I/O and timers. tokio tells neither of the latter: they are tried once,
+/// a missing one panicking, caught.
+fn host_runtime(handle: &tokio::runtime::Handle) -> Result<InstanceRuntime, Error> {
+    if handle.runtime_flavor() != tokio::runtime::RuntimeFlavor::MultiThread {
+        return Err(Error::HostRuntime(
+            "the host's runtime is current-thread: an instance needs a multi-thread one".into(),
+        ));
+    }
+    let tried = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        handle.block_on(async {
+            tokio::time::sleep(std::time::Duration::ZERO).await;
+            let _ = tokio::net::UdpSocket::bind(("127.0.0.1", 0)).await;
+        })
+    }));
+    if tried.is_err() {
+        return Err(Error::HostRuntime(
+            "the host's runtime has no timers or no I/O: build it with enable_all()".into(),
+        ));
+    }
+    Ok(InstanceRuntime::Host(handle.clone()))
+}
+
+/// The instance's runtime; what its own threads log goes to `log`.
 fn new_runtime(
     opt: &RuntimeOption,
     log: Arc<app::logger::InstanceLog>,
-) -> Result<tokio::runtime::Runtime, Error> {
+) -> Result<InstanceRuntime, Error> {
     let mut builder = match opt {
+        RuntimeOption::Handle(handle) => return host_runtime(handle),
         RuntimeOption::SingleThread => tokio::runtime::Builder::new_current_thread(),
         RuntimeOption::MultiThreadAuto(stack_size) => {
             let mut builder = tokio::runtime::Builder::new_multi_thread();
@@ -1886,6 +1943,7 @@ fn new_runtime(
         // instance's log for as long as it lives.
         .on_thread_start(move || std::mem::forget(app::logger::enter(Some(log.clone()))))
         .build()
+        .map(InstanceRuntime::Own)
         .map_err(Error::Io)
 }
 
@@ -1897,6 +1955,9 @@ pub enum RuntimeOption {
     MultiThreadAuto(usize),
     // Multi-threaded runtime with the number of worker threads and thread stack size.
     MultiThread(usize, usize),
+    /// The host's runtime: a multi-thread one with I/O and timers enabled.
+    /// The instance's tasks run on it; sail builds none.
+    Handle(tokio::runtime::Handle),
 }
 
 #[derive(Debug)]
@@ -1919,6 +1980,10 @@ pub struct StartOptions {
     pub runtime: runtime::RuntimeOptions,
     /// What the host provides.
     pub host: runtime::Host,
+    /// Whether the process's signals are the instance's: Ctrl-C and
+    /// SIGTERM stop it, SIGHUP reloads it. sail-cli's instance only; a host
+    /// keeps its signals (with the `ctrlc` feature, which sail-cli enables).
+    pub signals: bool,
 }
 
 /// Starts the instance `rt_id` and runs it on this thread until it is
@@ -2016,7 +2081,7 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
     // Every way out of the run from here, a failed start or an unwind as
     // well as a stop, goes through `exit` (E2 teardown).
     let exit = Exit {
-        rt: Some(new_runtime(&opts.runtime_opt, log)?),
+        rt: Some(new_runtime(&opts.runtime_opt, log.clone())?),
         env: env.clone(),
         scope: scope.clone(),
         stop_within,
@@ -2024,6 +2089,9 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
     };
     let rt = exit.runtime();
     let _g = rt.enter();
+    // What the instance's tasks log is its own, on a host's runtime's
+    // threads too.
+    scope.set_log(log.clone());
     // The build below is synchronous, on no task: what it spawns (groups'
     // health checks, among others) finds the scope through this thread
     // until the root tasks run, which carry it themselves. A reload builds
@@ -2268,7 +2336,7 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
     // it: what the instance changed on the system is put back, and the
     // connections open may finish.
     #[cfg(feature = "ctrlc")]
-    {
+    if opts.signals {
         #[cfg(feature = "inbound-tun")]
         let control = tun_control.clone();
         let rm = runtime_manager.clone();
@@ -2285,8 +2353,12 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
     // SIGHUP reloads the configuration file, as ExecReload sends it; a
     // configuration that fails leaves the one before running.
     #[cfg(all(feature = "ctrlc", unix))]
-    match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup()) {
-        Ok(mut hangup) => {
+    match opts
+        .signals
+        .then(|| tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup()))
+    {
+        None => {}
+        Some(Ok(mut hangup)) => {
             let rm = runtime_manager.clone();
             tasks.push(Box::pin(async move {
                 while hangup.recv().await.is_some() {
@@ -2299,7 +2371,7 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
                 std::future::pending::<()>().await
             }))
         }
-        Err(e) => warn!("cannot watch SIGHUP: {}", e),
+        Some(Err(e)) => warn!("cannot watch SIGHUP: {}", e),
     }
 
     // Running from here, unless a stop came while it started: checked and
@@ -2389,7 +2461,7 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
 /// within the bound too, never dropped, which would wait on its blocking
 /// threads however long (E2 teardown).
 struct Exit {
-    rt: Option<tokio::runtime::Runtime>,
+    rt: Option<InstanceRuntime>,
     env: Arc<runtime::RuntimeEnv>,
     scope: runtime::scope::TaskScope,
     stop_within: std::time::Duration,
@@ -2398,7 +2470,7 @@ struct Exit {
 }
 
 impl Exit {
-    fn runtime(&self) -> &tokio::runtime::Runtime {
+    fn runtime(&self) -> &InstanceRuntime {
         // Some until it drops.
         self.rt.as_ref().expect("the run's runtime")
     }
@@ -2417,14 +2489,23 @@ impl Drop for Exit {
         self.env.teardown.check_all();
         if let Some(rt) = self.rt.take() {
             if !self.stopped && !std::thread::panicking() {
-                rt.block_on(self.scope.stop(self.stop_within));
+                // A host's runtime may be gone already: then so are the
+                // tasks, and there is nothing to wait for.
+                let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    rt.block_on(self.scope.stop(self.stop_within))
+                }));
             }
             self.scope.note_left(self.env.teardown.left());
-            // What it still holds (a blocking thread with the device, a
-            // task's last drop) goes before the run is said to end, as a
-            // drop of the runtime would, but bounded: a thread stuck past
-            // it is left behind rather than waited for.
-            rt.shutdown_timeout(self.stop_within);
+            match rt {
+                // What it still holds (a blocking thread with the device, a
+                // task's last drop) goes before the run is said to end, as
+                // a drop of the runtime would, but bounded: a thread stuck
+                // past it is left behind rather than waited for.
+                InstanceRuntime::Own(rt) => rt.shutdown_timeout(self.stop_within),
+                // The host's is the host's: what the scope could not end is
+                // in its report.
+                InstanceRuntime::Host(_) => {}
+            }
         }
     }
 }
@@ -2618,6 +2699,7 @@ mod tests {
             let conf = conf.clone();
             thread::spawn(move || {
                 let opts = StartOptions {
+                    signals: false,
                     config: Config::Str(conf),
                     #[cfg(feature = "auto-reload")]
                     auto_reload: false,

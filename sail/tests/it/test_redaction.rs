@@ -174,6 +174,7 @@ fn no_secret_reaches_what_an_instance_tells() {
     let log = sail::app::logger::InstanceLog::new(100_000);
     let rt_id = common::next_rt_id();
     let opts = sail::StartOptions {
+        signals: false,
         config: sail::Config::Internal(Box::new(parsed)),
         #[cfg(feature = "auto-reload")]
         auto_reload: false,

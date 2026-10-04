@@ -82,6 +82,7 @@ pub(super) struct Inner {
     options: RuntimeOptions,
     host: Host,
     threads: Threads,
+    runtime: super::Runtime,
     log: Arc<InstanceLog>,
     platform: Option<Arc<dyn Platform>>,
     clash_modes: bool,
@@ -130,6 +131,7 @@ impl Instance {
             platform,
             log_lines,
             threads,
+            runtime,
             clash_modes,
             log,
             stop_within,
@@ -158,6 +160,7 @@ impl Instance {
             options,
             host,
             threads,
+            runtime,
             log,
             platform,
             clash_modes,
@@ -506,16 +509,18 @@ impl Inner {
         host.log = Some(InstanceLogRef(self.log.clone()));
         host.clash_modes = self.clash_modes;
         let options = crate::StartOptions {
+            signals: false,
             config: match config {
                 Config::Json(text) => crate::Config::Str(text),
                 Config::File(path) => crate::Config::File(path.to_string_lossy().into_owned()),
             },
             #[cfg(feature = "auto-reload")]
             auto_reload: false,
-            runtime_opt: match self.threads {
-                Threads::One => crate::RuntimeOption::SingleThread,
-                Threads::Auto => crate::RuntimeOption::MultiThreadAuto(super::STACK_SIZE),
-                Threads::Workers(n, stack) => crate::RuntimeOption::MultiThread(n, stack),
+            runtime_opt: match (&self.runtime, self.threads) {
+                (super::Runtime::Host(handle), _) => crate::RuntimeOption::Handle(handle.clone()),
+                (_, Threads::One) => crate::RuntimeOption::SingleThread,
+                (_, Threads::Auto) => crate::RuntimeOption::MultiThreadAuto(super::STACK_SIZE),
+                (_, Threads::Workers(n, stack)) => crate::RuntimeOption::MultiThread(n, stack),
             },
             runtime: self.options.clone(),
             host,

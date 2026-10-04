@@ -2163,6 +2163,7 @@ mod tests {
             crate::start(
                 runtime_id,
                 crate::StartOptions {
+                    signals: false,
                     config: crate::Config::Str(config),
                     #[cfg(feature = "auto-reload")]
                     auto_reload: false,

@@ -85,6 +85,7 @@ async fn a_switch_closes_the_old_link_s_connections_and_new_ones_take_the_new_li
         sail::start(
             id,
             sail::StartOptions {
+                signals: false,
                 config: sail::Config::Str(config),
                 #[cfg(feature = "auto-reload")]
                 auto_reload: false,

@@ -1109,3 +1109,103 @@ async fn a_groups_checks_built_at_start_are_the_instances() {
     let report = instance.stop_report().expect("a report after a stop");
     assert!(report.clean(), "{:?}", report);
 }
+
+/// Two instances on the host's runtime at once, as a desktop app's UI and
+/// service in one process: each carries its connections; stopped in the
+/// order other than started, they leave nothing on the runtime. (Their
+/// logs: test_embed_host_subscriber.rs.)
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn instances_on_the_hosts_runtime_carry_and_leave_nothing() {
+    let host = tokio::runtime::Handle::current();
+    let (echo_a, serve) = common::run_tcp_echo_server("127.0.0.1:0").await.unwrap();
+    tokio::spawn(serve);
+    let (echo_b, serve) = common::run_tcp_echo_server("127.0.0.1:0").await.unwrap();
+    tokio::spawn(serve);
+    let alive_before = host.metrics().num_alive_tasks();
+
+    let on_host = || {
+        // `threads` is ignored under the host's runtime.
+        options().runtime(sail::embed::Runtime::Host(host.clone()))
+    };
+    let (a, b) = (
+        Instance::new(on_host()).unwrap(),
+        Instance::new(on_host()).unwrap(),
+    );
+    let (a_port, b_port) = (common::free_port(), common::free_port());
+    a.start(Config::Json(config(a_port, 53))).await.unwrap();
+    b.start(Config::Json(config(b_port, 53))).await.unwrap();
+    assert!(
+        host.metrics().num_alive_tasks() > alive_before,
+        "the instances' tasks run on the host's runtime"
+    );
+
+    for (port, echo) in [(a_port, echo_a), (b_port, echo_b)] {
+        let mut s = socks_asked(port, echo.port()).await;
+        assert_eq!(socks_reply(&mut s).await, 0);
+        round_trip(&mut s, b"on the host's runtime").await;
+    }
+    b.stop().await.unwrap();
+    assert!(matches!(a.state(), State::Running { .. }), "a goes on");
+    let mut s = socks_asked(a_port, echo_a.port()).await;
+    assert_eq!(socks_reply(&mut s).await, 0);
+    round_trip(&mut s, b"after b stopped").await;
+    drop(s);
+    a.stop().await.unwrap();
+    for instance in [&a, &b] {
+        let report = instance.stop_report().expect("a report after a stop");
+        assert!(report.clean(), "{:?}", report);
+    }
+    std::net::TcpListener::bind(("127.0.0.1", a_port)).expect("a's port is free");
+    std::net::TcpListener::bind(("127.0.0.1", b_port)).expect("b's port is free");
+
+    // Not one task of theirs left on the host's runtime: a task's last
+    // drop may finish just after the stop.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    while host.metrics().num_alive_tasks() > alive_before && tokio::time::Instant::now() < deadline
+    {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(host.metrics().num_alive_tasks(), alive_before);
+
+    // And one starts again on it.
+    a.start(Config::Json(config(a_port, 53))).await.unwrap();
+    a.stop().await.unwrap();
+}
+
+/// A current-thread runtime is refused at start, saying so: the instance's
+/// own thread blocks on it, which such a runtime does not serve.
+#[tokio::test(flavor = "current_thread")]
+async fn a_current_thread_host_runtime_is_refused() {
+    let instance = Instance::new(
+        options().runtime(sail::embed::Runtime::Host(tokio::runtime::Handle::current())),
+    )
+    .unwrap();
+    let err = instance
+        .start(Config::Json(config(common::free_port(), 53)))
+        .await
+        .unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::InvalidArgument, "{}", err);
+    assert!(err.to_string().contains("current-thread"), "{}", err);
+    assert!(
+        matches!(instance.state(), State::Failed(ref e) if e.kind() == ErrorKind::InvalidArgument)
+    );
+}
+
+/// A runtime without timers is refused at start, saying what to build it
+/// with, rather than the first timer panicking in a task.
+#[test]
+fn a_host_runtime_without_timers_is_refused() {
+    let host = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(1)
+        .enable_io()
+        .build()
+        .unwrap();
+    let instance =
+        Instance::new(options().runtime(sail::embed::Runtime::Host(host.handle().clone())))
+            .unwrap();
+    let err =
+        futures::executor::block_on(instance.start(Config::Json(config(common::free_port(), 53))))
+            .unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::InvalidArgument, "{}", err);
+    assert!(err.to_string().contains("enable_all()"), "{}", err);
+}

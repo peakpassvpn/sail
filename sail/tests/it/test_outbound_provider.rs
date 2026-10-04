@@ -83,6 +83,7 @@ fn a_selector_follows_its_provider_on(port: u16, first: u16, second: u16) -> any
     let servers = common::run_sail_instances(&rt, vec![server(first), server(second)])?;
     let id = common::next_rt_id();
     let opts = sail::StartOptions {
+        signals: false,
         config: sail::Config::File(path.to_string_lossy().to_string()),
         #[cfg(feature = "auto-reload")]
         auto_reload: false,

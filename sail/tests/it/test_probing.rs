@@ -29,6 +29,7 @@ fn start_with(config: serde_json::Value, set: &[(&str, &str)]) -> Result<sail::R
     }
     let config = sail::config::from_string(&config.to_string())?;
     let opts = sail::StartOptions {
+        signals: false,
         config: sail::Config::Internal(Box::new(config)),
         #[cfg(feature = "auto-reload")]
         auto_reload: false,

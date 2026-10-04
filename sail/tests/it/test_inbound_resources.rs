@@ -43,6 +43,7 @@ fn start_runtime(
         sail::start(
             id,
             sail::StartOptions {
+                signals: false,
                 config: sail::Config::File(path),
                 #[cfg(feature = "auto-reload")]
                 auto_reload: _auto,
@@ -678,6 +679,7 @@ fn start_held(
         sail::start(
             id,
             sail::StartOptions {
+                signals: false,
                 config: sail::Config::File(path),
                 auto_reload,
                 runtime_opt: sail::RuntimeOption::SingleThread,

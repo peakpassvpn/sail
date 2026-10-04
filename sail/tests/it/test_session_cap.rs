@@ -85,6 +85,7 @@ fn sessions_beyond_the_limit_wait_then_are_refused() {
     let log = sail::app::logger::InstanceLog::new(1000);
     let rt_id = common::next_rt_id();
     let opts = sail::StartOptions {
+        signals: false,
         config: sail::Config::Internal(Box::new(
             sail::config::from_string(&config.to_string()).unwrap(),
         )),

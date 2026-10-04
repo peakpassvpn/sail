@@ -74,18 +74,58 @@ same.
 
 ## Runtime and threads
 
-- **Where it runs.** Each instance runs on a tokio runtime of its own, on
-  threads of its own:
+- **Where it runs.** By default each instance runs on a tokio runtime of
+  its own, on threads of its own:
   - one thread with the `mobile` profile;
   - a worker per core with every other profile, as `sail` the CLI runs;
   - or what `Options::threads` says.
+- **On the host's runtime.** `Options::runtime(Runtime::Host(handle))`
+  runs the instance's tasks on the host's tokio runtime instead; `threads`
+  is then ignored, and two or more instances may share one runtime. The
+  runtime must be:
+  - multi-thread, with I/O and timers enabled (`enable_all()`). `start()`
+    refuses anything else with `ErrorKind::InvalidArgument`, naming what is
+    missing. tokio has no query for I/O or timers, so `start()` tries each
+    once; under `panic = "abort"` a runtime without them ends the process
+    there instead.
+  - built without `unhandled_panic(ShutdownRuntime)` (unstable tokio):
+    with it, a connection's contained panic would shut the host's runtime
+    down.
+  - alive until the instance's `stop()` returns. A runtime dropped under
+    a running instance ends its tasks; the instance fails
+    (`ErrorKind::Panicked`), and what it changed in the system is still
+    undone, on threads of sail's.
+
+  What stays sail's under `Host`: one thread per instance, parked on the
+  host's runtime for the instance's life (its start and its stop run
+  there); the teardown's steps, each on a thread of its own; the
+  `cache_file` writer. The instance's log is its own as on its own
+  runtime.
+
+  **The blocking pool** is the host's (tokio's default: at most 512
+  threads). sail uses it for: one thread per concurrent lookup on a
+  `local` DNS server (the system resolver); one per new connection while
+  `Platform::find_connection_owner` answers; one per TUN on Windows while
+  it waits for a packet; and short single calls (network detection, the
+  default interface, NAT64 discovery, a reload's wait, the stats and
+  Clash UI files). A host whose own blocking work is near its pool's limit
+  raises `max_blocking_threads`.
+
+  **Stopping** under `Host` ends the instance's tasks as below, then
+  shuts nothing down: the runtime is the host's. A task that outlasts
+  `stop_within` keeps running on it and is named in `stop()`'s `Timeout`
+  and `stop_report()`, as on sail's own runtime.
+- **Signals.** An instance takes no signals: Ctrl-C, SIGTERM and SIGHUP
+  stay the host's, under either runtime and with sail's `ctrlc` feature
+  too (which before made any instance stop on the first two and reload on
+  SIGHUP). Only `sail` the CLI's instance takes them.
 - **Calling it.** The calls are `async` and runtime-agnostic: the host
   awaits them on its own runtime, or on any executor. The work runs on the
   instance's runtime, and the host's future waits for the answer.
 - **Stopping.** `stop().await` returns once the instance's thread has ended
-  and its runtime is gone. By then its listeners are closed and its
-  connections dropped. A stream or datagram socket that was dialled through
-  the instance then fails; it does not hang.
+  and, on its own runtime, the runtime is gone. By then its listeners are
+  closed and its connections dropped. A stream or datagram socket that was
+  dialled through the instance then fails; it does not hang.
 - **Dropping.** Dropping the last clone of an `Instance` asks it to stop but
   does not wait: the instance's own thread stops it in the background,
   in the order of a `stop()` (below), within `stop_within` and the
@@ -95,8 +135,6 @@ same.
   Only the blocking wrappers the C ABI uses give it, when they are called on
   one of the instance's own threads (from a `Platform` callback, for
   example). It means a misuse.
-
-Running on the host's own runtime is planned (stage E2), with the same API.
 
 ## Memory
 

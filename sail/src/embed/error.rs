@@ -158,6 +158,7 @@ impl From<crate::Error> for Error {
             crate::Error::NeedsRestart(_) => ErrorKind::NeedsRestart,
             crate::Error::InboundLost { .. } => ErrorKind::InboundLost,
             crate::Error::NoInbound(_) => ErrorKind::NotFound,
+            crate::Error::HostRuntime(_) => ErrorKind::InvalidArgument,
             _ => ErrorKind::Internal,
         };
         let message = match e {

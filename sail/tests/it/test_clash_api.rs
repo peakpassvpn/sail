@@ -837,6 +837,7 @@ fn a_dashboard_is_downloaded_and_the_configuration_reloaded() -> anyhow::Result<
     std::fs::write(&path, config(serde_json::json!([])))?;
     let id = common::next_rt_id();
     let opts = sail::StartOptions {
+        signals: false,
         config: sail::Config::File(path.to_string_lossy().to_string()),
         #[cfg(feature = "auto-reload")]
         auto_reload: false,

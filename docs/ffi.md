@@ -34,6 +34,8 @@ sail_instance_free(instance);
   started from a configuration in any format sail reads (sing-box's JSON,
   Clash's YAML, a Surge profile), or from a file. It runs on a thread of its
   own; `sail_instance_start` returns once it runs, or with why it failed.
+  It takes no signals: Ctrl-C, SIGTERM and SIGHUP stay the host's, in a
+  library built with sail's `ctrlc` feature too.
 - It can be started again after it stopped or failed, reloaded while it
   runs (with a new configuration, or its file again), stopped, and freed.
   `sail_instance_reload_report` reloads and tells what became of each

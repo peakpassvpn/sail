@@ -67,6 +67,7 @@ fn no_line_at_info_or_above_tells_where_a_connection_went() {
     let log = sail::app::logger::InstanceLog::new(100_000);
     let rt_id = 1;
     let opts = sail::StartOptions {
+        signals: false,
         config: sail::Config::Internal(Box::new(parsed)),
         #[cfg(feature = "auto-reload")]
         auto_reload: false,
