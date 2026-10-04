@@ -36,6 +36,14 @@ inherits = "release"
 debug = "line-tables-only"
 strip = false
 
+# BoringSSL at -O3, as in release. cmake-rs takes CMake's build type from
+# btls-sys's settings: opt-level 3 with debug info is RelWithDebInfo, -O2;
+# without, Release, -O3. BoringSSL adds -ggdb itself either way (not with
+# MSVC), so its frames keep their symbols and lines. dist-router's
+# opt-level "z" stays MinSizeRel, -Os.
+[profile.dist.package.btls-sys]
+debug = false
+
 # A router's build: every feature, smaller for its flash. Measured on
 # armv7 musl: 19.1 MB at dist, about 11 MB here; forwarding CPU on x86_64
 # within the judged limit (-2 to +6% per GiB for direct, ss and trojan).
