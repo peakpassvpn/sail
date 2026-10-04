@@ -56,7 +56,7 @@ fn a_failed_reload_changes_nothing_on(port: u16) -> anyhow::Result<()> {
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
-    let id = 900;
+    let id = common::next_rt_id();
     let opts = sail::StartOptions {
         config: sail::Config::File(path.to_string_lossy().to_string()),
         #[cfg(feature = "auto-reload")]
@@ -65,23 +65,9 @@ fn a_failed_reload_changes_nothing_on(port: u16) -> anyhow::Result<()> {
         runtime: common::runtime_options(),
         host: Default::default(),
     };
-    let start = rt.spawn_blocking(move || sail::start(id, opts));
     // Returns once the instance runs, or with the error it failed with, a
     // port clash among them.
-    let deadline = std::time::Instant::now() + Duration::from_secs(10);
-    while !sail::is_running(id) {
-        if start.is_finished() {
-            match rt.block_on(start)? {
-                Err(e) => anyhow::bail!("start sail failed: {}", e),
-                Ok(()) => anyhow::bail!("sail stopped as soon as it started"),
-            }
-        }
-        anyhow::ensure!(
-            std::time::Instant::now() < deadline,
-            "sail did not start within 10s"
-        );
-        std::thread::sleep(Duration::from_millis(10));
-    }
+    common::start_instance(id, opts)?;
 
     // Fails with an error rather than a panic, so that the instance is shut
     // down either way.
@@ -218,7 +204,7 @@ fn dns_servers_reload_on(port: u16) -> anyhow::Result<()> {
     let path = dir.join("config.json");
     std::fs::write(&path, config(old_port))?;
 
-    let id = 901;
+    let id = common::next_rt_id();
     let opts = sail::StartOptions {
         config: sail::Config::File(path.to_string_lossy().to_string()),
         #[cfg(feature = "auto-reload")]
@@ -227,21 +213,9 @@ fn dns_servers_reload_on(port: u16) -> anyhow::Result<()> {
         runtime: common::runtime_options(),
         host: Default::default(),
     };
-    let start = rt.spawn_blocking(move || sail::start(id, opts));
-    let deadline = std::time::Instant::now() + Duration::from_secs(10);
-    while !sail::is_running(id) {
-        if start.is_finished() {
-            match rt.block_on(start)? {
-                Err(e) => anyhow::bail!("start sail failed: {}", e),
-                Ok(()) => anyhow::bail!("sail stopped as soon as it started"),
-            }
-        }
-        anyhow::ensure!(
-            std::time::Instant::now() < deadline,
-            "sail did not start within 10s"
-        );
-        std::thread::sleep(Duration::from_millis(10));
-    }
+    // Returns once the instance runs, or with the error it failed with, a
+    // port clash among them.
+    common::start_instance(id, opts)?;
 
     let result = rt.block_on(async {
         let (echo_addr, echo) = common::run_tcp_echo_server("127.0.0.1:0").await?;

@@ -98,13 +98,7 @@ fn sessions_beyond_the_limit_wait_then_are_refused() {
             ..Default::default()
         },
     };
-    let start = std::thread::spawn(move || sail::start(rt_id, opts));
-    let deadline = Instant::now() + Duration::from_secs(10);
-    while !sail::is_running(rt_id) {
-        assert!(!start.is_finished(), "sail stopped: {:?}", start.join());
-        assert!(Instant::now() < deadline, "sail did not start");
-        std::thread::sleep(Duration::from_millis(20));
-    }
+    common::start_instance(rt_id, opts).unwrap();
 
     let mut a = connect(proxy, echo).unwrap();
     let mut b = connect(proxy, echo).unwrap();
@@ -137,6 +131,5 @@ fn sessions_beyond_the_limit_wait_then_are_refused() {
             && l.message.contains("inbound.max_connections")),
         "no warning of the refusal"
     );
-    sail::shutdown(rt_id);
-    let _ = start.join();
+    common::stop_instance(rt_id);
 }

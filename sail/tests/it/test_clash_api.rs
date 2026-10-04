@@ -835,7 +835,7 @@ fn a_dashboard_is_downloaded_and_the_configuration_reloaded() -> anyhow::Result<
     };
     let path = dir.join("config.json");
     std::fs::write(&path, config(serde_json::json!([])))?;
-    let id = 930;
+    let id = common::next_rt_id();
     let opts = sail::StartOptions {
         config: sail::Config::File(path.to_string_lossy().to_string()),
         #[cfg(feature = "auto-reload")]
@@ -848,13 +848,7 @@ fn a_dashboard_is_downloaded_and_the_configuration_reloaded() -> anyhow::Result<
             ..Default::default()
         },
     };
-    let start = rt.spawn_blocking(move || sail::start(id, opts));
-    let deadline = std::time::Instant::now() + Duration::from_secs(10);
-    while !sail::is_running(id) {
-        anyhow::ensure!(!start.is_finished(), "sail stopped as soon as it started");
-        anyhow::ensure!(std::time::Instant::now() < deadline, "sail did not start");
-        std::thread::sleep(Duration::from_millis(10));
-    }
+    common::start_instance(id, opts)?;
     let s = Some(secret.as_str());
     let checked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         rt.block_on(async {

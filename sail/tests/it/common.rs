@@ -25,7 +25,41 @@ use sail::session::Session;
 /// choosing, in the hundreds. Counted from 0, the harness met both: an
 /// instance made by `sail::embed` holds its ID before it starts, when the
 /// harness cannot see it is taken.
-const FIRST_RT_ID: u16 = 30_000;
+pub const FIRST_RT_ID: u16 = 30_000;
+
+/// The runtime IDs tests of this binary choose themselves, each for a test
+/// whose subject is the start or the ID itself and that cannot take the
+/// harness's. All of them are here and nowhere else: `test_harness` checks
+/// that no two are equal, that none is the harness's to hand out, and
+/// that no test file names an ID of its own.
+pub mod fixed_rt_id {
+    use sail::RuntimeId;
+
+    /// `test_inbound_resources`: this and the four after it.
+    pub const INBOUND_RESOURCES: RuntimeId = 950;
+    pub const LIFECYCLE_STOPPED_STARTING: RuntimeId = 1001;
+    pub const LIFECYCLE_TAKEN_TWICE: RuntimeId = 1002;
+    pub const LIFECYCLE_RELOADING: RuntimeId = 1003;
+    pub const LIFECYCLE_BYSTANDER: RuntimeId = 1004;
+    pub const LIFECYCLE_LOGGED_A: RuntimeId = 1005;
+    pub const LIFECYCLE_LOGGED_B: RuntimeId = 1006;
+    pub const LIFECYCLE_NO_MODES: RuntimeId = 1007;
+
+    pub const ALL: &[RuntimeId] = &[
+        INBOUND_RESOURCES,
+        INBOUND_RESOURCES + 1,
+        INBOUND_RESOURCES + 2,
+        INBOUND_RESOURCES + 3,
+        INBOUND_RESOURCES + 4,
+        LIFECYCLE_STOPPED_STARTING,
+        LIFECYCLE_TAKEN_TWICE,
+        LIFECYCLE_RELOADING,
+        LIFECYCLE_BYSTANDER,
+        LIFECYCLE_LOGGED_A,
+        LIFECYCLE_LOGGED_B,
+        LIFECYCLE_NO_MODES,
+    ];
+}
 
 static NEXT_RT_ID: AtomicU16 = AtomicU16::new(FIRST_RT_ID);
 
@@ -430,40 +464,74 @@ pub fn run_sail_instances_in(
             runtime: runtime_options(),
             host,
         };
-        // A thread of its own, not `rt`'s blocking pool: dropping `rt`,
-        // as a test that panics does, would wait for the instance to stop.
-        let start = std::thread::Builder::new()
-            .name(format!("sail-{}", rt_id))
-            .spawn(move || sail::start(rt_id, opts))?;
-        // Returns once the instance runs, or with the error it failed with:
-        // a start that fails must fail the test, not leave it waiting.
-        let deadline = std::time::Instant::now() + Duration::from_secs(10);
-        let failure = loop {
-            if sail::is_running(rt_id) {
-                break None;
-            }
-            if start.is_finished() {
-                break Some(match start.join() {
-                    Ok(Err(e)) => anyhow::anyhow!("start sail failed: {}", e),
-                    Ok(Ok(())) => anyhow::anyhow!("sail stopped as soon as it started"),
-                    Err(_) => anyhow::anyhow!("start sail panicked"),
-                });
-            }
-            if std::time::Instant::now() > deadline {
-                break Some(anyhow::anyhow!("sail did not start within 10s"));
-            }
-            std::thread::sleep(Duration::from_millis(10));
-        };
-        if let Some(e) = failure {
+        if let Err(e) = start_instance(rt_id, opts) {
             for id in &sail_rt_ids {
                 sail::shutdown(*id);
             }
             return Err(e);
         }
         sail_rt_ids.push(rt_id);
-        let _ = STARTED.try_with(|started| started.borrow_mut().0.push(rt_id));
     }
     Ok(sail_rt_ids)
+}
+
+/// Starts an instance of `opts` as `rt_id`, an ID from `next_rt_id`, and
+/// returns once it runs, or with the error its start failed with: a start
+/// that fails must fail the test, not leave it waiting. The instance is
+/// among those its thread started, shut down when the thread ends if the
+/// test has not stopped it: every test that starts an instance starts it
+/// through this, or through `run_sail_instances`.
+pub fn start_instance(rt_id: sail::RuntimeId, opts: sail::StartOptions) -> anyhow::Result<()> {
+    // A thread of its own, not a runtime's blocking pool: dropping the
+    // runtime, as a test that panics does, would wait for the instance to
+    // stop.
+    let start = std::thread::Builder::new()
+        .name(format!("sail-{}", rt_id))
+        .spawn(move || sail::start(rt_id, opts))?;
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        if sail::is_running(rt_id) {
+            break;
+        }
+        if start.is_finished() {
+            return Err(match start.join() {
+                Ok(Err(e)) => anyhow::anyhow!("start sail failed: {}", e),
+                Ok(Ok(())) => anyhow::anyhow!("sail stopped as soon as it started"),
+                Err(_) => anyhow::anyhow!("start sail panicked"),
+            });
+        }
+        if std::time::Instant::now() > deadline {
+            // It may run yet: stopped with its thread all the same.
+            stops_with_its_thread(rt_id);
+            anyhow::bail!("sail did not start within 10s");
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    stops_with_its_thread(rt_id);
+    Ok(())
+}
+
+/// Has the instance `rt_id` shut down when this thread ends, as those
+/// `start_instance` starts are: for a test that starts its instance
+/// itself, the start being what it tests.
+pub fn stops_with_its_thread(rt_id: sail::RuntimeId) {
+    let _ = STARTED.try_with(|started| {
+        let mut started = started.borrow_mut();
+        if !started.0.contains(&rt_id) {
+            started.0.push(rt_id);
+        }
+    });
+}
+
+/// Shuts the instance `rt_id` down and waits until it has stopped, ten
+/// seconds at most.
+pub fn stop_instance(rt_id: sail::RuntimeId) {
+    keep_running(&[rt_id]);
+    sail::shutdown(rt_id);
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while sail::is_running(rt_id) && std::time::Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
 }
 
 /// Leaves `ids` running when the thread that started them ends: for an
@@ -484,7 +552,12 @@ thread_local! {
 
 impl Drop for Started {
     fn drop(&mut self) {
-        let ids = std::mem::take(&mut self.0);
+        // Those a test stopped itself, without the harness, are not told
+        // of: only what still runs.
+        let ids: Vec<_> = std::mem::take(&mut self.0)
+            .into_iter()
+            .filter(|&id| sail::is_running(id))
+            .collect();
         if ids.is_empty() {
             return;
         }

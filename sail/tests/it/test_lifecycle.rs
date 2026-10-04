@@ -12,14 +12,16 @@ use std::time::Duration;
 
 use crate::common;
 
-/// Ids of these tests' own, far from those the other tests count up.
-const STOPPED_STARTING: sail::RuntimeId = 64_001;
-const TAKEN_TWICE: sail::RuntimeId = 64_002;
-const RELOADING: sail::RuntimeId = 64_003;
-const BYSTANDER: sail::RuntimeId = 64_004;
-const LOGGED_A: sail::RuntimeId = 64_005;
-const LOGGED_B: sail::RuntimeId = 64_006;
-const NO_MODES: sail::RuntimeId = 64_007;
+// These tests start their instances themselves, not through the harness:
+// the start, its result and the ID it is given are what they test. Their
+// IDs are the harness's table's, and each instance is shut down with its
+// test's thread should the test fail before it stops it.
+use crate::common::fixed_rt_id::{
+    LIFECYCLE_BYSTANDER as BYSTANDER, LIFECYCLE_LOGGED_A as LOGGED_A,
+    LIFECYCLE_LOGGED_B as LOGGED_B, LIFECYCLE_NO_MODES as NO_MODES,
+    LIFECYCLE_RELOADING as RELOADING, LIFECYCLE_STOPPED_STARTING as STOPPED_STARTING,
+    LIFECYCLE_TAKEN_TWICE as TAKEN_TWICE,
+};
 
 /// A server that takes connections and never answers: a download from it
 /// hangs. Tells `accepted` of each connection.
@@ -73,6 +75,7 @@ fn start_logged(
     log: std::sync::Arc<sail::app::logger::InstanceLog>,
 ) -> mpsc::Receiver<Result<(), sail::Error>> {
     let (tx, rx) = mpsc::channel();
+    common::stops_with_its_thread(id);
     std::thread::spawn(move || {
         let mut options = options(sail::Config::Str(config));
         options.runtime_opt = sail::RuntimeOption::MultiThread(2, 2 * 1024 * 1024);
@@ -85,6 +88,7 @@ fn start_logged(
 /// Starts `id` on a thread of its own; its result comes on the receiver.
 fn start(id: sail::RuntimeId, config: sail::Config) -> mpsc::Receiver<Result<(), sail::Error>> {
     let (tx, rx) = mpsc::channel();
+    common::stops_with_its_thread(id);
     std::thread::spawn(move || {
         let _ = tx.send(sail::start(id, options(config)));
     });

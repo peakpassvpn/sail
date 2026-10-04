@@ -74,21 +74,7 @@ fn the_api_lists_and_updates_assets() -> anyhow::Result<()> {
                 ..Default::default()
             },
         };
-        let start = rt.spawn_blocking(move || sail::start(id, opts));
-        let deadline = std::time::Instant::now() + Duration::from_secs(10);
-        while !sail::is_running(id) {
-            if start.is_finished() {
-                match rt.block_on(start)? {
-                    Err(e) => anyhow::bail!("start sail failed: {}", e),
-                    Ok(()) => anyhow::bail!("sail stopped as soon as it started"),
-                }
-            }
-            anyhow::ensure!(
-                std::time::Instant::now() < deadline,
-                "sail did not start within 10s"
-            );
-            std::thread::sleep(Duration::from_millis(10));
-        }
+        common::start_instance(id, opts)?;
         Ok(api_port)
     })?;
     let api = |method: &str, path: &str, body: &str| -> anyhow::Result<(u16, String)> {

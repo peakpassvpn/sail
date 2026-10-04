@@ -340,9 +340,16 @@ fn kernel_peer(public: [u8; 32]) -> PeerConfig {
     pc
 }
 
+/// The two tests speak to the one kernel peer, as the one peer it knows:
+/// run at once, each would take the other's session from it. Each holds
+/// this for as long as it runs, so that they follow one another however
+/// the binary is run.
+static ONE_AT_A_TIME: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "needs root and the sailwg-* namespaces; see the module docs"]
 async fn kernel_wireguard() {
+    let _one = ONE_AT_A_TIME.lock().await;
     let kernel_public = env_key("WG_KERNEL_PUBLIC");
     let private = env_key("WG_SAIL_PRIVATE");
     let netns = std::env::var("WG_KERNEL_NETNS").unwrap_or_else(|_| "sailwg-a".into());
@@ -478,6 +485,7 @@ impl sail::protocol::wireguard::Transport for Counting {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "needs root and the sailwg-* namespaces; see the module docs"]
 async fn kernel_cookie_under_load() {
+    let _one = ONE_AT_A_TIME.lock().await;
     use sail::protocol::wireguard::cookie::LABEL_MAC1;
     use sail::protocol::wireguard::crypto;
 

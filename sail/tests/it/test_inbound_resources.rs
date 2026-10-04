@@ -18,8 +18,11 @@ use btls::ssl::{SslConnector, SslMethod, SslStream, SslVerifyMode};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha224};
 
-/// Runtime IDs of their own: another test runs at the same time under 930.
-const ID: u16 = 950;
+// These tests start their instances themselves, not through the harness:
+// some watch what happens while the start runs. `Running` shuts each down
+// when its test ends, however it ends. Their IDs are the harness's
+// table's: this and the four after it.
+const ID: u16 = common::fixed_rt_id::INBOUND_RESOURCES;
 const UUID: &str = "90ee4432-671e-4ec8-8512-15d5fd0f8eab";
 
 struct Running(u16);

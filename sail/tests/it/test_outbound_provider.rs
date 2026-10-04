@@ -81,7 +81,7 @@ fn a_selector_follows_its_provider_on(port: u16, first: u16, second: u16) -> any
         .enable_all()
         .build()?;
     let servers = common::run_sail_instances(&rt, vec![server(first), server(second)])?;
-    let id = 910;
+    let id = common::next_rt_id();
     let opts = sail::StartOptions {
         config: sail::Config::File(path.to_string_lossy().to_string()),
         #[cfg(feature = "auto-reload")]
@@ -95,21 +95,9 @@ fn a_selector_follows_its_provider_on(port: u16, first: u16, second: u16) -> any
             ..Default::default()
         },
     };
-    let start = rt.spawn_blocking(move || sail::start(id, opts));
-    let deadline = std::time::Instant::now() + Duration::from_secs(10);
-    while !sail::is_running(id) {
-        if start.is_finished() {
-            common::shutdown_instances(&rt, servers);
-            match rt.block_on(start)? {
-                Err(e) => anyhow::bail!("start sail failed: {}", e),
-                Ok(()) => anyhow::bail!("sail stopped as soon as it started"),
-            }
-        }
-        anyhow::ensure!(
-            std::time::Instant::now() < deadline,
-            "sail did not start within 10s"
-        );
-        std::thread::sleep(Duration::from_millis(10));
+    if let Err(e) = common::start_instance(id, opts) {
+        common::shutdown_instances(&rt, servers);
+        return Err(e);
     }
     let manager = sail::runtime_managers()
         .get(&id)

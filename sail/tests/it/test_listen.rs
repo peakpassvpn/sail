@@ -27,7 +27,9 @@ fn a_port_in_use_fails_the_start() {
             runtime: Default::default(),
             host: Default::default(),
         };
-        let _ = tx.send(sail::start(1000, opts));
+        // Started here and not by the harness: the start is to fail, and
+        // its error is what the test reads.
+        let _ = tx.send(sail::start(crate::common::next_rt_id(), opts));
     });
 
     // A successful start would run until shut down.

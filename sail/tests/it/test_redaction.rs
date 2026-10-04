@@ -185,13 +185,7 @@ fn no_secret_reaches_what_an_instance_tells() {
             ..Default::default()
         },
     };
-    let start = std::thread::spawn(move || sail::start(rt_id, opts));
-    let deadline = std::time::Instant::now() + Duration::from_secs(10);
-    while !sail::is_running(rt_id) {
-        assert!(!start.is_finished(), "sail stopped: {:?}", start.join());
-        assert!(std::time::Instant::now() < deadline, "sail did not start");
-        std::thread::sleep(Duration::from_millis(20));
-    }
+    common::start_instance(rt_id, opts).unwrap();
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -266,8 +260,7 @@ fn no_secret_reaches_what_an_instance_tells() {
         );
         told
     });
-    sail::shutdown(rt_id);
-    let _ = start.join();
+    common::stop_instance(rt_id);
     let (lines, _) = log.follow();
     let logged: String = lines.iter().map(|l| format!("{}\n", l.message)).collect();
     assert!(

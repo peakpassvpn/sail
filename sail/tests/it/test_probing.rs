@@ -36,13 +36,7 @@ fn start_with(config: serde_json::Value, set: &[(&str, &str)]) -> Result<sail::R
         runtime,
         host: Default::default(),
     };
-    let start = std::thread::spawn(move || sail::start(id, opts));
-    let deadline = Instant::now() + Duration::from_secs(10);
-    while !sail::is_running(id) {
-        ensure!(!start.is_finished(), "sail did not start");
-        ensure!(Instant::now() < deadline, "sail did not start within 10s");
-        std::thread::sleep(Duration::from_millis(10));
-    }
+    common::start_instance(id, opts)?;
     Ok(id)
 }
 

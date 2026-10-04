@@ -3,6 +3,7 @@
 
 #![cfg(all(feature = "api", feature = "outbound-direct"))]
 
+#[allow(unused_imports)] // Unused where features leave out the tests that wait.
 use std::time::Duration;
 
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
@@ -204,7 +205,7 @@ fn a_reload_that_fails_says_why_and_keeps_what_runs() -> anyhow::Result<()> {
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
-    let id = 960;
+    let id = common::next_rt_id();
     let config = |api_port: u16, outbounds: serde_json::Value| {
         serde_json::json!({
             "api": { "listen": format!("127.0.0.1:{}", api_port), "secret": SECRET },
@@ -230,18 +231,7 @@ fn a_reload_that_fails_says_why_and_keeps_what_runs() -> anyhow::Result<()> {
                 ..Default::default()
             },
         };
-        let start = std::thread::spawn(move || sail::start(id, opts));
-        let deadline = std::time::Instant::now() + Duration::from_secs(10);
-        while !sail::is_running(id) {
-            if start.is_finished() {
-                match start.join() {
-                    Ok(Err(e)) => anyhow::bail!("start sail failed: {}", e),
-                    _ => anyhow::bail!("sail stopped as soon as it started"),
-                }
-            }
-            anyhow::ensure!(std::time::Instant::now() < deadline, "sail did not start");
-            std::thread::sleep(Duration::from_millis(10));
-        }
+        common::start_instance(id, opts)?;
         Ok(api_port)
     })?;
     let at = At::Port(api_port);

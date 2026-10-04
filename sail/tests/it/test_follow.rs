@@ -39,26 +39,16 @@ fn a_local_rule_set_follows_its_file_without_a_reload() -> Result<()> {
         .worker_threads(2)
         .enable_all()
         .build()?;
-    let id = 970;
+    let id = common::next_rt_id();
     let path = config_path.to_string_lossy().to_string();
-    let start = std::thread::spawn(move || {
-        sail::start(
-            id,
-            sail::StartOptions {
-                config: sail::Config::File(path),
-                auto_reload: true,
-                runtime_opt: sail::RuntimeOption::SingleThread,
-                runtime: common::runtime_options(),
-                host: Default::default(),
-            },
-        )
-    });
-    let deadline = Instant::now() + Duration::from_secs(10);
-    while !sail::is_running(id) {
-        ensure!(!start.is_finished(), "sail did not start");
-        ensure!(Instant::now() < deadline, "sail did not start within 10s");
-        std::thread::sleep(Duration::from_millis(10));
-    }
+    let opts = sail::StartOptions {
+        config: sail::Config::File(path),
+        auto_reload: true,
+        runtime_opt: sail::RuntimeOption::SingleThread,
+        runtime: common::runtime_options(),
+        host: Default::default(),
+    };
+    common::start_instance(id, opts)?;
     let result = (|| {
         let manager = sail::runtime_manager(id).unwrap();
         let count = || -> usize {
@@ -103,7 +93,6 @@ fn a_local_rule_set_follows_its_file_without_a_reload() -> Result<()> {
         );
         Ok(())
     })();
-    sail::shutdown(id);
-    let _ = start.join();
+    common::stop_instance(id);
     result
 }
