@@ -914,7 +914,13 @@ async fn a_host_service_asked_during_the_start_dials_back_and_reads_the_network(
     let upstream_addr = upstream.local_addr().unwrap();
     tokio::spawn(async move {
         let mut buf = [0u8; 1500];
-        while let Ok((n, from)) = upstream.recv_from(&mut buf).await {
+        loop {
+            // An answer sent to a socket already closed comes back, on
+            // Windows, as an error of the next receive: it lives on.
+            let Ok((n, from)) = upstream.recv_from(&mut buf).await else {
+                tokio::time::sleep(Duration::from_millis(1)).await;
+                continue;
+            };
             let _ = upstream.send_to(&dns_answer(&buf[..n]), from).await;
         }
     });
@@ -957,7 +963,11 @@ async fn a_host_service_asked_during_the_start_dials_back_and_reads_the_network(
         let (instance, asked, service) = (instance.clone(), asked.clone(), service.clone());
         async move {
             let mut buf = [0u8; 1500];
-            while let Ok((n, from)) = service.recv_from(&mut buf).await {
+            loop {
+                let Ok((n, from)) = service.recv_from(&mut buf).await else {
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                    continue;
+                };
                 let query = buf[..n].to_vec();
                 let (instance, asked, service) = (instance.clone(), asked.clone(), service.clone());
                 tokio::spawn(async move {

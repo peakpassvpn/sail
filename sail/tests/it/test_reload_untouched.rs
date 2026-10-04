@@ -60,7 +60,15 @@ async fn counting_dns() -> (u16, Arc<AtomicUsize>) {
         let asked = asked.clone();
         async move {
             let mut buf = [0u8; 1500];
-            while let Ok((n, from)) = socket.recv_from(&mut buf).await {
+            loop {
+                // On Windows an answer sent to a socket its asker has
+                // closed, having what it wanted of another answer, comes
+                // back as an error of the next receive: the server lives
+                // on through it, as a real one does.
+                let Ok((n, from)) = socket.recv_from(&mut buf).await else {
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                    continue;
+                };
                 let mut answer = buf[..n].to_vec();
                 let mut at = 12;
                 while answer[at] != 0 {
