@@ -1403,7 +1403,9 @@ async fn follow_default_interface(manager: Arc<RuntimeManager>) {
         }
         // Take the notices of the change before looking.
         settle(&changed, SETTLE_QUIET, SETTLE_MAX).await;
-        let moved = match manager.dial_defaults.load().env.auto_interface.clone() {
+        // The instance's detector, whatever the configuration running says
+        // of detection now: what a reload kept may still send by it.
+        let moved = match manager.env.auto_interface.get().cloned() {
             Some(auto) => manager
                 .env
                 .scope
@@ -1621,10 +1623,18 @@ pub(crate) fn dial_defaults(
     #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
     {
         defaults.route.auto_detect_interface = true;
-        defaults.env.auto_interface = Some(net::interface::AutoInterface::new(
-            own_interfaces,
-            platform::detect_default_interface,
-        ));
+        // The instance's, the same at every reload: sail's own TUNs, which
+        // it skips, change only at a start.
+        defaults.env.auto_interface = Some(
+            env.auto_interface
+                .get_or_init(|| {
+                    net::interface::AutoInterface::new(
+                        own_interfaces,
+                        platform::detect_default_interface,
+                    )
+                })
+                .clone(),
+        );
         Ok(Arc::new(defaults))
     }
     #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
@@ -2258,6 +2268,39 @@ fn log_file_limit() {
 
 #[cfg(test)]
 mod tests {
+    /// A reload keeps the interface detector the start made: what it keeps
+    /// running (an endpoint, the outbounds under it) holds that one, and
+    /// only the instance's is looked at again when the network changes.
+    #[cfg(all(
+        feature = "outbound-direct",
+        any(target_os = "macos", target_os = "linux", target_os = "windows")
+    ))]
+    #[test]
+    fn a_reload_keeps_the_interface_detector_of_the_start() {
+        use std::sync::Arc;
+        let config = super::config::Config::from_json(
+            r#"{ "route": { "auto_detect_interface": true },
+                 "outbounds": [{ "type": "direct" }] }"#,
+        )
+        .unwrap();
+        let env = super::runtime::RuntimeEnv::default();
+        let detector = |defaults: &Arc<super::net::DialDefaults>| {
+            defaults
+                .env
+                .auto_interface
+                .clone()
+                .expect("detection is on")
+        };
+        let started = detector(&super::dial_defaults(&config, &env).unwrap());
+        let reloaded = detector(&super::dial_defaults(&config, &env).unwrap());
+        assert!(
+            Arc::ptr_eq(&started, &reloaded),
+            "a reload made a detector of its own"
+        );
+        // And it is the one the network's follower refreshes.
+        assert!(Arc::ptr_eq(&started, env.auto_interface.get().unwrap()));
+    }
+
     /// What a service manager's scripts read of the log stays as it is:
     /// sail-openwrt's init script restarts sail, or does not, by these.
     #[test]

@@ -193,6 +193,14 @@ pub struct RuntimeEnv {
     /// `dns.reverse_mapping`'s domains by address, which the DNS client
     /// writes as it answers and routing reads; kept across reloads.
     pub reverse_map: crate::sniff::dns::DnsSniffer,
+    /// What finds the interface the instance sends through, where it is
+    /// detected (`auto_detect_interface`): the instance's one, made the
+    /// first time it is asked for and kept across reloads. What a reload
+    /// keeps running, an endpoint and the outbounds under it, holds the
+    /// one it was built with: were each reload to make another, theirs
+    /// would never be looked at again when the network changes.
+    pub auto_interface:
+        std::sync::Arc<std::sync::OnceLock<std::sync::Arc<crate::net::interface::AutoInterface>>>,
     /// What this instance has changed in the system and not yet undone,
     /// for a sweep should it be killed.
     pub ledger: crate::platform::sweep::Ledger,
