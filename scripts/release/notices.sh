@@ -3,7 +3,8 @@
 # that sail's packages build with, under its license and with its text
 # (cargo-about, tools/licences/about.toml and about.hbs), then the
 # licenses of the native code crates build in, as those projects ship
-# them: BoringSSL (btls-sys), mimalloc (libmimalloc-sys).
+# them: BoringSSL (btls-sys), mimalloc (libmimalloc-sys). One file for
+# every archive, which may hold less of it (it says so).
 #
 #   scripts/release/notices.sh <out file>
 #
@@ -33,6 +34,10 @@ native() {
 }
 {
 	echo "# Native code built into the crates above"
+	echo
+	echo "This file is the same in every archive, and lists what any of them is"
+	echo "built from: an archive may hold less. mimalloc is only in the Linux musl"
+	echo "archives other than the MIPS and -router ones, which allocate with musl's own."
 	echo
 } >>"$out"
 native "BoringSSL (built in by btls-sys)" "$(dir_of btls-sys)/deps/boringssl/LICENSE"
