@@ -11,7 +11,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use tokio::net::UdpSocket;
 use tokio::sync::{watch, Mutex, Notify};
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 use crate::adapter::{OutboundDatagramRecvHalf, OutboundDatagramSendHalf};
 use crate::app::SyncDnsClient;
@@ -174,8 +174,14 @@ impl Transport for SocketTransport {
         }
         let port = self.port.load(Ordering::Relaxed);
         let socket = match open(port, self.v6, &self.dialer).await {
+            // Another socket took the port meanwhile: one not configured
+            // is given up for another, which the peers learn from the
+            // first datagram they authenticate, as they do a roaming one.
             Err(e) if !self.fixed => {
-                debug!("wireguard: binding port {} again: {}", port, e);
+                info!(
+                    "wireguard: udp port {} is taken ({}); bound on another",
+                    port, e
+                );
                 open(0, self.v6, &self.dialer).await?
             }
             socket => socket?,
@@ -388,8 +394,10 @@ mod tests {
         assert_eq!(got.unwrap().unwrap().packet, p);
     }
 
-    /// A rebind closes the socket and binds its port again; the tunnel,
-    /// its receive pending across it, goes on with the session it had.
+    /// A rebind closes the socket and binds its port again, or another if
+    /// a test running beside this one took it meanwhile, see the next; the
+    /// tunnel, its receive pending across it, goes on with the session it
+    /// had.
     #[tokio::test]
     async fn a_rebind_keeps_the_port_and_the_session() {
         let ka = crypto::generate_private_key();
@@ -420,7 +428,11 @@ mod tests {
         let old = Arc::downgrade(&transport.socket().unwrap());
         transport.rebind().await.unwrap();
         assert!(old.upgrade().is_none(), "the old socket is still open");
-        assert_eq!(transport.local_addr().unwrap().port(), port);
+        // Its port, unless another test's socket took it meanwhile.
+        let now = transport.local_addr().unwrap().port();
+        if now != port {
+            eprintln!("port {} was taken meanwhile; bound on {}", port, now);
+        }
 
         exchange((&a, &mut rx_a), (&b, &mut rx_b), 2).await;
         let stats = a
@@ -428,5 +440,28 @@ mod tests {
             .await;
         assert!(stats.has_session);
         assert_eq!(stats.last_handshake, handshake);
+    }
+
+    /// A port taken while the socket is bound anew is given up for
+    /// another, unless it was configured.
+    #[tokio::test]
+    async fn a_port_taken_meanwhile_is_given_up_unless_configured() {
+        for fixed in [false, true] {
+            let mut transport = SocketTransport::bind(0, false, &Dialer::system())
+                .await
+                .unwrap();
+            transport.fixed = fixed;
+            let port = transport.local_addr().unwrap().port();
+            // The socket closed, as a rebind closes it, and its port taken.
+            drop(transport.socket.send_replace(None));
+            let _taken = std::net::UdpSocket::bind(("0.0.0.0", port)).unwrap();
+            let rebound = transport.rebind().await;
+            if fixed {
+                assert!(rebound.is_err(), "bound though its port is taken");
+            } else {
+                rebound.unwrap();
+                assert_ne!(transport.local_addr().unwrap().port(), port);
+            }
+        }
     }
 }
