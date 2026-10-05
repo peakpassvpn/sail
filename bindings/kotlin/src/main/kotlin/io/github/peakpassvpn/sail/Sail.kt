@@ -51,6 +51,14 @@ internal class EventSink(
 }
 
 /** The kinds of events, as sail.h numbers them. */
+/** What a reload does with the connections open. */
+enum class RecheckOpen(internal val json: String) {
+    /** They go on as they were routed (the default). */
+    KEEP("keep"),
+    /** Each is matched again against the new rules: those they reject or drop are closed. */
+    CLOSE_REJECTED("close_rejected"),
+}
+
 enum class EventKind(val code: Int) {
     STATE(1), LOG(2), STATUS(3), CONNECTIONS(4), OUTBOUNDS(5), NETWORK(6), DISCONNECTED(7),
     FAULT(8), ROUTED(9), DNS(10), GROUP(11), DIAL(12), USER(13),
@@ -98,9 +106,16 @@ class Sail private constructor(private val handle: Long) : AutoCloseable {
     fun startFile(path: String) = Native.instanceStartFile(handle, path)
     fun reload(config: String? = null) = Native.instanceReload(handle, config)
 
-    /** [reload], telling what became of each inbound; in the tunnel process only. */
-    fun reloadReport(config: String? = null): ReloadReport =
-        json.decodeFromString(Native.instanceReloadReport(handle, config))
+    /**
+     * [reload], telling what became of each inbound; in the tunnel process only.
+     * [recheckOpen] says what becomes of the connections open: with
+     * [RecheckOpen.CLOSE_REJECTED], those the new rules reject are closed, and
+     * the report's [ReloadReport.recheck] lists them.
+     */
+    fun reloadReport(config: String? = null, recheckOpen: RecheckOpen = RecheckOpen.KEEP): ReloadReport =
+        json.decodeFromString(
+            Native.instanceReloadWith(handle, config, "{\"recheck_open\":\"${recheckOpen.json}\"}")
+        )
     fun stop(timeoutMs: Int = 10_000) = Native.instanceStop(handle, timeoutMs)
     fun serve(options: String?) = Native.instanceServe(handle, options)
 

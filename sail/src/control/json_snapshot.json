@@ -177,7 +177,22 @@
         "text": "[wg] endpoint: route.default_mark changed; it goes on with what it was built with: applies at the next start"
       }
     ],
-    "path": "inbounds_only"
+    "path": "inbounds_only",
+    "recheck": {
+      "closed": [
+        {
+          "id": 3,
+          "rule": 1
+        }
+      ],
+      "differ": [
+        {
+          "id": 4,
+          "new": "direct",
+          "old": "proxy"
+        }
+      ]
+    }
   },
   "routed": {
     "action": "outbound",

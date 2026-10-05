@@ -11,7 +11,7 @@ internal object Native {
     @JvmStatic external fun instanceStart(instance: Long, config: String)
     @JvmStatic external fun instanceStartFile(instance: Long, path: String)
     @JvmStatic external fun instanceReload(instance: Long, config: String?)
-    @JvmStatic external fun instanceReloadReport(instance: Long, config: String?): String
+    @JvmStatic external fun instanceReloadWith(instance: Long, config: String?, options: String?): String
     @JvmStatic external fun instanceServe(instance: Long, options: String?)
     @JvmStatic external fun instanceStop(instance: Long, timeoutMs: Int)
     @JvmStatic external fun instanceState(instance: Long): String

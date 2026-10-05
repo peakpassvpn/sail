@@ -1104,9 +1104,10 @@ mod tests {
                     endpoint: Some("wg".into()),
                     options: vec!["route.default_mark".into()],
                 }],
-                // Not published here, the bindings' models not having it yet:
-                // see `a_recheck_is_told_only_when_one_ran`.
-                recheck: None,
+                recheck: Some(Recheck {
+                    closed: vec![RecheckClosed { id: 3, rule: Some(1) }],
+                    differ: vec![RecheckDiffer { id: 4, old: "proxy".into(), new: "direct".into() }],
+                }),
             },
             "routed": Routed {
                 id: Some(7), network: "tcp".into(), inbound: "tun-in".into(),

@@ -48,11 +48,47 @@ public struct ReloadReport: Decodable, Equatable, Sendable {
     public let path: String
     public let inbounds: [ReloadedInbound]
     public let notes: [ReloadNote]
+    /// What a recheck of the connections open did; only when one was asked
+    /// for.
+    public let recheck: Recheck?
+}
+
+/// What a reload does with the connections open.
+public enum RecheckOpen: String, Sendable {
+    /// They go on as they were routed (the default).
+    case keep
+    /// Each is matched again against the new rules: those they reject or
+    /// drop are closed.
+    case closeRejected = "close_rejected"
+}
+
+/// A reload's recheck of the connections open.
+public struct Recheck: Decodable, Equatable, Sendable {
+    /// Those closed, the new rules rejecting or dropping them.
+    public let closed: [RecheckClosed]
+    /// Those the new rules send to another outbound: they go on.
+    public let differ: [RecheckDiffer]
+}
+
+public struct RecheckClosed: Decodable, Equatable, Sendable {
+    /// As `Connection.id`.
+    public let id: UInt64
+    /// The index in `route.rules` of the rule that rejects it; nil for
+    /// `final`.
+    public let rule: UInt32?
+}
+
+public struct RecheckDiffer: Decodable, Equatable, Sendable {
+    public let id: UInt64
+    /// The outbound it went to.
+    public let old: String
+    /// The one the rules send it to now; `hijack-dns` for a hijack-dns rule.
+    public let new: String
 }
 
 public struct ReloadedInbound: Decodable, Equatable, Sendable {
     public let tag: String
-    /// untouched, reloaded, added, removed, replaced; only removed and
+    /// untouched, reloaded, added, removed, replaced, lost; only removed and
     /// replaced closed connections.
     public let change: String
 }

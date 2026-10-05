@@ -277,14 +277,17 @@ JNIEXPORT jlong JNICALL NATIVE(removeInbound)(JNIEnv *env, jclass cls, jlong h, 
     return (jlong)closed;
 }
 
-/* A reload, answering what it did as JSON. */
-JNIEXPORT jstring JNICALL NATIVE(instanceReloadReport)(JNIEnv *env, jclass cls, jlong h, jstring config) {
+/* A reload, with its options, answering what it did as JSON. */
+JNIEXPORT jstring JNICALL NATIVE(instanceReloadWith)(JNIEnv *env, jclass cls, jlong h, jstring config,
+                                                     jstring options) {
     (void)cls;
     const char *c = c_string(env, config);
+    const char *o = c_string(env, options);
     char *out = NULL;
     char *err = NULL;
-    int32_t code = sail_instance_reload_report((SailInstance)h, c, &out, &err);
+    int32_t code = sail_instance_reload_with((SailInstance)h, c, o, &out, &err);
     done(env, config, c);
+    done(env, options, o);
     if (failed(env, code, err)) return NULL;
     return take(env, out);
 }

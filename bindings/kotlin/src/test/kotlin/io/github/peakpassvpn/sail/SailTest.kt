@@ -169,6 +169,10 @@ class SailTest {
             val logs = withTimeout(10_000) { sail.logs(level = "info").first { it.reset } }
             assertTrue(logs.lines.isNotEmpty())
 
+            assertEquals(null, sail.reloadReport(config(port)).recheck)
+            val rechecked = sail.reloadReport(config(port), RecheckOpen.CLOSE_REJECTED)
+            assertEquals(Recheck(), rechecked.recheck)
+
             sail.stop()
             assertEquals("stopped", sail.state().state)
             sail.start(config(port))

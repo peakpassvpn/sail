@@ -101,12 +101,40 @@ data class ReloadReport(
     val path: String,
     val inbounds: List<ReloadedInbound> = emptyList(),
     val notes: List<ReloadNote> = emptyList(),
+    /** What a recheck of the connections open did; only when one was asked for. */
+    val recheck: Recheck? = null,
+)
+
+/** A reload's recheck of the connections open. */
+@Serializable
+data class Recheck(
+    /** Those closed, the new rules rejecting or dropping them. */
+    val closed: List<RecheckClosed> = emptyList(),
+    /** Those the new rules send to another outbound: they go on. */
+    val differ: List<RecheckDiffer> = emptyList(),
+)
+
+@Serializable
+data class RecheckClosed(
+    /** As [Connection.id]. */
+    val id: Long,
+    /** The index in `route.rules` of the rule that rejects it; null for `final`. */
+    val rule: Int? = null,
+)
+
+@Serializable
+data class RecheckDiffer(
+    val id: Long,
+    /** The outbound it went to. */
+    val old: String,
+    /** The one the rules send it to now; `hijack-dns` for a hijack-dns rule. */
+    val new: String,
 )
 
 @Serializable
 data class ReloadedInbound(
     val tag: String,
-    /** untouched, reloaded, added, removed, replaced; only removed and replaced closed connections. */
+    /** untouched, reloaded, added, removed, replaced, lost; only removed and replaced closed connections. */
     val change: String,
 )
 

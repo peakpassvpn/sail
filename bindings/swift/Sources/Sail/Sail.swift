@@ -177,10 +177,13 @@ public final class Sail {
     }
 
     /// `reload`, telling what became of each inbound; in the tunnel process
-    /// only.
-    public func reloadReport(config: String? = nil) throws -> ReloadReport {
-        try withOptionalCString(config) { config in
-            try decode(ReloadReport.self, json { sail_instance_reload_report(handle, config, $0, $1) })
+    /// only. `recheckOpen` says what becomes of the connections open: with
+    /// `.closeRejected`, those the new rules reject are closed, and the
+    /// report's `recheck` lists them.
+    public func reloadReport(config: String? = nil, recheckOpen: RecheckOpen = .keep) throws -> ReloadReport {
+        let options = "{\"recheck_open\":\"\(recheckOpen.rawValue)\"}"
+        return try withOptionalCString(config) { config in
+            try decode(ReloadReport.self, json { sail_instance_reload_with(handle, config, options, $0, $1) })
         }
     }
 

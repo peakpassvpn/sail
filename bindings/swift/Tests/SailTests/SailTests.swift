@@ -234,6 +234,10 @@ final class SailTests: XCTestCase {
         let logs = try await first(sail.logs(level: "info")) { $0.reset }
         XCTAssertFalse(logs.lines.isEmpty)
 
+        XCTAssertNil(try sail.reloadReport(config: config(port: port)).recheck)
+        let rechecked = try sail.reloadReport(config: config(port: port), recheckOpen: .closeRejected)
+        XCTAssertEqual(rechecked.recheck, Recheck(closed: [], differ: []))
+
         try sail.stop()
         XCTAssertEqual(try sail.state().state, "stopped")
         try sail.start(config: config(port: port))
