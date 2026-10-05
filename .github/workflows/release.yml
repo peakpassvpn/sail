@@ -282,8 +282,20 @@ jobs:
     runs-on: macos-latest
     strategy:
       fail-fast: true
+      # A darwin target's sail and its library are jobs of their own: one
+      # after the other they took 40-46 min, the release's longest job.
+      # Built natively on an Intel runner, x86_64's took 67 min, so it is
+      # cross-built here as the others (measured 2026-10-05).
       matrix:
-        target: [aarch64-apple-darwin, x86_64-apple-darwin, aarch64-apple-ios, aarch64-apple-ios-sim, x86_64-apple-ios]
+        include:
+          - { target: aarch64-apple-darwin, part: cli }
+          - { target: aarch64-apple-darwin, part: lib }
+          - { target: x86_64-apple-darwin, part: cli }
+          - { target: x86_64-apple-darwin, part: lib }
+          - { target: aarch64-apple-ios, part: lib }
+          - { target: aarch64-apple-ios-sim, part: lib }
+          - { target: x86_64-apple-ios, part: lib }
+    name: apple-slice (${{ matrix.target }}, ${{ matrix.part }})
     env:
       SOURCE_DATE_EPOCH: ${{ needs.check.outputs.epoch }}
     steps:
@@ -298,11 +310,11 @@ jobs:
         run: command -v gtar || brew install gnu-tar
 
       - name: build
-        run: scripts/release/build-apple.sh "${{ inputs.version }}" out --slice ${{ matrix.target }}
+        run: scripts/release/build-apple.sh "${{ inputs.version }}" out --slice ${{ matrix.target }} ${{ matrix.part }}
 
       - uses: actions/upload-artifact@v4
         with:
-          name: apple-slice-${{ matrix.target }}
+          name: apple-slice-${{ matrix.target }}-${{ matrix.part }}
           path: out/
 
   # The slices gathered into the XCFramework, and everything Apple's into one
@@ -325,7 +337,7 @@ jobs:
         run: |
           mkdir -p out/ship out/symbols all/lib
           for d in slices/*/; do
-            cp -R "$d"lib/* all/lib/
+            [ -d "$d"lib ] && cp -R "$d"lib/* all/lib/
             cp -R "$d"symbols/. out/symbols/
             [ -d "$d"ship ] && cp "$d"ship/* out/ship/
             [ -f "$d"ids.txt ] && cat "$d"ids.txt >> out/ids.txt

@@ -9,10 +9,12 @@
 #
 #   scripts/release/build-apple.sh <version> <out dir>
 #       everything, one target after another (a local build);
-#   scripts/release/build-apple.sh <version> <out dir> --slice <target>
+#   scripts/release/build-apple.sh <version> <out dir> --slice <target> [cli|lib]
 #       one target: its sail for macOS (darwin targets) and its slice of
-#       sail-ffi, the thin library left in <out dir>/lib/<target>; the
-#       release runs one job per target side by side;
+#       sail-ffi, the thin library left in <out dir>/lib/<target>; with cli
+#       or lib, only that one. The release runs the two of a darwin target
+#       as jobs of their own, side by side with the others: built one after
+#       the other they were the release's longest job;
 #   scripts/release/build-apple.sh <version> <out dir> --xcframework <dir>
 #       the XCFramework from the slices in <dir>/lib/<target>.
 #
@@ -116,8 +118,16 @@ xcframework() {
 case ${3:-} in
 --slice)
 	target=${4:?--slice needs a target}
-	case $target in *-apple-darwin) cli "$target" ;; esac
-	slice "$target"
+	part=${5:-}
+	case $part in
+	''|cli|lib) ;;
+	*) echo "build-apple: --slice takes cli or lib, not $part" >&2; exit 2 ;;
+	esac
+	case $target:$part in
+	*-apple-darwin:|*-apple-darwin:cli) cli "$target" ;;
+	*:cli) echo "build-apple: $target has no sail for macOS" >&2; exit 2 ;;
+	esac
+	[ "$part" = cli ] || slice "$target"
 	;;
 --xcframework)
 	xcframework "${4:?--xcframework needs the directory of the slices}"
