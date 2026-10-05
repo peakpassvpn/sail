@@ -1830,9 +1830,19 @@ mod tests {
     /// answer to another query (another ID), which is no answer.
     async fn truncating_server() -> (u16, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
-        let tcp = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let port = tcp.local_addr().unwrap().port();
-        let udp = tokio::net::UdpSocket::bind(("127.0.0.1", port)).await.unwrap();
+        // The port the system gives the TCP listener may not be free for
+        // UDP (taken, or on Windows in a range excluded for UDP alone,
+        // WSAEACCES): another pair is tried.
+        let mut tries = 0;
+        let (tcp, udp, port) = loop {
+            let tcp = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let port = tcp.local_addr().unwrap().port();
+            match tokio::net::UdpSocket::bind(("127.0.0.1", port)).await {
+                Ok(udp) => break (tcp, udp, port),
+                Err(_) if tries < 20 => tries += 1,
+                Err(e) => panic!("no port free for both TCP and UDP: {}", e),
+            }
+        };
         let over_tcp = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let counter = over_tcp.clone();
         tokio::spawn(async move {
