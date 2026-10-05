@@ -381,6 +381,40 @@ fn sends_pipeline_up_to_the_current_peer_window() {
     assert_eq!(tcb.send_available(), 2_000);
 }
 
+/// A peer that dropped data and shut its window takes a segment only up to
+/// its window's edge: an acknowledgment at SND.NXT past it would be dropped
+/// unread, and both ends wait (Linux discards it as beyond the window).
+#[test]
+fn an_ack_past_a_shut_peer_window_goes_at_its_edge() {
+    let mut tcb = established(1_000);
+    tcb.on_app_event(AppEvent::Send(3_000)).unwrap();
+    assert_eq!(tcb.send_next(), SeqNumber::new(4_001));
+    // The peer took 1000 bytes, dropped the rest, and has no room.
+    tcb.on_segment(segment_with_window(101, Some(2_001), TcpFlags::ACK, 0, 0))
+        .unwrap();
+    assert_eq!(tcb.peer_window(), 0);
+    // Its retransmission of data already taken draws an acknowledgment
+    // at the edge, which it can read.
+    let old = tcb
+        .on_segment(segment_with_window(91, Some(2_001), TcpFlags::ACK, 0, 10))
+        .unwrap();
+    assert!(matches!(
+        old.as_slice(),
+        [TcpAction::DefensiveAck(control)] if control.sequence == SeqNumber::new(2_001)
+    ));
+    assert_eq!(
+        sent_control(&tcb.force_ack()).sequence,
+        SeqNumber::new(2_001)
+    );
+    // Its window open again, the acknowledgment goes at SND.NXT.
+    tcb.on_segment(segment(101, Some(2_001), TcpFlags::ACK, 0))
+        .unwrap();
+    assert_eq!(
+        sent_control(&tcb.force_ack()).sequence,
+        SeqNumber::new(4_001)
+    );
+}
+
 #[test]
 fn newreno_fast_retransmits_after_three_duplicate_acks() {
     let mut tcb = established(1_000);

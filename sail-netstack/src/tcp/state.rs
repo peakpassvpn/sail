@@ -423,6 +423,22 @@ impl TcpTcb {
         self.send_next
     }
 
+    /// The sequence of a segment without data: SND.NXT, or the right edge of
+    /// the peer's window where that is behind it (Linux's
+    /// `tcp_acceptable_seq`). A peer that dropped data it had no room for,
+    /// with its window shut, drops a segment past that edge whole, its
+    /// acknowledgment unread; it would wait for that acknowledgment while
+    /// this end waits for its window.
+    #[must_use]
+    pub fn acceptable_seq(&self) -> SeqNumber {
+        let edge = self.send_unacked.wrapping_add(self.peer_window);
+        if edge.before(self.send_next) {
+            edge
+        } else {
+            self.send_next
+        }
+    }
+
     #[must_use]
     pub const fn send_unacked(&self) -> SeqNumber {
         self.send_unacked
@@ -496,7 +512,7 @@ impl TcpTcb {
         let mut actions = Vec::new();
         self.on_peer_fin(&mut actions);
         self.cancel_delayed_ack(&mut actions);
-        actions.push(TcpAction::Send(self.control(TcpFlags::ACK, self.send_next)));
+        actions.push(TcpAction::Send(self.ack()));
         actions
     }
 
@@ -504,7 +520,7 @@ impl TcpTcb {
     pub fn force_ack(&mut self) -> Vec<TcpAction> {
         let mut actions = Vec::new();
         self.cancel_delayed_ack(&mut actions);
-        actions.push(TcpAction::Send(self.control(TcpFlags::ACK, self.send_next)));
+        actions.push(TcpAction::Send(self.ack()));
         actions
     }
 
@@ -512,9 +528,7 @@ impl TcpTcb {
     pub(crate) fn reject_unacceptable_segment(&mut self) -> Vec<TcpAction> {
         let mut actions = Vec::new();
         self.cancel_delayed_ack(&mut actions);
-        actions.push(TcpAction::DefensiveAck(
-            self.control(TcpFlags::ACK, self.send_next),
-        ));
+        actions.push(TcpAction::DefensiveAck(self.ack()));
         actions
     }
 
@@ -647,9 +661,7 @@ impl TcpTcb {
 
         if !self.segment_acceptable(segment) {
             self.cancel_delayed_ack(&mut actions);
-            actions.push(TcpAction::DefensiveAck(
-                self.control(TcpFlags::ACK, self.send_next),
-            ));
+            actions.push(TcpAction::DefensiveAck(self.ack()));
             return Ok(actions);
         }
         if segment.flags.contains(TcpFlags::SYN) {
@@ -662,9 +674,7 @@ impl TcpTcb {
             .acknowledgment
             .is_some_and(|acknowledgment| acknowledgment.after(self.send_next))
         {
-            actions.push(TcpAction::DefensiveAck(
-                self.control(TcpFlags::ACK, self.send_next),
-            ));
+            actions.push(TcpAction::DefensiveAck(self.ack()));
             return Ok(actions);
         }
 
@@ -682,17 +692,13 @@ impl TcpTcb {
             && (segment.payload_len > 0 || segment.flags.contains(TcpFlags::FIN))
         {
             self.cancel_delayed_ack(&mut actions);
-            actions.push(TcpAction::DefensiveAck(
-                self.control(TcpFlags::ACK, self.send_next),
-            ));
+            actions.push(TcpAction::DefensiveAck(self.ack()));
             return Ok(actions);
         }
         if segment.payload_len > 0 || segment.flags.contains(TcpFlags::FIN) {
             if segment.sequence != self.recv_next {
                 self.cancel_delayed_ack(&mut actions);
-                actions.push(TcpAction::DefensiveAck(
-                    self.control(TcpFlags::ACK, self.send_next),
-                ));
+                actions.push(TcpAction::DefensiveAck(self.ack()));
                 return Ok(actions);
             }
             if segment.payload_len > self.receive_available() {
@@ -709,12 +715,12 @@ impl TcpTcb {
                 self.recv_next = self.recv_next.wrapping_add(1);
                 self.on_peer_fin(&mut actions);
                 self.cancel_delayed_ack(&mut actions);
-                actions.push(TcpAction::Send(self.control(TcpFlags::ACK, self.send_next)));
+                actions.push(TcpAction::Send(self.ack()));
             } else if segment.payload_len > 0 {
                 if self.delayed_ack_pending {
                     self.delayed_ack_pending = false;
                     actions.push(TcpAction::DisarmDelayedAck);
-                    actions.push(TcpAction::Send(self.control(TcpFlags::ACK, self.send_next)));
+                    actions.push(TcpAction::Send(self.ack()));
                 } else {
                     self.delayed_ack_pending = true;
                     actions.push(TcpAction::ArmDelayedAck);
@@ -783,7 +789,7 @@ impl TcpTcb {
         vec![
             TcpAction::DisarmRetransmission,
             TcpAction::Connected,
-            TcpAction::Send(self.control(TcpFlags::ACK, self.send_next)),
+            TcpAction::Send(self.ack()),
         ]
     }
 
@@ -860,7 +866,7 @@ impl TcpTcb {
             self.recv_next = self.recv_next.wrapping_add(1);
             self.on_peer_fin(actions);
             self.cancel_delayed_ack(actions);
-            actions.push(TcpAction::Send(self.control(TcpFlags::ACK, self.send_next)));
+            actions.push(TcpAction::Send(self.ack()));
         }
         true
     }
@@ -890,7 +896,7 @@ impl TcpTcb {
                     self.advertised_right_edge = candidate;
                     let mut actions = Vec::new();
                     self.cancel_delayed_ack(&mut actions);
-                    actions.push(TcpAction::Send(self.control(TcpFlags::ACK, self.send_next)));
+                    actions.push(TcpAction::Send(self.ack()));
                     return Ok(actions);
                 }
                 Ok(Vec::new())
@@ -991,9 +997,7 @@ impl TcpTcb {
             }
             TimerEvent::DelayedAck if self.delayed_ack_pending => {
                 self.delayed_ack_pending = false;
-                Ok(vec![TcpAction::Send(
-                    self.control(TcpFlags::ACK, self.send_next),
-                )])
+                Ok(vec![TcpAction::Send(self.ack())])
             }
             TimerEvent::TimeWaitExpired if self.state == TcpState::TimeWait => {
                 self.state = TcpState::Closed;
@@ -1175,6 +1179,11 @@ impl TcpTcb {
     fn enter_time_wait(&mut self, actions: &mut Vec<TcpAction>) {
         self.state = TcpState::TimeWait;
         actions.push(TcpAction::ArmTimeWait);
+    }
+
+    /// An ACK without data, at [`Self::acceptable_seq`].
+    fn ack(&self) -> SendControl {
+        self.control(TcpFlags::ACK, self.acceptable_seq())
     }
 
     fn control(&self, flags: TcpFlags, sequence: SeqNumber) -> SendControl {

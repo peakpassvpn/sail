@@ -1995,7 +1995,7 @@ impl TcpTable {
                 TcpAction::ChallengeAck => {
                     let flow = self.by_key.get(&key).ok_or(TcpTableError::UnknownFlow)?;
                     let control = SendControl {
-                        sequence: flow.tcb.send_next(),
+                        sequence: flow.tcb.acceptable_seq(),
                         acknowledgment: flow.tcb.recv_next(),
                         flags: TcpFlags::ACK,
                         window: flow.tcb.advertised_window(),
