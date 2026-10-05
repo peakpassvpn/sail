@@ -2072,6 +2072,7 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
         ledger,
         #[cfg(feature = "inbound-tun")]
         tun_names: Arc::new(std::sync::Mutex::new(tun_names)),
+        network: net::network::Network::telling_to(events.network_sender()),
         events,
         scope: scope.clone(),
         ..Default::default()

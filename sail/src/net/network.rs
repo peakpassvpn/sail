@@ -280,7 +280,7 @@ pub struct Current {
 /// How many changes a subscriber of `change_events` may fall behind by
 /// before it is told it lagged: changes come seconds apart at most, a
 /// burst (down, then up) a handful.
-const EVENTS: usize = 64;
+pub(crate) const EVENTS: usize = 64;
 
 /// The instance's network, kept across reloads: its state now, and a
 /// notice to whoever subscribed when it changes.
@@ -313,6 +313,17 @@ impl Default for Network {
             known: Arc::default(),
             pushed: Arc::default(),
             own: Arc::default(),
+        }
+    }
+}
+
+impl Network {
+    /// A network that tells its changes on `events`, a channel that may
+    /// outlive it (an embedding instance's, through its runs).
+    pub(crate) fn telling_to(events: broadcast::Sender<Arc<NetworkChange>>) -> Self {
+        Network {
+            events: Arc::new(events),
+            ..Default::default()
         }
     }
 }

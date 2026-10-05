@@ -245,10 +245,10 @@ impl Instance {
 
     /// The events of `kinds`, from now on, through stops and starts,
     /// until dropped. Subscribed at once: a change after this call is not
-    /// missed, though the stream is first polled after a start. Network
-    /// and user events are a run's, subscribed once it runs: those told
-    /// between the start and the first poll after it are missed. A run's
-    /// generations count from 1; after a start, read the snapshot again.
+    /// missed, though the stream is first polled after a start. User
+    /// events are a run's, subscribed once it runs: those told between the
+    /// start and the first poll after it are missed. A run's generations
+    /// count from 1; after a start, read the snapshot again.
     pub fn events(&self, kinds: Kinds) -> impl Stream<Item = Event> + Send + 'static {
         let mut streams: Vec<futures::stream::BoxStream<'static, Event>> = Vec::new();
         if kinds.contains(Kinds::STATE) {
@@ -331,12 +331,18 @@ impl Instance {
     }
 
     fn network_events(&self) -> impl Stream<Item = Event> + Send + 'static {
-        per_run(
-            self.inner().clone(),
+        told(
+            self.network_changes(),
             Kinds::NETWORK,
-            |m| m.network().change_events(),
             |change: &Arc<net::NetworkChange>| Event::Network(NetworkEvent::of(change)),
         )
+    }
+
+    /// The network's changes, subscribed now, through stops and starts:
+    /// the C ABI's network events.
+    #[doc(hidden)]
+    pub fn network_changes(&self) -> broadcast::Receiver<Arc<net::NetworkChange>> {
+        self.inner().events().network_changes()
     }
 
     fn user_events(&self) -> impl Stream<Item = Event> + Send + 'static {

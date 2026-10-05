@@ -329,6 +329,53 @@ async fn network_changes_come_as_events_that_pair_with_the_snapshot() {
     instance.stop().await.unwrap();
 }
 
+/// Network events subscribed before a start, and read only after two
+/// runs, miss nothing either run told.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn network_events_subscribed_before_a_start_miss_nothing() {
+    use futures::StreamExt;
+    use sail::embed::{Event, Kinds, NetworkChangeKind};
+
+    let instance = Instance::new(options()).unwrap();
+    let mut events = Box::pin(instance.events(Kinds::NETWORK));
+    let wifi = r#"{"interface": "en0", "type": "wifi", "gateway": "192.168.1.1",
+                   "addresses": ["192.168.1.2/24"]}"#;
+    let moved = r#"{"interface": "en0", "type": "wifi", "gateway": "10.0.0.1",
+                    "addresses": ["10.0.0.2/24"]}"#;
+    let ethernet = r#"{"interface": "en1", "type": "ethernet", "gateway": "10.0.0.1",
+                       "addresses": ["10.0.0.3/24"]}"#;
+    for last in [moved, ethernet] {
+        instance
+            .start(Config::Json(config(common::free_port(), 53)))
+            .await
+            .unwrap();
+        instance.set_network_state(wifi).unwrap();
+        instance.set_network_state(last).unwrap();
+        instance.stop().await.unwrap();
+    }
+
+    // The first run's move, then the second run's change of interface
+    // (each run's first state may be told too, or not: a settling).
+    let mut seen = Vec::new();
+    let done = |seen: &[NetworkChangeKind]| {
+        let moved = seen.iter().position(|c| *c == NetworkChangeKind::Moved);
+        let changed = seen
+            .iter()
+            .rposition(|c| *c == NetworkChangeKind::InterfaceChanged);
+        matches!((moved, changed), (Some(m), Some(c)) if c > m)
+    };
+    while !done(&seen) {
+        let event = tokio::time::timeout(Duration::from_secs(5), events.next())
+            .await
+            .expect("each run's changes, told before the stream was read")
+            .expect("the stream goes on");
+        match event {
+            Event::Network(e) => seen.push(e.change),
+            other => panic!("unexpected {:?}", other),
+        }
+    }
+}
+
 /// An instance that changes nothing in the system writes no ledger: its
 /// run directory is not even made. A sweep of an empty one undoes nothing.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

@@ -438,10 +438,10 @@ fn produce(kind: u32, options: &Options, instance: &Arc<Instance>) -> Result<Pro
             Box::new(move |sink| Box::pin(follow_outbounds(sink, weak, every, false)))
         }
         SAIL_EVENT_NETWORK => {
-            // Changes from this call on: taken now, not when the task
-            // starts on the events thread.
-            let now = instance.manager().ok().map(|m| m.network().change_events());
-            Box::new(move |sink| Box::pin(follow_network(sink, weak, now)))
+            // Changes from this call on, through stops and starts: taken
+            // now, not when the task starts on the events thread.
+            let changes = instance.core().network_changes();
+            Box::new(move |sink| Box::pin(follow_network(sink, changes)))
         }
         SAIL_EVENT_FAULT => {
             let events = instance.core().events(sail::embed::Kinds::FAULT);
@@ -557,41 +557,23 @@ async fn follow_embed(
     }
 }
 
-/// Each change of network, while the instance runs; through stops and
-/// starts, the network of each run. `now`: the running instance's changes,
-/// as the subscription was made. A change missed by a slow host is
-/// skipped; the next carries the network as it is.
+/// Each change of network: through stops and starts, each run's, its
+/// generations from 1. A change missed by a slow host is skipped; the next
+/// carries the network as it is. Ends when the instance is freed.
 async fn follow_network(
     mut out: impl Emit<json::NetworkEvent>,
-    instance: Weak<Instance>,
-    mut now: Option<tokio::sync::broadcast::Receiver<Arc<sail::net::network::NetworkChange>>>,
+    mut changes: tokio::sync::broadcast::Receiver<Arc<sail::net::network::NetworkChange>>,
 ) {
     use tokio::sync::broadcast::error::RecvError;
-    // How often a stopped instance is looked at again.
-    let mut ticker = ticker(Duration::from_millis(250));
     while out.open() {
-        let mut changes = match now.take() {
-            Some(changes) => changes,
-            None => {
-                let Some(manager) = tick(&mut ticker, &instance).await else {
+        match changes.recv().await {
+            Ok(change) => {
+                if !out.emit(json::NetworkEvent::of(&change)).await {
                     return;
-                };
-                let Some(manager) = manager else {
-                    continue;
-                };
-                manager.network().change_events()
-            }
-        };
-        loop {
-            match changes.recv().await {
-                Ok(change) => {
-                    if !out.emit(json::NetworkEvent::of(&change)).await {
-                        return;
-                    }
                 }
-                Err(RecvError::Lagged(_)) => continue,
-                Err(RecvError::Closed) => break,
             }
+            Err(RecvError::Lagged(_)) => continue,
+            Err(RecvError::Closed) => return,
         }
     }
 }

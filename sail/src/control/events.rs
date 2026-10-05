@@ -1,6 +1,7 @@
 //! What an instance tells as it happens, beyond its log: a group switching
 //! members, a connection failing. One bounded channel per kind, so that a
-//! flood of one never pushes another out; the instance's, for a run.
+//! flood of one never pushes another out; the instance's, for a run, or an
+//! embedding instance's through its runs.
 
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -354,6 +355,8 @@ pub struct EventHub {
     fault: broadcast::Sender<Fault>,
     route: Channel<Arc<RoutedConnection>>,
     dns: Channel<Arc<DnsExchange>>,
+    /// The network's changes, which the run's `Network` tells.
+    network: broadcast::Sender<Arc<crate::net::network::NetworkChange>>,
 }
 
 /// The channel of a kind told once a connection, or once a query: too
@@ -446,6 +449,7 @@ impl Default for EventHub {
             fault: broadcast::channel(CAPACITY).0,
             route: Channel::new(ROUTE_CAPACITY),
             dns: Channel::new(DNS_CAPACITY),
+            network: broadcast::channel(crate::net::network::EVENTS).0,
         }
     }
 }
@@ -530,5 +534,17 @@ impl EventHub {
 
     pub fn dial_failures(&self) -> broadcast::Receiver<DialFailure> {
         self.dial.subscribe()
+    }
+
+    /// Where the run's `Network` tells its changes.
+    pub(crate) fn network_sender(
+        &self,
+    ) -> broadcast::Sender<Arc<crate::net::network::NetworkChange>> {
+        self.network.clone()
+    }
+
+    /// The network's changes: each run's in turn, its generations from 1.
+    pub fn network_changes(&self) -> broadcast::Receiver<Arc<crate::net::network::NetworkChange>> {
+        self.network.subscribe()
     }
 }
