@@ -2359,3 +2359,27 @@ fn adjacent_inline_lines_with_one_target_merge() {
     assert_eq!(rules[3].index, Some(5));
     assert_eq!((rules[4].index, rules[4].lines.len()), (Some(6), 0));
 }
+
+/// The lowered parts go into the document as they are, not copied: the
+/// rules of a long profile are not held twice while it is read.
+#[test]
+fn the_lowered_document_moves_its_parts_in() {
+    let domain = String::from("a.test");
+    let held = domain.as_ptr();
+    // Built by hand: `json!` would copy it.
+    let mut rule = Map::new();
+    rule.insert(
+        "domain_suffix".into(),
+        Value::Array(vec![Value::String(domain)]),
+    );
+    let out = Lowered {
+        rules: vec![Value::Object(rule)],
+        ..Default::default()
+    };
+    let config = out.into_json();
+    let moved = config["route"]["rules"][0]["domain_suffix"][0]
+        .as_str()
+        .unwrap();
+    assert_eq!(moved, "a.test");
+    assert_eq!(moved.as_ptr(), held);
+}

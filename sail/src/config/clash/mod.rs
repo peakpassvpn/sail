@@ -152,34 +152,38 @@ impl Lowered {
         if !self.rule_sets.is_empty() {
             route.insert("rule_set".into(), Value::Array(self.rule_sets));
         }
-        let mut config = json!({
-            "log": self.log,
-            "dns": self.dns,
-            "inbounds": self.inbounds,
-            "outbounds": self.outbounds,
-            "route": route,
-        });
+        // Each part moved in: `json!` would serialize a copy of each, all
+        // the rules among them, beside what it copies.
+        let mut config = Map::new();
+        config.insert("log".into(), Value::Object(self.log));
+        config.insert("dns".into(), Value::Object(self.dns));
+        config.insert("inbounds".into(), Value::Array(self.inbounds));
+        config.insert("outbounds".into(), Value::Array(self.outbounds));
+        config.insert("route".into(), Value::Object(route));
         if !self.endpoints.is_empty() {
-            config["endpoints"] = Value::Array(self.endpoints);
+            config.insert("endpoints".into(), Value::Array(self.endpoints));
         }
         if !self.outbound_providers.is_empty() {
-            config["outbound_providers"] = Value::Array(self.outbound_providers);
+            config.insert(
+                "outbound_providers".into(),
+                Value::Array(self.outbound_providers),
+            );
         }
         let mut clash_api = self.clash_api;
         if let Some(mode) = self.mode {
             clash_api.insert("default_mode".into(), json!(mode));
         }
         if !clash_api.is_empty() {
-            config["clash_api"] = Value::Object(clash_api);
+            config.insert("clash_api".into(), Value::Object(clash_api));
         }
         let mut experimental = Map::new();
         if let Some(cache) = self.cache_file {
             experimental.insert("cache_file".into(), Value::Object(cache));
         }
         if !experimental.is_empty() {
-            config["experimental"] = Value::Object(experimental);
+            config.insert("experimental".into(), Value::Object(experimental));
         }
-        config
+        Value::Object(config)
     }
 }
 
