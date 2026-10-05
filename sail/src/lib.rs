@@ -2631,7 +2631,7 @@ pub(crate) fn with_left(why: String, left: &[runtime::teardown::Left]) -> String
     not(any(target_os = "linux", target_os = "macos", target_os = "windows")),
     allow(dead_code)
 )]
-const SETTLE_QUIET: std::time::Duration = std::time::Duration::from_millis(100);
+pub(crate) const SETTLE_QUIET: std::time::Duration = std::time::Duration::from_millis(100);
 
 /// The longest sail waits for the system to be quiet: notices that have
 /// nothing to do with the change, an address's duplicate detection ending
@@ -2641,15 +2641,18 @@ const SETTLE_QUIET: std::time::Duration = std::time::Duration::from_millis(100);
     not(any(target_os = "linux", target_os = "macos", target_os = "windows")),
     allow(dead_code)
 )]
-const SETTLE_MAX: std::time::Duration = std::time::Duration::from_secs(1);
+pub(crate) const SETTLE_MAX: std::time::Duration = std::time::Duration::from_secs(1);
 
 /// Waits until `changed` gives no notice for `quiet`, or `max` has passed.
 #[cfg_attr(
     not(any(target_os = "linux", target_os = "macos", target_os = "windows")),
     allow(dead_code)
 )]
-async fn settle<F, Fut>(changed: &F, quiet: std::time::Duration, max: std::time::Duration)
-where
+pub(crate) async fn settle<F, Fut>(
+    changed: &F,
+    quiet: std::time::Duration,
+    max: std::time::Duration,
+) where
     F: Fn() -> Fut,
     Fut: std::future::Future<Output = std::io::Result<()>>,
 {

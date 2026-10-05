@@ -461,6 +461,19 @@ Built only while a subscription to `Kinds::DNS` is held; a subscriber may
 fall 1024 events behind, then gets
 `Event::Lagged { kind: Kinds::DNS, missed }`.
 
+`Kinds::SYSTEM` gives `Event::SystemChanged { kind, resource }` when
+someone else changed what sail set up on the system for a TUN with
+auto_route: on macOS, a route into the TUN gone, or another route that
+wins over one of those auto_route takes from the default route, and the
+TUN's address gone (Windows follows). sail leaves it as it is: the host
+restores it or rebuilds the instance. `resource` says what and how, the
+TUN's name first: "route 128.0.0.0/1 into utun9: 128.0.0.0/2 on utun4
+wins". A break is told once, and again only after sail found it right
+in between: a host that repairs it gets no word of it. What sail
+changes itself, a rule-set's routes, a start or a stop, is never told.
+A subscriber may fall 16 events behind, then gets
+`Event::Lagged { kind: Kinds::SYSTEM, missed }`.
+
 A host that shows the instance polls snapshots instead of following
 events: `instance.status(every)` (the traffic and its rate),
 `instance.watch_connections(every)` and `instance.watch_outbounds(every,

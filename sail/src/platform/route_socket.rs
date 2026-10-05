@@ -238,6 +238,83 @@ fn routes_to(mut dump: &[u8], dst: (IpAddr, u8)) -> Vec<(Option<IpAddr>, u16)> {
     routes
 }
 
+/// RTF_WASCLONED: a host route the kernel cloned from another as a cache.
+#[cfg(feature = "inbound-tun")]
+const RTF_WASCLONED: i32 = 0x2_0000;
+
+/// The length of the netmask a message carries, read whatever family its
+/// sockaddr says (BSD writes masks with none); none without a netmask.
+#[cfg(feature = "inbound-tun")]
+fn netmask_length(addrs: i32, mut bytes: &[u8], v6: bool) -> Option<u8> {
+    for kind in 0..RTAX_MAX {
+        if addrs & (1 << kind) == 0 {
+            continue;
+        }
+        let &len = bytes.first()?;
+        let taken = if len == 0 {
+            4
+        } else {
+            (usize::from(len) + 3) & !3
+        };
+        if kind == 2 {
+            let start = if v6 { 8 } else { 4 };
+            let end = usize::from(len).min(bytes.len());
+            let ones: u32 = bytes
+                .get(start..end)
+                .unwrap_or_default()
+                .iter()
+                .map(|b| b.count_ones())
+                .sum();
+            return Some(ones as u8);
+        }
+        bytes = bytes.get(taken..).unwrap_or_default();
+    }
+    None
+}
+
+/// The routes of a table dump that are up, each with its length (a route
+/// without a netmask is a host's), the kernel's cached clones aside.
+#[cfg(feature = "inbound-tun")]
+fn table_routes(mut dump: &[u8]) -> Vec<crate::platform::integrity::Route> {
+    let mut routes = Vec::new();
+    while dump.len() >= HEADER {
+        let len = usize::from(u16::from_ne_bytes([dump[0], dump[1]]));
+        if len < HEADER || len > dump.len() {
+            break;
+        }
+        // SAFETY: at least a header's bytes; read unaligned.
+        let header: libc::rt_msghdr =
+            unsafe { std::ptr::read_unaligned(dump.as_ptr() as *const libc::rt_msghdr) };
+        let flags = header.rtm_flags;
+        let bytes = &dump[HEADER..len];
+        if flags & RTF_UP != 0 && flags & RTF_WASCLONED == 0 {
+            if let Some(dst) = sockaddrs(header.rtm_addrs, bytes)[0] {
+                let full = if dst.is_ipv6() { 128 } else { 32 };
+                let length = if flags & libc::RTF_HOST != 0 {
+                    full
+                } else {
+                    netmask_length(header.rtm_addrs, bytes, dst.is_ipv6()).unwrap_or(full)
+                };
+                routes.push(crate::platform::integrity::Route {
+                    dst: masked(dst, length),
+                    len: length,
+                    index: u32::from(header.rtm_index),
+                    scoped: flags & RTF_IFSCOPE != 0,
+                });
+            }
+        }
+        dump = &dump[len..];
+    }
+    routes
+}
+
+/// The routes of the system's table of a family, up, the kernel's cached
+/// clones aside.
+#[cfg(all(target_os = "macos", feature = "inbound-tun"))]
+pub(crate) fn table(v6: bool) -> io::Result<Vec<crate::platform::integrity::Route>> {
+    dump(if v6 { libc::AF_INET6 } else { libc::AF_INET }).map(|d| table_routes(&d))
+}
+
 /// What routes to `dst` now, in words: "via 192.168.1.1 on en0".
 #[cfg(target_os = "macos")]
 fn describe_route_to(dst: (IpAddr, u8)) -> String {
@@ -683,6 +760,78 @@ mod tests {
                     scoped: false,
                     gateway: Some("192.168.1.1".parse().unwrap()),
                 },
+            ]
+        );
+    }
+
+    /// Routes of a dump with their lengths: a netmask cut short or with
+    /// no family, a host route, a scoped one; clones and routes down are
+    /// left out.
+    #[cfg(feature = "inbound-tun")]
+    #[test]
+    fn a_dump_s_routes_have_their_lengths() {
+        let entry = |index: u16, flags: i32, dst: &str, netmask: Option<&[u8]>| {
+            let mut addresses = Vec::new();
+            push_sockaddr(&mut addresses, dst.parse().unwrap());
+            push_sockaddr(&mut addresses, "192.168.1.1".parse().unwrap());
+            let mut addrs = RTA_DST | RTA_GATEWAY;
+            if let Some(netmask) = netmask {
+                addresses.extend_from_slice(netmask);
+                addrs |= RTA_NETMASK;
+            }
+            // SAFETY: a plain C struct, all zeros valid.
+            let mut header: libc::rt_msghdr = unsafe { std::mem::zeroed() };
+            header.rtm_msglen = (HEADER + addresses.len()) as u16;
+            header.rtm_index = index;
+            header.rtm_flags = flags;
+            header.rtm_addrs = addrs;
+            let mut bytes =
+                unsafe { std::slice::from_raw_parts(&header as *const _ as *const u8, HEADER) }
+                    .to_vec();
+            bytes.extend_from_slice(&addresses);
+            bytes
+        };
+        let mut dump = entry(4, RTF_UP | RTF_GATEWAY, "0.0.0.0", Some(&[0, 0, 0, 0]));
+        dump.extend(entry(
+            9,
+            RTF_UP,
+            "128.0.0.0",
+            Some(&[5, 0, 0, 0, 128, 0, 0, 0]),
+        ));
+        dump.extend(entry(
+            9,
+            RTF_UP,
+            "4.0.0.0",
+            Some(&[6, 2, 0, 0, 252, 0, 0, 0]),
+        ));
+        dump.extend(entry(4, RTF_UP | libc::RTF_HOST, "1.1.1.1", None));
+        dump.extend(entry(
+            4,
+            RTF_UP | RTF_GATEWAY | RTF_IFSCOPE,
+            "0.0.0.0",
+            Some(&[0, 0, 0, 0]),
+        ));
+        dump.extend(entry(
+            4,
+            RTF_UP | RTF_WASCLONED | libc::RTF_HOST,
+            "1.0.0.1",
+            None,
+        ));
+        dump.extend(entry(4, 0, "10.0.0.0", Some(&[5, 0, 0, 0, 255, 0, 0, 0])));
+        let route = |dst: &str, len, index, scoped| crate::platform::integrity::Route {
+            dst: dst.parse().unwrap(),
+            len,
+            index,
+            scoped,
+        };
+        assert_eq!(
+            table_routes(&dump),
+            [
+                route("0.0.0.0", 0, 4, false),
+                route("128.0.0.0", 1, 9, false),
+                route("4.0.0.0", 6, 9, false),
+                route("1.1.1.1", 32, 4, false),
+                route("0.0.0.0", 0, 4, true),
             ]
         );
     }

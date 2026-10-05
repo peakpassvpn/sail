@@ -273,6 +273,7 @@ impl Instance {
                     &self.rule_sets,
                     &self.dispatcher.env().ledger,
                     &self.dispatcher.env().teardown,
+                    &self.dispatcher.env().events,
                 )
                 .map(|(routing, runner)| (TunRouting::Route(routing), runner)),
             };

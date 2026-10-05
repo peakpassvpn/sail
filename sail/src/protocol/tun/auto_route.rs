@@ -24,6 +24,7 @@ use tracing::{info, warn};
 
 use super::inbound::TunSettings;
 use crate::app::router::rule_set::RuleSets;
+use crate::control::events::EventHub;
 use crate::platform::auto_route as plan;
 use crate::platform::sweep::Ledger;
 use crate::runtime::teardown::{LeftKind, Step, StepId, Teardown};
@@ -101,6 +102,7 @@ impl AutoRoute {
         rule_sets: &RuleSets,
         ledger: &Ledger,
         teardown: &Teardown,
+        events: &EventHub,
     ) -> Result<(AutoRoute, Runner)> {
         let selection = &settings.route;
         let prefix = |inet: &cidr::IpInet| (inet.address(), inet.network_length());
@@ -148,13 +150,16 @@ impl AutoRoute {
         );
         #[cfg(target_os = "macos")]
         let runner = {
-            let keep = backend.clone().keep_dns();
+            let watch = backend.clone().watch(routes.clone(), events.clone());
             Box::pin(async move {
-                futures::future::join(sets.follow(feed, routes, backend), keep).await;
+                futures::future::join(sets.follow(feed, routes, backend), watch).await;
             })
         };
         #[cfg(not(target_os = "macos"))]
-        let runner = Box::pin(sets.follow(feed, routes, backend));
+        let runner = {
+            let _ = events;
+            Box::pin(sets.follow(feed, routes, backend))
+        };
         Ok((this, runner))
     }
 
@@ -710,7 +715,10 @@ mod backend {
     use tracing::{info, warn};
 
     use super::super::inbound::{peer, TunSettings};
-    use crate::platform::route_socket::{RouteMonitor, RouteSocket};
+    use super::{lock, Routed};
+    use crate::control::events::EventHub;
+    use crate::platform::integrity::{self, Broken, Told};
+    use crate::platform::route_socket::{self, RouteMonitor, RouteSocket};
     use crate::platform::sc_dns::{self, TunDns};
     use crate::platform::sweep::Ledger;
     use crate::runtime::teardown::{LeftKind, Step, StepId, Teardown};
@@ -869,33 +877,159 @@ mod backend {
             Ok(())
         }
 
-        /// Sets the system DNS again when the network changed and took it
-        /// (configd restarted; a wake): on each notice of the routing
-        /// socket. Never ends while the TUN runs.
-        pub(super) async fn keep_dns(self: Arc<Self>) {
+        /// Follows the system on each notice of the routing socket, once
+        /// it is quiet: sets the system DNS again when the network took it
+        /// (configd restarted; a wake), and tells what someone else changed
+        /// of the routes into the TUN and of its address, leaving it as it
+        /// is (platform/integrity.rs). Never ends while the TUN runs.
+        pub(super) async fn watch(self: Arc<Self>, routes: Arc<Mutex<Routed>>, events: EventHub) {
             let monitor = match RouteMonitor::open() {
                 Ok(monitor) => monitor,
                 Err(e) => {
-                    warn!("auto_route: not following the system DNS: {}", e);
+                    warn!("auto_route: not following the system: {}", e);
                     return std::future::pending().await;
                 }
             };
-            while monitor.changed().await.is_ok() {
-                let restored = match &*self.dns.lock().unwrap_or_else(|e| e.into_inner()) {
-                    Some(dns) => dns.restore(),
-                    None => Ok(false),
-                };
-                match restored {
-                    Ok(true) => info!(
-                        "auto_route: the system DNS for {} was gone; set again",
-                        self.tun
-                    ),
-                    Ok(false) => {}
-                    Err(e) => warn!("auto_route: the system DNS for {}: {}", self.tun, e),
+            let changed = || monitor.changed();
+            let mut told = Told::default();
+            while changed().await.is_ok() {
+                crate::settle(&changed, crate::SETTLE_QUIET, crate::SETTLE_MAX).await;
+                self.keep_dns();
+                match self.check(&routes) {
+                    Some(found) => told.tell(found, &events),
+                    // Undone: what changes now is sail's own.
+                    None => break,
                 }
             }
             std::future::pending().await
         }
+
+        /// Sets the system DNS again if it is gone.
+        fn keep_dns(&self) {
+            let restored = match &*self.dns.lock().unwrap_or_else(|e| e.into_inner()) {
+                Some(dns) => dns.restore(),
+                None => Ok(false),
+            };
+            match restored {
+                Ok(true) => info!(
+                    "auto_route: the system DNS for {} was gone; set again",
+                    self.tun
+                ),
+                Ok(false) => {}
+                Err(e) => warn!("auto_route: the system DNS for {}: {}", self.tun, e),
+            }
+        }
+
+        /// What is not as sail set it up: its routes, under the lock its
+        /// own changes are made under, then the TUN's addresses. None once
+        /// the routes are undone.
+        fn check(&self, routes: &Mutex<Routed>) -> Option<Vec<Broken>> {
+            let routed = lock(routes);
+            if routed.undone {
+                return None;
+            }
+            let Some(index) = index_of(&self.tun) else {
+                return Some(vec![Broken {
+                    kind: LeftKind::Tun,
+                    what: self.tun.clone(),
+                    how: "gone".into(),
+                }]);
+            };
+            let mut table = Vec::new();
+            for (v6, address) in [(false, self.ipv4), (true, self.ipv6)] {
+                if address.is_none() {
+                    continue;
+                }
+                match route_socket::table(v6) {
+                    Ok(routes) => table.extend(routes),
+                    Err(e) => {
+                        warn!("auto_route: reading the routing table: {}", e);
+                        return Some(Vec::new());
+                    }
+                }
+            }
+            let contested: Vec<(IpAddr, u8)> = all(false)
+                .into_iter()
+                .chain(all(true))
+                .filter(|p| routed.prefixes.contains(p))
+                .collect();
+            let mut found = integrity::routes(
+                &self.tun,
+                index,
+                &routed.prefixes,
+                &contested,
+                &table,
+                |address| integrity::longest_match(&table, address),
+                |index| {
+                    u16::try_from(index)
+                        .ok()
+                        .and_then(|i| route_socket::interface_name(i).ok())
+                        .unwrap_or_else(|| format!("interface {}", index))
+                },
+            );
+            drop(routed);
+            match addresses_up() {
+                Ok(up) => found.extend(
+                    [self.ipv4, self.ipv6]
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|address| integrity::address(&self.tun, address, &up)),
+                ),
+                Err(e) => warn!("auto_route: reading the interfaces' addresses: {}", e),
+            }
+            Some(found)
+        }
+    }
+
+    /// The IP addresses of the interfaces that are up, with their names.
+    fn addresses_up() -> io::Result<Vec<(String, IpAddr)>> {
+        let mut list: *mut libc::ifaddrs = std::ptr::null_mut();
+        // SAFETY: getifaddrs fills `list`, freed below.
+        if unsafe { libc::getifaddrs(&mut list) } != 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let mut up = Vec::new();
+        let mut entry = list;
+        while !entry.is_null() {
+            // SAFETY: a node of the list getifaddrs returned, not yet freed.
+            let ifa = unsafe { &*entry };
+            entry = ifa.ifa_next;
+            if ifa.ifa_flags & libc::IFF_UP as u32 == 0 || ifa.ifa_addr.is_null() {
+                continue;
+            }
+            // SAFETY: a sockaddr of the list, of the size its family says.
+            let address: Option<IpAddr> = unsafe {
+                match i32::from((*ifa.ifa_addr).sa_family) {
+                    libc::AF_INET => {
+                        let sin = &*(ifa.ifa_addr as *const libc::sockaddr_in);
+                        Some(Ipv4Addr::from(u32::from_be(sin.sin_addr.s_addr)).into())
+                    }
+                    libc::AF_INET6 => {
+                        let sin6 = &*(ifa.ifa_addr as *const libc::sockaddr_in6);
+                        Some(Ipv6Addr::from(sin6.sin6_addr.s6_addr).into())
+                    }
+                    _ => None,
+                }
+            };
+            if let Some(address) = address {
+                // SAFETY: the name is a C string owned by the list.
+                let name = unsafe { std::ffi::CStr::from_ptr(ifa.ifa_name) }
+                    .to_string_lossy()
+                    .into_owned();
+                up.push((name, address));
+            }
+        }
+        // SAFETY: the list getifaddrs returned, freed once.
+        unsafe { libc::freeifaddrs(list) };
+        Ok(up)
+    }
+
+    /// The index of the interface `name`; none once it is gone.
+    fn index_of(name: &str) -> Option<u32> {
+        let name = std::ffi::CString::new(name).ok()?;
+        // SAFETY: a C string that lives through the call.
+        let index = unsafe { libc::if_nametoindex(name.as_ptr()) };
+        (index != 0).then_some(index)
     }
 
     fn flush_dns_cache() {
