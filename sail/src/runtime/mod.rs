@@ -469,7 +469,7 @@ mod tests {
     fn start_settings_resolve_to_tuning_and_host() {
         let (options, host) = StartSettings::from_json(
             r#"{ "profile": "router", "set": ["relay.buffer_size=2"],
-                 "data_dir": "/d", "socket_protect": "/data/protect.sock",
+                 "data_dir": "/d",
                  "asset_sources": { "asn.mmdb": "https://example.com/asn.mmdb" } }"#,
         )
         .unwrap()
@@ -487,14 +487,7 @@ mod tests {
             host.asset_sources["asn.mmdb"],
             "https://example.com/asn.mmdb"
         );
-        if cfg!(unix) {
-            assert_eq!(
-                host.socket_protect,
-                Some(crate::net::dial::SocketProtect::Unix(
-                    "/data/protect.sock".into()
-                ))
-            );
-        }
+        // socket_protect, Unix-only: socket_protect_is_a_unix_socket_s_path_only.
         let err = StartSettings::from_json(r#"{ "profile": "mobile", "sett": [] }"#).unwrap_err();
         assert!(err.to_string().contains("sett"), "{}", err);
     }
