@@ -188,6 +188,12 @@ was measured.
   host's business.
 - **The host's global filters apply first.** Let `sail` targets through at
   the levels the instances log at.
+- **Redaction is each instance's.** `log.redact` takes destinations,
+  sources or processes out of the INFO, WARN and ERROR lines of the
+  instance whose configuration names them, and out of its dial-failure
+  events; another instance in the process logs as its own says. The text
+  is redacted where it is made, so every layer, the host's included, gets
+  it redacted. A reload changes it.
 
 ## Certificates
 
@@ -564,7 +570,10 @@ through a direct outbound whose `bind_interface` is that interface.
 
 A UDP socket's family is the first destination's. An IPv6 one also sends
 to IPv4 addresses, and an IPv4 one cannot reach IPv6. On a network with
-NAT64 and no IPv4, IPv4 destinations go through its prefix.
+NAT64 and no IPv4, IPv4 destinations go through its prefix. The prefix is
+the process's, as the network is: found through the system's resolver, or
+pushed by the host, the last discovery or push wins for every instance in
+the process, and an instance that stops leaves it as it was.
 
 ## The system's DNS
 

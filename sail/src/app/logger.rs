@@ -192,8 +192,18 @@ pub fn flush() {
     drop(guard);
 }
 
-/// What `log.redact` leaves out, as bits: the process's, as the level is.
+/// What `log.redact` leaves out, as bits, for a line no instance's log
+/// takes: the last configuration's, as the process's level is. An
+/// instance's lines follow its own (`InstanceLog`).
 static REDACT: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+/// `config`'s `log.redact`, as bits.
+fn redact_bits(config: &config::Log) -> u8 {
+    config
+        .redact
+        .iter()
+        .fold(0, |bits, r| bits | redact_bit(*r))
+}
 
 fn redact_bit(what: config::model::LogRedact) -> u8 {
     use config::model::LogRedact;
@@ -204,9 +214,15 @@ fn redact_bit(what: config::model::LogRedact) -> u8 {
     }
 }
 
-/// Whether lines at INFO and above leave `what` out.
+/// Whether lines at INFO and above leave `what` out: as the configuration
+/// of the instance logging says, so that two instances in one process each
+/// redact as theirs does.
 pub(crate) fn redacts(what: config::model::LogRedact) -> bool {
-    REDACT.load(std::sync::atomic::Ordering::Relaxed) & redact_bit(what) != 0
+    let bits = match current() {
+        Some(log) => log.redact.load(std::sync::atomic::Ordering::Relaxed),
+        None => REDACT.load(std::sync::atomic::Ordering::Relaxed),
+    };
+    bits & redact_bit(what) != 0
 }
 
 /// A destination as a line at INFO or above shows it: `*:443` when
@@ -293,13 +309,7 @@ pub fn setup_logger(config: &config::Log, host: &Host) -> Result<()> {
     // and one that disables it takes effect.
     let filter = level_filter(config);
     let (writer, writer_guard) = get_writer(config, host)?;
-    REDACT.store(
-        config
-            .redact
-            .iter()
-            .fold(0, |bits, r| bits | redact_bit(*r)),
-        std::sync::atomic::Ordering::Relaxed,
-    );
+    REDACT.store(redact_bits(config), std::sync::atomic::Ordering::Relaxed);
     let mut h = HANDLE.write().unwrap_or_else(|e| e.into_inner());
     if let Some(h) = h.as_mut() {
         h.reload(filter, writer, writer_guard)?;
@@ -358,6 +368,9 @@ pub struct InstanceLog {
     /// says: what reaches it under a host's subscriber, which filters as
     /// the host does.
     level: std::sync::atomic::AtomicU8,
+    /// What its configuration's `log.redact` leaves out of the lines its
+    /// instance logs, as bits.
+    redact: std::sync::atomic::AtomicU8,
 }
 
 impl std::fmt::Debug for InstanceLog {
@@ -374,15 +387,19 @@ impl InstanceLog {
             capacity,
             events: tokio::sync::broadcast::channel(FOLLOWERS_BEHIND).0,
             level: std::sync::atomic::AtomicU8::new(level_rank(LevelFilter::TRACE)),
+            redact: std::sync::atomic::AtomicU8::new(0),
         })
     }
 
-    /// Takes the lines `config` asks for from now on.
+    /// Takes the lines `config` asks for from now on, and redacts its
+    /// instance's as it says.
     pub fn configure(&self, config: &config::Log) {
         self.level.store(
             level_rank(level_filter(config)),
             std::sync::atomic::Ordering::Relaxed,
         );
+        self.redact
+            .store(redact_bits(config), std::sync::atomic::Ordering::Relaxed);
     }
 
     fn takes(&self, level: &tracing::Level) -> bool {
