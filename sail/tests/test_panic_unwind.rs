@@ -1,6 +1,6 @@
 //! A contained panic in a build that unwinds, as the mobile libraries are
 //! (the dist-mobile profile): the task alone ends, the instance and the
-//! host go on. CI runs it built with that profile (`--profile dist-mobile`);
+//! host go on, on sail's runtime and on the host's. CI runs it built with that profile (`--profile dist-mobile`);
 //! any profile that unwinds runs it the same.
 #![cfg(all(
     feature = "fault-injection",
@@ -13,7 +13,7 @@
 use std::time::Duration;
 
 use futures::StreamExt;
-use sail::embed::{Config, Event, Instance, Kinds, Options, State, Threads};
+use sail::embed::{Config, Event, Instance, Kinds, Options, Runtime, State, Threads};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 /// A port free now; a start that finds it taken tries another.
@@ -61,7 +61,38 @@ async fn echo_through(port: u16, target: std::net::SocketAddr) {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_contained_panic_leaves_the_host_and_the_instance_running() {
+    contained_panic(Options::new().threads(Threads::One)).await;
+}
+
+/// The same on the host's runtime: the instance's tasks are on it, and so
+/// is the host's own task, which goes on through the panic.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_contained_panic_on_the_hosts_runtime_leaves_it_running() {
+    let ticks = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let ticking = ticks.clone();
+    let host_task = tokio::spawn(async move {
+        loop {
+            ticking.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    });
+    contained_panic(Options::new().runtime(Runtime::Host(tokio::runtime::Handle::current()))).await;
+    let after = ticks.load(std::sync::atomic::Ordering::Relaxed);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(
+        ticks.load(std::sync::atomic::Ordering::Relaxed) > after,
+        "the host's task goes on"
+    );
+    assert!(!host_task.is_finished());
+    host_task.abort();
+}
+
+/// The fault points are the process's: one test arms one at a time.
+static ONE_AT_A_TIME: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+async fn contained_panic(options: Options) {
     assert!(sail::embed::PANICS_ARE_CAUGHT, "this build unwinds");
+    let _one = ONE_AT_A_TIME.lock().await;
     let echo = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let target = echo.local_addr().unwrap();
     tokio::spawn(async move {
@@ -73,7 +104,7 @@ async fn a_contained_panic_leaves_the_host_and_the_instance_running() {
         }
     });
 
-    let instance = Instance::new(Options::new().threads(Threads::One).log_lines(100)).unwrap();
+    let instance = Instance::new(options.log_lines(100)).unwrap();
     let mut faults = Box::pin(instance.events(Kinds::FAULT));
     let mut port = 0;
     for _ in 0..5 {
