@@ -173,9 +173,11 @@ A dispatch (`gh workflow run ci.yml --ref <branch>`) runs every job but
 tests compile, and L1 and L2 run the full build's.
 
 `netns-linux` has one step that is not yet gating (`continue-on-error`):
-`test_tun_linux`, `test_wireguard_kernel` (but its throughput
-measurement) and the ignored `platform::` tests, which no CI job ran
-before. Each moves into a gating step once it has passed on runners.
+`test_wireguard_kernel` (but its throughput measurement), which no CI job
+ran before. It moves into a gating step once it has passed on runners.
+`test_tun_linux` and the ignored `platform::` tests gate. The `platform::`
+tests compare nft(8) listings in the older nft's notation, so a newer nft
+on the runner lists the same rules.
 
 How long each job takes: to be measured.
 

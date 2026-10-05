@@ -792,10 +792,11 @@ mod tests {
 
         let listing = nft(&["list", "table", "inet", TABLE]);
         println!("{}", listing);
-        let got: Vec<&str> = listing
+        let got: Vec<String> = listing
             .lines()
             .map(str::trim)
             .filter(|l| !l.is_empty())
+            .map(super::super::older_notation)
             .collect();
         let want: Vec<&str> = WANT
             .lines()

@@ -30,6 +30,21 @@ pub(super) mod netlink;
 pub(super) mod socket;
 pub(super) mod sys;
 
+/// Tests: a line of an nft(8) listing in the older nft's notation, which
+/// the tests' expected listings use. Newer nft writes the same rules as
+/// `tcp flags syn / syn,ack` (for `tcp flags & (syn | ack) == syn`) and an
+/// ICMP code of 0 by a name.
+#[cfg(all(test, target_os = "linux"))]
+pub(crate) fn older_notation(line: &str) -> String {
+    line.replace(
+        "tcp flags != syn / syn,ack",
+        "tcp flags & (syn | ack) != syn",
+    )
+    .replace("tcp flags syn / syn,ack", "tcp flags & (syn | ack) == syn")
+    .replace("icmp code net-unreachable", "icmp code 0")
+    .replace("icmpv6 code no-route", "icmpv6 code 0")
+}
+
 pub use batch::*;
 pub use expr::*;
 #[cfg(target_os = "linux")]

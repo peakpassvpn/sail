@@ -690,7 +690,7 @@ mod kernel {
                     it.nth(3);
                 }
             }
-            out += &words.join(" ");
+            out += &crate::platform::nft::older_notation(&words.join(" "));
             out.push(if line.ends_with(',') { ' ' } else { '\n' });
         }
         out

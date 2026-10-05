@@ -1128,30 +1128,37 @@ jobs:
         if: always() && steps.build.outcome == 'success'
         run: sudo -E env "PATH=$PATH" sail/tests/scripts/wireguard_interop_netns.sh
 
-      # The root tests no script runs yet, not yet gating: the TUN end to
-      # end (test_tun_linux), the WireGuard endpoint against the kernel's
-      # in namespaces it makes (test_wireguard_kernel, but its throughput
-      # measurement), and sail's own netlink, nf_tables and nfnetlink_queue
-      # code (the ignored tests under platform::, in a namespace made for
-      # them). A failure here shows in the log and leaves the job green;
-      # each moves above, without continue-on-error, once it has passed
-      # on runners.
-      - name: not yet gating, the TUN, WireGuard's kernel tests and sail's kernel interfaces
+      - name: the TUN end to end
+        if: always() && steps.build.outcome == 'success'
+        env:
+          TUN: ${{ steps.build.outputs.tun }}
+        run: cd sail && sudo -E "$TUN" --ignored --nocapture
+
+      # sail's own netlink, nf_tables and nfnetlink_queue code: the ignored
+      # tests under platform::, in a namespace made for them.
+      - name: sail's kernel interfaces
+        if: always() && steps.build.outcome == 'success'
+        env:
+          LIB: ${{ steps.build.outputs.lib }}
+        run: |
+          cd sail
+          sudo ip netns add sail-ci-kernel
+          status=0
+          sudo ip netns exec sail-ci-kernel "$LIB" --ignored --test-threads=1 --nocapture platform:: || status=1
+          sudo ip netns del sail-ci-kernel
+          exit $status
+
+      # Not yet gating: the WireGuard endpoint against the kernel's in
+      # namespaces it makes (test_wireguard_kernel, but its throughput
+      # measurement). A failure here shows in the log and leaves the job
+      # green; it moves above, without continue-on-error, once it has
+      # passed on runners.
+      - name: not yet gating, WireGuard's kernel tests
         if: always() && steps.build.outcome == 'success'
         continue-on-error: true
         env:
-          LIB: ${{ steps.build.outputs.lib }}
-          TUN: ${{ steps.build.outputs.tun }}
           WG: ${{ steps.build.outputs.wg }}
-        run: |
-          status=0
-          cd sail
-          sudo ip netns add sail-ci-kernel
-          sudo ip netns exec sail-ci-kernel "$LIB" --ignored --test-threads=1 --nocapture platform:: || status=1
-          sudo ip netns del sail-ci-kernel
-          sudo -E "$TUN" --ignored --nocapture || status=1
-          sudo -E "$WG" --ignored --nocapture --test-threads=1 --skip test_wireguard_kernel_throughput || status=1
-          exit $status
+        run: cd sail && sudo -E "$WG" --ignored --nocapture --test-threads=1 --skip test_wireguard_kernel_throughput
 
   # tools/security's gate (docs/dependency-security.md): the committed
   # dependency sources, RustSec's advisories against the root lock file,
