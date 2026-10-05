@@ -9,7 +9,7 @@
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use sail::embed::{Config, ErrorKind, InboundChange, Instance, Options, Threads};
+use sail::embed::{Config, ErrorKind, InboundChange, Instance, Options, ReloadPath, Threads};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
@@ -311,6 +311,50 @@ async fn a_reload_removes_an_inbound_added_at_run_time_that_the_configuration_la
     assert_eq!(change(&report, "keep"), Some(InboundChange::Untouched));
     assert!(closed(&mut on_proxy).await);
     assert!(!listens(proxy).await);
+    instance.stop().await.unwrap();
+}
+
+/// A reload of the inbounds alone that removes one leaves its port free
+/// as it returns: the next reload, right after, adds another on that port
+/// and it binds.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_port_a_reload_freed_takes_an_inbound_the_next_reload_adds() {
+    let (echo, serve) = common::run_tcp_echo_server("127.0.0.1:0").await.unwrap();
+    tokio::spawn(serve);
+    let [keep, port] = common::free_ports();
+    let instance = instance();
+    instance
+        .start(config(serde_json::json!([
+            socks("keep", "127.0.0.1", keep),
+            socks("gone", "127.0.0.1", port),
+        ])))
+        .await
+        .unwrap();
+    let mut on_gone = through(port, echo).await.unwrap();
+    assert!(relays(&mut on_gone).await);
+
+    let report = instance
+        .reload(Some(config(serde_json::json!([socks(
+            "keep",
+            "127.0.0.1",
+            keep
+        )]))))
+        .await
+        .unwrap();
+    assert_eq!(report.path, ReloadPath::InboundsOnly);
+    assert_eq!(change(&report, "gone"), Some(InboundChange::Removed));
+    let report = instance
+        .reload(Some(config(serde_json::json!([
+            socks("keep", "127.0.0.1", keep),
+            socks("back", "127.0.0.1", port),
+        ]))))
+        .await
+        .unwrap();
+    assert_eq!(report.path, ReloadPath::InboundsOnly);
+    assert_eq!(change(&report, "back"), Some(InboundChange::Added));
+    assert!(closed(&mut on_gone).await);
+    let mut on_back = through(port, echo).await.unwrap();
+    assert!(relays(&mut on_back).await);
     instance.stop().await.unwrap();
 }
 
