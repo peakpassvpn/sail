@@ -1,12 +1,44 @@
 name: ci
 
-# Day-to-day checks. A ci/* branch runs four jobs in parallel (lint,
-# test, features, fuzz), and the bindings' tests (Kotlin on Linux, Swift on
-# macOS) when it touches what they test; master adds the cross jobs, one
-# per target, a native aarch64 test run and a native Windows MSVC build and
-# test run, and always runs the bindings' tests.
-# Apple builds run at release. Public-repository runners are free, so jobs
-# are split for wall time.
+# The checks of every push, in the test layers of docs/testing.md: a
+# layer is what a test needs to run (L1 nothing, L2 loopback and real
+# instances, L3 root, a kernel feature, a TUN or a platform's runner, L4
+# other targets and architectures). Public-repository runners are free, so
+# jobs are split for wall time.
+#
+# A ci/* branch is the merge gate. It runs, side by side:
+# - lint: the sensitive check, format, clippy over every target (tests
+#   included) and the generated C header;
+# - features: sail built and linted one feature set at a time, so that cfg
+#   gates and feature dependencies stay right. Clippy only: running each
+#   set's tests again would repeat L1 and L2, which run the full build's;
+# - L1 unit: the libraries' own tests and sail-netstack's model tests;
+# - L2 integration: sail's test binaries in three shards, split by a hash
+#   of each test's name (tools/ci/l2-shard.py), each shard with one more
+#   suite (sail-ffi's C ABI, sail-cli's lifecycle, a panic in a mobile
+#   build), and the job `L2 integration`, which passes only when every
+#   shard did;
+# - the L3 jobs (netns-linux, tun-macos, the Kotlin and Swift bindings),
+#   fuzz and check-32bit, each only when the branch's changes since
+#   master reach what it checks (the `changes` job).
+# master runs all of the above, every L3 job and fuzz and check-32bit
+# whatever changed, and L4: the cross builds, one per target, a native
+# aarch64 test run and a native Windows MSVC build and test run. A
+# dispatch runs everything, receipts aside. Apple builds run at release
+# (release.yml).
+#
+# Receipts: features, L1 and L2 skip a tree they passed on before, but
+# for documentation (tools/ci/receipt.sh: docs/ but docs/compat/, and the
+# root's Markdown files). The `receipts` job looks each one up; a job that
+# passes uploads its receipt as an artifact (green-<layer>-<fingerprint>),
+# since a cache entry made on a ci/* branch is not visible to master's
+# runs. A merge fast-forwards master to a commit that passed on its ci/*
+# branch, so master does not test it again; a change to docs alone runs
+# no tests on a ci/* branch.
+#
+# A re-pushed ci/* branch cancels its earlier run; master's runs are never
+# cancelled.
+#
 # BoringSSL: each job links the one the btls fork publishes for the commit
 # Cargo.lock pins (scripts/prebuilt-boringssl.sh: release bssl-<commit>,
 # checked against its SHA256SUMS and build attestation), rather than
@@ -15,17 +47,97 @@ name: ci
 # warning; an archive that does not check out fails the job. After a
 # build, `--check` reads from btls-sys's build output that it linked the
 # downloaded library, not one a cache kept from a source build. Compiled from
-# source, as the release ships it: check-32bit on every push (the compile
-# path, cross toolchain and CMake), test-aarch64 on master (sail's tests
-# against it), cross windows-gnu (no prebuilt build) and release.yml.
+# source, as the release ships it: check-32bit (the compile path, cross
+# toolchain and CMake), test-aarch64 on master (sail's tests against it),
+# cross windows-gnu (no prebuilt build) and release.yml.
 on: [push, pull_request, workflow_dispatch]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ startsWith(github.ref, 'refs/heads/ci/') }}
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # The pre-merge checks, on every push, in two parallel jobs. lint: the
-  # sensitive check, format, clippy and the generated C header.
+  # What a branch's changes since master reach, for the jobs that run only
+  # when they do. On master and when dispatched, everything.
+  # - bindings: the bindings, the C ABI, sail::embed, the JSON snapshot the
+  #   models are checked against, the Swift package's manifest;
+  # - tun-macos: the TUN, platform and teardown code, and the macOS scripts;
+  # - netns-linux: the same on Linux, the netstack, the runtime, WireGuard
+  #   and the netns scripts and tests;
+  # - fuzz: the fuzz workspaces, a Cargo manifest or the lock file, the
+  #   BoringSSL script and tools/fuzz-check.sh;
+  # - check-32bit: a Cargo manifest or the lock file, the toolchain, and
+  #   the cross and BoringSSL scripts.
+  # This file reaches all of them.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      bindings: ${{ steps.paths.outputs.bindings }}
+      tun_macos: ${{ steps.paths.outputs.tun_macos }}
+      netns_linux: ${{ steps.paths.outputs.netns_linux }}
+      fuzz: ${{ steps.paths.outputs.fuzz }}
+      check_32bit: ${{ steps.paths.outputs.check_32bit }}
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: what changed
+        id: paths
+        run: |
+          declare -A filters=(
+            [bindings]='^(bindings/|sail-ffi/|sail/src/embed|sail/src/control/json_snapshot\.json$|Package\.swift$)'
+            [tun_macos]='^(sail/src/protocol/tun/|sail/src/platform/|sail/src/runtime/teardown\.rs|sail/src/fault\.rs|sail/tests/test_teardown\.rs|sail/tests/scripts/macos_)'
+            [netns_linux]='^(sail/src/protocol/tun/|sail/src/net/netstack/|sail/src/platform/|sail/src/runtime/|sail/src/fault\.rs|sail/src/protocol/wireguard/|sail/tests/test_wireguard_(interop|kernel)\.rs|sail/tests/scripts/[a-z_]+_netns\.sh|sail/tests/test_[a-z_]+_linux\.rs|sail/tests/test_teardown\.rs)'
+            [fuzz]='^(fuzz/|sail-netstack/fuzz/|fuzz-config/|scripts/prebuilt-boringssl\.sh$|tools/fuzz-check\.sh$)|(^|/)Cargo\.(toml|lock)$'
+            [check_32bit]='^(rust-toolchain\.toml$|scripts/(cross|install_cross_toolchain|prebuilt-boringssl)\.sh$)|(^|/)Cargo\.(toml|lock)$'
+          )
+          all=false
+          if [ "$GITHUB_REF" = refs/heads/master ] || [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            all=true
+          else
+            base=$(git merge-base HEAD origin/master)
+            git diff --name-only "$base" HEAD | tee changed.txt
+            grep -qx '\.github/workflows/ci\.yml' changed.txt && all=true
+          fi
+          for job in "${!filters[@]}"; do
+            if [ "$all" = true ] || grep -qE "${filters[$job]}" changed.txt; then
+              echo "$job=true" | tee -a "$GITHUB_OUTPUT"
+            else
+              echo "$job=false" | tee -a "$GITHUB_OUTPUT"
+            fi
+          done
+
+  # Whether features, L1 and L2 passed before on this tree, documentation
+  # aside (see the header).
+  receipts:
+    runs-on: ubuntu-latest
+    outputs:
+      fingerprint: ${{ steps.check.outputs.fingerprint }}
+      features: ${{ steps.check.outputs.features }}
+      l1: ${{ steps.check.outputs.l1 }}
+      l2: ${{ steps.check.outputs.l2 }}
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      # A dispatch looks none up: it is a run asked for by hand.
+      - name: look up
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          layers=(features l1 l2)
+          [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] && layers=()
+          tools/ci/receipt.sh check "${layers[@]}" | tee -a "$GITHUB_OUTPUT"
+
+  # The sensitive check, the licences, format, clippy over every target
+  # and the generated C header, on every push: they are cheap beside the
+  # tests, and the sensitive check reads the commits, not the tree.
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -120,63 +232,15 @@ jobs:
       - name: the C ABI only grows
         run: tools/ffi-abi-check.py
 
-  # test: the tests of sail, sail-netstack and sail-ffi.
-  test:
-    runs-on: ubuntu-latest
-    env:
-      # Line numbers in a failing test's backtrace, without the full debug
-      # info, which only costs compile and link time and cache space here.
-      CARGO_PROFILE_DEV_DEBUG: line-tables-only
-    steps:
-      - name: checkout
-        uses: actions/checkout@v4
-        with:
-          submodules: true
-
-      - name: install rust toolchain
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: 1.98.1
-
-      # The fork's BoringSSL, as the header says.
-      - name: prebuilt BoringSSL
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: scripts/prebuilt-boringssl.sh "$(rustc -vV | sed -n 's/^host:[[:space:]]*//p')"
-
-      - name: cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          save-if: ${{ github.ref == 'refs/heads/master' }}
-
-      # sail, sail-netstack and sail-ffi (the C ABI as a host calls it, the
-      # command service included) in one run, so that sail is built once
-      # for all three. sail-ffi adds sail's auto-reload feature, so sail's
-      # tests run with it on; the features job builds sail without it.
-      # A task spawned outside any instance's scope aborts the run (E2):
-      # one on a task of its own would only panic where tokio catches it.
-      - name: test
-        env:
-          SAIL_SCOPE_STRICT: "1"
-        run: cargo test -p sail -p sail-netstack -p sail-ffi
-
-      # The mobile libraries' profile unwinds: a contained panic leaves the
-      # instance and the host process running. Built as dist-mobile is, but
-      # without LTO, which the panic strategy does not depend on.
-      - name: a panic in a mobile build
-        env:
-          CARGO_PROFILE_DIST_MOBILE_LTO: "false"
-        run: cargo test --locked -p sail --profile dist-mobile --features fault-injection --test test_panic_unwind
-
-      - name: BoringSSL linked
-        run: scripts/prebuilt-boringssl.sh --check "$(rustc -vV | sed -n 's/^host:[[:space:]]*//p')"
-
-  # Small builds, one feature set at a time, tests included, linted as the
-  # full build is, so that cfg gates and feature dependencies stay right.
-  # With lint and test, this is the whole merge gate: no local gate run is
-  # needed before a ci/* branch merges. A new feature (or a group whose
-  # cfg gates matter) adds its set to the list below.
+  # Small builds, one feature set at a time, linted as the full build is,
+  # tests included, so that cfg gates and feature dependencies stay right.
+  # Clippy compiles each set's tests without running them: L1 and L2 run
+  # the full build's, and running them again per set would repeat most of
+  # them for the time of the rest of the gate. A new feature (or a group
+  # whose cfg gates matter) adds its set to the list below.
   features:
+    needs: receipts
+    if: ${{ !cancelled() && needs.receipts.outputs.features != 'true' }}
     runs-on: ubuntu-latest
     env:
       RUSTFLAGS: -D warnings
@@ -256,10 +320,182 @@ jobs:
       - name: configuration reference is current
         run: cd website && node scripts/build-config.mjs --check
 
+      - name: receipt
+        run: echo "$GITHUB_SHA" >"$RUNNER_TEMP/receipt"
+
+      - name: upload receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: green-features-${{ needs.receipts.outputs.fingerprint }}
+          path: ${{ runner.temp }}/receipt
+          retention-days: 30
+          overwrite: true
+
+  # L1: the libraries' own tests (sail and sail-netstack, `--lib`), the
+  # doc tests, and sail-netstack's model tests (under tests/, but needing
+  # nothing). sail is built with auto-reload on, as sail-ffi builds it.
+  # A task spawned outside any instance's scope aborts the run (E2): one
+  # on a task of its own would only panic where tokio catches it.
+  unit:
+    name: L1 unit
+    needs: receipts
+    if: ${{ !cancelled() && needs.receipts.outputs.l1 != 'true' }}
+    runs-on: ubuntu-latest
+    env:
+      # Line numbers in a failing test's backtrace, without the full debug
+      # info, which only costs compile and link time and cache space here.
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
+      SAIL_SCOPE_STRICT: "1"
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: install rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+
+      # The fork's BoringSSL, as the header says.
+      - name: prebuilt BoringSSL
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/prebuilt-boringssl.sh "$(rustc -vV | sed -n 's/^host:[[:space:]]*//p')"
+
+      - name: cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+
+      - name: libraries
+        run: cargo test --locked -p sail -p sail-netstack --features sail/auto-reload --lib
+
+      - name: sail-netstack's models
+        run: cargo test --locked -p sail-netstack --test '*'
+
+      - name: doc tests
+        run: cargo test --locked -p sail -p sail-netstack --features sail/auto-reload --doc
+
+      - name: BoringSSL linked
+        run: scripts/prebuilt-boringssl.sh --check "$(rustc -vV | sed -n 's/^host:[[:space:]]*//p')"
+
+      - name: receipt
+        run: echo "$GITHUB_SHA" >"$RUNNER_TEMP/receipt"
+
+      - name: upload receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: green-l1-${{ needs.receipts.outputs.fingerprint }}
+          path: ${{ runner.temp }}/receipt
+          retention-days: 30
+          overwrite: true
+
+  # L2: sail's test binaries (tests/it and the binaries beside it), in
+  # three shards by a hash of each test's name (tools/ci/l2-shard.py: the
+  # same tree splits the same way every time), each shard with one more
+  # suite that builds sail anew: sail-ffi's tests (the C ABI as a host
+  # calls it, the command service included), sail-cli's (the CLI as a
+  # service manager drives it), and a panic in a mobile build. sail's own
+  # tests run with auto-reload on, as sail-ffi builds it, and with
+  # SAIL_SCOPE_STRICT, as L1's.
+  integration-shards:
+    name: L2 integration (shard ${{ matrix.shard }})
+    needs: receipts
+    if: ${{ !cancelled() && needs.receipts.outputs.l2 != 'true' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2]
+    env:
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
+      SAIL_SCOPE_STRICT: "1"
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: install rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+
+      # The fork's BoringSSL, as the header says.
+      - name: prebuilt BoringSSL
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/prebuilt-boringssl.sh "$(rustc -vV | sed -n 's/^host:[[:space:]]*//p')"
+
+      - name: cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+
+      - name: sail's test binaries, this shard's tests
+        run: python3 tools/ci/l2-shard.py ${{ matrix.shard }} 3
+
+      # Run whatever the tests before did, so that one failure hides no other.
+      - name: sail-ffi
+        if: ${{ !cancelled() && matrix.shard == 0 }}
+        run: cargo test --locked -p sail-ffi
+
+      - name: sail-cli
+        if: ${{ !cancelled() && matrix.shard == 1 }}
+        run: cargo test --locked -p sail-cli
+
+      # The mobile libraries' profile unwinds: a contained panic leaves the
+      # instance and the host process running. Built as dist-mobile is, but
+      # without LTO, which the panic strategy does not depend on.
+      - name: a panic in a mobile build
+        if: ${{ !cancelled() && matrix.shard == 2 }}
+        env:
+          CARGO_PROFILE_DIST_MOBILE_LTO: "false"
+        run: cargo test --locked -p sail --profile dist-mobile --features fault-injection --test test_panic_unwind
+
+      - name: BoringSSL linked
+        run: scripts/prebuilt-boringssl.sh --check "$(rustc -vV | sed -n 's/^host:[[:space:]]*//p')"
+
+  # L2 passes when every shard did, or when it passed before on this tree.
+  integration:
+    name: L2 integration
+    if: ${{ always() }}
+    needs: [receipts, integration-shards]
+    runs-on: ubuntu-latest
+    steps:
+      - name: every shard
+        env:
+          GREEN: ${{ needs.receipts.outputs.l2 }}
+          SHARDS: ${{ needs.integration-shards.result }}
+        run: |
+          if [ "$GREEN" = true ]; then
+            echo "passed before on this tree"
+          else
+            test "$SHARDS" = success
+          fi
+
+      - name: receipt
+        if: ${{ needs.receipts.outputs.l2 != 'true' }}
+        run: echo "$GITHUB_SHA" >"$RUNNER_TEMP/receipt"
+
+      - name: upload receipt
+        if: ${{ needs.receipts.outputs.l2 != 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: green-l2-${{ needs.receipts.outputs.fingerprint }}
+          path: ${{ runner.temp }}/receipt
+          retention-days: 30
+          overwrite: true
+
   # The fuzz workspaces build apart from sail's, with a BoringSSL of their
   # own: a job of its own, beside the others, so that it adds no wall time.
   # They must build, with the workspace's [patch]es; nothing is fuzzed here.
+  # On a ci/* branch only when their inputs change (the `changes` job); a
+  # change to sail's API that breaks a fuzz target shows on master.
   fuzz:
+    needs: changes
+    if: needs.changes.outputs.fuzz == 'true'
     runs-on: ubuntu-latest
     env:
       RUSTFLAGS: -D warnings
@@ -292,21 +528,18 @@ jobs:
       - name: fuzz workspaces build
         run: tools/fuzz-check.sh
 
-  # The non-Apple release targets, built from Linux with the scripts the
-  # release uses, one job per target so that they run side by side: a debug
-  # build links, which `cargo check` would not, and BoringSSL is compiled
-  # either way. The CLIs are started once (`sail --version`, under qemu-user
-  # or wine), which catches a binary that does not load; the Android
-  # sail-ffi libraries are built only. On master and by hand only; a ci/*
-  # branch skips them.
-  # A 32-bit target on every push: what only a 32-bit or musl target warns
-  # of (libc's time_t on 32-bit musl, usize casts) surfaces before master's
-  # cross builds, which do not deny warnings, or a release build does.
-  # cross.sh sets the target's own RUSTFLAGS, so -D warnings goes through
-  # SAIL_RUSTFLAGS.
+  # A 32-bit target: what only a 32-bit or musl target warns of (libc's
+  # time_t on 32-bit musl, usize casts) surfaces before master's cross
+  # builds, which do not deny warnings, or a release build does. On a ci/*
+  # branch only when the dependencies, the toolchain or the cross scripts
+  # change (the `changes` job); a warning in sail's own code shows on
+  # master. cross.sh sets the target's own RUSTFLAGS, so -D warnings goes
+  # through SAIL_RUSTFLAGS.
   # BoringSSL from source, as the header says: the cross toolchain and
-  # CMake path the release's musl builds take, on every push.
+  # CMake path the release's musl builds take.
   check-32bit:
+    needs: changes
+    if: needs.changes.outputs.check_32bit == 'true'
     runs-on: ubuntu-latest
     env:
       CARGO_INCREMENTAL: 0
@@ -344,6 +577,12 @@ jobs:
       - name: lint armv7 musl, as a router build (musl's allocator)
         run: scripts/cross.sh armv7-unknown-linux-musleabihf clippy -p sail-cli --no-default-features
 
+  # L4: the non-Apple release targets, built from Linux with the scripts the
+  # release uses, one job per target so that they run side by side: a debug
+  # build links, which `cargo check` would not, and BoringSSL is compiled
+  # either way. The CLIs are started once (`sail --version`, under qemu-user
+  # or wine), which catches a binary that does not load; the Android
+  # sail-ffi libraries are built only. On master and by hand only.
   cross:
     if: github.ref == 'refs/heads/master' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
@@ -416,7 +655,7 @@ jobs:
         if: ${{ matrix.run == 'smoke' }}
         run: scripts/cross.sh ${{ matrix.target }} run -p sail-cli -- --version
 
-  # The one non-x86 test run, natively on an arm64 runner (free for public
+  # L4: the one non-x86 test run, natively on an arm64 runner (free for public
   # repositories) rather than under qemu-user, which took about 20 minutes.
   test-aarch64:
     if: github.ref == 'refs/heads/master' || github.event_name == 'workflow_dispatch'
@@ -447,7 +686,7 @@ jobs:
       - name: BoringSSL linked
         run: scripts/prebuilt-boringssl.sh --check "$(rustc -vV | sed -n 's/^host:[[:space:]]*//p')"
 
-  # Windows with the MSVC toolchain, natively: what an MSVC host app links
+  # L4: Windows with the MSVC toolchain, natively: what an MSVC host app links
   # (sail-ffi's DLL and static library, or sail as a crate). The release's
   # Windows CLI is still the gnu cross build above.
   windows-msvc:
@@ -564,40 +803,12 @@ jobs:
           cargo test --locked -p sail --features fault-injection --target x86_64-pc-windows-msvc --test test_teardown -- --ignored --test-threads 1 --nocapture
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-  # Whether the bindings' tests run: on master, when dispatched, and on a
-  # branch whose changes since master reach them (the bindings, the C ABI,
-  # sail::embed, the JSON snapshot the models are checked against, the
-  # Swift package's manifest, this file). Other branches skip both jobs.
-  bindings-paths:
-    runs-on: ubuntu-latest
-    outputs:
-      run: ${{ steps.paths.outputs.run }}
-    steps:
-      - name: checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: what changed
-        id: paths
-        run: |
-          if [ "$GITHUB_REF" = refs/heads/master ] || [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
-            echo run=true >>"$GITHUB_OUTPUT"
-            exit 0
-          fi
-          base=$(git merge-base HEAD origin/master)
-          git diff --name-only "$base" HEAD | tee changed.txt
-          if grep -qE '^(bindings/|sail-ffi/|sail/src/embed|sail/src/control/json_snapshot\.json$|Package\.swift$|\.github/workflows/ci\.yml$)' changed.txt; then
-            echo run=true >>"$GITHUB_OUTPUT"
-          else
-            echo run=false >>"$GITHUB_OUTPUT"
-          fi
-
-  # The Kotlin binding's tests, on a desktop JVM, against libsail_jni built
-  # for this host (jni/build-host.sh).
+  # L3: the Kotlin binding's tests, on a desktop JVM, against libsail_jni
+  # built for this host (jni/build-host.sh). On master, by hand, and on
+  # branches the `changes` job says reach the bindings.
   bindings-kotlin:
-    needs: bindings-paths
-    if: needs.bindings-paths.outputs.run == 'true'
+    needs: changes
+    if: needs.changes.outputs.bindings == 'true'
     runs-on: ubuntu-latest
     # A hung Gradle daemon or swift test fails the job, rather than hold
     # the runner for GitHub's six hours.
@@ -642,11 +853,11 @@ jobs:
         working-directory: bindings/kotlin
         run: gradle --no-daemon test
 
-  # The Swift binding's tests, on a standard macOS runner, against
-  # sail-ffi's static library (bindings/swift/test.sh).
+  # L3: the Swift binding's tests, on a standard macOS runner, against
+  # sail-ffi's static library (bindings/swift/test.sh). As bindings-kotlin.
   bindings-swift:
-    needs: bindings-paths
-    if: needs.bindings-paths.outputs.run == 'true'
+    needs: changes
+    if: needs.changes.outputs.bindings == 'true'
     runs-on: macos-15
     # A hung Gradle daemon or swift test fails the job, rather than hold
     # the runner for GitHub's six hours.
@@ -676,39 +887,15 @@ jobs:
       - name: test
         run: bindings/swift/test.sh
 
-  # The macOS TUN, as root on a runner: the utun chosen at start, a taken
-  # name, auto_route's routes of both families and their going after a stop
-  # or a kill -9, a route already there replaced, and last a desktop's
-  # config that takes the runner's own traffic. Its code is macOS-only, so
-  # nothing else runs it: on master, by hand, and on branches touching it.
-  tun-macos-paths:
-    runs-on: ubuntu-latest
-    outputs:
-      run: ${{ steps.paths.outputs.run }}
-    steps:
-      - name: checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: what changed
-        id: paths
-        run: |
-          if [ "$GITHUB_REF" = refs/heads/master ] || [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
-            echo run=true >>"$GITHUB_OUTPUT"
-            exit 0
-          fi
-          base=$(git merge-base HEAD origin/master)
-          git diff --name-only "$base" HEAD | tee changed.txt
-          if grep -qE '^(sail/src/protocol/tun/|sail/src/platform/|sail/src/runtime/teardown\.rs|sail/src/fault\.rs|sail/tests/test_teardown\.rs|sail/tests/scripts/macos_|\.github/workflows/ci\.yml$)' changed.txt; then
-            echo run=true >>"$GITHUB_OUTPUT"
-          else
-            echo run=false >>"$GITHUB_OUTPUT"
-          fi
-
+  # L3: the macOS TUN, as root on a runner: the utun chosen at start, a
+  # taken name, auto_route's routes of both families and their going after
+  # a stop or a kill -9, a route already there replaced, and last a
+  # desktop's config that takes the runner's own traffic. Its code is
+  # macOS-only, so nothing else runs it: on master, by hand, and on
+  # branches the `changes` job says reach it.
   tun-macos:
-    needs: tun-macos-paths
-    if: needs.tun-macos-paths.outputs.run == 'true'
+    needs: changes
+    if: needs.changes.outputs.tun_macos == 'true'
     runs-on: macos-15
     timeout-minutes: 40
     env:
@@ -766,45 +953,21 @@ jobs:
         timeout-minutes: 10
         run: SAIL=target/aarch64-apple-darwin/debug/sail sail/tests/scripts/macos_utun_default.sh
 
-  # The Linux netns suites (sail/tests/scripts/*_netns.sh), as root on a
-  # runner, each in network namespaces of its own: the TUN with auto_route
-  # and auto_redirect, what a failing instance leaves (in-process, feature
-  # fault-injection), a kill's leftovers swept, tproxy, a network switch,
-  # and WireGuard against the kernel's. Like tun-macos: on master, by hand,
-  # and on branches touching them. The runner has all they need (measured:
-  # tun, nf_tables, nft_redir, nft_tproxy, nf_tproxy_ipv4/6, nft_socket,
-  # nft_queue, nfnetlink_queue, nft_fib, nft_ct, wireguard load;
-  # /dev/net/tun; systemd-resolved; nftables 1.0.9, wireguard-tools and
-  # socat installed if missing), so nothing of the suites is left to the
-  # test host.
-  netns-linux-paths:
-    runs-on: ubuntu-latest
-    outputs:
-      run: ${{ steps.paths.outputs.run }}
-    steps:
-      - name: checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: what changed
-        id: paths
-        run: |
-          if [ "$GITHUB_REF" = refs/heads/master ] || [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
-            echo run=true >>"$GITHUB_OUTPUT"
-            exit 0
-          fi
-          base=$(git merge-base HEAD origin/master)
-          git diff --name-only "$base" HEAD | tee changed.txt
-          if grep -qE '^(sail/src/protocol/tun/|sail/src/net/netstack/|sail/src/platform/|sail/src/runtime/|sail/src/fault\.rs|sail/src/protocol/wireguard/|sail/tests/test_wireguard_interop\.rs|sail/tests/scripts/[a-z_]+_netns\.sh|sail/tests/test_[a-z_]+_linux\.rs|sail/tests/test_teardown\.rs|\.github/workflows/ci\.yml$)' changed.txt; then
-            echo run=true >>"$GITHUB_OUTPUT"
-          else
-            echo run=false >>"$GITHUB_OUTPUT"
-          fi
-
+  # L3: the Linux netns suites (sail/tests/scripts/*_netns.sh), as root on
+  # a runner, each in network namespaces of its own: the TUN with
+  # auto_route and auto_redirect, what a failing instance leaves
+  # (in-process, feature fault-injection), a kill's leftovers swept,
+  # tproxy, a network switch, and WireGuard against the kernel's. Like
+  # tun-macos: on master, by hand, and on branches the `changes` job says
+  # reach them. The runner has all they need (measured: tun, nf_tables,
+  # nft_redir, nft_tproxy, nf_tproxy_ipv4/6, nft_socket, nft_queue,
+  # nfnetlink_queue, nft_fib, nft_ct, wireguard load; /dev/net/tun;
+  # systemd-resolved; nftables 1.0.9, wireguard-tools and socat installed
+  # if missing), so nothing of the suites is left to the test host.
   netns-linux:
-    needs: netns-linux-paths
-    if: needs.netns-linux-paths.outputs.run == 'true'
+    needs: changes
+    if: needs.changes.outputs.netns_linux == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -857,6 +1020,14 @@ jobs:
             --test test_auto_route_linux --test test_network_switch_linux --test test_tproxy_linux
           cargo test --locked -p sail --features fault-injection --test test_teardown --no-run
           cargo test --locked -p sail --features wireguard --test test_wireguard_interop --no-run
+          # For the step that is not yet gating, below.
+          exe() { jq -r 'select(.executable != null) | .executable' | tail -1; }
+          {
+            echo "lib=$(cargo test --locked -p sail --lib --no-run --message-format=json | exe)"
+            echo "tun=$(cargo test --locked -p sail --test test_tun_linux --no-run --message-format=json | exe)"
+            echo "wg=$(cargo test --locked -p sail --features wireguard --test test_wireguard_kernel \
+              --no-run --message-format=json | exe)"
+          } >>"$GITHUB_OUTPUT"
 
       - name: auto_redirect, and what a failing instance leaves
         if: always() && steps.build.outcome == 'success'
@@ -877,3 +1048,28 @@ jobs:
       - name: WireGuard against the kernel's
         if: always() && steps.build.outcome == 'success'
         run: sudo -E env "PATH=$PATH" sail/tests/scripts/wireguard_interop_netns.sh
+
+      # The root tests no script runs yet, not yet gating: the TUN end to
+      # end (test_tun_linux), the WireGuard endpoint against the kernel's
+      # in namespaces it makes (test_wireguard_kernel, but its throughput
+      # measurement), and sail's own netlink, nf_tables and nfnetlink_queue
+      # code (the ignored tests under platform::, in a namespace made for
+      # them). A failure here shows in the log and leaves the job green;
+      # each moves above, without continue-on-error, once it has passed
+      # on runners.
+      - name: not yet gating, the TUN, WireGuard's kernel tests and sail's kernel interfaces
+        if: always() && steps.build.outcome == 'success'
+        continue-on-error: true
+        env:
+          LIB: ${{ steps.build.outputs.lib }}
+          TUN: ${{ steps.build.outputs.tun }}
+          WG: ${{ steps.build.outputs.wg }}
+        run: |
+          status=0
+          cd sail
+          sudo ip netns add sail-ci-kernel
+          sudo ip netns exec sail-ci-kernel "$LIB" --ignored --test-threads=1 --nocapture platform:: || status=1
+          sudo ip netns del sail-ci-kernel
+          sudo -E "$TUN" --ignored --nocapture || status=1
+          sudo -E "$WG" --ignored --nocapture --test-threads=1 --skip test_wireguard_kernel_throughput || status=1
+          exit $status
