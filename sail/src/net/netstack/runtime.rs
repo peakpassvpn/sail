@@ -663,6 +663,10 @@ impl<I: PacketIo> NativeRuntime<I> {
                     self.abort_flow(token);
                 }
             }
+            // Reading reserves a control packet first (its window update),
+            // and a full TX queue or packet budget is backpressure, as for
+            // a write: the read waits for room, the stream lives on.
+            Err(error) if retryable(&error) => flow.pending_read = Some((max_bytes, response)),
             Err(error) => {
                 let _ = response.send(Err(runner_io_error(error)));
             }
@@ -1177,6 +1181,101 @@ mod tests {
             .unwrap();
         let outgoing = parse_tcp_segment(parse_ip_packet(&outgoing, true).unwrap(), true).unwrap();
         assert_eq!(outgoing.payload, b"retry");
+
+        runtime_task.abort();
+    }
+
+    /// A read while the TX queue is full waits for room rather than failing
+    /// the stream (64 parallel WireGuard transfers over a slow device reset).
+    #[tokio::test]
+    async fn a_read_waits_out_a_full_tx_queue() {
+        let (inbound_tx, inbound_rx) = tokio_mpsc::channel(4);
+        // The device takes one packet; one more fills the TX queue.
+        let (outbound_tx, mut outbound_rx) = tokio_mpsc::channel(1);
+        let io = ChannelPacketIo::new(inbound_rx, outbound_tx, 1);
+        let ledger = ResourceLedger::new(BudgetProfile::Mobile.budget()).unwrap();
+        let mut config = RunnerConfig::default();
+        config.scheduler.max_queued_packets = 1;
+        let (runtime, mut accepted, _datagrams, _udp_reply) =
+            NativeRuntime::new(io, ledger, config, 4, 4, 4).unwrap();
+        let runtime_task = tokio::spawn(runtime.run());
+        let source = SocketAddr::from((Ipv4Addr::new(10, 8, 5, 2), 40_000));
+        let destination = SocketAddr::from((Ipv4Addr::new(10, 8, 5, 1), 443));
+
+        inbound_tx
+            .send(tcp_packet(source, destination, 100, 0, TcpFlags::SYN, &[]))
+            .await
+            .unwrap();
+        let syn_ack = timeout(Duration::from_secs(1), outbound_rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        let syn_ack = parse_tcp_segment(parse_ip_packet(&syn_ack, true).unwrap(), true).unwrap();
+        let server_next = syn_ack.meta.sequence.wrapping_add(1).get();
+        inbound_tx
+            .send(tcp_packet(
+                source,
+                destination,
+                101,
+                server_next,
+                TcpFlags::ACK,
+                &[],
+            ))
+            .await
+            .unwrap();
+        let mut accepted = timeout(Duration::from_secs(1), accepted.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        inbound_tx
+            .send(tcp_packet(
+                source,
+                destination,
+                101,
+                server_next,
+                TcpFlags::ACK,
+                b"hello",
+            ))
+            .await
+            .unwrap();
+        // Its ACK, if any, goes out; the device is empty again.
+        while timeout(Duration::from_millis(300), outbound_rx.recv())
+            .await
+            .is_ok()
+        {}
+
+        // Two more handshakes' SYN-ACKs: one fills the device, the other
+        // the TX queue.
+        for port in [40_001, 40_002] {
+            let other = SocketAddr::from((Ipv4Addr::new(10, 8, 5, 2), port));
+            inbound_tx
+                .send(tcp_packet(other, destination, 100, 0, TcpFlags::SYN, &[]))
+                .await
+                .unwrap();
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+
+        let mut buf = [0u8; 16];
+        let n = {
+            let read = accepted.stream.read(&mut buf);
+            tokio::pin!(read);
+            assert!(
+                timeout(Duration::from_millis(200), &mut read)
+                    .await
+                    .is_err(),
+                "the read waits while the TX queue is full"
+            );
+            // Room again.
+            while timeout(Duration::from_millis(100), outbound_rx.recv())
+                .await
+                .is_ok()
+            {}
+            timeout(Duration::from_secs(1), read)
+                .await
+                .expect("the read was not retried once the TX queue had room")
+                .unwrap()
+        };
+        assert_eq!(&buf[..n], b"hello");
 
         runtime_task.abort();
     }
