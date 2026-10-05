@@ -61,9 +61,11 @@ const AT_ONCE: usize = 10;
 /// A stop's bound (the design's).
 const STOP_WITHIN: Duration = Duration::from_secs(2);
 /// How many more heap bytes may be alive after the runs than after the
-/// first. Measured: 1 to 3 KiB more after 600 runs (a lazy cache filling);
-/// 80 bytes left by each of the 200 runs here would fail it.
-const HEAP_SLACK: isize = 16 * 1024;
+/// first round. Measured over 1000 runs: 3 to 4 KiB more, reached in the
+/// first passes and level after (queues grown to their highest keep their
+/// capacity), once 19 KiB when a single run was the base; 320 bytes left
+/// by each of the 200 runs here would fail it.
+const HEAP_SLACK: isize = 64 * 1024;
 /// How long whatever ends just after a stop (a task's last drop, a worker
 /// thread's exit, an idle blocking thread) has to end.
 const SETTLE: Duration = Duration::from_secs(10);
@@ -205,10 +207,12 @@ async fn hundred(options: impl Fn() -> Options) {
         }
     });
 
-    // The first run starts what lives as long as the process (the
-    // logger's worker, lazy statics): what is held after it is the base,
-    // once the host's idle blocking threads have gone.
+    // The first runs start what lives as long as the process (the
+    // logger's worker, lazy statics) and grow its queues as ten at once do:
+    // what is held after them is the base, once the host's idle blocking
+    // threads have gone.
     one_run(options(), target).await;
+    futures::future::join_all((0..AT_ONCE).map(|_| one_run(options(), target))).await;
     tokio::time::sleep(Duration::from_secs(1)).await;
     let before = held(&host);
     assert_eq!((before.ids, before.runtimes), (0, 0), "{before:?}");

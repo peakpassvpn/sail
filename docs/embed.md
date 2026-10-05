@@ -153,6 +153,29 @@ registers what its own allocator needs, or nothing: glibc's malloc keeps
 freed memory too, which `malloc_trim(0)` gives back; an allocator that
 returns memory by itself needs nothing.
 
+**Several instances on glibc.** glibc's malloc gives the threads that
+allocate arenas of their own, up to eight a core, and keeps in each what
+was freed there. Instances on runtimes of their own each bring their
+workers, and their arenas outlive them. Measured on Linux x86-64, 4
+cores (`sail/tests/test_hundred_instances.rs`: 100 instances one after
+another, then ten rounds of ten at once, each relaying a connection):
+
+| | RSS after, from 64 MB |
+|---|---|
+| runtimes of their own (`Runtime::Own`) | 264 MB |
+| the same, `MALLOC_ARENA_MAX=2` | 92 MB |
+| the host's runtime (`Runtime::Host`) | 133 MB |
+| the same, `MALLOC_ARENA_MAX=2` | 79 MB |
+
+The bytes alive came back within a few KiB each time: this is the
+allocator keeping memory, not sail holding it. `malloc_trim(0)` gave back
+less than a tenth of it, and `on_memory_freed` runs after loads, not
+after stops. A glibc host that runs instances side by side or one after
+another sets `MALLOC_ARENA_MAX` (2 here; `mallopt(M_ARENA_MAX, …)` before
+its first thread does the same), runs them on its own runtime, or links
+an allocator of its own (the `sail` command links mimalloc). Only glibc
+was measured.
+
 ## Logging
 
 - **Without a subscriber of your own.** sail logs as its configuration's
