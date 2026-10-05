@@ -110,7 +110,12 @@ mod harness {
                 options: common::runtime_options(),
                 ..Default::default()
             });
-            let instance = sail::app::instance::Instance::build(&config, env, dial)?;
+            let instance = sail::app::instance::Instance::build(
+                &config,
+                config.route.rules.clone(),
+                env,
+                dial,
+            )?;
             // What refreshes the provider, every second, and stops the
             // tasks of the members it retires.
             let (reload_tx, _reload_rx) = tokio::sync::mpsc::channel(1);

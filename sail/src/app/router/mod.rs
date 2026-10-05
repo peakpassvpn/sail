@@ -624,35 +624,55 @@ pub struct Router {
 }
 
 impl Router {
+    /// The rules built, from the last: each is dropped once built, and its
+    /// list given back as it empties, so that a configuration's rules and
+    /// the router's are never both whole. The first in order that fails is
+    /// the one said, as when they were built in order.
     fn load_rules(
-        route: &model::Route,
+        mut rules: Vec<model::Rule>,
         env: &RuntimeEnv,
         rule_sets: &rule_set::RuleSets,
         dial: &DialDefaults,
     ) -> Result<Vec<Rule>> {
-        route
-            .rules
-            .iter()
-            .enumerate()
-            .map(|(i, rule)| {
-                let index = rule.index.unwrap_or(u32::try_from(i).unwrap_or(u32::MAX));
-                let mut built = Rule::new(
-                    rule,
-                    &format!("route.rules[{}]", index),
-                    env,
-                    rule_sets,
-                    dial,
-                )?;
-                built.index = index;
-                Ok(built)
-            })
-            .collect()
+        let mut built = Vec::with_capacity(rules.len());
+        let mut failed = None;
+        while let Some(rule) = rules.pop() {
+            let i = rules.len();
+            let index = rule.index.unwrap_or(u32::try_from(i).unwrap_or(u32::MAX));
+            match Rule::new(
+                &rule,
+                &format!("route.rules[{}]", index),
+                env,
+                rule_sets,
+                dial,
+            ) {
+                Ok(mut rule) if failed.is_none() => {
+                    rule.index = index;
+                    built.push(rule);
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    failed = Some(e);
+                    built = Vec::new();
+                }
+            }
+            drop(rule);
+            if rules.len() < rules.capacity() / 2 {
+                rules.shrink_to_fit();
+            }
+        }
+        if let Some(e) = failed {
+            return Err(e);
+        }
+        built.reverse();
+        Ok(built)
     }
 
     /// A router whose `direct` rules dial over no defaults: for tests.
     pub fn new(route: &model::Route, dns_client: SyncDnsClient, env: &RuntimeEnv) -> Result<Self> {
         Self::with_rule_sets(
             route,
+            route.rules.clone(),
             dns_client,
             env,
             &Default::default(),
@@ -660,16 +680,17 @@ impl Router {
         )
     }
 
-    /// A router whose rules can name the rule-sets of `rule_sets`, and
-    /// whose `direct` rules dial over `dial`.
+    /// A router of `rules`, taken out of `route`, whose rules can name the
+    /// rule-sets of `rule_sets`, and whose `direct` rules dial over `dial`.
     pub(crate) fn with_rule_sets(
         route: &model::Route,
+        rules: Vec<model::Rule>,
         dns_client: SyncDnsClient,
         env: &RuntimeEnv,
         rule_sets: &rule_set::RuleSets,
         dial: &DialDefaults,
     ) -> Result<Self> {
-        let rules = Self::load_rules(route, env, rule_sets, dial)?;
+        let rules = Self::load_rules(rules, env, rule_sets, dial)?;
         let network = rules
             .iter()
             .any(|rule| rule.matcher.may_need_network())
@@ -1667,8 +1688,15 @@ mod tests {
         let dns = DnsClient::new(&config.dns, Default::default(), &env)
             .unwrap()
             .into_shared();
-        let router =
-            Router::with_rule_sets(&config.route, dns, &env, &sets, &Default::default()).unwrap();
+        let router = Router::with_rule_sets(
+            &config.route,
+            config.route.rules.clone(),
+            dns,
+            &env,
+            &sets,
+            &Default::default(),
+        )
+        .unwrap();
         let mut sess = to("www.video.test:443");
         assert_eq!(
             pick(&router, &mut sess).await,
@@ -2164,8 +2192,15 @@ mod tests {
         let dns = DnsClient::new(&config.dns, Default::default(), &env)
             .unwrap()
             .into_shared();
-        let router =
-            Router::with_rule_sets(&config.route, dns, &env, &sets, &Default::default()).unwrap();
+        let router = Router::with_rule_sets(
+            &config.route,
+            config.route.rules.clone(),
+            dns,
+            &env,
+            &sets,
+            &Default::default(),
+        )
+        .unwrap();
         (router, sets)
     }
 

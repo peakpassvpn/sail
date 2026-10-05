@@ -234,7 +234,13 @@ impl Neighbors {
     /// Starts the resolver if `config` needs it and it is not running.
     /// Needs a tokio runtime.
     pub fn start_if_needed(&self, config: &crate::config::Config) {
-        if !needed(config) || self.0.get().is_some() {
+        self.start_if(needed(config), config)
+    }
+
+    /// `start_if_needed`, with whether `config` needs it found before:
+    /// once the router has taken its rules, they no longer tell.
+    pub fn start_if(&self, needed: bool, config: &crate::config::Config) {
+        if !needed || self.0.get().is_some() {
             return;
         }
         let files: Vec<PathBuf> = config

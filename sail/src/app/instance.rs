@@ -61,8 +61,11 @@ impl Instance {
     /// configuration that cannot run fails here and leaves no trace.
     ///
     /// Handlers may start background tasks: this runs within a runtime.
+    /// The router takes `rules`, `config`'s route rules taken out of it, and
+    /// drops each once built.
     pub fn build(
         config: &Config,
+        rules: Vec<crate::config::Rule>,
         env: SyncRuntimeEnv,
         dial_defaults: Arc<DialDefaults>,
     ) -> Result<Self> {
@@ -109,6 +112,7 @@ impl Instance {
         dial_defaults.env.outbounds.set(&outbound_manager);
         let router: SyncRouter = Arc::new(ArcSwap::from_pointee(Router::with_rule_sets(
             &config.route,
+            rules,
             dns_client.clone(),
             &env,
             &rule_sets,

@@ -1398,6 +1398,7 @@ fn router_takes(config: &Config) {
         .into_shared();
     crate::app::router::Router::with_rule_sets(
         &config.route,
+        config.route.rules.clone(),
         dns,
         &env,
         &sets,

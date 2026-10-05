@@ -275,7 +275,12 @@ fn reality_credentials_reload_without_rebinding() -> anyhow::Result<()> {
             outbound["tag"] = json!("proxy");
             outbound["uuid"] = json!(uuid);
             let config = sail::config::from_string(&json!({"outbounds":[outbound]}).to_string())?;
-            let instance = Instance::build(&config, Default::default(), Default::default())?;
+            let instance = Instance::build(
+                &config,
+                config.route.rules.clone(),
+                Default::default(),
+                Default::default(),
+            )?;
             let handler = instance.outbound_manager.load().get("proxy").unwrap();
             Ok((instance, handler))
         };

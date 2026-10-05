@@ -96,7 +96,12 @@ fn client(
             json!({"enabled":true,"protocol":"amux","max_accepts":1024,"concurrency":64});
     }
     let config = sail::config::from_string(&json!({"outbounds":[outbound]}).to_string())?;
-    let instance = Instance::build(&config, Arc::default(), Arc::default())?;
+    let instance = Instance::build(
+        &config,
+        config.route.rules.clone(),
+        Arc::default(),
+        Arc::default(),
+    )?;
     let handler = instance.outbound_manager.load().get("proxy").unwrap();
     Ok((instance, handler))
 }
@@ -460,7 +465,7 @@ fn shadowsocks_reload(legacy: bool) -> Result<()> {
                 "password":if legacy {password.to_owned()} else {format!("{identity}:{password}")}}]})
                 .to_string(),
             )?;
-            let instance = Instance::build(&config, Arc::default(), Arc::default())?;
+            let instance = Instance::build(&config, config.route.rules.clone(), Arc::default(), Arc::default())?;
             let handler = instance.outbound_manager.load().get("proxy").unwrap();
             Ok((instance, handler))
         };

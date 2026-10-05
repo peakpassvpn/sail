@@ -304,9 +304,10 @@ impl RuntimeManager {
         assets
     }
 
-    fn set_assets(&self, config: &config::Config) {
-        *self.assets.lock().unwrap_or_else(|e| e.into_inner()) =
-            assets::required(config, &self.env);
+    /// The assets the configuration reads, found before the router took
+    /// the rules that read them.
+    fn set_assets(&self, assets: Vec<assets::Asset>) {
+        *self.assets.lock().unwrap_or_else(|e| e.into_inner()) = assets;
     }
 
     /// The outbounds, as they are now.
@@ -425,8 +426,10 @@ impl RuntimeManager {
     }
 
     /// What the Clash API and the modes tell of `config`, as it is now.
-    fn set_views(&self, config: &config::Config) {
-        self.modes.store(Arc::new(control::modes(config)));
+    /// `modes`, those of `config`'s rules, found before the router took
+    /// them.
+    fn set_views(&self, config: &config::Config, modes: Vec<String>) {
+        self.modes.store(Arc::new(modes));
         *self.warnings.lock().unwrap_or_else(|e| e.into_inner()) = config.warnings.clone();
         self.order.store(Arc::new(
             config
@@ -792,8 +795,14 @@ impl RuntimeManager {
             self.dns_client.clone(),
         )
         .map_err(Error::Config)?;
+        // What the rules ask for, before the router takes them.
+        let assets = assets::required(&config, &self.env);
+        let modes = control::modes(&config);
+        let mut config = config;
+        let rules = std::mem::take(&mut config.route.rules);
         let router = Router::with_rule_sets(
             &config.route,
+            rules,
             self.dns_client.clone(),
             &self.env,
             &rule_sets,
@@ -831,8 +840,8 @@ impl RuntimeManager {
                 self.env.host.clash_modes,
                 self.env.cache_file.get().as_deref(),
             );
-            self.set_views(&config);
-            self.set_assets(&config);
+            self.set_views(&config, modes);
+            self.set_assets(assets);
             // The inbounds that go are stopped; the new ones are bound,
             // and accept once the routing they go by is in place.
             inbounds.commit_reload(inbound_reload)
@@ -1821,7 +1830,7 @@ pub fn test_config(config_path: &str) -> Result<(), Error> {
 /// `test_config`, with the tuning and host the instance would run with.
 pub fn test_config_with(config_path: &str, env: &runtime::RuntimeEnv) -> Result<(), Error> {
     let config = config::from_file_for(config_path, &env.host).map_err(Error::Config)?;
-    check_config(&config, env).map_err(Error::Config)
+    check_taking(config, env).map_err(Error::Config)
 }
 
 /// `test_config_with`, and the warnings a start would log: what reading
@@ -1852,6 +1861,11 @@ pub fn check_config_with_warnings(
 /// Builds the inbounds, outbounds, DNS and routing of `config` and throws
 /// them away, so that every mistake building would find is found.
 pub fn check_config(config: &config::Config, env: &runtime::RuntimeEnv) -> anyhow::Result<()> {
+    check_taking(config.clone(), env)
+}
+
+/// `check_config`, whose router takes the rules of `config`.
+fn check_taking(mut config: config::Config, env: &runtime::RuntimeEnv) -> anyhow::Result<()> {
     // Some handlers start background tasks when built.
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -1862,7 +1876,8 @@ pub fn check_config(config: &config::Config, env: &runtime::RuntimeEnv) -> anyho
     let _building = scope.building();
     // The interface auto_detect_interface would find is the start's to ask.
     let dial_defaults = Arc::new(net::DialDefaults::new(&config.route)?);
-    app::instance::Instance::build(config, Arc::new(env.clone()), dial_defaults)?;
+    let rules = std::mem::take(&mut config.route.rules);
+    app::instance::Instance::build(&config, rules, Arc::new(env.clone()), dial_defaults)?;
     Ok(())
 }
 
@@ -2049,8 +2064,8 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
         .clone();
     // What this thread logs while it starts and runs the instance is its.
     let _log = app::logger::enter(Some(log.clone()));
-    // The TUNs' names, before anything reads them.
-    #[cfg(feature = "inbound-tun")]
+    // The TUNs' names, before anything reads them; the rules, which the
+    // router takes.
     let mut config = config;
     #[cfg(feature = "inbound-tun")]
     let tun_names =
@@ -2147,7 +2162,12 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
     // What it runs, and the files it names as they are before they are
     // read: what tells a later reload that changes the inbounds alone.
     let running = runtime::running::Running::of(&config, &env);
-    let mut instance = app::instance::Instance::build(&config, env.clone(), dial_defaults)
+    // What the rules ask for, before the router takes them.
+    let assets = assets::required(&config, &env);
+    let neighbors = net::neighbor::needed(&config);
+    let modes = control::modes(&config);
+    let rules = std::mem::take(&mut config.route.rules);
+    let mut instance = app::instance::Instance::build(&config, rules, env.clone(), dial_defaults)
         .map_err(Error::Config)?;
     // On a failed start from here, what the system was changed by is
     // undone before what changed it drops (declared after it, so dropped
@@ -2164,7 +2184,7 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
         ));
     }
     // The LAN devices, when a rule or DNS server asks for them.
-    env.neighbors.start_if_needed(&config);
+    env.neighbors.start_if(neighbors, &config);
     // The API server joins them, when it is compiled in.
     // Bound before anything starts: an address in use fails the start.
     #[cfg(feature = "clash-api")]
@@ -2237,13 +2257,13 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
         .running
         .lock()
         .unwrap_or_else(|e| e.into_inner()) = Some(running);
-    runtime_manager.set_assets(&config);
+    runtime_manager.set_assets(assets);
     #[cfg(feature = "api")]
     if let Some((listeners, secret)) = api_listeners {
         let api_server = ApiServer::new(runtime_manager.clone());
         runners.push(api_server.serve(listeners, secret));
     }
-    runtime_manager.set_views(&config);
+    runtime_manager.set_views(&config, modes);
     #[cfg(feature = "clash-api")]
     {
         if let Some((listener, api)) = clash_api {
@@ -2689,6 +2709,88 @@ mod tests {
         assert_eq!(start.elapsed(), SETTLE_MAX);
     }
     use std::thread;
+
+    /// The router takes the rules, but the start and a reload still find
+    /// what they ask for: the ASN database `ip_asn` reads among the
+    /// assets, and the neighbor monitor `source_mac_address` needs.
+    #[cfg(all(
+        feature = "outbound-direct",
+        any(target_os = "linux", target_os = "macos")
+    ))]
+    #[test]
+    fn what_the_rules_ask_for_is_found_before_the_router_takes_them() {
+        use crate::app::router::matcher::{tests as mmdb, ASN_FILE};
+        const ID: RuntimeId = 30431;
+        let dir = std::env::temp_dir().join(format!("sail-takes-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join(ASN_FILE),
+            mmdb::mmdb(&[("1.0.0.0/8", mmdb::asn_records(13335, "").0)]),
+        )
+        .unwrap();
+        let path = dir.join("config.json");
+        let config = |more: bool| {
+            let mut rules = vec![
+                serde_json::json!({ "source_mac_address": ["00:11:22:33:44:55"], "outbound": "d" }),
+                serde_json::json!({ "ip_asn": [13335], "outbound": "d" }),
+            ];
+            if more {
+                rules.push(serde_json::json!({ "port": 1, "outbound": "d" }));
+            }
+            let config = serde_json::json!({
+                "outbounds": [{ "type": "direct", "tag": "d" }],
+                "route": { "rules": rules },
+            });
+            std::fs::write(&path, config.to_string()).unwrap();
+        };
+        config(false);
+        let host = runtime::Host {
+            data_dir: Some(dir.clone()),
+            ..Default::default()
+        };
+        let file = path.to_string_lossy().into_owned();
+        let started = thread::spawn(move || {
+            start(
+                ID,
+                StartOptions {
+                    signals: false,
+                    config: Config::File(file),
+                    #[cfg(feature = "auto-reload")]
+                    auto_reload: false,
+                    runtime_opt: RuntimeOption::SingleThread,
+                    runtime: Default::default(),
+                    host,
+                },
+            )
+        });
+        let manager = loop {
+            if let Some(m) = runtime_manager(ID) {
+                break m;
+            }
+            assert!(!started.is_finished(), "{:?}", started.join());
+            thread::sleep(std::time::Duration::from_millis(20));
+        };
+        let asks = |when: &str| {
+            let assets = manager.assets();
+            assert!(
+                assets
+                    .iter()
+                    .any(|a| a.used_by.iter().any(|u| u == "route.rules[1].ip_asn")),
+                "{}: {:?}",
+                when,
+                assets
+            );
+            assert!(manager.env.neighbors.get().is_some(), "{}", when);
+        };
+        asks("started");
+        // Another rule: the router is built again.
+        config(true);
+        reload(ID).unwrap();
+        asks("reloaded");
+        assert!(shutdown(ID));
+        started.join().unwrap().unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn test_restart() {

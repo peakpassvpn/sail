@@ -668,7 +668,13 @@ mod tests {
                 &json!({"inbounds": inbounds, "outbounds": [{"type": "direct"}]}).to_string(),
             )
             .unwrap();
-            crate::app::instance::Instance::build(&config, Arc::default(), Arc::default()).unwrap()
+            crate::app::instance::Instance::build(
+                &config,
+                config.route.rules.clone(),
+                Arc::default(),
+                Arc::default(),
+            )
+            .unwrap()
         };
         let refused = |manager: &InboundManager, to: serde_json::Value| match manager
             .prepare_reload(&inbounds(to))
@@ -751,8 +757,13 @@ mod tests {
             .to_string(),
         )
         .unwrap();
-        let instance =
-            crate::app::instance::Instance::build(&config, Arc::default(), Arc::default()).unwrap();
+        let instance = crate::app::instance::Instance::build(
+            &config,
+            config.route.rules.clone(),
+            Arc::default(),
+            Arc::default(),
+        )
+        .unwrap();
         let users = &instance.env.users;
         let (alice, bob) = (users.bind("alice"), users.bind("bob"));
         let connect = |user: &crate::user::UserRef, inbound: &str| {
@@ -862,8 +873,13 @@ mod tests {
             .to_string(),
         )
         .unwrap();
-        let instance =
-            crate::app::instance::Instance::build(&config, Arc::default(), Arc::default()).unwrap();
+        let instance = crate::app::instance::Instance::build(
+            &config,
+            config.route.rules.clone(),
+            Arc::default(),
+            Arc::default(),
+        )
+        .unwrap();
         let live = instance.inbound_manager.lock().unwrap().handlers["v"].clone();
         let request = RequestHeader::new(
             OPTION_CHUNK_STREAM,
