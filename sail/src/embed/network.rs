@@ -245,8 +245,10 @@ impl Instance {
 
     /// The events of `kinds`, from now on, through stops and starts,
     /// until dropped. Subscribed at once: a change after this call is not
-    /// missed. A run's generations count from 1; after a start, read the
-    /// snapshot again.
+    /// missed, though the stream is first polled after a start. Network
+    /// and user events are a run's, subscribed once it runs: those told
+    /// between the start and the first poll after it are missed. A run's
+    /// generations count from 1; after a start, read the snapshot again.
     pub fn events(&self, kinds: Kinds) -> impl Stream<Item = Event> + Send + 'static {
         let mut streams: Vec<futures::stream::BoxStream<'static, Event>> = Vec::new();
         if kinds.contains(Kinds::STATE) {
@@ -258,42 +260,41 @@ impl Instance {
         if kinds.contains(Kinds::USER) {
             streams.push(Box::pin(self.user_events()));
         }
+        let hub = self.inner().events();
         if kinds.contains(Kinds::GROUP) {
-            streams.push(Box::pin(per_run(
-                self.inner().clone(),
+            streams.push(Box::pin(told(
+                hub.group_switches(),
                 Kinds::GROUP,
-                |m| m.env.events.group_switches(),
                 |s: &GroupSwitch| Event::GroupSwitched(s.clone()),
             )));
         }
         if kinds.contains(Kinds::FAULT) {
-            streams.push(Box::pin(per_run(
-                self.inner().clone(),
+            streams.push(Box::pin(told(
+                hub.faults(),
                 Kinds::FAULT,
-                |m| m.env.events.faults(),
                 |f: &super::Fault| Event::Fault(f.clone()),
             )));
         }
         if kinds.contains(Kinds::DIAL) {
-            let failures = per_run(
-                self.inner().clone(),
-                Kinds::DIAL,
-                |m| m.env.events.dial_failures(),
-                |f: &DialFailure| Event::DialFailed {
+            let failures = told(hub.dial_failures(), Kinds::DIAL, |f: &DialFailure| {
+                Event::DialFailed {
                     failure: f.clone(),
                     count: 1,
-                },
-            );
+                }
+            });
             streams.push(Box::pin(coalesce(failures, DIAL_WINDOW)));
         }
         if kinds.contains(Kinds::ROUTE) {
-            streams.push(Box::pin(self.route_events()));
+            streams.push(Box::pin(told_counted(
+                hub.routes(),
+                Kinds::ROUTE,
+                Event::Routed,
+            )));
         }
         if kinds.contains(Kinds::DNS) {
-            streams.push(Box::pin(per_run_counted(
-                self.inner().clone(),
+            streams.push(Box::pin(told_counted(
+                hub.dns_exchanges(),
                 Kinds::DNS,
-                |m| m.env.events.dns_exchanges(),
                 Event::DnsExchange,
             )));
         }
@@ -315,27 +316,18 @@ impl Instance {
         })
     }
 
-    fn route_events(&self) -> impl Stream<Item = Event> + Send + 'static {
-        per_run_counted(
-            self.inner().clone(),
-            Kinds::ROUTE,
-            |m| m.env.events.routes(),
-            Event::Routed,
-        )
-    }
-
-    /// How many routed connections the instance built to tell, since its
-    /// start: none while no one subscribes to `Kinds::ROUTE`.
+    /// How many routed connections the instance built to tell, since it
+    /// was made: none while no one subscribes to `Kinds::ROUTE`.
     #[doc(hidden)]
     pub fn routes_built(&self) -> Result<usize, Error> {
-        Ok(self.manager()?.env.events.routes_built())
+        Ok(self.inner().events().routes_built())
     }
 
-    /// How many DNS exchanges the instance built to tell, since its start:
-    /// none while no one subscribes to `Kinds::DNS`.
+    /// How many DNS exchanges the instance built to tell, since it was
+    /// made: none while no one subscribes to `Kinds::DNS`.
     #[doc(hidden)]
     pub fn dns_built(&self) -> Result<usize, Error> {
-        Ok(self.manager()?.env.events.dns_built())
+        Ok(self.inner().events().dns_built())
     }
 
     fn network_events(&self) -> impl Stream<Item = Event> + Send + 'static {
@@ -407,44 +399,48 @@ where
     )
 }
 
-/// `per_run`, of a channel that counts who listens (control::events'
-/// `Channel`): what it tells is built only while a subscription is held.
-fn per_run_counted<T, S, M>(
-    inner: Arc<Inner>,
+/// The events of one of the instance's channels (`Inner::events`), which
+/// outlive its runs: subscribed when this is called, so nothing told after
+/// is missed, though the stream is first polled later. It ends when the
+/// instance is gone.
+fn told<T, M>(
+    rx: broadcast::Receiver<T>,
     kind: Kinds,
-    subscribe: S,
     map: M,
 ) -> impl Stream<Item = Event> + Send + 'static
 where
     T: Clone + Send + 'static,
-    S: Fn(&crate::RuntimeManager) -> crate::control::events::Subscription<T>
-        + Send
-        + Sync
-        + 'static,
+    M: Fn(&T) -> Event + Send + Sync + 'static,
+{
+    futures::stream::unfold((rx, map), move |(mut rx, map)| async move {
+        let event = match rx.recv().await {
+            Ok(value) => map(&value),
+            Err(RecvError::Lagged(missed)) => Event::Lagged { kind, missed },
+            Err(RecvError::Closed) => return None,
+        };
+        Some((event, (rx, map)))
+    })
+}
+
+/// `told`, of a channel that counts who listens (control::events'
+/// `Channel`): what it tells is built only while a subscription is held.
+fn told_counted<T, M>(
+    rx: crate::control::events::Subscription<T>,
+    kind: Kinds,
+    map: M,
+) -> impl Stream<Item = Event> + Send + 'static
+where
+    T: Clone + Send + 'static,
     M: Fn(T) -> Event + Send + Sync + 'static,
 {
-    let first = inner.manager().ok().map(|m| subscribe(&m));
-    let states = inner.states();
-    futures::stream::unfold(
-        (inner, first, states, subscribe, map),
-        move |(inner, mut subscribed, mut states, subscribe, map)| async move {
-            loop {
-                let Some(mut rx) = subscribed.take() else {
-                    // Not running: the next run's, once it runs.
-                    states.changed().await.ok()?;
-                    subscribed = inner.manager().ok().map(|m| subscribe(&m));
-                    continue;
-                };
-                let event = match rx.recv().await {
-                    Ok(value) => map(value),
-                    Err(RecvError::Lagged(missed)) => Event::Lagged { kind, missed },
-                    // The run ended.
-                    Err(RecvError::Closed) => continue,
-                };
-                return Some((event, (inner, Some(rx), states, subscribe, map)));
-            }
-        },
-    )
+    futures::stream::unfold((rx, map), move |(mut rx, map)| async move {
+        let event = match rx.recv().await {
+            Ok(value) => map(value),
+            Err(RecvError::Lagged(missed)) => Event::Lagged { kind, missed },
+            Err(RecvError::Closed) => return None,
+        };
+        Some((event, (rx, map)))
+    })
 }
 
 /// What happened to a user of the instance's inbounds.

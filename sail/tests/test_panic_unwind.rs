@@ -89,6 +89,15 @@ async fn a_contained_panic_leaves_the_host_and_the_instance_running() {
     let _panicking = tokio::net::TcpStream::connect(("127.0.0.1", port))
         .await
         .unwrap();
+    // The events, subscribed before the start, are first polled after the
+    // fault: it is told all the same.
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while instance.faults().unwrap() == 0 {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("the task panics");
     let fault = tokio::time::timeout(Duration::from_secs(10), async {
         loop {
             match faults.next().await {

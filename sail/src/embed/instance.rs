@@ -97,6 +97,10 @@ pub(super) struct Inner {
     /// Each change of state, in order, for its events: a watch keeps only
     /// the last.
     transitions: tokio::sync::broadcast::Sender<State>,
+    /// The events every run tells (faults, group switches, dial failures,
+    /// routes, DNS): the instance's, so that a subscription made before a
+    /// run, or polled late, misses none of it.
+    events: crate::control::events::EventHub,
     me: Weak<Inner>,
 }
 
@@ -179,6 +183,7 @@ impl Instance {
             state,
             dialer: tokio::sync::watch::channel(None).0,
             transitions: tokio::sync::broadcast::channel(16).0,
+            events: Default::default(),
             me: me.clone(),
         });
         Ok(Instance(Arc::new(Handle(inner))))
@@ -464,6 +469,10 @@ impl Inner {
         self.transitions.subscribe()
     }
 
+    pub(super) fn events(&self) -> &crate::control::events::EventHub {
+        &self.events
+    }
+
     fn publish(&self, life: &Life) {
         let state = match life.phase {
             Phase::Idle => State::Idle,
@@ -508,6 +517,7 @@ impl Inner {
         })));
         host.log = Some(InstanceLogRef(self.log.clone()));
         host.clash_modes = self.clash_modes;
+        host.events = Some(self.events.clone());
         let options = crate::StartOptions {
             signals: false,
             config: match config {

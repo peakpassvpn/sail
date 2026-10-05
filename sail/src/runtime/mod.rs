@@ -72,6 +72,9 @@ pub struct Host {
     /// How long a stop waits for the instance's tasks to end before it
     /// reports what is left; `scope::STOP_WITHIN` when unset.
     pub stop_within: Option<std::time::Duration>,
+    /// Where the instance tells its events: the embedding instance's,
+    /// which outlive its runs; one of the run's own when unset.
+    pub events: Option<crate::control::events::EventHub>,
 }
 
 /// The base URL of a Sub-Store backend. It may carry a secret path, so it
@@ -368,6 +371,7 @@ impl StartSettings {
                 log: None,
                 clash_modes: false,
                 stop_within: None,
+                events: None,
                 run_dir: match self.run_dir {
                     None => crate::platform::sweep::RunDir::Default,
                     Some(RunDirSetting::Dir(dir)) => crate::platform::sweep::RunDir::Dir(dir),

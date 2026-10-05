@@ -2061,7 +2061,7 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
     // this one's place among those running ends with the run, however it
     // ends.
     let (ledger, _running) = platform::sweep::begin(&host.run_dir);
-    let events = control::events::EventHub::default();
+    let events = host.events.clone().unwrap_or_default();
     let scope = runtime::scope::TaskScope::new(events.clone());
     let stop_within = host.stop_within.unwrap_or(runtime::scope::STOP_WITHIN);
     let env = Arc::new(runtime::RuntimeEnv {

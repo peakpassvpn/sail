@@ -414,7 +414,7 @@ impl<T: Clone> Channel<T> {
         }
     }
 
-    /// How many events were built to be told, since the start.
+    /// How many events were built to be told, since the channel was made.
     pub fn built(&self) -> usize {
         self.listeners.built.load(Ordering::Relaxed)
     }
@@ -449,6 +449,15 @@ impl Default for EventHub {
         }
     }
 }
+
+/// The same hub: its clones are equal, as a `Host` holding it compares.
+impl PartialEq for EventHub {
+    fn eq(&self, other: &Self) -> bool {
+        self.fault.same_channel(&other.fault)
+    }
+}
+
+impl Eq for EventHub {}
 
 impl std::fmt::Debug for EventHub {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -491,7 +500,8 @@ impl EventHub {
         self.route.subscribe()
     }
 
-    /// How many routed connections were built to be told, since the start.
+    /// How many routed connections were built to be told, since the hub
+    /// was made: an embedding instance's, through its runs.
     #[doc(hidden)]
     pub fn routes_built(&self) -> usize {
         self.route.built()
@@ -507,7 +517,8 @@ impl EventHub {
         self.dns.subscribe()
     }
 
-    /// How many DNS exchanges were built to be told, since the start.
+    /// How many DNS exchanges were built to be told, since the hub was
+    /// made: an embedding instance's, through its runs.
     #[doc(hidden)]
     pub fn dns_built(&self) -> usize {
         self.dns.built()
