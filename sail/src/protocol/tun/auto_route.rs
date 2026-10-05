@@ -1083,17 +1083,23 @@ mod backend {
         }
 
         /// Empties the adapter's DNS servers, of the families it has; an
-        /// adapter gone has none.
+        /// adapter gone has none. One can go while this runs (a start that
+        /// failed, its host removing it), and a family's settings with it:
+        /// ERROR_FILE_NOT_FOUND then, which leaves nothing either.
         fn undo_dns(&self) -> io::Result<()> {
             if !self.luid.exists() {
                 return Ok(());
             }
             let mut failed = Vec::new();
             for (v6, gateway) in [(false, self.gateway4), (true, self.gateway6)] {
-                if gateway.is_some() {
-                    if let Err(e) = self.luid.set_dns(v6, &[]) {
-                        failed.push(format!("{}: {}", if v6 { "IPv6" } else { "IPv4" }, e));
-                    }
+                if gateway.is_none() {
+                    continue;
+                }
+                match self.luid.set_dns(v6, &[]) {
+                    Ok(()) => {}
+                    Err(e) if e.raw_os_error() == Some(ERROR_FILE_NOT_FOUND) => {}
+                    Err(_) if !self.luid.exists() => {}
+                    Err(e) => failed.push(format!("{}: {}", if v6 { "IPv6" } else { "IPv4" }, e)),
                 }
             }
             ip_helper::flush_dns_cache();
