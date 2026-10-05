@@ -13,7 +13,8 @@
 //! windows-msvc job).
 //!
 //! Locks, with auto_route and, on Linux, with auto_redirect:
-//! - an essential task's panic, and the TUN runner's, leave nothing;
+//! - an essential task's panic, and the TUN runner's, leave nothing; on
+//!   the host's tokio runtime too, which goes on;
 //! - the TUN's netstack failing fails the instance, and leaves nothing;
 //! - a start that fails once the TUN is routed leaves nothing;
 //! - a teardown step that panics leaves its own resource alone, and the
@@ -29,7 +30,7 @@ use std::process::Command;
 use std::time::{Duration, Instant};
 
 use anyhow::{bail, ensure, Context, Result};
-use sail::embed::{Config, Instance, Options, RunDir, State};
+use sail::embed::{Config, Instance, Options, RunDir, Runtime, State};
 use sail::fault::{self, Point};
 #[cfg(target_os = "linux")]
 use sail::runtime::teardown::LeftKind;
@@ -192,10 +193,15 @@ fn config(redirect: bool) -> String {
 }
 
 fn instance(dir: &std::path::Path) -> Result<Instance> {
+    instance_on(dir, Runtime::Own)
+}
+
+fn instance_on(dir: &std::path::Path, runtime: Runtime) -> Result<Instance> {
     Ok(Instance::new(
         Options::new()
             .run_dir(RunDir::Dir(dir.join("run")))
-            .log_lines(4096),
+            .log_lines(4096)
+            .runtime(runtime),
     )?)
 }
 
@@ -214,11 +220,16 @@ fn failed(instance: &Instance) -> Result<String> {
 /// Starts with `redirect`, makes it fail by `point`, and checks what is
 /// left: nothing; then that it starts and stops again.
 fn fails_and_leaves_nothing(redirect: bool, point: Point) -> Result<()> {
+    fails_and_leaves_nothing_on(redirect, point, Runtime::Own)
+}
+
+/// `fails_and_leaves_nothing`, the instance on `runtime`.
+fn fails_and_leaves_nothing_on(redirect: bool, point: Point, runtime: Runtime) -> Result<()> {
     let _one = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
     fault::disarm();
     let dir = tempdir()?;
     let before = settled()?;
-    let sail = instance(&dir)?;
+    let sail = instance_on(&dir, runtime.clone())?;
     sail.blocking_start(Config::Json(config(redirect)))?;
     ensure!(system()? != before, "routed once started");
     fault::arm(point.clone());
@@ -238,7 +249,7 @@ fn fails_and_leaves_nothing(redirect: bool, point: Point) -> Result<()> {
         after
     );
     // The host lives on, and starts it again.
-    let again = instance(&dir)?;
+    let again = instance_on(&dir, runtime)?;
     again.blocking_start(Config::Json(config(redirect)))?;
     ensure!(system()? != before, "routed when started again");
     again.blocking_stop(Duration::from_secs(10))?;
@@ -267,6 +278,42 @@ fn an_essential_task_s_panic_leaves_nothing() -> Result<()> {
     for &redirect in REDIRECT {
         fails_and_leaves_nothing(redirect, Point::EssentialTask)?;
     }
+    Ok(())
+}
+
+/// On the host's runtime: the instance fails and leaves nothing, as on its
+/// own, and the host's runtime goes on, its task through the failure too.
+#[test]
+#[ignore = "needs root: tests/scripts/auto_redirect_netns.sh, or CI's tun-macos"]
+fn an_essential_task_s_panic_on_the_hosts_runtime_leaves_nothing() -> Result<()> {
+    let host = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()?;
+    let ticks = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let ticking = ticks.clone();
+    // The host's task, on the host's runtime: not an instance's.
+    #[allow(clippy::disallowed_methods)]
+    let host_task = host.spawn(async move {
+        loop {
+            ticking.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    });
+    for &redirect in REDIRECT {
+        fails_and_leaves_nothing_on(
+            redirect,
+            Point::EssentialTask,
+            Runtime::Host(host.handle().clone()),
+        )?;
+        let after = ticks.load(std::sync::atomic::Ordering::Relaxed);
+        std::thread::sleep(Duration::from_millis(100));
+        ensure!(
+            ticks.load(std::sync::atomic::Ordering::Relaxed) > after && !host_task.is_finished(),
+            "the host's task goes on"
+        );
+    }
+    host_task.abort();
     Ok(())
 }
 
