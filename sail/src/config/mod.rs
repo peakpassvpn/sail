@@ -48,7 +48,7 @@ impl Format {
     /// taken for Clash's YAML.
     pub fn of_text(s: &str) -> Self {
         // Past any comment before it.
-        if singbox::jsonc::first(s) == Some('{') {
+        if singbox::jsonc::strip(s).trim_start().starts_with('{') {
             Format::SingBox
         } else if s
             .lines()

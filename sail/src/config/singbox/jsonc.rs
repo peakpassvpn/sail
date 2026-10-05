@@ -63,47 +63,9 @@ pub fn strip(text: &str) -> String {
     String::from_utf8(out).unwrap_or_else(|_| text.to_string())
 }
 
-/// The first character of `text` that is not space or a comment, as
-/// `strip(text).trim_start()` would start with, without the copy.
-pub fn first(text: &str) -> Option<char> {
-    let mut rest = text;
-    loop {
-        rest = rest.trim_start();
-        if let Some(after) = rest.strip_prefix("//") {
-            rest = after.split_once('\n').map_or("", |(_, r)| r);
-        } else if let Some(after) = rest.strip_prefix("/*") {
-            // Unclosed, it runs to the end, as `strip` blanks it.
-            rest = after.split_once("*/").map_or("", |(_, r)| r);
-        } else {
-            return rest.chars().next();
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{first, strip};
-
-    #[test]
-    fn the_first_character_is_past_spaces_and_comments() {
-        for text in [
-            "{}",
-            "  // a\n/* b */ {",
-            "/* a */\n// b\n\t[1]",
-            "",
-            "// only",
-            "/* open",
-            "x: 1",
-            "/**/{",
-        ] {
-            assert_eq!(
-                first(text),
-                strip(text).trim_start().chars().next(),
-                "{:?}",
-                text
-            );
-        }
-    }
+    use super::strip;
 
     #[test]
     fn comments_and_trailing_commas_become_spaces() {
