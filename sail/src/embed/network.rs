@@ -12,7 +12,9 @@ use tokio::sync::broadcast::error::RecvError;
 use super::instance::Inner;
 
 use super::{Error, Instance};
+use crate::control::events::SystemChange;
 use crate::net::network as net;
+use crate::runtime::teardown::LeftKind;
 
 /// The interface of the default route.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -183,6 +185,11 @@ impl Kinds {
     /// rule; a client's and the instance's own. Built only while someone
     /// subscribes.
     pub const DNS: Kinds = Kinds(1 << 7);
+    /// Something sail set up on the system for a TUN (a route, its DNS,
+    /// its address) that someone else changed: told once a break, and
+    /// again only once a check found it right in between. Sail leaves it
+    /// as it is; restoring it or rebuilding the instance is the host's.
+    pub const SYSTEM: Kinds = Kinds(1 << 8);
     /// Every kind there is, and those added later.
     pub const ALL: Kinds = Kinds(u32::MAX);
 
@@ -225,6 +232,13 @@ pub enum Event {
     /// A DNS query was answered or failed: a client's, or the instance's
     /// own.
     DnsExchange(Arc<DnsExchange>),
+    /// Someone else changed what sail set up on the system for a TUN;
+    /// see `Kinds::SYSTEM`. `resource` names the TUN first, e.g. "route
+    /// 0.0.0.0/0 into tun0: gone".
+    SystemChanged {
+        kind: LeftKind,
+        resource: String,
+    },
     /// This subscriber fell behind on `kind`, and `missed` events of it
     /// are gone: read the snapshot again.
     Lagged {
@@ -283,6 +297,16 @@ impl Instance {
                 }
             });
             streams.push(Box::pin(coalesce(failures, DIAL_WINDOW)));
+        }
+        if kinds.contains(Kinds::SYSTEM) {
+            streams.push(Box::pin(told(
+                hub.system_changes(),
+                Kinds::SYSTEM,
+                |c: &SystemChange| Event::SystemChanged {
+                    kind: c.kind,
+                    resource: c.resource.clone(),
+                },
+            )));
         }
         if kinds.contains(Kinds::ROUTE) {
             streams.push(Box::pin(told_counted(
@@ -570,6 +594,41 @@ mod tests {
             ),
             count: 1,
         }
+    }
+
+    /// A system change as the hub tells it; one missed as a lag of its
+    /// own kind.
+    #[tokio::test]
+    async fn system_changes_are_told_with_their_kind() {
+        let hub = crate::control::events::EventHub::default();
+        let change = |n: usize| SystemChange {
+            kind: LeftKind::Route,
+            resource: format!("route 0.0.0.0/0 into tun{}: gone", n),
+        };
+        let map = |c: &SystemChange| Event::SystemChanged {
+            kind: c.kind,
+            resource: c.resource.clone(),
+        };
+        let mut events = Box::pin(told(hub.system_changes(), Kinds::SYSTEM, map));
+        hub.system_changed(change(0));
+        assert_eq!(
+            events.next().await,
+            Some(Event::SystemChanged {
+                kind: LeftKind::Route,
+                resource: "route 0.0.0.0/0 into tun0: gone".into(),
+            })
+        );
+        let mut slow = Box::pin(told(hub.system_changes(), Kinds::SYSTEM, map));
+        for n in 0..=crate::control::events::SYSTEM_CAPACITY {
+            hub.system_changed(change(n));
+        }
+        assert_eq!(
+            slow.next().await,
+            Some(Event::Lagged {
+                kind: Kinds::SYSTEM,
+                missed: 1,
+            })
+        );
     }
 
     /// A chain's first failure at once; the rest of its window as one,

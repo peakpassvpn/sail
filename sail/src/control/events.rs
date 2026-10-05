@@ -347,12 +347,27 @@ impl Fault {
     }
 }
 
+/// How many system changes a subscriber may fall behind on: one a
+/// resource sail set up, a few TUNs' worth (judgment, not measured).
+pub(crate) const SYSTEM_CAPACITY: usize = 16;
+
+/// Something sail set up on the system for a TUN that someone else
+/// changed, and that sail left as it is: the host restores it or rebuilds
+/// the instance. Told once a break.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SystemChange {
+    pub kind: crate::runtime::teardown::LeftKind,
+    /// What and how, for a person: "route 0.0.0.0/0 into tun0: gone".
+    pub resource: String,
+}
+
 /// The channels, one a kind; cheap to clone, every clone the same.
 #[derive(Clone)]
 pub struct EventHub {
     group: broadcast::Sender<GroupSwitch>,
     dial: broadcast::Sender<DialFailure>,
     fault: broadcast::Sender<Fault>,
+    system: broadcast::Sender<SystemChange>,
     route: Channel<Arc<RoutedConnection>>,
     dns: Channel<Arc<DnsExchange>>,
     /// The network's changes, which the run's `Network` tells.
@@ -447,6 +462,7 @@ impl Default for EventHub {
             group: broadcast::channel(CAPACITY).0,
             dial: broadcast::channel(CAPACITY).0,
             fault: broadcast::channel(CAPACITY).0,
+            system: broadcast::channel(SYSTEM_CAPACITY).0,
             route: Channel::new(ROUTE_CAPACITY),
             dns: Channel::new(DNS_CAPACITY),
             network: broadcast::channel(crate::net::network::EVENTS).0,
@@ -487,6 +503,15 @@ impl EventHub {
 
     pub fn faults(&self) -> broadcast::Receiver<Fault> {
         self.fault.subscribe()
+    }
+
+    /// Tells that someone else changed what sail set up on the system.
+    pub fn system_changed(&self, change: SystemChange) {
+        let _ = self.system.send(change);
+    }
+
+    pub fn system_changes(&self) -> broadcast::Receiver<SystemChange> {
+        self.system.subscribe()
     }
 
     /// Tells of a routed connection, which `build` makes only when
