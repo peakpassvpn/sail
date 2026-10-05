@@ -25,7 +25,7 @@ pub use spec::{DialSpec, ResolveSpec, RouteDefaults};
 
 #[cfg(all(test, unix))]
 pub(crate) use dialer::recording;
-#[cfg(all(test, unix))]
+#[cfg(all(test, unix, feature = "outbound-direct"))]
 pub(crate) use protect::server as protect_server;
 
 /// The default time a TCP connect to one address may take: sing-box's
