@@ -217,6 +217,17 @@
 #define SAIL_EVENT_USER 13
 
 /*
+ Something sail set up on the system for a TUN (a route, its DNS, its
+ address) that someone else changed, and that sail left as it is:
+ `{"kind": "route" | "dns" | "tun", "resource"}`, `resource` naming the
+ TUN first ("route 0.0.0.0/0 into tun0: gone"). Told once a break, and
+ again only once a check found it right in between; restoring it or
+ rebuilding the instance is the host's. Through stops and starts;
+ `{"lagged": missed}` as for faults. In the tunnel process only.
+ */
+#define SAIL_EVENT_SYSTEM 14
+
+/*
  An instance, as the host holds it; 0 is none.
  */
 typedef uint64_t SailInstance;

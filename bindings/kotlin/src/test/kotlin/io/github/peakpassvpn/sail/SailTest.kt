@@ -111,6 +111,7 @@ class SailTest {
             "group_switch" to GroupSwitch.serializer(),
             "dial_failed" to DialFailed.serializer(),
             "user_event" to UserEvent.serializer(),
+            "system_change" to SystemChange.serializer(),
             "status" to Status.serializer(),
             "traffic" to Traffic.serializer(),
         )

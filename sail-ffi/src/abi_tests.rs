@@ -734,6 +734,7 @@ fn what_happens_is_told_as_it_happens() {
             SAIL_EVENT_GROUP,
             SAIL_EVENT_DIAL,
             SAIL_EVENT_USER,
+            SAIL_EVENT_SYSTEM,
         ] {
             subscribe(instance, kind, None, &quiet, record);
         }

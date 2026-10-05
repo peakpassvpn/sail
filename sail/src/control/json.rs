@@ -480,24 +480,47 @@ pub struct Left {
     pub clear: Option<String>,
 }
 
+/// A left resource's kind, as `Left` and `SystemChange` name it.
+fn left_kind(kind: crate::runtime::teardown::LeftKind) -> &'static str {
+    use crate::runtime::teardown::LeftKind as K;
+    match kind {
+        K::Tun => "tun",
+        K::Route => "route",
+        K::Rule => "rule",
+        K::Dns => "dns",
+        K::Nft => "nft",
+        K::Wfp => "wfp",
+        K::File => "file",
+        K::Task => "task",
+    }
+}
+
 impl Left {
     pub fn of(left: &crate::runtime::teardown::Left) -> Self {
-        use crate::runtime::teardown::LeftKind as K;
-        let kind = match left.kind {
-            K::Tun => "tun",
-            K::Route => "route",
-            K::Rule => "rule",
-            K::Dns => "dns",
-            K::Nft => "nft",
-            K::Wfp => "wfp",
-            K::File => "file",
-            K::Task => "task",
-        };
         Self {
-            kind: kind.into(),
+            kind: left_kind(left.kind).into(),
             resource: left.resource.clone(),
             why: left.why.clone(),
             clear: left.clear.clone(),
+        }
+    }
+}
+
+/// Something sail set up on the system for a TUN that someone else
+/// changed, and that sail left as it is.
+#[derive(Serialize, Clone, PartialEq, Eq, Debug)]
+pub struct SystemChange {
+    /// `route`, `dns` or `tun`, as `Left`'s; more may come.
+    pub kind: String,
+    /// What and how, the TUN named first: `route 0.0.0.0/0 into tun0: gone`.
+    pub resource: String,
+}
+
+impl SystemChange {
+    pub fn of(kind: crate::runtime::teardown::LeftKind, resource: &str) -> Self {
+        Self {
+            kind: left_kind(kind).into(),
+            resource: resource.into(),
         }
     }
 }
@@ -1194,6 +1217,9 @@ mod tests {
                 tag: "t".into(), protocol: "trojan".into(), listen: Some("::".into()),
                 listen_port: Some(443), reloadable: true,
             }] },
+            "system_change": SystemChange {
+                kind: "route".into(), resource: "route 0.0.0.0/0 into tun0: gone".into(),
+            },
             "user_event": UserEvent {
                 event: "removed", user: "alice".into(), over_quota: false, expired: false,
                 inbound: Some("t".into()),

@@ -20,6 +20,7 @@ public enum EventKind: UInt32, Sendable {
     case group = 11
     case dial = 12
     case user = 13
+    case system = 14
 }
 
 final class EventBox {
@@ -134,6 +135,12 @@ extension Sail {
     /// What happens to users; in the tunnel process only.
     public func userEvents() -> AsyncThrowingStream<Told<UserEvent>, Error> {
         typed(.user, Told<UserEvent>.self, options: nil)
+    }
+
+    /// What someone else changed of a TUN's setup, once a break; in the
+    /// tunnel process only.
+    public func systemChanges() -> AsyncThrowingStream<Told<SystemChange>, Error> {
+        typed(.system, Told<SystemChange>.self, options: nil)
     }
 
     public func statuses(intervalMs: UInt64 = 1000) -> AsyncThrowingStream<Status, Error> {

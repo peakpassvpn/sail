@@ -175,6 +175,7 @@ final class SailTests: XCTestCase {
             "group_switch": { try check(GroupSwitch.self, "group_switch") },
             "dial_failed": { try check(DialFailed.self, "dial_failed") },
             "user_event": { try check(UserEvent.self, "user_event") },
+            "system_change": { try check(SystemChange.self, "system_change") },
             "status": { try check(Status.self, "status") },
             "traffic": { try check(Traffic.self, "traffic") },
         ]

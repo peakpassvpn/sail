@@ -367,7 +367,7 @@ pub(crate) fn produce(
             ))
         }
         SAIL_EVENT_FAULT | SAIL_EVENT_ROUTED | SAIL_EVENT_DNS | SAIL_EVENT_GROUP
-        | SAIL_EVENT_DIAL | SAIL_EVENT_USER => {
+        | SAIL_EVENT_DIAL | SAIL_EVENT_USER | SAIL_EVENT_SYSTEM => {
             return Err(Failure::new(
                 crate::SAIL_ERR_UNSUPPORTED,
                 "this kind of event is followed in the tunnel process",

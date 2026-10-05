@@ -181,6 +181,15 @@ public struct DialFailed: Decodable, Equatable, Sendable {
     public let count: UInt64
 }
 
+/// Something sail set up on the system for a TUN that someone else changed,
+/// and that sail left: restoring it or rebuilding the instance is the host's.
+public struct SystemChange: Decodable, Equatable, Sendable {
+    /// route, dns or tun; more may come.
+    public let kind: String
+    /// What and how, the TUN named first: "route 0.0.0.0/0 into tun0: gone".
+    public let resource: String
+}
+
 /// What happened to a user.
 public struct UserEvent: Decodable, Equatable, Sendable {
     /// shut (over its quota or past its expiry) or removed (from an inbound).

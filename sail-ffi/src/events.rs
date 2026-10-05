@@ -95,6 +95,14 @@ pub const SAIL_EVENT_DIAL: u32 = 12;
 /// "over_quota", "expired", "inbound"}`. `{"lagged": missed}` as for
 /// faults. In the tunnel process only.
 pub const SAIL_EVENT_USER: u32 = 13;
+/// Something sail set up on the system for a TUN (a route, its DNS, its
+/// address) that someone else changed, and that sail left as it is:
+/// `{"kind": "route" | "dns" | "tun", "resource"}`, `resource` naming the
+/// TUN first ("route 0.0.0.0/0 into tun0: gone"). Told once a break, and
+/// again only once a check found it right in between; restoring it or
+/// rebuilding the instance is the host's. Through stops and starts;
+/// `{"lagged": missed}` as for faults. In the tunnel process only.
+pub const SAIL_EVENT_SYSTEM: u32 = 14;
 
 /// Intervals shorter are taken as this: a host cannot ask for a busy loop.
 const INTERVAL_MIN: Duration = Duration::from_millis(100);
@@ -488,6 +496,14 @@ fn produce(kind: u32, options: &Options, instance: &Arc<Instance>) -> Result<Pro
             }
             _ => None,
         }),
+        SAIL_EVENT_SYSTEM => {
+            embed_events(instance, sail::embed::Kinds::SYSTEM, |event| match event {
+                sail::embed::Event::SystemChanged { kind, resource } => {
+                    serde_json::to_value(json::SystemChange::of(kind, &resource)).ok()
+                }
+                _ => None,
+            })
+        }
         other => return Err(Failure::invalid(format!("no event kind {}", other))),
     })
 }

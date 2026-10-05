@@ -218,6 +218,18 @@ data class DialFailed(
     val count: Long,
 )
 
+/**
+ * Something sail set up on the system for a TUN that someone else changed,
+ * and that sail left: restoring it or rebuilding the instance is the host's.
+ */
+@Serializable
+data class SystemChange(
+    /** route, dns or tun; more may come. */
+    val kind: String,
+    /** What and how, the TUN named first: "route 0.0.0.0/0 into tun0: gone". */
+    val resource: String,
+)
+
 /** What happened to a user. */
 @Serializable
 data class UserEvent(

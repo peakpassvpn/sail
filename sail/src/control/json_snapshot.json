@@ -288,6 +288,10 @@
     "memory": 4,
     "up_total": 1
   },
+  "system_change": {
+    "kind": "route",
+    "resource": "route 0.0.0.0/0 into tun0: gone"
+  },
   "user_event": {
     "event": "removed",
     "expired": false,
