@@ -172,12 +172,10 @@ A dispatch (`gh workflow run ci.yml --ref <branch>`) runs every job but
 `upstream-watch` (and `docs` off master), and looks up no receipt. `features` runs clippy only: each feature set's
 tests compile, and L1 and L2 run the full build's.
 
-`netns-linux` has one step that is not yet gating (`continue-on-error`):
-`test_wireguard_kernel` (but its throughput measurement), which no CI job
-ran before. It moves into a gating step once it has passed on runners.
-`test_tun_linux` and the ignored `platform::` tests gate. The `platform::`
-tests compare nft(8) listings in the older nft's notation, so a newer nft
-on the runner lists the same rules.
+`netns-linux` runs `test_tun_linux`, `test_wireguard_kernel` (but its
+throughput measurement) and the ignored `platform::` tests, as gating
+steps. The `platform::` tests compare nft(8) listings in the older nft's
+notation, so a newer nft on the runner lists the same rules.
 
 How long each job takes: to be measured.
 

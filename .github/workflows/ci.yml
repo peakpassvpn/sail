@@ -1148,14 +1148,10 @@ jobs:
           sudo ip netns del sail-ci-kernel
           exit $status
 
-      # Not yet gating: the WireGuard endpoint against the kernel's in
-      # namespaces it makes (test_wireguard_kernel, but its throughput
-      # measurement). A failure here shows in the log and leaves the job
-      # green; it moves above, without continue-on-error, once it has
-      # passed on runners.
-      - name: not yet gating, WireGuard's kernel tests
+      # The WireGuard endpoint against the kernel's in namespaces it makes
+      # (test_wireguard_kernel, but its throughput measurement).
+      - name: WireGuard's kernel tests
         if: always() && steps.build.outcome == 'success'
-        continue-on-error: true
         env:
           WG: ${{ steps.build.outputs.wg }}
         run: cd sail && sudo -E "$WG" --ignored --nocapture --test-threads=1 --skip test_wireguard_kernel_throughput
