@@ -6,7 +6,7 @@ import {
   applyCase, collapse, compatibilityPage, labelValue, lackingTypes, literalOf, parentOf, parseType,
   brokenLinks, render, simplifyGates, slug, splitPath, stale, variantOf,
 } from './reference.mjs';
-import { buildModel } from './reference.mjs';
+import { buildModel, rustDefault, rustJson, WORDS } from './reference.mjs';
 import { buildSchema, kindSchema, validate } from './schema.mjs';
 
 // ------------------------------------------------------------ fixture
@@ -121,7 +121,7 @@ function fixture() {
     struct('Route', MODEL, [field('rules', 'Vec < Rule >', 'default')]),
     struct('Rule', MODEL, [
       field('domain', 'Vec < String >', 'default , with = "listable"', 'Domains.'),
-      field('geo', 'Vec < String >', 'default , with = "listable" , alias = "geosite"', 'Categories.'),
+      field('geo', 'List < String >', 'default , alias = "geosite"', 'Categories.'),
       field('outbound', 'Option < String >', 'default', 'Where it goes.'),
     ]),
     struct('Api', MODEL, [
@@ -539,6 +539,20 @@ test('entries are told apart by their type, and a type sail refuses is none of t
 test('a rule takes its action\'s fields, and its conditions one value or a list', () => {
   assert.deepEqual(errorsOf({ route: { rules: [{ domain: 'a', action: 'route', outbound: 'x' }, { domain: ['a', 'b'] }] } }), []);
   assert.deepEqual(errorsOf({ route: { rules: [{ domain: 1 }] } }), ['route.rules[0].domain: number, not string']);
+  // The model's `List` reads as a `Vec` read `with = "listable"` does.
+  assert.deepEqual(errorsOf({ route: { rules: [{ geo: 'a' }, { geo: ['a', 'b'] }] } }), []);
+  assert.deepEqual(errorsOf({ route: { rules: [{ geo: 1 }] } }), ['route.rules[0].geo: number, not string']);
+});
+
+test('a List is documented as a listable Vec is', () => {
+  const model = buildModel(fixture());
+  const vec = { type: 'Vec < String >', meta: 'default , with = "listable"', owner: { source: MODEL } };
+  const list = { type: 'List < String >', meta: 'default', owner: { source: MODEL } };
+  for (const w of [WORDS.en, WORDS.zh]) {
+    assert.equal(rustJson(model, list.type, MODEL, list.meta, w), rustJson(model, vec.type, MODEL, vec.meta, w));
+    assert.equal(rustDefault(model, list, w), rustDefault(model, vec, w));
+  }
+  assert.equal(rustDefault(model, list, WORDS.en), '`[]`');
 });
 
 test('a listable union takes one of its kinds or a list of them', () => {

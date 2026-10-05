@@ -474,16 +474,20 @@ export function lackingTypes(text) {
 
 // ---------------------------------------------------------------- cells
 
+/** Whether a type is the model's `List`, which reads one value or an
+ * array of them, as a `Vec` read `with = "listable"` does. */
+export const isList = node => node.name === 'List' && node.args.length === 1;
+
 /** The JSON type of a Rust field, as sing-box's registry words them. */
 export function rustJson(model, ty, from, meta, w) {
-  const via = arg(meta || '', 'with') || arg(meta || '', 'deserialize_with');
   const node = parseType(ty);
+  const via = isList(node) ? 'listable' : arg(meta || '', 'with') || arg(meta || '', 'deserialize_with');
   if (via) {
     const last = via.split('::').pop();
     if (last === 'duration') return 'duration';
     if (last === 'duration_or_seconds') return w.seconds;
     if (last === 'listable') {
-      const inner = node.name === 'Vec' ? describe(model, node.args[0], from, w) : describe(model, node, from, w);
+      const inner = node.name === 'Vec' || isList(node) ? describe(model, node.args[0], from, w) : describe(model, node, from, w);
       return `${inner}${w.or}${w.arrayOf} ${inner}`;
     }
   }
@@ -539,7 +543,7 @@ export function rustDefault(model, rf, w) {
   let node = parseType(rf.type || 'String');
   // A wrapper reads as what it holds, and leaves it out as that does.
   while (['Box', 'Arc', 'Rc', 'Secret'].includes(node.name) && node.args.length) node = node.args[0];
-  const listable = /\bwith\s*=\s*"[^"]*listable"/.test(meta);
+  const listable = isList(node) || /\bwith\s*=\s*"[^"]*listable"/.test(meta);
   if (node.name === 'Option') return w.unset;
   if (/\bdefault\b/.test(meta)) {
     if (node.name === 'bool') return '`false`';

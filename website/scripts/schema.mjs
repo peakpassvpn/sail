@@ -12,7 +12,7 @@
 // - A rule's action fields are in the rule's object, as sing-box writes
 //   them; a logical rule's rules are rules without actions.
 
-import { applyCase, parseType, serdeOf, splitPath, variantOf, labelValue } from './reference.mjs';
+import { applyCase, isList, parseType, serdeOf, splitPath, variantOf, labelValue } from './reference.mjs';
 
 const arg = (meta, name) => meta.match(new RegExp(`\\b${name}\\s*=\\s*"([^"]+)"`))?.[1];
 
@@ -49,14 +49,14 @@ export function kindSchema(kind, shaped = {}) {
 /** A Rust field's kind, in the registry's words, and its values if it is
  * an enum of names. */
 export function rustKind(model, ty, from, meta = '') {
-  const via = arg(meta, 'with') || arg(meta, 'deserialize_with');
   const node = parseType(ty);
+  const via = isList(node) ? 'listable' : arg(meta, 'with') || arg(meta, 'deserialize_with');
   if (via) {
     const last = via.split('::').pop();
     if (last === 'duration') return { kind: 'duration' };
     if (last === 'duration_or_seconds') return { kind: 'number|duration' };
     if (last === 'listable') {
-      const inner = rustKind(model, node.name === 'Vec' ? typeText(node.args[0]) : ty, from);
+      const inner = rustKind(model, node.name === 'Vec' || isList(node) ? typeText(node.args[0]) : ty, from);
       return { kind: inner.kind.split('|').map(k => (k.startsWith('listable-') ? k : `listable-${k}`)).join('|'), enum: inner.enum };
     }
   }
