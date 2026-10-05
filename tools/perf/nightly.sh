@@ -5,8 +5,9 @@
 #
 #   tools/perf/nightly.sh NEW_SHA [BASE_SHA]
 #
-# NEW_SHA and BASE_SHA are master commits whose perf workflow ran: their
-# x86_64 musl builds are taken from its artifacts. Without BASE_SHA, base
+# NEW_SHA and BASE_SHA are commits ci.yml's perf jobs ran on (the daily
+# schedule's master heads, v* tags): their x86_64 musl builds are taken
+# from perf-size's artifacts. Without BASE_SHA, base
 # is new: a calibration of the noise. The host and its paths are local
 # configuration, never in the repository:
 #
@@ -57,15 +58,18 @@ STAMP=$(date -u +%Y%m%dT%H%MZ)
 OUT=$STATE/$STAMP
 mkdir -p "$OUT"
 
-# The x86_64 musl build of a commit, from its perf workflow's artifact.
+# The x86_64 musl build of a commit, from the artifact of the newest
+# successful ci run on it that has one (only runs with the perf jobs do).
 fetch() {
   local sha=$1 dir=$STATE/bin/$1
   if [ ! -x "$dir/sail" ]; then
     local run
-    run=$(gh run list -R peakpassvpn/sail --workflow perf.yml --commit "$sha" --status success \
-      --json databaseId --jq '.[0].databaseId')
-    [ -n "$run" ] || { echo "no successful perf run for $sha" >&2; exit 1; }
-    gh run download "$run" -R peakpassvpn/sail -n sail-x86_64-unknown-linux-musl -D "$dir"
+    for run in $(gh run list -R peakpassvpn/sail --workflow ci.yml --commit "$sha" --status success \
+      --json databaseId --jq '.[].databaseId'); do
+      gh run download "$run" -R peakpassvpn/sail -n sail-x86_64-unknown-linux-musl -D "$dir" 2>/dev/null && break
+      rm -rf "$dir"
+    done
+    [ -f "$dir/sail" ] || { echo "no successful ci run with the perf jobs for $sha" >&2; exit 1; }
     chmod +x "$dir/sail"
   fi
 }

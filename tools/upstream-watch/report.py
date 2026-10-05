@@ -83,7 +83,7 @@ def main():
     repo = pathlib.Path(sys.argv[sys.argv.index("--repo") + 1]) if "--repo" in sys.argv else HERE.parent.parent
     forks = json.loads((HERE / "forks.json").read_text())
     out = ["# Upstream sync report", "",
-           "Generated weekly by `.github/workflows/upstream-watch.yml` from `tools/upstream-watch/forks.json`. "
+           "Generated weekly by the `upstream-watch` job of `.github/workflows/ci.yml` from `tools/upstream-watch/forks.json`. "
            "To sync a fork: merge upstream into its branch (no rebase, no force push), run its tests, "
            "then move sail's pin in one batch.", ""]
     pending = 0

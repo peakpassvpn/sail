@@ -69,14 +69,16 @@ jobs:
             echo "::error::a release is published from master only"; exit 1
           fi
 
-      # Not run again here: the ci run on this commit must have passed.
+      # Not run again here: the ci run on this commit must have passed. A
+      # scheduled ci run tests nothing (upstream-watch and perf only), so
+      # it does not count.
       - name: ci passed on this commit
         if: ${{ inputs.publish }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml --commit "$GITHUB_SHA" \
-            --json conclusion --jq '.[].conclusion' | grep -qx success ||
+            --json conclusion,event --jq '.[] | select(.event != "schedule") | .conclusion' | grep -qx success ||
             { echo "::error::no successful ci run on $GITHUB_SHA"; exit 1; }
 
       # What the publish job does with the release, said here so that a dry

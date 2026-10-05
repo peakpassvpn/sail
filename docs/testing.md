@@ -89,7 +89,7 @@ What only another target, another architecture or a release build shows:
 the cross builds (`scripts/cross.sh`, one per target, each CLI started
 once under qemu-user or wine), sail's tests natively on aarch64, the
 native Windows MSVC build and test run, the Apple and Android packaging
-(`release.yml`), and the performance runs (`perf.yml`). A repro of sail
+(`release.yml`), and the performance runs (ci.yml's `perf-*` jobs). A repro of sail
 against sing-box on the same configuration, end to end, will be one.
 
 ## Which layer
@@ -155,10 +155,21 @@ Start low: a check that L1 can make does not wait for L3's runner.
 | `cross (<target>)` | L4 | no | always |
 | `test-aarch64` | L4 | no | always |
 | `windows-msvc` (its teardown step is L3) | L4 | no | always |
+| `dependency-security`: dependency sources, RustSec, licences (`tools/security`) | — | when a manifest, the lock file, `tools/security/` or `tools/licences/` changes | when the push changes them |
+| `docs`: the website, built and deployed to GitHub Pages | — | no | when the push changes the website, the crates or the root manifest |
+| `perf-measure`, `perf-size`, `perf-report`: tier A of the performance checks | L4 | on `ci/perf-*` only | daily schedule (03:17 UTC) and each `v*` tag, not on a push |
+| `perf-macos`: iOS's footprint, on macOS | L4 | no | weekly schedule (Monday 02:23 UTC) |
+| `upstream-watch`: each fork against its upstream, into one issue | — | no | weekly schedule (Monday 02:23 UTC) |
 | `release.yml` | L4 | — | by hand |
 
-A dispatch (`gh workflow run ci.yml --ref <branch>`) runs every job, and
-looks up no receipt. `features` runs clippy only: each feature set's
+ci.yml and release.yml are the only workflows. A schedule runs only
+`upstream-watch` and the perf jobs (the weekly cron `upstream-watch` and
+`perf-macos`, the daily one the other three); a `v*` tag runs only the
+perf jobs. `perf-report` compares with the newest successful scheduled or
+tag run's numbers on another commit, and with the last release's.
+
+A dispatch (`gh workflow run ci.yml --ref <branch>`) runs every job but
+`upstream-watch` (and `docs` off master), and looks up no receipt. `features` runs clippy only: each feature set's
 tests compile, and L1 and L2 run the full build's.
 
 `netns-linux` has one step that is not yet gating (`continue-on-error`):

@@ -14,7 +14,7 @@
         names of [a-z0-9_.-] and numbers. Run before it is published.
 
     report.py compare NEW BASE [--release RELEASE]
-        Compares NEW with BASE (the last master run) and, if given, with
+        Compares NEW with BASE (the last scheduled or tag run) and, if given, with
         RELEASE (the last release's), by the thresholds below; writes a
         Markdown table, and exits 1 if any metric crossed one.
 
@@ -29,7 +29,7 @@ import re
 import statistics
 import sys
 
-# metric suffix -> (largest growth against the last master run, against the
+# metric suffix -> (largest growth against the last scheduled or tag run, against the
 # last release, or None; source). The design's section 6, set from the
 # calibration (ten runners, five rounds each, 2026-10-01): "spread" is the
 # largest difference between two runners' medians. The most specific

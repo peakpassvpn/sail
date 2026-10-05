@@ -63,10 +63,13 @@ and carry a SHA-256 checksum. Git repositories and their exact commits are
 listed in `tools/security/policy.toml`; `cargo-deny` independently rejects
 unknown Git sources and anything less specific than `rev`.
 
-CI uses a read-only `contents` token, a commit-pinned checkout action, Rust
+CI runs it as the `dependency-security` job of `.github/workflows/ci.yml`,
+when a Cargo manifest, the root lock file, `THIRD_PARTY_LICENSES.md`,
+`tools/security/` or `tools/licences/` changes, and on a dispatch. The job
+uses a read-only `contents` token, a commit-pinned checkout action, Rust
 1.98.1, and scanner versions pinned above. Scanners install under the runner's
 temporary directory rather than a persistent/global `GOBIN` or Cargo bin
-directory. The workflow does not upload data, write repository contents, or
+directory. The job does not upload data, write repository contents, or
 run on `pull_request_target`.
 
 ## Forks
@@ -75,7 +78,7 @@ Every Git source is a fork under `peakpassvpn`, pinned by full revision in
 `tools/security/policy.toml` and allowed by URL in `tools/security/deny.toml`.
 Each fork's `sail` branch carries a `FORK.md` with the same reason and drop
 condition. How far each is from its upstream is reported weekly by
-`tools/upstream-watch` (its fork list is `tools/upstream-watch/forks.json`)
+`tools/upstream-watch`, from ci.yml's `upstream-watch` job (its fork list is `tools/upstream-watch/forks.json`)
 into the [upstream sync report](https://github.com/peakpassvpn/sail/issues/1),
 which is where a drop condition is seen to be met.
 
