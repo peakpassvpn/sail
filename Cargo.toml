@@ -55,6 +55,13 @@ debug = false
 [profile.dist-mobile]
 inherits = "dist"
 panic = "unwind"
+# Thin LTO in one codegen unit, not dist's fat LTO in 16. Measured
+# 2026-10-06 on Android arm64 (stripped libsail_jni.so, sail-ffi's LTO and
+# link alone): 26.9 MB in 185 s against 28.7 MB in 282 s, its peak build
+# memory 6.0 GB against 8.3; throughput and CPU per GiB the same within
+# 5%. The Apple slices' time and size are measured at the next release.
+lto = "thin"
+codegen-units = 1
 
 [profile.dist-mobile.package.btls-sys]
 debug = false
