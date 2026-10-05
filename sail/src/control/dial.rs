@@ -137,7 +137,9 @@ impl Dialer {
                     .map(Dialed::Datagram),
             }
         };
-        match tokio::time::timeout(timeout, dialed).await {
+        // The instance's work, whoever's task awaits it: what the dial
+        // spawns (a QUIC endpoint's driver) is in its scope.
+        match tokio::time::timeout(timeout, self.env.scope.enter(dialed)).await {
             Ok(Ok(dialed)) => Ok(dialed),
             Ok(Err(e)) if e.kind() == std::io::ErrorKind::NotFound => {
                 Err(ControlError::NotFound(outbound.to_string()))

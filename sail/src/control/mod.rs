@@ -825,7 +825,8 @@ impl RuntimeManager {
         use futures::StreamExt;
         #[cfg(feature = "outbound-select")]
         if let Some(checks) = self.group_checks(group).await {
-            let checked = tokio::time::timeout(timeout, checks.check())
+            // In the instance's scope, as `probe` is.
+            let checked = tokio::time::timeout(timeout, self.env.scope.enter(checks.check()))
                 .await
                 .map_err(|_| ControlError::Timeout)?;
             return Ok(checked
@@ -1124,7 +1125,15 @@ impl RuntimeManager {
         let dns = self.dns_client.clone();
         let probe = HttpProbe::new(url, dns.clone(), &self.env)
             .map_err(|e| ControlError::InvalidUrl(e.to_string()))?;
-        let measured = match tokio::time::timeout(timeout, probe.run(dns, handler)).await {
+        // The instance's work, whoever's task awaits it (a host's, the C
+        // ABI's): what the probe spawns (a QUIC endpoint's driver) is in
+        // its scope, and a stop ends it.
+        let measured = match tokio::time::timeout(
+            timeout,
+            self.env.scope.enter(probe.run(dns, handler)),
+        )
+        .await
+        {
             Ok(Ok(delay)) => Ok(delay.max(Duration::from_millis(1))),
             Ok(Err(e)) => Err(ControlError::Failed(e.to_string())),
             Err(_) => Err(ControlError::Timeout),
