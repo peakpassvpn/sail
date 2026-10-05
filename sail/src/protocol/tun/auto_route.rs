@@ -238,16 +238,24 @@ impl RouteSets {
             if routed.undone {
                 return;
             }
-            // Adding first leaves no moment without a route.
-            for &prefix in wanted.iter().filter(|p| !routed.prefixes.contains(p)) {
-                if let Err(e) = backend.add(prefix) {
-                    warn!("auto_route: route {}/{}: {}", prefix.0, prefix.1, e);
+            // Adding first leaves no moment without a route. Only what was
+            // added is routed: one that failed is tried again on the next
+            // refill, and is not taken for one someone removed.
+            let mut added = Vec::with_capacity(wanted.len());
+            for &prefix in &wanted {
+                if routed.prefixes.contains(&prefix) {
+                    added.push(prefix);
+                    continue;
+                }
+                match backend.add(prefix) {
+                    Ok(()) => added.push(prefix),
+                    Err(e) => warn!("auto_route: route {}/{}: {}", prefix.0, prefix.1, e),
                 }
             }
             for &prefix in routed.prefixes.iter().filter(|p| !wanted.contains(p)) {
                 let _ = backend.delete(prefix);
             }
-            routed.prefixes = wanted;
+            routed.prefixes = added;
         };
         let mut first = true;
         loop {
