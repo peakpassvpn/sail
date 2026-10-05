@@ -74,6 +74,7 @@ mod test_reality;
 mod test_redaction;
 mod test_reload;
 mod test_reload_inbounds;
+mod test_reload_recheck;
 mod test_reload_sessions;
 mod test_reload_untouched;
 mod test_route_actions;

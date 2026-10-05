@@ -815,6 +815,54 @@ fn a_reload_tells_what_became_of_each_inbound() {
     });
 }
 
+/// A reload with options rechecks the connections open when they ask it
+/// to, and its report tells the recheck; without them it tells none, and
+/// an option it does not know fails it, the instance as it was.
+#[test]
+fn a_reload_with_options_tells_its_recheck() {
+    let _serial = serial();
+    within(Duration::from_secs(30), || {
+        let instance = new_instance(None, None);
+        let port = start_on_free_port(instance, config);
+        let text = CString::new(config(port)).unwrap();
+        let report = json_of(|out, err| unsafe {
+            sail_instance_reload_with(
+                instance,
+                text.as_ptr(),
+                c"{\"recheck_open\": \"close_rejected\"}".as_ptr(),
+                out,
+                err,
+            )
+        });
+        assert_eq!(
+            report["recheck"],
+            serde_json::json!({ "closed": [], "differ": [] }),
+            "{}",
+            report
+        );
+        let report = json_of(|out, err| unsafe {
+            sail_instance_reload_with(instance, text.as_ptr(), std::ptr::null(), out, err)
+        });
+        assert!(report.get("recheck").is_none(), "{}", report);
+        let mut out = std::ptr::null_mut();
+        assert_eq!(
+            code(|err| unsafe {
+                sail_instance_reload_with(
+                    instance,
+                    text.as_ptr(),
+                    c"{\"recheck\": \"close_rejected\"}".as_ptr(),
+                    &mut out,
+                    err,
+                )
+            }),
+            SAIL_ERR_INVALID_ARGUMENT
+        );
+        assert!(out.is_null());
+        stop(instance);
+        sail_instance_free(instance);
+    });
+}
+
 /// A stop's bound is the host's to set; the traffic counts the faults
 /// (none here), and their event is followed.
 #[test]

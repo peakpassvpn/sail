@@ -8,7 +8,7 @@ use std::time::{Duration, SystemTime};
 
 use futures::future::BoxFuture;
 
-use super::{Config, Error, ErrorKind, Options, ReloadReport, State, Threads};
+use super::{Config, Error, ErrorKind, Options, ReloadOptions, ReloadReport, State, Threads};
 use crate::app::logger::{InstanceLog, InstanceLogRef};
 use crate::runtime::{Host, Platform, PlatformRef, RuntimeOptions};
 use crate::{RuntimeId, RuntimeManager};
@@ -222,22 +222,37 @@ impl Instance {
     /// what a reload keeps, and for the two errors of its own:
     /// `NeedsRestart` and `InboundLost`.
     pub async fn reload(&self, config: Option<Config>) -> Result<ReloadReport, Error> {
+        self.reload_rechecking(config, ReloadOptions::default())
+            .await
+    }
+
+    /// `reload`, the connections open treated as `options` says. With
+    /// `RecheckOpen::CloseRejected` each the rules routed is matched again,
+    /// once the reload took, against the routing it leaves, with no side
+    /// effect: those the rules now reject or drop are closed, and the
+    /// report's `recheck` lists them, and those the rules send to another
+    /// outbound, which go on. With `Keep`, the default, it is `reload`.
+    pub async fn reload_rechecking(
+        &self,
+        config: Option<Config>,
+        options: ReloadOptions,
+    ) -> Result<ReloadReport, Error> {
         let host = self.inner().host.clone();
         self.with_manager(move |manager| {
             Box::pin(async move {
-                match config {
-                    None => manager.reload_reporting().await,
-                    Some(config) => {
-                        let config = match config {
+                let config = match config {
+                    None => None,
+                    Some(config) => Some(
+                        match config {
                             Config::Json(text) => crate::config::from_string_for(&text, &host),
                             Config::File(path) => {
                                 crate::config::from_file_for(&path.to_string_lossy(), &host)
                             }
                         }
-                        .map_err(crate::Error::Config)?;
-                        manager.reload_with_reporting(config).await
-                    }
-                }
+                        .map_err(crate::Error::Config)?,
+                    ),
+                };
+                manager.reload_rechecking(config, options).await
             })
         })
         .await?

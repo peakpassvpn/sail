@@ -27,6 +27,7 @@ pub mod nat_manager;
 pub mod outbound;
 #[cfg(feature = "outbound-provider")]
 pub(crate) mod provider;
+pub(crate) mod recheck;
 pub mod router;
 pub mod sessions;
 pub mod stat_manager;

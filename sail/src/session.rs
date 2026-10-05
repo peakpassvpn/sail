@@ -352,6 +352,9 @@ pub struct Session {
     /// The routing rule that decided where the connection goes, as it is
     /// written out: `None` for `route.final`.
     pub matched_rule: Option<std::sync::Arc<str>>,
+    /// The number of the router that routed it (`Router::generation`):
+    /// 0 when no rules did, as for a host's own dial.
+    pub routed_by: u64,
     /// The members the groups the connection went through handed it to,
     /// the outermost first: shared by the session's copies, as each group
     /// adds its member before it dials the member.
@@ -645,6 +648,7 @@ impl Clone for Session {
             route: self.route.clone(),
             matched_rule_set: self.matched_rule_set.clone(),
             matched_rule: self.matched_rule.clone(),
+            routed_by: self.routed_by,
             chain: self.chain.clone(),
             neighbor: self.neighbor.clone(),
             owner: self.owner.clone(),
@@ -682,6 +686,7 @@ impl Default for Session {
             route: RouteOptions::default(),
             matched_rule_set: None,
             matched_rule: None,
+            routed_by: 0,
             chain: Chain::default(),
             neighbor: None,
             owner: None,

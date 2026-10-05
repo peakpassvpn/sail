@@ -738,6 +738,9 @@ impl Dispatcher {
                 Some(s) => {
                     let (s, listed) = self.stat_manager.stat_stream_id(s, sess.clone());
                     id = Some(listed);
+                    if self.stat_manager.recheck_due(sess.routed_by) {
+                        self.recheck_late(&sess, listed).await;
+                    }
                     Some(s)
                 }
                 None => {
@@ -747,6 +750,9 @@ impl Dispatcher {
                         lhs = counted;
                         id = Some(listed);
                         lhs_counted = true;
+                        if self.stat_manager.recheck_due(sess.routed_by) {
+                            self.recheck_late(&sess, listed).await;
+                        }
                     }
                     None
                 }
@@ -1178,6 +1184,9 @@ impl Dispatcher {
 
                 let (counted, id) = self.stat_manager.stat_outbound_datagram_id(d, sess.clone());
                 d = counted;
+                if self.stat_manager.recheck_due(sess.routed_by) {
+                    self.recheck_late(&sess, id).await;
+                }
                 let told = Told {
                     matched,
                     id: Some(id),
@@ -1399,6 +1408,25 @@ impl Dispatcher {
         }
     }
 
+    /// The connection `id`, just listed with `sess`, which a router older
+    /// than the one a reload rechecked the connections open against routed
+    /// (`StatManager::recheck_due`): rechecked now, as that recheck would
+    /// have, and closed if the rules reject or drop it. Boxed: a connection
+    /// keeps no room for it.
+    fn recheck_late<'a>(
+        &'a self,
+        sess: &'a Session,
+        id: u64,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>> {
+        Box::pin(super::recheck::late(
+            &self.stat_manager,
+            self.router.load_full(),
+            self.outbound_manager.load_full(),
+            sess,
+            id,
+        ))
+    }
+
     /// Where `sess` goes, as the rules decide; an error when a rule rejects
     /// it.
     async fn route(&self, sess: &mut Session, sniffer: &mut dyn Sniffer) -> io::Result<Routed> {
@@ -1418,6 +1446,7 @@ impl Dispatcher {
         self.find_owner(sess).await;
         let outbounds = self.outbound_manager.load_full();
         let router = self.router.load_full();
+        sess.routed_by = router.generation();
         let decision = router
             .pick_route(sess, sniffer, &*outbounds)
             .await

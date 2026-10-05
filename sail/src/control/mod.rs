@@ -38,6 +38,90 @@ pub struct ReloadReport {
     pub inbounds: Vec<(String, InboundChange)>,
     /// What the reload took and did not reach everything with.
     pub notes: Vec<ReloadNote>,
+    /// What the recheck of the connections open found, when the reload
+    /// was asked for one (`RecheckOpen::CloseRejected`).
+    pub recheck: Option<RecheckReport>,
+}
+
+/// How a reload treats what is not in its configuration.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct ReloadOptions {
+    /// What becomes of the connections open.
+    pub recheck_open: RecheckOpen,
+}
+
+impl ReloadOptions {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// With the connections open treated as `how` says.
+    pub fn recheck_open(mut self, how: RecheckOpen) -> Self {
+        self.recheck_open = how;
+        self
+    }
+}
+
+/// What a reload does with the connections open, besides closing those of
+/// the inbounds it removes or replaces.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum RecheckOpen {
+    /// They go on as they were routed, and are not looked at.
+    #[default]
+    Keep,
+    /// Each is matched again against the routing the reload leaves, as it
+    /// was routed and with no side effect: those the rules now reject or
+    /// drop are closed, and those they send to another outbound are told
+    /// and go on.
+    CloseRejected,
+}
+
+impl RecheckOpen {
+    /// As the API and the C ABI name it.
+    pub fn name(self) -> &'static str {
+        match self {
+            RecheckOpen::Keep => "keep",
+            RecheckOpen::CloseRejected => "close_rejected",
+        }
+    }
+}
+
+/// What a reload's recheck of the connections open found.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct RecheckReport {
+    /// Those it closed, the rules rejecting or dropping them now.
+    pub closed: Vec<RecheckClosed>,
+    /// Those the rules now send to another outbound than the one they
+    /// went to: told, and not closed.
+    pub differ: Vec<RecheckDiffer>,
+}
+
+/// A connection a recheck closed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct RecheckClosed {
+    /// Its id, as the connections list it.
+    pub id: u64,
+    /// The index in `route.rules` of the rule that rejects it, as the
+    /// routed event names it.
+    pub rule: Option<u32>,
+}
+
+/// A connection the rules now send elsewhere.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct RecheckDiffer {
+    /// Its id, as the connections list it.
+    pub id: u64,
+    /// The outbound it went to, the last of its chain as the connections
+    /// list it.
+    pub old: String,
+    /// The one the rules send it to now; `hijack-dns` when a hijack-dns
+    /// rule takes it.
+    pub new: String,
 }
 
 /// Something a reload took that did not reach all it concerns.

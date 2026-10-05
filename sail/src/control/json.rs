@@ -12,7 +12,7 @@
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 fn millis_since_epoch(time: SystemTime) -> u64 {
     time.duration_since(UNIX_EPOCH)
@@ -81,6 +81,93 @@ pub struct ReloadReport {
     pub inbounds: Vec<ReloadedInbound>,
     /// What the reload took and did not reach everything with.
     pub notes: Vec<ReloadNote>,
+    /// What the recheck of the connections open found; only there when
+    /// the reload was asked for one (`"recheck_open": "close_rejected"`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recheck: Option<Recheck>,
+}
+
+/// What a reload's recheck of the connections open found.
+#[derive(Serialize, Clone, PartialEq, Eq, Debug)]
+pub struct Recheck {
+    /// Those it closed, the rules rejecting or dropping them now.
+    pub closed: Vec<RecheckClosed>,
+    /// Those the rules now send to another outbound, which go on.
+    pub differ: Vec<RecheckDiffer>,
+}
+
+#[derive(Serialize, Clone, PartialEq, Eq, Debug)]
+pub struct RecheckClosed {
+    /// Its id, as the connections list it.
+    pub id: u64,
+    /// The index in `route.rules` of the rule that rejects it, as the
+    /// routed event's `rule`.
+    pub rule: Option<u32>,
+}
+
+#[derive(Serialize, Clone, PartialEq, Eq, Debug)]
+pub struct RecheckDiffer {
+    pub id: u64,
+    /// The outbound it went to.
+    pub old: String,
+    /// The one the rules send it to now; `hijack-dns` for a hijack-dns
+    /// rule.
+    pub new: String,
+}
+
+impl Recheck {
+    pub fn of(report: &crate::control::RecheckReport) -> Self {
+        Self {
+            closed: report
+                .closed
+                .iter()
+                .map(|c| RecheckClosed {
+                    id: c.id,
+                    rule: c.rule,
+                })
+                .collect(),
+            differ: report
+                .differ
+                .iter()
+                .map(|d| RecheckDiffer {
+                    id: d.id,
+                    old: d.old.clone(),
+                    new: d.new.clone(),
+                })
+                .collect(),
+        }
+    }
+}
+
+/// How a host asks a reload to treat the connections open:
+/// `{"recheck_open": "keep" | "close_rejected"}`, the key left out for
+/// `keep`. Any other key is an error.
+#[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct ReloadOptions {
+    #[serde(default)]
+    recheck_open: RecheckOpen,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+enum RecheckOpen {
+    #[default]
+    Keep,
+    CloseRejected,
+}
+
+impl ReloadOptions {
+    /// The options `text` gives, or why it gives none.
+    pub fn parse(text: &[u8]) -> Result<crate::control::ReloadOptions, String> {
+        let options: Self = serde_json::from_slice(text).map_err(|e| e.to_string())?;
+        Ok(
+            crate::control::ReloadOptions::new().recheck_open(match options.recheck_open {
+                RecheckOpen::Keep => crate::control::RecheckOpen::Keep,
+                RecheckOpen::CloseRejected => crate::control::RecheckOpen::CloseRejected,
+            }),
+        )
+    }
 }
 
 #[derive(Serialize, Clone, PartialEq, Eq, Debug)]
@@ -129,6 +216,7 @@ impl ReloadReport {
                     }
                 })
                 .collect(),
+            recheck: report.recheck.as_ref().map(Recheck::of),
         }
     }
 }
@@ -953,6 +1041,47 @@ mod tests {
     use super::*;
     use std::time::Duration;
 
+    /// A reload's report has `recheck` only when one ran, in the shape
+    /// docs/ffi.md gives; the options read as the C ABI and the API take
+    /// them, and a key they do not have is an error.
+    #[test]
+    fn a_recheck_is_told_only_when_one_ran() {
+        let mut report = crate::control::ReloadReport::default();
+        let json = serde_json::to_value(ReloadReport::of(&report)).unwrap();
+        assert!(json.get("recheck").is_none(), "{}", json);
+        report.recheck = Some(crate::control::RecheckReport {
+            closed: vec![crate::control::RecheckClosed {
+                id: 1,
+                rule: Some(3),
+            }],
+            differ: vec![crate::control::RecheckDiffer {
+                id: 2,
+                old: "a".into(),
+                new: "b".into(),
+            }],
+        });
+        let json = serde_json::to_value(ReloadReport::of(&report)).unwrap();
+        assert_eq!(
+            json["recheck"],
+            serde_json::json!({
+                "closed": [{ "id": 1, "rule": 3 }],
+                "differ": [{ "id": 2, "old": "a", "new": "b" }],
+            })
+        );
+
+        use crate::control::RecheckOpen;
+        let read = |text: &str| ReloadOptions::parse(text.as_bytes()).map(|o| o.recheck_open);
+        assert_eq!(read(r#"{}"#), Ok(RecheckOpen::Keep));
+        assert_eq!(read(r#"{"recheck_open":"keep"}"#), Ok(RecheckOpen::Keep));
+        assert_eq!(
+            read(r#"{"recheck_open":"close_rejected"}"#),
+            Ok(RecheckOpen::CloseRejected)
+        );
+        assert!(read(r#"{"recheck_open":"close"}"#).is_err());
+        let unknown = read(r#"{"recheck":"close_rejected"}"#).unwrap_err();
+        assert!(unknown.contains("unknown field"), "{}", unknown);
+    }
+
     /// The contract, as it is: a change to the control types or to these
     /// that changes the JSON fails here.
     #[test]
@@ -975,6 +1104,9 @@ mod tests {
                     endpoint: Some("wg".into()),
                     options: vec!["route.default_mark".into()],
                 }],
+                // Not published here, the bindings' models not having it yet:
+                // see `a_recheck_is_told_only_when_one_ran`.
+                recheck: None,
             },
             "routed": Routed {
                 id: Some(7), network: "tcp".into(), inbound: "tun-in".into(),

@@ -176,9 +176,24 @@ mod handlers {
     /// removed, replaced. Only the removed and the replaced had their
     /// connections closed. `path` is `inbounds_only` when nothing but the
     /// inbounds differed from what ran, and nothing else was built again;
-    /// `full` otherwise.
-    pub async fn runtime_reload(State(rm): State<Arc<RuntimeManager>>) -> Response {
-        match rm.reload_reporting().await {
+    /// `full` otherwise. The request's body, JSON, may be empty, or say
+    /// what becomes of the connections open: `{"recheck_open":
+    /// "close_rejected"}` rechecks them against the routing the reload
+    /// leaves, closes those it rejects, and answers with `"recheck":
+    /// {"closed": [{"id", "rule"}], "differ": [{"id", "old", "new"}]}`;
+    /// `keep`, the default, leaves them.
+    pub async fn runtime_reload(
+        State(rm): State<Arc<RuntimeManager>>,
+        body: axum::body::Bytes,
+    ) -> Response {
+        let options = match body.is_empty() {
+            true => Default::default(),
+            false => match json::ReloadOptions::parse(&body) {
+                Ok(options) => options,
+                Err(e) => return error(StatusCode::BAD_REQUEST, "invalid", format!("body: {}", e)),
+            },
+        };
+        match rm.reload_rechecking(None, options).await {
             Ok(report) => {
                 let inbounds: Vec<_> = report
                     .inbounds
@@ -186,12 +201,15 @@ mod handlers {
                     .map(|(tag, change)| serde_json::json!({ "tag": tag, "change": change.name() }))
                     .collect();
                 let notes: Vec<_> = report.notes.iter().map(|note| note.to_string()).collect();
-                Json(serde_json::json!({
+                let mut answer = serde_json::json!({
                     "path": report.path.name(),
                     "inbounds": inbounds,
                     "notes": notes,
-                }))
-                .into_response()
+                });
+                if let Some(recheck) = &report.recheck {
+                    answer["recheck"] = serde_json::json!(json::Recheck::of(recheck));
+                }
+                Json(answer).into_response()
             }
             Err(e) => {
                 warn!("reload failed, the configuration running is kept: {:#}", e);

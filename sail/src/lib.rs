@@ -627,23 +627,7 @@ impl RuntimeManager {
 
     /// `reload`, and what it did to each inbound.
     pub async fn reload_reporting(&self) -> Result<control::ReloadReport, Error> {
-        let config_path = if let Some(p) = self.config_path.as_ref() {
-            p
-        } else {
-            return Err(Error::NoConfigFile);
-        };
-        let _update = self.update.lock().await;
-        info!("reloading from config file: {}", config_path);
-        let config = config::from_file_for(config_path, &self.env.host).map_err(Error::Config);
-        // Taken or refused, a document was read and dropped.
-        let report = match config {
-            Ok(config) => self.apply(config).await,
-            Err(e) => Err(e),
-        };
-        runtime::memory::freed();
-        let report = report?;
-        info!("reloaded from config file: {}", config_path);
-        Ok(report)
+        self.reload_rechecking(None, Default::default()).await
     }
 
     /// Reloads with `config`, as a reload from the file does: the host's,
@@ -657,13 +641,84 @@ impl RuntimeManager {
         &self,
         config: config::Config,
     ) -> Result<control::ReloadReport, Error> {
+        self.reload_rechecking(Some(config), Default::default())
+            .await
+    }
+
+    /// Reloads with `config`, or, with none, from the configuration file,
+    /// as `reload_with_reporting` and `reload_reporting` do, the
+    /// connections open treated as `options` says: kept, or rechecked
+    /// against the routing the reload leaves, and closed where it rejects
+    /// them (`RecheckOpen`). The report waits for the recheck.
+    pub async fn reload_rechecking(
+        &self,
+        config: Option<config::Config>,
+        options: control::ReloadOptions,
+    ) -> Result<control::ReloadReport, Error> {
+        let path = match &config {
+            Some(_) => None,
+            None => Some(self.config_path.as_deref().ok_or(Error::NoConfigFile)?),
+        };
         let _update = self.update.lock().await;
-        info!("reloading with the configuration given");
-        let report = self.apply(config).await;
+        let config = match (config, path) {
+            (Some(config), _) => {
+                info!("reloading with the configuration given");
+                Ok(config)
+            }
+            (None, Some(path)) => {
+                info!("reloading from config file: {}", path);
+                config::from_file_for(path, &self.env.host).map_err(Error::Config)
+            }
+            // Without a configuration given, there is its file's path.
+            (None, None) => Err(Error::NoConfigFile),
+        };
+        // Taken or refused, a document was read and dropped.
+        let report = match config {
+            Ok(config) => self.apply(config).await,
+            Err(e) => Err(e),
+        };
         runtime::memory::freed();
-        let report = report?;
-        info!("reloaded with the configuration given");
+        let mut report = report?;
+        report.recheck = self.recheck_open(options.recheck_open).await;
+        match path {
+            Some(path) => info!("reloaded from config file: {}", path),
+            None => info!("reloaded with the configuration given"),
+        }
         Ok(report)
+    }
+
+    /// What a reload that took does with the connections open, as `how`
+    /// says, its changes lock held: those of the inbounds it removed or
+    /// replaced are closed already. Each other the rules routed is
+    /// rechecked against the router now, the one the reload stored or,
+    /// where it built no other, the one that ran (app/recheck.rs).
+    async fn recheck_open(&self, how: control::RecheckOpen) -> Option<control::RecheckReport> {
+        match how {
+            control::RecheckOpen::Keep => {
+                self.stat_manager.recheck_since(0);
+                None
+            }
+            control::RecheckOpen::CloseRejected => {
+                let router = self.router.load_full();
+                // Before the pass: what an older router routed and is
+                // listed once the pass went by is rechecked as it is.
+                self.stat_manager.recheck_since(router.generation());
+                let started = std::time::Instant::now();
+                let report = app::recheck::pass(
+                    &self.stat_manager,
+                    &router,
+                    &self.outbound_manager.load_full(),
+                )
+                .await;
+                info!(
+                    "the connections open rechecked in {:?}: {} closed, {} sent elsewhere now",
+                    started.elapsed(),
+                    report.closed.len(),
+                    report.differ.len()
+                );
+                Some(report)
+            }
+        }
     }
 
     /// Replaces what the instance runs with what `config` makes, keeping
@@ -852,7 +907,8 @@ impl RuntimeManager {
             .set_limits(user::UserRegistry::configured(&config));
         self.dns_client.store(dns_client.into_arc());
         let replaced = self.outbound_manager.swap(Arc::new(outbound_manager));
-        self.router.store(Arc::new(router));
+        self.router
+            .store(Arc::new(router.after(&self.router.load())));
         #[cfg(all(
             feature = "inbound-tun",
             any(target_os = "linux", target_os = "macos", target_os = "windows")
@@ -906,6 +962,7 @@ impl RuntimeManager {
             path: control::ReloadPath::Full,
             inbounds: reloaded.changes,
             notes,
+            recheck: None,
         })
     }
 
@@ -944,6 +1001,7 @@ impl RuntimeManager {
             path: control::ReloadPath::InboundsOnly,
             inbounds: reloaded.changes,
             notes: Vec::new(),
+            recheck: None,
         })
     }
 

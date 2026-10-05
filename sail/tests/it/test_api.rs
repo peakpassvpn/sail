@@ -264,6 +264,22 @@ fn a_reload_that_fails_says_why_and_keeps_what_runs() -> anyhow::Result<()> {
         )?;
         let (status, _, body) = call(&rt, &at, Some(SECRET), "POST", reload, "")?;
         anyhow::ensure!(status == 200, "{} {}", status, body);
+        anyhow::ensure!(body.get("recheck").is_none(), "{}", body);
+
+        // Asked to, a reload rechecks the connections open, and tells so;
+        // an option it does not know is refused, and nothing reloaded.
+        let options = r#"{"recheck_open":"close_rejected"}"#;
+        let (status, _, body) = call(&rt, &at, Some(SECRET), "POST", reload, options)?;
+        anyhow::ensure!(status == 200, "{} {}", status, body);
+        anyhow::ensure!(
+            body["recheck"] == serde_json::json!({ "closed": [], "differ": [] }),
+            "{}",
+            body
+        );
+        let unknown = r#"{"recheck":"close_rejected"}"#;
+        let (status, _, body) = call(&rt, &at, Some(SECRET), "POST", reload, unknown)?;
+        anyhow::ensure!(status == 400, "{} {}", status, body);
+        anyhow::ensure!(error(&body).0 == "invalid", "{}", body);
 
         // A reload tells what became of each inbound: one the file adds,
         // then one it no longer has.

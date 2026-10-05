@@ -683,6 +683,11 @@ pub struct StatManager {
     read: Mutex<HashMap<(u8, String), Counts>>,
     /// One write to the cache file at a time, its counts read under it.
     stores: Mutex<()>,
+    /// The number of the router the last reload rechecked the connections
+    /// open against, when it did (`RecheckOpen::CloseRejected`); 0 when it
+    /// did not. A connection an older router routed may be listed after
+    /// the recheck went by: it is rechecked as it is listed.
+    recheck_since: AtomicU64,
 }
 
 impl Default for StatManager {
@@ -707,7 +712,24 @@ impl StatManager {
             users,
             read: Mutex::default(),
             stores: Mutex::default(),
+            recheck_since: AtomicU64::new(0),
         }
+    }
+
+    /// Has the connections an older router than the one numbered
+    /// `generation` routed rechecked as they are listed, from now until
+    /// the next reload; 0 has none rechecked. Set before the recheck of
+    /// those open goes over them: one listed once it went by is listed
+    /// after this, and sees it.
+    pub(crate) fn recheck_since(&self, generation: u64) {
+        self.recheck_since.store(generation, Ordering::SeqCst);
+    }
+
+    /// Whether a connection the router numbered `routed_by` routed, just
+    /// listed, is to be rechecked: a reload rechecked those open against a
+    /// newer router. While none did, this is one load.
+    pub(crate) fn recheck_due(&self, routed_by: u64) -> bool {
+        routed_by != 0 && routed_by < self.recheck_since.load(Ordering::Relaxed)
     }
 
     /// Goes on from the counts `kept`, as the cache file had them. Called

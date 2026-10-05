@@ -41,7 +41,14 @@ sail_instance_free(instance);
   `sail_instance_reload_report` reloads and tells what became of each
   inbound (only those removed or replaced lost their connections), whether
   only the inbounds were built again (`"path": "inbounds_only"`), and what
-  did not reach a running endpoint.
+  did not reach a running endpoint. `sail_instance_reload_with` takes
+  options as JSON besides: with `{"recheck_open": "close_rejected"}` the
+  connections open are matched again against the routing the reload
+  leaves, those it rejects or drops are closed, and the report's
+  `"recheck": {"closed": [{"id", "rule"}], "differ": [{"id", "old",
+  "new"}]}` lists them, and those now sent to another outbound, which go
+  on. `keep`, the default, leaves them; an unknown key is
+  `SAIL_ERR_INVALID_ARGUMENT`. See docs/embed.md.
   Any number of instances run at once, each with its own log.
 - A stop while the instance starts ends the start: the start returns
   `SAIL_ERR_CANCELLED`. Stopping an instance not running does nothing.

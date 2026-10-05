@@ -666,12 +666,14 @@ int32_t sail_instance_reload(SailInstance instance, const char *config, char **e
 /*
  `sail_instance_reload`, telling what it did, as JSON: `{"path": "full" |
  "inbounds_only", "inbounds": [{"tag", "change": "untouched" |
- "reloaded" | "added" | "removed" | "replaced"}], "notes": [{"kind":
- "endpoint_keeps_defaults", "text", "endpoint", "options"}]}`. Only the
- inbounds removed and replaced had their connections closed; with
- `inbounds_only`, the outbounds, groups, DNS and routing, and what they
- held, are those that ran. A reload that fails tells nothing and leaves
- the instance as it was.
+ "reloaded" | "added" | "removed" | "replaced" | "lost"}], "notes":
+ [{"kind": "endpoint_keeps_defaults", "text", "endpoint", "options"}],
+ "recheck": {"closed": [{"id", "rule"}], "differ": [{"id", "old",
+ "new"}]}}`, `recheck` only where `sail_instance_reload_with` asked for
+ one. Only the inbounds removed and replaced had their connections
+ closed; with `inbounds_only`, the outbounds, groups, DNS and routing,
+ and what they held, are those that ran. A reload that fails tells
+ nothing and leaves the instance as it was.
 
  @return SAIL_ERR_NEEDS_RESTART when it adds, removes or changes what
      only a start sets up (a TUN); SAIL_ERR_INBOUND_LOST when an inbound
@@ -682,6 +684,25 @@ int32_t sail_instance_reload_report(SailInstance instance,
                                     const char *config,
                                     char **out,
                                     char **err);
+
+/*
+ `sail_instance_reload_report`, the connections open treated as
+ `options` says, JSON, or as when null: `{"recheck_open": "keep" |
+ "close_rejected"}`. With `close_rejected` each connection the rules
+ routed is matched again, once the reload took, against the routing it
+ leaves, with no side effect: those the rules now reject or drop are
+ closed and listed in the report's `recheck.closed`, with the index of
+ the rule in `route.rules`; those they send to another outbound go on,
+ and are listed in `recheck.differ`. `keep`, the default, leaves them.
+
+ @return SAIL_ERR_INVALID_ARGUMENT when `options` is not such JSON, a key
+     unknown; as `sail_instance_reload_report` otherwise.
+ */
+int32_t sail_instance_reload_with(SailInstance instance,
+                                  const char *config,
+                                  const char *options,
+                                  char **out,
+                                  char **err);
 
 /*
  Stops the instance, and waits up to `timeout_ms` for it to have

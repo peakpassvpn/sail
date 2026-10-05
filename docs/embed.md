@@ -225,7 +225,7 @@ A full reload:
 | | after a full reload |
 |---|---|
 | inbounds | those the configuration has are those that run. Compared by tag with those running: one that is the same is not touched; one whose users, certificate or key alone changed gets them, its listener kept; a new one is built and listens; one the configuration no longer has is removed; one changed otherwise (its port, its type, its transport) is replaced. A TUN is set up only at a start: see below |
-| connections already open | kept, on the outbound they were routed through, except those of an inbound removed or replaced, which are closed (tested: `sail/tests/it/test_reload_inbounds.rs`, where connections on an untouched inbound carry on through a reload byte for byte) |
+| connections already open | kept, on the outbound they were routed through, except those of an inbound removed or replaced, which are closed (tested: `sail/tests/it/test_reload_inbounds.rs`, where connections on an untouched inbound carry on through a reload byte for byte). Not matched against the new rules, unless the reload asks for it: see *Rechecking the connections open* |
 | outbounds | rebuilt from the new configuration. Endpoints (WireGuard) and the outbounds they are built on are kept. Tasks the replaced outbounds ran (health checks, idle-session cleanup) stop. The replaced outbounds' sessions (AnyTLS, sing-mux) carry the connections they hold, and close when those connections end |
 | group selections, pins | kept, for groups of the same tag |
 | delays measured | kept |
@@ -266,7 +266,46 @@ became of it.
 - New and replaced inbounds accept once the new routing is in place.
 - sing-box closes every connection on a reload: it builds the instance
   anew. sail closes those of the inbounds removed or replaced, and no
-  others.
+  others, unless the reload is asked to recheck the rest (below): then
+  it closes those the new rules reject too, and only those.
+
+**Rechecking the connections open.** By default a reload leaves the
+connections open as they were routed: a rule added to reject a site
+holds for the connections made after it. `reload_rechecking(config,
+ReloadOptions::new().recheck_open(RecheckOpen::CloseRejected))` matches
+each connection the rules routed, once the reload took, against the
+routing it leaves, and closes those the rules now reject or drop, as an
+inbound's removal closes its connections. A reload of the inbounds alone,
+or with the very configuration that runs, rechecks against the routing
+that ran. The report waits for the recheck; `ReloadReport::recheck`
+tells it, `None` when none was asked for:
+
+- `closed`: each connection closed, by its id in the connections list,
+  with the index in `route.rules` of the rule that rejects it, as the
+  routed event names rules.
+- `differ`: each connection the rules now send to another outbound than
+  the one it went to (`old`, `new`). It is told, and goes on where it
+  was: an open connection is never moved.
+
+The recheck has no side effect. It walks the session the connection was
+routed with, from the destination asked for, before any override. It
+reads nothing more of the connection: from the first sniff rule on, what
+was sniffed then stands. It asks no DNS: a resolve rule gives the
+addresses resolved then, and a rule on addresses sees no others, as with
+`no_resolve`. A rejection counts toward no rule's flood. The network and
+the clash mode are as they are now, and the rule-sets as they were
+loaded; a captive portal, which sends connections direct, is not taken
+into account. A UDP session is rechecked by its first destination. A
+connection the old routing routed that is listed only after the recheck
+went by is rechecked as it is listed, until the next reload: a reload
+that keeps the connections open ends that too, so one still in its
+handshake then is kept, as the newest reload says. Connections
+a host dials itself (`dial`) went by no rule and are not rechecked. Only
+the connections open are rechecked: the multiplexed sessions an outbound
+holds, and what an inbound's carrier holds, are not connections of their
+own. Through the C ABI this is `sail_instance_reload_with`, through the
+management API `POST /api/v1/runtime/reload` with `{"recheck_open":
+"close_rejected"}`.
 
 So a reload that changes only `dns.servers` swaps the servers and does not
 interrupt established connections. New queries go to the new servers, with

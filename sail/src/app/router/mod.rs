@@ -345,6 +345,12 @@ impl Reject {
     const FLOOD: usize = 50;
     const WINDOW: Duration = Duration::from_secs(30);
 
+    /// Whether a rejection drops the connection by the rule's method
+    /// alone, as a recheck takes it: it counts toward no flood.
+    fn drops_by_method(&self) -> bool {
+        self.method == RejectMethod::Drop
+    }
+
     /// Whether this rejection drops the connection.
     fn drops(&self) -> bool {
         match self.method {
@@ -467,6 +473,58 @@ enum Stop {
     NeedsData,
     /// No rule decided: `final`.
     Final,
+}
+
+/// What a walk over the rules is for.
+enum Walk<'a> {
+    /// Routing a connection, which the sniffer reads for the sniff rules.
+    Route(&'a mut dyn Sniffer),
+    /// Pre-match: nothing is read, and an armed sniff is never taken.
+    PreMatch,
+    /// A recheck of a connection routed before, as its session was when
+    /// it was routed: nothing is read, resolved or counted.
+    Recheck(&'a Session),
+}
+
+impl<'a> Walk<'a> {
+    /// The session a recheck's connection was routed with.
+    fn routed(&self) -> Option<&'a Session> {
+        match self {
+            Walk::Recheck(routed) => Some(routed),
+            _ => None,
+        }
+    }
+
+    /// Takes the sniff `action` for `sess`: routing reads the connection,
+    /// a recheck gives back what was sniffed when it was routed. False in
+    /// pre-match, which reads nothing.
+    async fn sniff(&mut self, sess: &mut Session, action: &SniffAction) -> Result<bool> {
+        match self {
+            Walk::Route(sniffer) => sniffer
+                .sniff(sess, action)
+                .await
+                .map_err(|e| anyhow!("sniff: {}", e))?,
+            Walk::Recheck(routed) => {
+                sess.sniffed = routed.sniffed.clone();
+                sess.sniffed_protocol = routed.sniffed_protocol;
+                sess.sniffed_http = routed.sniffed_http.clone();
+            }
+            Walk::PreMatch => return Ok(false),
+        }
+        sniff_options(action, sess);
+        Ok(true)
+    }
+}
+
+/// Where the rules send a connection routed before, as `Router::recheck`
+/// finds it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Recheck {
+    /// What they decide: `Reject` when they reject or drop it.
+    pub decision: Decision,
+    /// The index in `route.rules` of the rule that decided, as the routed
+    /// event names it; `None` for `final`.
+    pub rule: Option<u32>,
 }
 
 impl Rule {
@@ -621,6 +679,9 @@ pub struct Router {
     /// The network the host is on, when a rule may have conditions on
     /// it: its state is taken once for each connection matched.
     network: Option<crate::net::network::Network>,
+    /// Its number among the routers an instance stored, in the order it
+    /// stored them: 1 for the first, one more at each reload.
+    generation: u64,
 }
 
 impl Router {
@@ -702,7 +763,20 @@ impl Router {
             final_outbound: route.final_outbound.clone(),
             dns_client,
             network,
+            generation: 1,
         })
+    }
+
+    /// This router, numbered as the one after `before`, which it replaces.
+    pub(crate) fn after(mut self, before: &Router) -> Self {
+        self.generation = before.generation + 1;
+        self
+    }
+
+    /// Its number among the routers an instance stored: a connection
+    /// carries the number of the one that routed it (`Session::routed_by`).
+    pub(crate) fn generation(&self) -> u64 {
+        self.generation
     }
 
     /// Whether a rule has conditions on the network the host is on
@@ -732,10 +806,6 @@ impl Router {
         self.rules.iter().map(|rule| &rule.about)
     }
 
-    /// Matches `sess` against the rules in order, sniffing through
-    /// `sniffer`, resolving and setting route options as they say, until
-    /// one decides. A rule whose outbound `passes` does not: see `walk`.
-    /// `final` passing sends the connection direct.
     /// The index, in the configuration's `route.rules`, of the rule whose
     /// `matched` this is: this router's own, the one a session it routed
     /// carries. `load_rules` builds one rule a configured rule, in order,
@@ -754,13 +824,24 @@ impl Router {
         })
     }
 
+    /// Matches `sess` against the rules in order, sniffing through
+    /// `sniffer`, resolving and setting route options as they say, until
+    /// one decides. A rule whose outbound `passes` does not: see `walk`.
+    /// `final` passing sends the connection direct.
     pub async fn pick_route(
         &self,
         sess: &mut Session,
         sniffer: &mut dyn Sniffer,
         passes: &impl Passes,
     ) -> Result<Decision> {
-        Ok(match self.walk(sess, Some(sniffer), passes).await? {
+        let stop = self.walk(sess, Walk::Route(sniffer), passes).await?;
+        Ok(self.decide(stop, passes).await)
+    }
+
+    /// Where a walk that stopped at `stop` sends the connection: `final`
+    /// passing sends it direct.
+    async fn decide(&self, stop: Stop, passes: &impl Passes) -> Decision {
+        match stop {
             Stop::Route(tag) => Decision::Route(Some(tag)),
             Stop::Reject { drop } => Decision::Reject { drop },
             Stop::HijackDns => Decision::HijackDns,
@@ -777,7 +858,45 @@ impl Router {
                 debug_assert!(false, "only pre-match stops at a bypass or for the data");
                 Decision::Route(self.final_outbound.clone())
             }
-        })
+        }
+    }
+
+    /// Where these rules send the connection `routed` now, whose session
+    /// is the one it was routed with, as `pick_route` would decide, with
+    /// no side effect. A copy of the session is walked from the
+    /// destination asked for, before any override, as routing walked it.
+    /// Nothing is read of the connection: from the first sniff rule on,
+    /// what was sniffed when it was routed stands. No DNS is asked: a
+    /// resolve rule gives the addresses resolved when it was routed, for
+    /// the destination it had then, and none for another, as `no_resolve`
+    /// has it. A rejection counts toward no flood. The network and the
+    /// clash mode are as they are now; the rule-sets as they were loaded.
+    pub async fn recheck(&self, routed: &Session, passes: &impl Passes) -> Recheck {
+        let mut sess = routed.clone();
+        sess.route = Default::default();
+        if let Some(asked) = routed.route.original_destination.clone() {
+            sess.destination = asked;
+        }
+        // Sniffed later in the walk; what reverse mapping found, before
+        // routing, is known from the start.
+        sess.sniffed_protocol = None;
+        sess.sniffed_http = None;
+        if !matches!(sess.sniffed, Some((crate::session::SniffedFrom::Dns, _))) {
+            sess.sniffed = None;
+        }
+        // A recheck neither reads nor resolves, the only ways a walk fails.
+        let stop = self
+            .walk(&mut sess, Walk::Recheck(routed), passes)
+            .await
+            .unwrap_or(Stop::Final);
+        let decision = self.decide(stop, passes).await;
+        Recheck {
+            decision,
+            rule: sess
+                .matched_rule
+                .as_ref()
+                .and_then(|rule| self.rule_index(rule)),
+        }
     }
 
     /// What a connection's first packet meets before the connection is
@@ -791,16 +910,15 @@ impl Router {
     /// resolve, leaves the connection to be set up too, where it fails, as
     /// sing-box accepts the packet on any other error.
     pub async fn pre_match(&self, sess: &mut Session, passes: &impl Passes) -> PreMatch {
-        match self.walk(sess, None, passes).await {
+        match self.walk(sess, Walk::PreMatch, passes).await {
             Ok(Stop::Bypass) => PreMatch::Bypass,
             Ok(Stop::Reject { drop }) => PreMatch::Reject { drop },
             Ok(_) | Err(_) => PreMatch::Proceed,
         }
     }
 
-    /// The one walk over the rules, for routing (with a sniffer) or for
-    /// pre-match (without one, where nothing is read, and an armed sniff
-    /// is never taken).
+    /// The one walk over the rules, for routing, pre-match or a recheck,
+    /// as `walk` says (`Walk`).
     ///
     /// A rule that routes to an outbound that `passes` is skipped, as
     /// Mihomo's tunnel skips a rule whose proxy unwraps to PASS
@@ -809,10 +927,10 @@ impl Router {
     async fn walk(
         &self,
         sess: &mut Session,
-        mut sniffer: Option<&mut dyn Sniffer>,
+        mut walk: Walk<'_>,
         passes: &impl Passes,
     ) -> Result<Stop> {
-        let pre_match = sniffer.is_none();
+        let pre_match = matches!(walk, Walk::PreMatch);
         sess.matched_rule = None;
         sess.route.resolved.clear();
         sess.route.resolved_for_every_outbound = false;
@@ -845,13 +963,8 @@ impl Router {
                 if let Some(action) = armed_sniff {
                     if needs.sniff || (needs.domain && facts.domain().is_none()) {
                         armed_sniff = None;
-                        if let Some(sniffer) = sniffer.as_mut() {
-                            debug!("rule {} needs the connection sniffed", i);
-                            sniffer
-                                .sniff(sess, action)
-                                .await
-                                .map_err(|e| anyhow!("sniff: {}", e))?;
-                            sniff_options(action, sess);
+                        debug!("rule {} needs the connection sniffed", i);
+                        if walk.sniff(sess, action).await? {
                             facts = facts_of(sess, &resolved);
                         }
                     }
@@ -863,7 +976,7 @@ impl Router {
                             armed_resolve = None;
                             resolve_taken = true;
                             resolved = self
-                                .resolve_as(how, &domain, sess, network.as_ref())
+                                .resolve_in(walk.routed(), how, &domain, sess, network.as_ref())
                                 .await?;
                             sess.route.resolved = resolved.clone();
                             sess.route.resolved_for_every_outbound = false;
@@ -915,7 +1028,10 @@ impl Router {
                     options.apply(sess);
                 }
                 Action::Reject(reject) => {
-                    let drop = reject.drops();
+                    let drop = match walk {
+                        Walk::Recheck(_) => reject.drops_by_method(),
+                        _ => reject.drops(),
+                    };
                     debug!("rule {} rejects{}", i, if drop { ", dropping" } else { "" });
                     sess.matched_rule = Some(rule.reported(&facts).0.clone());
                     return Ok(Stop::Reject { drop });
@@ -928,16 +1044,11 @@ impl Router {
                 // As in sing-box 1.14.1, whose router acts on a direct rule
                 // nowhere, nor stops at it (route/route.go:690-697).
                 Action::Direct => debug!("rule {} is direct, which does nothing", i),
-                Action::Sniff(action) => match sniffer.as_mut() {
-                    Some(sniffer) => {
-                        sniffer
-                            .sniff(sess, action)
-                            .await
-                            .map_err(|e| anyhow!("sniff: {}", e))?;
-                        sniff_options(action, sess);
+                Action::Sniff(action) => {
+                    if !walk.sniff(sess, action).await? {
+                        return Ok(Stop::NeedsData);
                     }
-                    None => return Ok(Stop::NeedsData),
-                },
+                }
                 Action::Resolve(how) => {
                     // As sing-box's, only the domain the connection goes
                     // to, not one sniffed: nothing for an address
@@ -945,7 +1056,7 @@ impl Router {
                     if resolved.is_empty() && !sess.skip_resolve {
                         if let Some(domain) = sess.destination.domain().cloned() {
                             resolved = self
-                                .resolve_as(how, &domain, sess, network.as_ref())
+                                .resolve_in(walk.routed(), how, &domain, sess, network.as_ref())
                                 .await?;
                             sess.route.resolved = resolved.clone();
                             sess.route.resolved_for_every_outbound = true;
@@ -968,6 +1079,27 @@ impl Router {
             facts = facts_of(sess, &resolved);
         }
         Ok(Stop::Final)
+    }
+
+    /// The addresses of `domain` for the resolve rule `how`, as
+    /// `resolve_as` finds them; for a recheck of the connection `routed`,
+    /// those resolved when it was routed, while its destination is the one
+    /// it had then, and none otherwise.
+    async fn resolve_in(
+        &self,
+        routed: Option<&Session>,
+        how: &Resolve,
+        domain: &str,
+        sess: &Session,
+        network: Option<&std::sync::Arc<crate::net::network::NetworkState>>,
+    ) -> Result<Vec<IpAddr>> {
+        match routed {
+            Some(routed) => Ok(match sess.destination == routed.destination {
+                true => routed.route.resolved.clone(),
+                false => Vec::new(),
+            }),
+            None => self.resolve_as(how, domain, sess, network).await,
+        }
     }
 
     /// The addresses of `domain`, as the resolve rule `how` says: none,
@@ -1897,6 +2029,109 @@ mod tests {
                 Decision::Reject { drop: false }
             );
         }
+    }
+
+    /// A recheck decides as routing did, reading nothing of the
+    /// connection: a rule before the sniff sees nothing sniffed, those
+    /// after it what was sniffed when it was routed; an override walks on
+    /// from the destination asked for. The rule is numbered as the routed
+    /// event numbers it.
+    #[tokio::test]
+    async fn a_recheck_decides_as_routing_did_without_reading() {
+        let router = router(serde_json::json!([
+            { "domain_suffix": ["example.com"], "action": "reject" },
+            { "action": "sniff" },
+            { "port": [443], "action": "route-options", "override_port": 8443 },
+            { "domain_suffix": ["example.com"], "port": [8443], "outbound": "a" },
+        ]));
+        let mut sniffer = FakeSniffer {
+            domain: "www.example.com",
+            calls: 0,
+        };
+        let mut routed = to_ip();
+        let decision = router
+            .pick_route(&mut routed, &mut sniffer, &NoPass)
+            .await
+            .unwrap();
+        assert_eq!(decision, Decision::Route(Some("a".into())));
+        assert_eq!(routed.destination.port(), 8443);
+        assert_eq!(
+            router.recheck(&routed, &NoPass).await,
+            Recheck {
+                decision: Decision::Route(Some("a".into())),
+                rule: Some(3),
+            }
+        );
+        assert_eq!(sniffer.calls, 1, "a recheck read the connection");
+
+        // Walked from the port asked for, a rule on it rejects.
+        let stricter = self::router(serde_json::json!([
+            { "port": [8443], "outbound": "a" },
+            { "port": [443], "action": "reject" },
+        ]));
+        assert_eq!(
+            stricter.recheck(&routed, &NoPass).await,
+            Recheck {
+                decision: Decision::Reject { drop: false },
+                rule: Some(1),
+            }
+        );
+    }
+
+    /// A recheck asks no DNS, a resolve rule giving the addresses resolved
+    /// when the connection was routed, and its rejections count toward no
+    /// rule's flood.
+    #[tokio::test]
+    async fn a_recheck_asks_no_dns_and_counts_toward_no_flood() {
+        let (port, seen) = recording_server().await;
+        let config = crate::config::Config::from_json(
+            &serde_json::json!({
+                "dns": { "servers": [
+                    { "type": "udp", "tag": "up", "server": "127.0.0.1", "server_port": port }
+                ] },
+                "outbounds": [{ "type": "direct", "tag": "a" }, { "type": "direct", "tag": "b" }],
+                "route": { "rules": [
+                    { "domain": "named.sail", "action": "resolve", "server": "up",
+                      "strategy": "ipv4_only", "disable_cache": true },
+                    { "ip_cidr": ["10.0.0.0/8"], "outbound": "a" },
+                    { "port": [2], "action": "reject" },
+                ], "final": "b" },
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let dns = DnsClient::new(&config.dns, Default::default(), &Default::default())
+            .unwrap()
+            .into_shared();
+        let router = Router::new(&config.route, dns, &RuntimeEnv::default()).unwrap();
+        let mut routed = to("named.sail:80");
+        assert_eq!(
+            pick(&router, &mut routed).await,
+            Decision::Route(Some("a".into()))
+        );
+        assert_eq!(seen.lock().unwrap().len(), 1);
+        for _ in 0..3 {
+            assert_eq!(
+                router.recheck(&routed, &NoPass).await.decision,
+                Decision::Route(Some("a".into()))
+            );
+        }
+        assert_eq!(seen.lock().unwrap().len(), 1, "a recheck asked the DNS");
+
+        let rejected = to("1.1.1.1:2");
+        for i in 0..2 * Reject::FLOOD {
+            assert_eq!(
+                router.recheck(&rejected, &NoPass).await.decision,
+                Decision::Reject { drop: false },
+                "{}",
+                i
+            );
+        }
+        assert_eq!(
+            pick(&router, &mut to("1.1.1.1:2")).await,
+            Decision::Reject { drop: false },
+            "the rechecks counted toward the flood"
+        );
     }
 
     #[tokio::test]
