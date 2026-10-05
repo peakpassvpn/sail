@@ -861,8 +861,9 @@ jobs:
       # (tests/test_teardown.rs): sail in the test's own process, with a
       # TUN, auto_route and strict_route (only 198.18.0.0/16, so the
       # runner's own traffic stays out), failed by a fault the test arms
-      # (feature fault-injection). The runner is administrator; wintun.dll,
-      # release.yml's pinned one, goes beside the test.
+      # (feature fault-injection); then what others change of a TUN's
+      # routes and DNS is told. The runner is administrator; wintun.dll,
+      # release.yml's pinned one, goes beside the tests.
       # Run whatever the tests before did, so that one failure hides no other.
       - name: teardown
         if: ${{ !cancelled() }}
@@ -879,7 +880,12 @@ jobs:
           New-Item -ItemType Directory -Force $deps | Out-Null
           Copy-Item "$env:RUNNER_TEMP\wintun\wintun\bin\amd64\wintun.dll" $deps
           cargo test --locked -p sail --features fault-injection --target x86_64-pc-windows-msvc --test test_teardown -- --ignored --test-threads 1 --nocapture
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $status = $LASTEXITCODE
+          # What someone else changes of the TUN's routes and DNS servers is
+          # told, and left (tests/test_tun_integrity_windows.rs).
+          cargo test --locked -p sail --features fault-injection --target x86_64-pc-windows-msvc --test test_tun_integrity_windows -- --ignored --test-threads 1 --nocapture
+          if ($LASTEXITCODE -ne 0) { $status = $LASTEXITCODE }
+          exit $status
 
   # L3: the Kotlin binding's tests, on a desktop JVM, against libsail_jni
   # built for this host (jni/build-host.sh). On master, by hand, and on

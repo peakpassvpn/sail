@@ -1,5 +1,6 @@
 //! Whether what auto_route set up for a TUN is still as it set it up:
-//! its routes there and winning, its address there. Someone else's change
+//! its routes there and winning, its address there, and on Windows its
+//! DNS servers. Someone else's change
 //! is told (`Event::SystemChanged`), once a break, and left as it is: the
 //! host restores it or rebuilds the instance.
 //!
@@ -22,6 +23,7 @@ pub(crate) struct Route {
     pub(crate) index: u32,
     /// Bound to its interface (macOS RTF_IFSCOPE): only what is sent on
     /// that interface takes it.
+    #[cfg_attr(target_os = "windows", allow(dead_code))]
     pub(crate) scoped: bool,
 }
 
@@ -51,14 +53,23 @@ fn contains(dst: IpAddr, len: u8, address: IpAddr) -> bool {
 }
 
 /// The address an address of `prefix` is looked up by: its first but
-/// one, which no route of the network itself takes.
-fn probe((address, _): (IpAddr, u8)) -> IpAddr {
+/// one, which no route of the network itself takes. 0/0's (Windows') are
+/// "this network" and loopback, which have routes of their own: a
+/// default route is looked up by the first but one of 1/8 or 2000::/3.
+fn probe((address, len): (IpAddr, u8)) -> IpAddr {
+    let address = match (address, len) {
+        (IpAddr::V4(_), 0) => Ipv4Addr::new(1, 0, 0, 0).into(),
+        (IpAddr::V6(_), 0) => Ipv6Addr::new(0x2000, 0, 0, 0, 0, 0, 0, 0).into(),
+        _ => address,
+    };
     match address {
         IpAddr::V4(a) => Ipv4Addr::from(u32::from(a).wrapping_add(1)).into(),
         IpAddr::V6(a) => Ipv6Addr::from(u128::from(a).wrapping_add(1)).into(),
     }
 }
 
+// Windows asks the system (GetBestRoute2).
+#[cfg_attr(target_os = "windows", allow(dead_code))]
 /// The route of `table` that an unbound packet to `address` takes: the
 /// longest unscoped one that holds it, the first of equals.
 pub(crate) fn longest_match(table: &[Route], address: IpAddr) -> Option<Route> {
@@ -125,6 +136,25 @@ pub(crate) fn address(tun: &str, address: IpAddr, up: &[(String, IpAddr)]) -> Op
         kind: LeftKind::Tun,
         what: format!("{}: its address {}", tun, address),
         how: "gone, or the TUN is down".into(),
+    })
+}
+
+/// Whether the TUN `tun`'s DNS servers of a family (`family`: "IPv4")
+/// are still `wanted`, those sail set: `got`, in any order.
+pub(crate) fn dns(tun: &str, family: &str, wanted: &[IpAddr], got: &[IpAddr]) -> Option<Broken> {
+    let same = wanted.iter().all(|a| got.contains(a)) && got.iter().all(|a| wanted.contains(a));
+    let list = |servers: &[IpAddr]| match servers {
+        [] => "none".to_string(),
+        servers => servers
+            .iter()
+            .map(IpAddr::to_string)
+            .collect::<Vec<_>>()
+            .join(", "),
+    };
+    (!same).then(|| Broken {
+        kind: LeftKind::Dns,
+        what: format!("the {} DNS servers of {}", family, tun),
+        how: format!("{} instead of {}", list(got), list(wanted)),
     })
 }
 
@@ -292,6 +322,52 @@ mod tests {
             super::address("utun9", address, &other).map(|b| b.what),
             Some("utun9: its address 172.19.0.1".to_string())
         );
+    }
+
+    /// Windows' 0/0 and ::/0 are looked up by a global address: their own
+    /// first ones are "this network" and loopback.
+    #[test]
+    fn a_default_route_is_looked_up_by_a_global_address() {
+        assert_eq!(
+            probe(prefix("0.0.0.0", 0)),
+            "1.0.0.1".parse::<IpAddr>().unwrap()
+        );
+        assert_eq!(probe(prefix("::", 0)), "2000::1".parse::<IpAddr>().unwrap());
+        assert_eq!(
+            probe(prefix("128.0.0.0", 1)),
+            "128.0.0.1".parse::<IpAddr>().unwrap()
+        );
+        let table = [route("0.0.0.0", 0, EN0), route("0.0.0.0", 0, TUN)];
+        let wanted = [prefix("0.0.0.0", 0)];
+        let found = routes(
+            "tun0",
+            TUN,
+            &wanted,
+            &wanted,
+            &table,
+            |_| Some(route("0.0.0.0", 0, EN0)),
+            name,
+        );
+        assert_eq!(found[0].how, "0.0.0.0/0 on en0 wins");
+    }
+
+    #[test]
+    fn dns_servers_not_sail_s_are_told() {
+        let ours: IpAddr = "172.19.0.2".parse().unwrap();
+        let other: IpAddr = "1.1.1.1".parse().unwrap();
+        assert_eq!(dns("tun0", "IPv4", &[ours], &[ours]), None);
+        let told = |got: &[IpAddr]| {
+            dns("tun0", "IPv4", &[ours], got).map(|b| format!("{}: {}", b.what, b.how))
+        };
+        assert_eq!(
+            told(&[other]).as_deref(),
+            Some("the IPv4 DNS servers of tun0: 1.1.1.1 instead of 172.19.0.2")
+        );
+        assert_eq!(
+            told(&[]).as_deref(),
+            Some("the IPv4 DNS servers of tun0: none instead of 172.19.0.2")
+        );
+        assert!(told(&[ours, other]).is_some());
     }
 
     /// Once a break: told again only after a check found it right.

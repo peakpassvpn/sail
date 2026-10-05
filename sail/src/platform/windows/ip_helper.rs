@@ -1,6 +1,7 @@
 //! The IP Helper calls route management makes, as sing-tun makes them
 //! through winipcfg: interfaces by LUID, their addresses, parameters and
-//! DNS, routes, and the notices of changes to routes and interfaces.
+//! DNS, routes, and the notices of changes to routes, interfaces and an
+//! interface's DNS servers.
 //!
 //! Without the TUN only the interfaces and the notices are asked for.
 #![cfg_attr(not(feature = "inbound-tun"), allow(dead_code))]
@@ -12,13 +13,21 @@ use std::sync::Arc;
 
 use windows_sys::core::GUID;
 use windows_sys::Win32::Foundation::{
-    ERROR_NOT_FOUND, ERROR_OBJECT_ALREADY_EXISTS, HANDLE, NO_ERROR,
+    CloseHandle, ERROR_NOT_FOUND, ERROR_OBJECT_ALREADY_EXISTS, HANDLE, INVALID_HANDLE_VALUE,
+    NO_ERROR,
 };
 use windows_sys::Win32::NetworkManagement::IpHelper::*;
 use windows_sys::Win32::NetworkManagement::Ndis::{IfOperStatusUp, NET_LUID_LH};
 use windows_sys::Win32::Networking::WinSock::{
     IpDadStatePreferred, RouterDiscoveryDisabled, ADDRESS_FAMILY, AF_INET, AF_INET6, AF_UNSPEC,
     MIB_IPPROTO_NETMGMT, SOCKADDR_INET,
+};
+use windows_sys::Win32::System::Registry::{
+    RegCloseKey, RegNotifyChangeKeyValue, RegOpenKeyExW, HKEY, HKEY_LOCAL_MACHINE, KEY_NOTIFY,
+    REG_NOTIFY_CHANGE_LAST_SET, REG_NOTIFY_THREAD_AGNOSTIC,
+};
+use windows_sys::Win32::System::Threading::{
+    CreateEventW, RegisterWaitForSingleObject, UnregisterWaitEx, INFINITE, WT_EXECUTEDEFAULT,
 };
 
 /// A Win32 error code as an io::Error; success as Ok.
@@ -108,11 +117,38 @@ impl Luid {
         Ok(from_wide(&alias))
     }
 
+    /// The interface of the index `index`.
+    pub(crate) fn by_index(index: u32) -> io::Result<Luid> {
+        let mut luid = NET_LUID_LH::default();
+        // SAFETY: a place for the result.
+        check(unsafe { ConvertInterfaceIndexToLuid(index, &mut luid) })?;
+        Ok(Luid::of(&luid))
+    }
+
     pub(crate) fn index(self) -> io::Result<u32> {
         let mut index = 0;
         // SAFETY: a place for the result.
         check(unsafe { ConvertInterfaceLuidToIndex(&self.raw(), &mut index) })?;
         Ok(index)
+    }
+
+    /// Its GUID as the registry names its keys: "{6B29FC40-...}".
+    fn guid_name(self) -> io::Result<String> {
+        let g = self.guid()?;
+        Ok(format!(
+            "{{{:08X}-{:04X}-{:04X}-{:02X}{:02X}-{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}}}",
+            g.data1,
+            g.data2,
+            g.data3,
+            g.data4[0],
+            g.data4[1],
+            g.data4[2],
+            g.data4[3],
+            g.data4[4],
+            g.data4[5],
+            g.data4[6],
+            g.data4[7]
+        ))
     }
 
     fn guid(self) -> io::Result<GUID> {
@@ -125,6 +161,21 @@ impl Luid {
     /// Whether the interface is there still: an adapter removed is not.
     pub(crate) fn exists(self) -> bool {
         self.row().is_ok()
+    }
+
+    /// Whether it is up (OperStatus): a disabled adapter, or one whose
+    /// device stopped, is not.
+    pub(crate) fn up(self) -> io::Result<bool> {
+        Ok(self.row()?.OperStatus == IfOperStatusUp)
+    }
+
+    /// Its unicast addresses, of both families.
+    pub(crate) fn addresses(self) -> io::Result<Vec<IpAddr>> {
+        Ok(unicast_addresses(AF_UNSPEC)?
+            .iter()
+            .filter(|row| Luid::of(&row.InterfaceLuid) == self)
+            .filter_map(|row| address(&row.Address))
+            .collect())
     }
 
     fn row(self) -> io::Result<MIB_IF_ROW2> {
@@ -219,6 +270,38 @@ impl Luid {
         // SAFETY: the settings and the list they point to outlive the call.
         check(unsafe { SetInterfaceDnsSettings(self.guid()?, &settings) })
     }
+
+    /// The DNS servers of one family as set on it (the adapter's, not
+    /// those DHCP gave), as `set_dns` sets them.
+    pub(crate) fn dns(self, v6: bool) -> io::Result<Vec<IpAddr>> {
+        let mut settings = DNS_INTERFACE_SETTINGS {
+            Version: DNS_INTERFACE_SETTINGS_VERSION1,
+            Flags: if v6 { u64::from(DNS_SETTING_IPV6) } else { 0 },
+            ..Default::default()
+        };
+        // SAFETY: the system fills the settings; freed below.
+        check(unsafe { GetInterfaceDnsSettings(self.guid()?, &mut settings) })?;
+        let mut list = Vec::new();
+        let mut c = settings.NameServer;
+        // SAFETY: a NUL-terminated wide string of the settings, if any.
+        unsafe {
+            while !c.is_null() && *c != 0 {
+                list.push(*c);
+                c = c.add(1);
+            }
+        }
+        // SAFETY: the settings GetInterfaceDnsSettings filled, freed once.
+        unsafe { FreeInterfaceDnsSettings(&mut settings) };
+        Ok(servers(&String::from_utf16_lossy(&list)))
+    }
+}
+
+/// The servers of a list as Windows keeps it: separated by commas or
+/// spaces. What is not an address is left out.
+fn servers(list: &str) -> Vec<IpAddr> {
+    list.split([',', ' '])
+        .filter_map(|server| server.trim().parse().ok())
+        .collect()
 }
 
 fn unicast_addresses(family: ADDRESS_FAMILY) -> io::Result<Vec<MIB_UNICASTIPADDRESS_ROW>> {
@@ -280,6 +363,50 @@ pub(crate) fn delete_route(luid: Luid, prefix: (IpAddr, u8), next_hop: IpAddr) -
         ERROR_NOT_FOUND => Ok(()),
         code => check(code),
     }
+}
+
+/// The route a packet to `destination` takes, of all the system's, as
+/// the system picks it: the longest prefix, then the lowest route and
+/// interface metric. Its interface's index, prefix and prefix length.
+pub(crate) fn best_route(destination: IpAddr) -> io::Result<(u32, IpAddr, u8)> {
+    let mut row = MIB_IPFORWARD_ROW2::default();
+    let mut source = SOCKADDR_INET::default();
+    // SAFETY: no interface or source to keep to; places for the results.
+    check(unsafe {
+        GetBestRoute2(
+            std::ptr::null(),
+            0,
+            std::ptr::null(),
+            &sockaddr(destination),
+            0,
+            &mut row,
+            &mut source,
+        )
+    })?;
+    let prefix = address(&row.DestinationPrefix.Prefix)
+        .ok_or_else(|| io::Error::other("a route of no known family"))?;
+    Ok((
+        row.InterfaceIndex,
+        prefix,
+        row.DestinationPrefix.PrefixLength,
+    ))
+}
+
+/// The routes of one family: their interface's index, prefix, prefix
+/// length and next hop.
+pub(crate) fn routes(v6: bool) -> io::Result<Vec<(u32, IpAddr, u8, Option<IpAddr>)>> {
+    Ok(forward_rows(family(v6))?
+        .iter()
+        .filter_map(|row| {
+            let prefix = address(&row.DestinationPrefix.Prefix)?;
+            Some((
+                row.InterfaceIndex,
+                prefix,
+                row.DestinationPrefix.PrefixLength,
+                address(&row.NextHop),
+            ))
+        })
+        .collect())
 }
 
 /// Whether the interface is up and neither loopback nor, when
@@ -453,6 +580,132 @@ impl Drop for ChangeNotices {
     }
 }
 
+/// Notices of changes to an interface's DNS servers while it lives, which
+/// IP Helper gives none of: they are values of its keys of Tcpip's and
+/// Tcpip6's, which `set_dns` and Set-DnsClientServerAddress write.
+pub(crate) struct DnsNotices {
+    watches: Vec<KeyWatch>,
+}
+
+/// What a key's notice needs: given to the callback, freed once it is
+/// unregistered.
+struct KeyNotice {
+    key: HKEY,
+    event: HANDLE,
+    notify: Arc<tokio::sync::Notify>,
+}
+
+struct KeyWatch {
+    notice: Box<KeyNotice>,
+    wait: HANDLE,
+}
+
+// SAFETY: the handles are only closed, once, and the Notify is Sync.
+unsafe impl Send for DnsNotices {}
+unsafe impl Sync for DnsNotices {}
+
+/// Signals `event` at the key's next change, once; from any thread.
+fn arm(key: HKEY, event: HANDLE) -> io::Result<()> {
+    // SAFETY: a key and an event that live while the watch does.
+    check(unsafe {
+        RegNotifyChangeKeyValue(
+            key,
+            0,
+            REG_NOTIFY_CHANGE_LAST_SET | REG_NOTIFY_THREAD_AGNOSTIC,
+            event,
+            1,
+        )
+    })
+}
+
+unsafe extern "system" fn on_key(context: *mut core::ffi::c_void, _timed_out: bool) {
+    // SAFETY: the KeyNotice its KeyWatch keeps until the wait is
+    // unregistered.
+    let notice = &*(context as *const KeyNotice);
+    // Armed again first, so that a change after the notice gives another.
+    let _ = arm(notice.key, notice.event);
+    notice.notify.notify_one();
+}
+
+impl DnsNotices {
+    /// Notices on `notify` of a change to `luid`'s DNS servers, of the
+    /// families asked for.
+    pub(crate) fn start(
+        luid: Luid,
+        v4: bool,
+        v6: bool,
+        notify: Arc<tokio::sync::Notify>,
+    ) -> io::Result<DnsNotices> {
+        let guid = luid.guid_name()?;
+        let mut this = DnsNotices {
+            watches: Vec::new(),
+        };
+        for stack in [v4.then_some("Tcpip"), v6.then_some("Tcpip6")]
+            .into_iter()
+            .flatten()
+        {
+            let path = wide(&format!(
+                r"SYSTEM\CurrentControlSet\Services\{}\Parameters\Interfaces\{}",
+                stack, guid
+            ));
+            let mut key: HKEY = std::ptr::null_mut();
+            // SAFETY: a NUL-terminated wide path and a place for the key.
+            check(unsafe {
+                RegOpenKeyExW(HKEY_LOCAL_MACHINE, path.as_ptr(), 0, KEY_NOTIFY, &mut key)
+            })?;
+            // Kept from here, so that a failure below closes what is open.
+            this.watches.push(KeyWatch {
+                notice: Box::new(KeyNotice {
+                    key,
+                    event: std::ptr::null_mut(),
+                    notify: notify.clone(),
+                }),
+                wait: std::ptr::null_mut(),
+            });
+            let watch = this.watches.last_mut().expect("just pushed");
+            // SAFETY: an unnamed auto-reset event, unsignaled.
+            let event = unsafe { CreateEventW(std::ptr::null(), 0, 0, std::ptr::null()) };
+            if event.is_null() {
+                return Err(io::Error::last_os_error());
+            }
+            watch.notice.event = event;
+            arm(key, event)?;
+            let context = &*watch.notice as *const KeyNotice as *const core::ffi::c_void;
+            // SAFETY: the callback and its context live until unregistered.
+            let registered = unsafe {
+                RegisterWaitForSingleObject(
+                    &mut watch.wait,
+                    event,
+                    Some(on_key),
+                    context,
+                    INFINITE,
+                    WT_EXECUTEDEFAULT,
+                )
+            };
+            if registered == 0 {
+                return Err(io::Error::last_os_error());
+            }
+        }
+        Ok(this)
+    }
+}
+
+impl Drop for KeyWatch {
+    fn drop(&mut self) {
+        // SAFETY: handles this watch made, each closed once; unregistering
+        // waits for a callback running to return.
+        unsafe {
+            if !self.wait.is_null() {
+                UnregisterWaitEx(self.wait, INVALID_HANDLE_VALUE);
+            }
+            RegCloseKey(self.notice.key);
+            if !self.notice.event.is_null() {
+                CloseHandle(self.notice.event);
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -467,6 +720,29 @@ mod tests {
         drop(notices);
         // The context is released: the test holds the only reference.
         assert_eq!(Arc::strong_count(&notify), 1);
+    }
+
+    /// The default interface's DNS keys are watched, and released on
+    /// drop.
+    #[test]
+    fn dns_notices_register_and_cancel() {
+        let Ok(luid) = default_interface() else {
+            return;
+        };
+        let notify = Arc::new(tokio::sync::Notify::new());
+        let notices = DnsNotices::start(luid, true, false, notify.clone()).unwrap();
+        assert_eq!(notices.watches.len(), 1);
+        drop(notices);
+        assert_eq!(Arc::strong_count(&notify), 1);
+    }
+
+    #[test]
+    fn dns_server_lists_are_read() {
+        let list = |s: &str| servers(s).iter().map(IpAddr::to_string).collect::<Vec<_>>();
+        assert_eq!(list("172.19.0.2"), ["172.19.0.2"]);
+        assert_eq!(list("1.1.1.1,8.8.8.8"), ["1.1.1.1", "8.8.8.8"]);
+        assert_eq!(list("fdfe::2 1.1.1.1"), ["fdfe::2", "1.1.1.1"]);
+        assert!(list("").is_empty());
     }
 
     #[test]
@@ -487,6 +763,13 @@ mod tests {
             assert_eq!(Luid::by_alias(&alias).unwrap(), luid);
             assert!(luid.index().unwrap() > 0);
             assert!(interface_exists(&alias));
+            assert_eq!(Luid::by_index(luid.index().unwrap()).unwrap(), luid);
+            assert!(luid.up().unwrap());
+            assert!(!luid.addresses().unwrap().is_empty());
+            let (index, _, len) = best_route("1.0.0.1".parse().unwrap()).unwrap();
+            assert!(index > 0 && len <= 32);
+            assert!(routes(false).unwrap().iter().any(|r| r.2 == 0));
+            luid.dns(false).unwrap();
         }
         assert!(!interface_exists("sail-no-such-interface"));
         for (address, len, name) in subnets().unwrap() {

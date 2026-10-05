@@ -169,14 +169,14 @@ impl AutoRoute {
             prefixes.len(),
             settings.name
         );
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
         let runner = {
             let watch = backend.clone().watch(routes.clone(), events.clone());
             Box::pin(async move {
                 futures::future::join(sets.follow(feed, routes, backend), watch).await;
             })
         };
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
         let runner = {
             let _ = events;
             Box::pin(sets.follow(feed, routes, backend))
@@ -1287,8 +1287,12 @@ mod backend {
     use std::sync::{Arc, Mutex};
 
     use anyhow::{anyhow, Result};
+    use tracing::warn;
 
     use super::super::inbound::{peer, TunSettings};
+    use super::{lock, Routed};
+    use crate::control::events::EventHub;
+    use crate::platform::integrity::{self, Broken, Told};
     use crate::platform::sweep::Ledger;
     use crate::platform::windows::ip_helper::{self, Luid};
     use crate::platform::windows::wfp::StrictRoute;
@@ -1317,8 +1321,14 @@ mod backend {
         /// hop of its routes, and its DNS server.
         gateway4: Option<IpAddr>,
         gateway6: Option<IpAddr>,
+        /// The TUN's own addresses.
+        addresses: Vec<IpAddr>,
         strict_route: bool,
         rules: Mutex<Option<StrictRoute>>,
+        /// Its DNS servers are sail's: from when `routed` set them until
+        /// they are undone. Only then are they checked; held while they
+        /// are undone, so that a check never reads them half undone.
+        dns_set: Mutex<bool>,
     }
 
     impl Backend {
@@ -1334,8 +1344,15 @@ mod backend {
                 index,
                 gateway4: settings.ipv4.map(|i| IpAddr::from(peer(i))),
                 gateway6: settings.ipv6.map(|i| IpAddr::from(peer(i))),
+                addresses: settings
+                    .ipv4
+                    .map(|i| IpAddr::from(i.address()))
+                    .into_iter()
+                    .chain(settings.ipv6.map(|i| IpAddr::from(i.address())))
+                    .collect(),
                 strict_route: settings.route.strict_route,
                 rules: Mutex::new(None),
+                dns_set: Mutex::new(false),
             })
         }
 
@@ -1405,6 +1422,7 @@ mod backend {
                         .map_err(|e| anyhow!("auto_route: DNS: {}", e))?;
                 }
             }
+            *self.dns_set() = true;
             if self.strict_route {
                 let rules = StrictRoute::start(
                     self.index,
@@ -1440,6 +1458,8 @@ mod backend {
         /// failed, its host removing it), and a family's settings with it:
         /// ERROR_FILE_NOT_FOUND then, which leaves nothing either.
         fn undo_dns(&self) -> io::Result<()> {
+            let mut set = self.dns_set();
+            *set = false;
             if !self.luid.exists() {
                 return Ok(());
             }
@@ -1461,6 +1481,167 @@ mod backend {
             } else {
                 Err(io::Error::other(failed.join("; ")))
             }
+        }
+
+        fn dns_set(&self) -> std::sync::MutexGuard<'_, bool> {
+            self.dns_set.lock().unwrap_or_else(|e| e.into_inner())
+        }
+
+        /// Tells what someone else changed of the routes into the TUN, of
+        /// its address and of its DNS servers, leaving it as it is
+        /// (platform/integrity.rs): on each notice of IP Helper's and of
+        /// its DNS servers' keys, once it is quiet. Never ends while the
+        /// TUN runs.
+        pub(super) async fn watch(self: Arc<Self>, routes: Arc<Mutex<Routed>>, events: EventHub) {
+            let notify = Arc::new(tokio::sync::Notify::new());
+            let _notices = match ip_helper::ChangeNotices::start(notify.clone()) {
+                Ok(notices) => notices,
+                Err(e) => {
+                    warn!("auto_route: not following the system: {}", e);
+                    return std::future::pending().await;
+                }
+            };
+            // Its DNS servers change with no notice of IP Helper's.
+            let _dns_notices = ip_helper::DnsNotices::start(
+                self.luid,
+                self.gateway4.is_some(),
+                self.gateway6.is_some(),
+                notify.clone(),
+            )
+            .inspect_err(|e| {
+                warn!(
+                    "auto_route: not following the DNS servers of {}: {}",
+                    self.name, e
+                )
+            });
+            let changed = || {
+                let notify = notify.clone();
+                async move {
+                    notify.notified().await;
+                    io::Result::Ok(())
+                }
+            };
+            let mut told = Told::default();
+            while changed().await.is_ok() {
+                crate::settle(&changed, crate::SETTLE_QUIET, crate::SETTLE_MAX).await;
+                match self.check(&routes) {
+                    Some(found) => told.tell(found, &events),
+                    // Undone: what changes now is sail's own.
+                    None => break,
+                }
+            }
+            std::future::pending().await
+        }
+
+        /// What is not as sail set it up: its routes, under the lock its
+        /// own changes are made under, then the TUN and its DNS servers.
+        /// None once the routes are undone.
+        fn check(&self, routes: &Mutex<Routed>) -> Option<Vec<Broken>> {
+            let routed = lock(routes);
+            if routed.undone {
+                return None;
+            }
+            if !self.luid.exists() {
+                return Some(vec![Broken {
+                    kind: LeftKind::Tun,
+                    what: self.name.clone(),
+                    how: "gone".into(),
+                }]);
+            }
+            // A route into the TUN through another next hop is not sail's.
+            let mut table = Vec::new();
+            for (v6, gateway) in [(false, self.gateway4), (true, self.gateway6)] {
+                if gateway.is_none() {
+                    continue;
+                }
+                match ip_helper::routes(v6) {
+                    Ok(rows) => table.extend(
+                        rows.into_iter()
+                            .filter(|&(index, _, _, next_hop)| {
+                                index != self.index || next_hop == gateway
+                            })
+                            .map(|(index, dst, len, _)| integrity::Route {
+                                dst,
+                                len,
+                                index,
+                                scoped: false,
+                            }),
+                    ),
+                    Err(e) => {
+                        warn!("auto_route: reading the routing table: {}", e);
+                        return Some(Vec::new());
+                    }
+                }
+            }
+            let contested: Vec<(IpAddr, u8)> = all(false)
+                .into_iter()
+                .chain(all(true))
+                .filter(|p| routed.prefixes.contains(p))
+                .collect();
+            let mut found = integrity::routes(
+                &self.name,
+                self.index,
+                &routed.prefixes,
+                &contested,
+                &table,
+                |address| match ip_helper::best_route(address) {
+                    Ok((index, dst, len)) => Some(integrity::Route {
+                        dst,
+                        len,
+                        index,
+                        scoped: false,
+                    }),
+                    Err(e) => {
+                        warn!("auto_route: the route to {}: {}", address, e);
+                        None
+                    }
+                },
+                |index| {
+                    ip_helper::Luid::by_index(index)
+                        .and_then(|luid| luid.alias())
+                        .unwrap_or_else(|_| format!("interface {}", index))
+                },
+            );
+            drop(routed);
+            match self.luid.up().and_then(|up| {
+                Ok(if up {
+                    self.luid.addresses()?
+                } else {
+                    Vec::new()
+                })
+            }) {
+                Ok(addresses) => {
+                    let up: Vec<(String, IpAddr)> = addresses
+                        .into_iter()
+                        .map(|a| (self.name.clone(), a))
+                        .collect();
+                    found.extend(
+                        self.addresses
+                            .iter()
+                            .filter_map(|&address| integrity::address(&self.name, address, &up)),
+                    );
+                }
+                Err(e) => warn!("auto_route: reading {}'s addresses: {}", self.name, e),
+            }
+            let dns_set = self.dns_set();
+            if *dns_set {
+                for (v6, gateway) in [(false, self.gateway4), (true, self.gateway6)] {
+                    let Some(gateway) = gateway else {
+                        continue;
+                    };
+                    let family = if v6 { "IPv6" } else { "IPv4" };
+                    match self.luid.dns(v6) {
+                        Ok(got) => {
+                            found.extend(integrity::dns(&self.name, family, &[gateway], &got))
+                        }
+                        Err(e) => warn!(
+                            "auto_route: the {} DNS servers of {}: {}",
+                            family, self.name, e
+                        ),
+                    }
+                }
+            }
+            Some(found)
         }
     }
 }

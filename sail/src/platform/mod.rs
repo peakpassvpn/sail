@@ -32,8 +32,12 @@ pub(crate) mod ip_ranges;
 ))]
 pub(crate) mod auto_route;
 
-// What auto_route set up, checked: macOS's; everywhere under test.
-#[cfg(all(feature = "inbound-tun", any(target_os = "macos", test)))]
+// What auto_route set up, checked: macOS's and Windows'; everywhere under
+// test.
+#[cfg(all(
+    feature = "inbound-tun",
+    any(target_os = "macos", target_os = "windows", test)
+))]
 pub(crate) mod integrity;
 
 #[cfg(target_os = "linux")]
