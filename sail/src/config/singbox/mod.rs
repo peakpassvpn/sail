@@ -3,6 +3,8 @@
 //! implement (see [`upstream`]) before the schema reads the rest.
 
 use anyhow::{anyhow, Result};
+use serde::de::{DeserializeSeed, Deserializer, MapAccess, Visitor};
+use serde_json::value::RawValue;
 use serde_json::Value;
 
 use super::model::Config;
@@ -35,10 +37,12 @@ pub fn parse(s: &str) -> Result<Config> {
 fn read(s: &str, zero_unset: bool) -> Result<Config> {
     // Comments and trailing commas, as sing-box takes them.
     let s = jsonc::strip(s);
-    let mut value: Value = serde_json::from_str(&s).map_err(|e| anyhow!("{}", e))?;
-    let warnings = sort_out(&mut value, zero_unset)?;
-    let mut config: Config = serde_path_to_error::deserialize(value)
-        .map_err(|e| anyhow!("{}: {}", super::model::path(&e), e.inner()))?;
+    // Rule by rule when that reads it; anything wrong is read again whole,
+    // which finds and words it as it always has.
+    let (mut config, warnings) = match by_rule(&s, zero_unset) {
+        Some(read) => read,
+        None => whole(&s, zero_unset)?,
+    };
     // After the schema, as sing-box finds them after what comes before
     // the inbounds.
     for (i, inbound) in config.inbounds.iter_mut().enumerate() {
@@ -60,6 +64,135 @@ fn read(s: &str, zero_unset: bool) -> Result<Config> {
     Ok(config)
 }
 
+/// The document as one `Value`, sorted out and read by the schema.
+fn whole(s: &str, zero_unset: bool) -> Result<(Config, Vec<String>)> {
+    let mut value: Value = serde_json::from_str(s).map_err(|e| anyhow!("{}", e))?;
+    let warnings = sort_out(&mut value, zero_unset, Scope::Whole)?;
+    let config: Config = serde_path_to_error::deserialize(value)
+        .map_err(|e| anyhow!("{}: {}", super::model::path(&e), e.inner()))?;
+    Ok((config, said(warnings)))
+}
+
+/// What `whole` reads, read with `route.rules` and `dns.rules` one rule at
+/// a time: a profile of thousands of rules is never one `Value` beside the
+/// rules read from it. None when anything fails, for `whole` to say what.
+fn by_rule(s: &str, zero_unset: bool) -> Option<(Config, Vec<String>)> {
+    let mut rules = Rules::default();
+    let mut de = serde_json::Deserializer::from_str(s);
+    let mut top = Top(&mut rules).deserialize(&mut de).ok()?;
+    de.end().ok()?;
+    let mut warnings = sort_out(&mut top, zero_unset, Scope::Whole).ok()?;
+    let route = one_by_one(rules.route, "route.rules", zero_unset, &mut warnings)?;
+    let dns = one_by_one(rules.dns, "dns.rules", zero_unset, &mut warnings)?;
+    let mut config: Config = serde_json::from_value(top).ok()?;
+    config.route.rules = route;
+    config.dns.rules = dns;
+    Some((config, said(warnings)))
+}
+
+/// The rules of `list`, each sorted out and read alone, in a list as long
+/// as they are.
+fn one_by_one<T: serde::de::DeserializeOwned>(
+    raw: Option<&RawValue>,
+    list: &'static str,
+    zero_unset: bool,
+    warnings: &mut Vec<(Order, String)>,
+) -> Option<Vec<T>> {
+    let Some(raw) = raw else {
+        return Some(Vec::new());
+    };
+    let each: Vec<&RawValue> = serde_json::from_str(raw.get()).ok()?;
+    let mut rules = Vec::with_capacity(each.len());
+    for (i, rule) in each.into_iter().enumerate() {
+        let mut rule: Value = serde_json::from_str(rule.get()).ok()?;
+        warnings.extend(sort_out(&mut rule, zero_unset, Scope::Rule(list, i)).ok()?);
+        rules.push(serde_json::from_value(rule).ok()?);
+    }
+    Some(rules)
+}
+
+/// The text of `route.rules` and `dns.rules`, which `Top` leaves out.
+#[derive(Default)]
+struct Rules<'a> {
+    route: Option<&'a RawValue>,
+    dns: Option<&'a RawValue>,
+}
+
+/// Reads the document into a `Value` as `serde_json` would, but for the
+/// rules of `route` and `dns`: an empty list stands in for each, and its
+/// text goes to `Rules`. A key given twice is the last, as in a `Value`.
+struct Top<'a, 'r>(&'r mut Rules<'a>);
+
+impl<'de> DeserializeSeed<'de> for Top<'de, '_> {
+    type Value = Value;
+
+    fn deserialize<D: Deserializer<'de>>(self, de: D) -> Result<Value, D::Error> {
+        de.deserialize_map(self)
+    }
+}
+
+impl<'de> Visitor<'de> for Top<'de, '_> {
+    type Value = Value;
+
+    fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str("an object")
+    }
+
+    fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Value, A::Error> {
+        let mut out = serde_json::Map::new();
+        while let Some(key) = map.next_key::<String>()? {
+            let slot = match key.as_str() {
+                "route" => Some(&mut self.0.route),
+                "dns" => Some(&mut self.0.dns),
+                _ => None,
+            };
+            let value = match slot {
+                Some(slot) => {
+                    *slot = None;
+                    map.next_value_seed(Section(slot))?
+                }
+                None => map.next_value()?,
+            };
+            out.insert(key, value);
+        }
+        Ok(Value::Object(out))
+    }
+}
+
+/// `route` or `dns`, with its `rules` left as text.
+struct Section<'a, 'r>(&'r mut Option<&'a RawValue>);
+
+impl<'de> DeserializeSeed<'de> for Section<'de, '_> {
+    type Value = Value;
+
+    fn deserialize<D: Deserializer<'de>>(self, de: D) -> Result<Value, D::Error> {
+        de.deserialize_map(self)
+    }
+}
+
+impl<'de> Visitor<'de> for Section<'de, '_> {
+    type Value = Value;
+
+    fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str("an object")
+    }
+
+    fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Value, A::Error> {
+        let mut out = serde_json::Map::new();
+        while let Some(key) = map.next_key::<String>()? {
+            let value = match key.as_str() {
+                "rules" => {
+                    *self.0 = Some(map.next_value()?);
+                    Value::Array(Vec::new())
+                }
+                _ => map.next_value()?,
+            };
+            out.insert(key, value);
+        }
+        Ok(Value::Object(out))
+    }
+}
+
 impl Config {
     /// Parses a JSON configuration: sing-box's, with sail's extensions.
     pub fn from_json(s: &str) -> Result<Self> {
@@ -67,67 +200,159 @@ impl Config {
     }
 }
 
+/// Where `sort_out` looks.
+#[derive(Debug, Clone, Copy)]
+enum Scope {
+    /// The whole of what it is given.
+    Whole,
+    /// The rule at an index of a list (`route.rules`, `dns.rules`), given
+    /// alone: the patterns under that list, from the rule.
+    Rule(&'static str, usize),
+}
+
+impl Scope {
+    /// The values `pattern` names, with where each is in what `sort_out`
+    /// was given.
+    fn find(self, value: &Value, pattern: &str) -> Vec<(At, Value)> {
+        match self {
+            Scope::Whole => find(value, pattern),
+            Scope::Rule(list, _) => {
+                let mut found = Vec::new();
+                if let Some(rest) = pattern
+                    .strip_prefix(list)
+                    .and_then(|p| p.strip_prefix(".*."))
+                {
+                    let segments: Vec<&str> = rest.split('.').collect();
+                    walk_rule(value, &segments, &mut Vec::new(), &mut found);
+                }
+                found
+            }
+        }
+    }
+
+    /// `at` as the document has it.
+    fn show(self, at: &At) -> At {
+        match self {
+            Scope::Whole => at.clone(),
+            Scope::Rule(list, i) => At(list
+                .split('.')
+                .map(|k| Step::Key(k.to_string()))
+                .chain([Step::Index(i)])
+                .chain(at.0.iter().cloned())
+                .collect()),
+        }
+    }
+
+    /// The type of the entry the field at `at`, found by `path`, is in.
+    fn entry_type<'a>(self, value: &'a Value, path: &str, at: &At) -> Option<&'a str> {
+        match self {
+            Scope::Whole => entry_type(value, path, at),
+            // The entry the pattern's `*` stands for is the rule.
+            Scope::Rule(..) => value.get("type").and_then(Value::as_str),
+        }
+    }
+
+    /// Where a warning about the match at `seq` of a pattern goes among
+    /// those of the same pattern: in the order of the document.
+    fn place(self, seq: usize) -> (usize, usize) {
+        match self {
+            Scope::Whole => (0, seq),
+            Scope::Rule(_, i) => (i, seq),
+        }
+    }
+}
+
+/// Where a warning goes among all of them: by the step of `sort_out` that
+/// found it, its pattern, then the document's order. The order `sort_out`
+/// of the whole document says them in.
+type Order = (u8, usize, (usize, usize));
+
+/// The warnings, in their order.
+fn said(mut warnings: Vec<(Order, String)>) -> Vec<String> {
+    warnings.sort_by_key(|(order, _)| *order);
+    warnings.into_iter().map(|(_, w)| w).collect()
+}
+
 /// Fails on the first field or value sail does not implement and cannot
 /// ignore, and drops, with a warning each, those it can. One set to its
 /// zero value (`""`, `false`, `0`, `[]`, `{}`) sing-box takes as unset:
 /// dropped without a word, when `zero_unset`.
-fn sort_out(value: &mut Value, zero_unset: bool) -> Result<Vec<String>> {
+fn sort_out(value: &mut Value, zero_unset: bool, scope: Scope) -> Result<Vec<(Order, String)>> {
     for (path, values) in upstream::VALUES {
-        for (at, found) in find(value, path) {
+        for (at, found) in scope.find(value, path) {
             let names: Vec<&str> = match &found {
                 Value::String(s) => vec![s.as_str()],
                 Value::Array(a) => a.iter().filter_map(Value::as_str).collect(),
                 _ => vec![],
             };
             if let Some(name) = names.into_iter().find(|n| values.contains(n)) {
-                return Err(anyhow!("{}: sail does not implement \"{}\" yet", at, name));
+                return Err(anyhow!(
+                    "{}: sail does not implement \"{}\" yet",
+                    scope.show(&at),
+                    name
+                ));
             }
         }
     }
-    let mut warnings = services(value)?;
-    for (path, no_effect, says) in upstream::NO_EFFECT {
-        for (at, found) in find(value, path) {
+    let mut warnings = Vec::new();
+    if let Scope::Whole = scope {
+        for (seq, warning) in services(value)?.into_iter().enumerate() {
+            warnings.push(((1, 0, scope.place(seq)), warning));
+        }
+    }
+    for (n, (path, no_effect, says)) in upstream::NO_EFFECT.iter().enumerate() {
+        for (seq, (at, found)) in scope.find(value, path).into_iter().enumerate() {
             if found.as_str() == Some(no_effect) {
-                warnings.push(format!("{}: {}", at, says));
+                warnings.push((
+                    (2, n, scope.place(seq)),
+                    format!("{}: {}", scope.show(&at), says),
+                ));
             }
         }
     }
-    for group in upstream::GROUPS {
-        for path in group.paths {
-            for (at, found) in find(value, path) {
-                let kind = entry_type(value, path, &at);
-                if !group.types.is_empty() && !kind.is_some_and(|k| group.types.contains(&k)) {
-                    continue;
+    let paths = upstream::GROUPS
+        .iter()
+        .flat_map(|g| g.paths.iter().map(move |p| (g, p)));
+    for (n, (group, path)) in paths.enumerate() {
+        for (seq, (at, found)) in scope.find(value, path).into_iter().enumerate() {
+            let kind = scope.entry_type(value, path, &at);
+            if !group.types.is_empty() && !kind.is_some_and(|k| group.types.contains(&k)) {
+                continue;
+            }
+            if implemented_for(path, kind) {
+                continue;
+            }
+            if zero_unset && zero(&found) {
+                remove(value, &at);
+                continue;
+            }
+            match group.tier {
+                Tier::Unsupported => {
+                    return Err(anyhow!(
+                        "{}: sail does not implement this field yet",
+                        scope.show(&at)
+                    ));
                 }
-                if implemented_for(path, kind) {
-                    continue;
-                }
-                if zero_unset && zero(&found) {
+                Tier::Ignored => {
                     remove(value, &at);
-                    continue;
-                }
-                match group.tier {
-                    Tier::Unsupported => {
-                        return Err(anyhow!("{}: sail does not implement this field yet", at));
-                    }
-                    Tier::Ignored => {
-                        remove(value, &at);
-                        warnings.push(format!(
+                    warnings.push((
+                        (3, n, scope.place(seq)),
+                        format!(
                             "{}: sail does not implement this field; ignored",
-                            at
-                        ));
-                    }
+                            scope.show(&at)
+                        ),
+                    ));
                 }
             }
         }
     }
     for path in upstream::SILENT {
-        for (at, _) in find(value, path) {
+        for (at, _) in scope.find(value, path) {
             remove(value, &at);
         }
     }
     for path in upstream::EMPTIED {
-        for (at, found) in find(value, path) {
+        for (at, found) in scope.find(value, path) {
             if found.as_object().is_some_and(|o| o.is_empty()) {
                 remove(value, &at);
             }
@@ -939,5 +1164,128 @@ mod tests {
         assert_eq!(config.log.level, crate::config::model::LogLevel::Warn);
         let err = parse(r#"{ "log": { "level": "none" } }"#).unwrap_err();
         assert!(err.to_string().starts_with("log.level"), "{}", err);
+    }
+
+    /// Rule by rule, a document reads as it does whole, warnings and all;
+    /// one it does not read so is read whole. Whether it was read rule by
+    /// rule, and whether whole.
+    fn alike(text: &str) -> (bool, bool) {
+        let s = jsonc::strip(text);
+        let mut read = (false, false);
+        for zero_unset in [true, false] {
+            let whole = whole(&s, zero_unset).ok();
+            let by_rule = by_rule(&s, zero_unset);
+            if by_rule.is_some() {
+                assert!(by_rule == whole, "{}", text);
+            }
+            read = (by_rule.is_some(), whole.is_some());
+        }
+        read
+    }
+
+    #[test]
+    fn rules_read_one_at_a_time_as_the_whole_reads_them() {
+        let corpus = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/corpus/sing-box");
+        let mut files = 0;
+        for entry in std::fs::read_dir(corpus).unwrap() {
+            let path = entry.unwrap().path();
+            // Every document of the corpus is an object: what reads whole
+            // reads rule by rule.
+            let (by_rule, whole) = alike(&std::fs::read_to_string(&path).unwrap());
+            assert_eq!(by_rule, whole, "{}", path.display());
+            files += 1;
+        }
+        assert!(files > 100, "{}", files);
+        for text in [
+            r#"[]"#,
+            r#"{ "route": [] }"#,
+            r#"{ "route": { "rules": {} } }"#,
+            r#"{ "route": { "rules": [1] } }"#,
+            r#"{ "route": { "rules": [{ "port": 1 }] }, "route": { "final": "a" } }"#,
+            r#"{ "route": { "rules": [{ "port": 1 }], "rules": [] } }"#,
+            r#"{ "dns": { "rules": [{ "domain": "a.test", "server": "s" }] } } x"#,
+        ] {
+            alike(text);
+        }
+    }
+
+    /// Warnings come in the order the whole document's are found: by what
+    /// finds them, then where, though the rules are read one by one after
+    /// the rest.
+    #[test]
+    fn warnings_keep_their_order_across_rules_and_the_rest() {
+        let text = r#"{
+            "outbounds": [{ "type": "direct", "tag": "d", "tcp_multi_path": true }],
+            "dns": { "rules": [{ "domain": "a.test", "action": "reject", "method": "drop" }] },
+            "route": { "rules": [
+                { "port": 1, "action": "direct", "tcp_multi_path": true },
+                { "type": "logical", "mode": "and", "outbound": "d",
+                  "rules": [{ "port": 2, "tcp_multi_path": true }, { "port": 3 }] }
+            ] }
+        }"#;
+        alike(text);
+        let (_, warnings) = by_rule(&jsonc::strip(text), true).unwrap();
+        assert_eq!(
+            warnings,
+            [
+                "route.rules[0].action: the direct action has no effect, as in sing-box 1.14.1",
+                "dns.rules[0].method: sail does not implement this field; ignored",
+                "outbounds[0].tcp_multi_path: sail does not implement this field; ignored",
+                "route.rules[0].tcp_multi_path: sail does not implement this field; ignored",
+                "route.rules[1].rules[0].tcp_multi_path: sail does not implement this field; ignored",
+            ]
+        );
+    }
+
+    /// The first thing wrong is the one said, wherever the rules are: a
+    /// value sail lacks before a field it lacks, either before what the
+    /// schema refuses.
+    #[test]
+    fn errors_in_several_rules_come_out_in_the_order_they_did() {
+        let text = r#"{ "route": { "rules": [
+            { "port": "x" },
+            { "port": 1, "tls_spoof": "a" },
+            { "port": 2, "rules": [{ "port": 3, "netns": "n" }], "type": "logical", "mode": "or" },
+            { "port": 4, "action": "evaluate" }
+        ] } }"#;
+        alike(text);
+        assert_eq!(
+            parse(text).unwrap_err().to_string(),
+            "route.rules[3].action: sail does not implement \"evaluate\" yet"
+        );
+        let text = text.replace("\"evaluate\"", "\"route\"");
+        assert_eq!(
+            parse(&text).unwrap_err().to_string(),
+            "route.rules[1].tls_spoof: sail does not implement this field yet"
+        );
+        let text = text.replace("\"tls_spoof\": \"a\"", "\"port\": 5");
+        assert_eq!(
+            parse(&text).unwrap_err().to_string(),
+            "route.rules[2].rules[0].netns: sail does not implement this field yet"
+        );
+    }
+
+    /// Each list of rules takes as much room as its rules, not more.
+    #[test]
+    fn rules_read_one_at_a_time_take_the_room_they_need() {
+        let rules = |n| {
+            (0..n)
+                .map(|i| serde_json::json!({ "domain": format!("d{}.test", i), "outbound": "a" }))
+                .collect::<Vec<_>>()
+        };
+        let dns = |n| {
+            (0..n)
+                .map(|i| serde_json::json!({ "domain": format!("d{}.test", i), "server": "s" }))
+                .collect::<Vec<_>>()
+        };
+        let text = serde_json::json!({
+            "outbounds": [{ "type": "direct", "tag": "a" }],
+            "dns": { "servers": [{ "type": "local", "tag": "s" }], "rules": dns(1500) },
+            "route": { "rules": rules(3000) },
+        })
+        .to_string();
+        let (config, _) = by_rule(&text, true).unwrap();
+        assert_eq!(config.route.rules.capacity(), 3000);
+        assert_eq!(config.dns.rules.capacity(), 1500);
     }
 }
