@@ -30,7 +30,8 @@ use crate::runtime::RuntimeEnv;
 /// How often a remote provider is downloaded again by default: Mihomo's
 /// and sing-box's rule-sets' day.
 const DEFAULT_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
-/// How long after a failed update the next one is tried.
+/// How long after a failed download the next one is tried; a local
+/// file's failed read, at most this long.
 const RETRY: Duration = Duration::from_secs(5 * 60);
 
 pub(crate) struct Provider {
@@ -287,7 +288,14 @@ impl Provider {
         };
         let state = self.state();
         if let Some(failed) = &state.failed {
-            return Some(RETRY.saturating_sub(now.duration_since(failed.at).unwrap_or_default()));
+            // A file read while it was being written is read again at its
+            // own interval, as Mihomo does: a read costs nothing, unlike a
+            // download.
+            let retry = match &self.source {
+                Source::Local { .. } => interval.min(RETRY),
+                _ => RETRY,
+            };
+            return Some(retry.saturating_sub(now.duration_since(failed.at).unwrap_or_default()));
         }
         Some(match state.meta.updated {
             None => Duration::ZERO,
@@ -652,6 +660,38 @@ mod tests {
             .unwrap()
             .handler
             .clone()
+    }
+
+    /// A local file read half-written, as a rewrite truncates it first,
+    /// is read again at the provider's interval, not after `RETRY`.
+    #[test]
+    fn a_local_file_read_half_written_is_read_again_at_its_interval() {
+        let dir = std::env::temp_dir().join(format!(
+            "sail-provider-local-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("proxies.yaml");
+        let full = "proxies:\n  - { name: A, type: socks5, server: a.example, port: 1080 }\n";
+        std::fs::write(&path, full).unwrap();
+        let config = |interval: &str| {
+            config(serde_json::json!({
+                "type": "local", "tag": "local", "path": path.to_str().unwrap(),
+                "update_interval": interval
+            }))
+        };
+        for (interval, retry) in [("1s", Duration::from_secs(1)), ("1h", RETRY)] {
+            let provider = load(&config(interval), &RuntimeEnv::default(), None);
+            assert!(provider.is_loaded());
+            std::fs::write(&path, "").unwrap();
+            let error = provider.read_again(path.to_str().unwrap()).unwrap_err();
+            provider.state().failed = Some(crate::control::Failure::now(&error));
+            let due = provider.due_in(SystemTime::now()).unwrap();
+            assert!(due <= retry && due > retry / 2, "{}: {:?}", interval, due);
+            std::fs::write(&path, full).unwrap();
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
