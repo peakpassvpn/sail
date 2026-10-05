@@ -503,7 +503,7 @@ async fn udp_echo(socks: u16, target: &str) -> anyhow::Result<()> {
 
 /// (a) sail's endpoint to the kernel's, and what is behind it.
 #[test]
-#[ignore]
+#[ignore = "needs root, ip and wg: the namespaces it makes; see the module docs"]
 fn test_wireguard_kernel_outbound() -> anyhow::Result<()> {
     let lab = Lab::new();
     lab.run(|p| {
@@ -529,7 +529,7 @@ fn test_wireguard_kernel_outbound() -> anyhow::Result<()> {
 
 /// (b) the kernel's endpoint to sail's, which sends it on directly.
 #[test]
-#[ignore]
+#[ignore = "needs root, ip and wg: the namespaces it makes; see the module docs"]
 fn test_wireguard_kernel_inbound() -> anyhow::Result<()> {
     let lab = Lab::new();
     lab.run(|p| {
@@ -598,7 +598,7 @@ fn test_wireguard_kernel_inbound() -> anyhow::Result<()> {
 
 /// (c) WireGuard's own UDP through a SOCKS outbound.
 #[test]
-#[ignore]
+#[ignore = "needs root, ip and wg: the namespaces it makes; see the module docs"]
 fn test_wireguard_kernel_detour() -> anyhow::Result<()> {
     let lab = Lab::new();
     lab.run(|p| {
@@ -613,7 +613,7 @@ fn test_wireguard_kernel_detour() -> anyhow::Result<()> {
 /// A transfer across REKEY_AFTER_TIME (120s): data keeps flowing, intact,
 /// while the session is replaced.
 #[test]
-#[ignore]
+#[ignore = "needs root, ip and wg: the namespaces it makes; see the module docs"]
 fn test_wireguard_kernel_rekey() -> anyhow::Result<()> {
     let lab = Lab::new();
     let out = lab.out.public.clone();
@@ -670,7 +670,7 @@ fn latest_handshake(k: &str, peer: &str) -> u64 {
 
 /// 256 MiB each way through sail's endpoint and the kernel's.
 #[test]
-#[ignore]
+#[ignore = "needs root, ip and wg: the namespaces it makes; see the module docs"]
 fn test_wireguard_kernel_throughput() -> anyhow::Result<()> {
     let lab = Lab::new();
     lab.run(|p| {
