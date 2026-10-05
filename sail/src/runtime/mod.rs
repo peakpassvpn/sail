@@ -223,6 +223,9 @@ pub struct RuntimeEnv {
     /// The TUNs' names by inbound tag, as the start settled them; a reload
     /// keeps a chosen one.
     pub tun_names: Arc<std::sync::Mutex<std::collections::BTreeMap<String, TunName>>>,
+    /// The routes of others auto_route replaced with its own and puts back
+    /// when it stops, in words (macOS).
+    pub replaced_routes: Arc<std::sync::Mutex<Vec<String>>>,
 }
 
 pub type SyncRuntimeEnv = Arc<RuntimeEnv>;

@@ -141,7 +141,7 @@ jobs:
           # Everything on master.
           declare -A filters=(
             [bindings]='^(bindings/|sail-ffi/|sail/src/embed|sail/src/control/json_snapshot\.json$|Package\.swift$)'
-            [tun_macos]='^(sail/src/protocol/tun/|sail/src/platform/|sail/src/runtime/teardown\.rs|sail/src/fault\.rs|sail/tests/test_teardown\.rs|sail/tests/test_tun_integrity_macos\.rs|sail/tests/scripts/macos_)'
+            [tun_macos]='^(sail/src/protocol/tun/|sail/src/platform/|sail/src/runtime/teardown\.rs|sail/src/fault\.rs|sail/tests/test_teardown\.rs|sail/tests/test_tun_integrity_macos\.rs|sail/tests/test_tun_replaced_macos\.rs|sail/tests/scripts/macos_)'
             [netns_linux]='^(sail/src/protocol/tun/|sail/src/net/netstack/|sail/src/platform/|sail/src/runtime/|sail/src/fault\.rs|sail/src/protocol/wireguard/|sail/tests/test_wireguard_(interop|kernel)\.rs|sail/tests/scripts/[a-z_]+_netns\.sh|sail/tests/test_[a-z_]+_linux\.rs|sail/tests/test_teardown\.rs)'
             [fuzz]='^(fuzz/|sail-netstack/fuzz/|fuzz-config/|scripts/prebuilt-boringssl\.sh$|tools/fuzz-check\.sh$)|(^|/)Cargo\.(toml|lock)$'
             [check_32bit]='^(rust-toolchain\.toml$|scripts/(cross|install_cross_toolchain|prebuilt-boringssl)\.sh$)|(^|/)Cargo\.(toml|lock)$'
@@ -1026,6 +1026,17 @@ jobs:
             --target aarch64-apple-darwin --no-run --message-format=json \
             | jq -r 'select(.executable != null) | .executable')
           sudo "$bin" --ignored --nocapture --test-threads=1
+
+      # A route of someone else's that auto_route replaces goes back at
+      # stop, is left to its owner if taken back, and goes back by a sweep
+      # after a kill -9 of the CLI. As root, the test alone.
+      - name: the routes auto_route replaces
+        run: |
+          bin=$(cargo test --locked -p sail --test test_tun_replaced_macos \
+            --target aarch64-apple-darwin --no-run --message-format=json \
+            | jq -r 'select(.executable != null) | .executable')
+          sudo SAIL="$PWD/target/aarch64-apple-darwin/debug/sail" "$bin" \
+            --ignored --nocapture --test-threads=1
 
       # What macOS makes of a TUN's DNS given as a temporary dynamic-store
       # key (the design in docs): is it the default resolver, and does a

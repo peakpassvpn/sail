@@ -24,10 +24,9 @@ use tracing::{info, warn};
 
 use super::inbound::TunSettings;
 use crate::app::router::rule_set::RuleSets;
-use crate::control::events::EventHub;
 use crate::platform::auto_route as plan;
-use crate::platform::sweep::Ledger;
 use crate::runtime::teardown::{LeftKind, Step, StepId, Teardown};
+use crate::runtime::RuntimeEnv;
 use crate::Runner;
 
 /// What auto_route set up; dropping it undoes it.
@@ -100,10 +99,9 @@ impl AutoRoute {
         tag: &str,
         settings: &TunSettings,
         rule_sets: &RuleSets,
-        ledger: &Ledger,
-        teardown: &Teardown,
-        events: &EventHub,
+        env: &RuntimeEnv,
     ) -> Result<(AutoRoute, Runner)> {
+        let (teardown, events) = (&env.teardown, &env.events);
         let selection = &settings.route;
         let prefix = |inet: &cidr::IpInet| (inet.address(), inet.network_length());
         let sets = RouteSets {
@@ -124,7 +122,14 @@ impl AutoRoute {
                 .collect(),
         };
         let prefixes = sets.prefixes(rule_sets)?;
-        let backend = Arc::new(backend::Backend::start(settings, ledger)?);
+        #[cfg(target_os = "macos")]
+        let backend = Arc::new(backend::Backend::start(
+            settings,
+            &env.ledger,
+            env.replaced_routes.clone(),
+        )?);
+        #[cfg(not(target_os = "macos"))]
+        let backend = Arc::new(backend::Backend::start(settings, &env.ledger)?);
         let routes = Arc::new(Mutex::new(Routed::default()));
         let (sender, feed) = watch::channel(rule_sets.clone());
         // From here, dropping it undoes what was done.
@@ -134,8 +139,24 @@ impl AutoRoute {
                 sender: Arc::new(sender),
             },
             teardown: teardown.clone(),
-            steps: vec![teardown.push(routes_step(&backend, &routes, &settings.name))],
+            steps: Vec::new(),
         };
+        // Steps run newest first: what sail's routes replaced goes back
+        // once they are gone.
+        #[cfg(target_os = "macos")]
+        this.steps.push(teardown.push({
+            let backend = backend.clone();
+            Step::new(
+                LeftKind::Route,
+                format!(
+                    "the routes of others that sail's into {} replaced",
+                    settings.name
+                ),
+                move || backend.put_back_all(),
+            )
+        }));
+        this.steps
+            .push(teardown.push(routes_step(&backend, &routes, &settings.name)));
         for &prefix in &prefixes {
             backend
                 .add(prefix)
@@ -259,6 +280,7 @@ impl RouteSets {
             }
             for &prefix in routed.prefixes.iter().filter(|p| !wanted.contains(p)) {
                 let _ = backend.delete(prefix);
+                backend.released(prefix);
             }
             routed.prefixes = added;
         };
@@ -442,6 +464,9 @@ mod backend {
         }
 
         pub(super) fn routes_removed(&self) {}
+
+        /// Nothing is replaced here: nothing to put back.
+        pub(super) fn released(&self, _prefix: (IpAddr, u8)) {}
 
         /// The routes are there: the rules send traffic to them, and DNS.
         /// Each is undone by a step of `teardown`, registered before it is
@@ -720,7 +745,7 @@ mod backend {
     use crate::platform::integrity::{self, Broken, Told};
     use crate::platform::route_socket::{self, RouteMonitor, RouteSocket};
     use crate::platform::sc_dns::{self, TunDns};
-    use crate::platform::sweep::Ledger;
+    use crate::platform::sweep::{Item, Ledger, PutBack, Replaced};
     use crate::runtime::teardown::{LeftKind, Step, StepId, Teardown};
 
     /// The utun is point-to-point: its network needs a route.
@@ -755,11 +780,28 @@ mod backend {
         dns_servers: Vec<IpAddr>,
         /// The system DNS while the TUN runs (platform/sc_dns.rs).
         dns: Mutex<Option<TunDns>>,
+        /// Where what it replaced is written down, should it be killed.
+        ledger: Ledger,
+        /// The routes of others its own replaced, to put back.
+        replaced: Mutex<Vec<Replaced>>,
+        /// The same, in words, for the instance's host to read.
+        listed: Arc<Mutex<Vec<String>>>,
+        /// The utun's index, as it was at start: at stop the utun may be
+        /// gone already, and its routes with it.
+        index: Option<u32>,
     }
 
     impl Backend {
-        pub(super) fn start(settings: &TunSettings, _ledger: &Ledger) -> Result<Backend> {
+        pub(super) fn start(
+            settings: &TunSettings,
+            ledger: &Ledger,
+            listed: Arc<Mutex<Vec<String>>>,
+        ) -> Result<Backend> {
             Ok(Backend {
+                ledger: ledger.clone(),
+                replaced: Mutex::new(Vec::new()),
+                listed,
+                index: index_of(&settings.name),
                 socket: RouteSocket::open()
                     .map_err(|e| anyhow!("auto_route: routing socket: {}", e))?,
                 tun: settings.name.clone(),
@@ -788,32 +830,193 @@ mod backend {
             })
         }
 
+        /// Adds sail's route to `prefix`. A route there already, bound to
+        /// no interface, is replaced: the utun's own network, the kernel's,
+        /// on every start; anyone else's is written down first, to be put
+        /// back once sail's goes.
         pub(super) fn add(&self, prefix: (IpAddr, u8)) -> io::Result<()> {
-            let replaced = self.socket.add(prefix, self.gateway(prefix.0.is_ipv6())?)?;
-            // The kernel's route to the utun's own network is replaced on
-            // every start; any other was someone's, and stays gone.
-            if let Some(was) = replaced.filter(|_| !self.is_own(prefix)) {
-                tracing::warn!(
-                    "auto_route: replaced the route to {}/{} ({}) with sail's; it is not put back \
-                     when sail stops",
-                    prefix.0,
-                    prefix.1,
-                    was
-                );
+            let gateway = self.gateway(prefix.0.is_ipv6())?;
+            match self.socket.add(prefix, gateway) {
+                Err(e) if route_socket::errno(&e) == Some(libc::EEXIST) => {}
+                other => return other,
             }
+            if self.is_own(prefix) {
+                return self.socket.replace(prefix, "the utun's own", gateway);
+            }
+            let was = route_socket::exact(prefix)?.into_iter().next();
+            let Some(replaced) = was.and_then(|was| self.record(prefix, &was)) else {
+                // Gone in between, or sail's own: nothing to put back.
+                return self.socket.replace(prefix, "sail's own", gateway);
+            };
+            self.ledger.record(Item::ReplacedRoute(replaced.clone()));
+            if let Err(e) = self.socket.replace(prefix, &replaced.describe(), gateway) {
+                // Not replaced after all, or gone: what is there now is
+                // not sail's to put back.
+                self.ledger.forget(&Item::ReplacedRoute(replaced));
+                return Err(e);
+            }
+            warn!(
+                "auto_route: replaced the {} with sail's; it is put back when sail stops",
+                replaced.describe()
+            );
+            self.lock_replaced().push(replaced);
+            self.list();
             Ok(())
         }
 
+        /// What `was`, a route to `prefix`, is as one to put back; none if
+        /// it is sail's own utun's.
+        fn record(&self, prefix: (IpAddr, u8), was: &route_socket::Exact) -> Option<Replaced> {
+            if index_of(&self.tun) == Some(u32::from(was.index)) {
+                return None;
+            }
+            Some(Replaced {
+                dst: prefix,
+                gateway: match &was.gateway {
+                    Some(route_socket::Gateway::Ip(address)) => Some(*address),
+                    _ => None,
+                },
+                interface: route_socket::interface_name(was.index)
+                    .unwrap_or_else(|_| format!("interface {}", was.index)),
+                index: u32::from(was.index),
+                flags: was.flags,
+                by: self.tun.clone(),
+                boot: route_socket::boot().unwrap_or_default(),
+            })
+        }
+
+        fn lock_replaced(&self) -> std::sync::MutexGuard<'_, Vec<Replaced>> {
+            self.replaced.lock().unwrap_or_else(|e| e.into_inner())
+        }
+
+        /// What it replaced, in words, where the host reads it.
+        fn list(&self) {
+            let lines = self
+                .lock_replaced()
+                .iter()
+                .map(Replaced::describe)
+                .collect();
+            *self.listed.lock().unwrap_or_else(|e| e.into_inner()) = lines;
+        }
+
+        /// Deletes sail's route to `prefix`. Where it replaced another's and
+        /// someone has since put a route of their own there, it is gone
+        /// already: the route there is theirs, and stays, and what sail
+        /// replaced is no longer to be put back. None there is sail's gone
+        /// with the utun, which may close before this runs.
         pub(super) fn delete(&self, prefix: (IpAddr, u8)) -> io::Result<()> {
+            let replaced = self.lock_replaced().iter().position(|r| r.dst == prefix);
+            if let Some(i) = replaced {
+                let still = route_socket::exact(prefix)
+                    .map(|routes| {
+                        routes.is_empty()
+                            || routes
+                                .iter()
+                                .any(|r| Some(u32::from(r.index)) == self.index)
+                    })
+                    .unwrap_or(true);
+                if !still {
+                    let r = self.lock_replaced().remove(i);
+                    self.ledger.forget(&Item::ReplacedRoute(r.clone()));
+                    self.list();
+                    info!(
+                        "auto_route: the route to {}/{} is someone's again; left as it is, and \
+                         the {} not put back",
+                        prefix.0,
+                        prefix.1,
+                        r.describe()
+                    );
+                    return Ok(());
+                }
+            }
             match self
                 .socket
                 .delete(prefix, self.gateway(prefix.0.is_ipv6())?)
             {
                 // Gone already, with the utun (the utun's own network goes
                 // with its address) or by another's hand, is as wanted.
-                Err(e) if crate::platform::route_socket::errno(&e) == Some(libc::ESRCH) => Ok(()),
+                Err(e) if route_socket::errno(&e) == Some(libc::ESRCH) => Ok(()),
                 other => other,
             }
+        }
+
+        /// Sail no longer routes `prefix` (a rule-set changed): what its
+        /// route there replaced goes back.
+        pub(super) fn released(&self, prefix: (IpAddr, u8)) {
+            let replaced = {
+                let mut all = self.lock_replaced();
+                let i = all.iter().position(|r| r.dst == prefix);
+                i.map(|i| all.remove(i))
+            };
+            if let Some(r) = replaced {
+                if let Err(why) = self.put_back(&r) {
+                    warn!("auto_route: {}", why);
+                }
+                self.list();
+            }
+        }
+
+        /// Puts back what sail's routes replaced, now that they are gone:
+        /// each that should go back (sweep.rs `put_back`). What could not
+        /// is the error, each with why and how to put it back by hand.
+        pub(super) fn put_back_all(&self) -> io::Result<()> {
+            let all = std::mem::take(&mut *self.lock_replaced());
+            self.list();
+            let failed: Vec<String> = all.iter().filter_map(|r| self.put_back(r).err()).collect();
+            if failed.is_empty() {
+                Ok(())
+            } else {
+                Err(io::Error::other(failed.join("; ")))
+            }
+        }
+
+        /// Puts `r` back if it should go back; says why not where it should
+        /// and could not.
+        fn put_back(&self, r: &Replaced) -> std::result::Result<(), String> {
+            let item = Item::ReplacedRoute(r.clone());
+            match route_socket::put_back(r) {
+                Ok(PutBack::Put) => {
+                    info!("auto_route: put back the {}", r.describe());
+                    self.ledger.forget(&item);
+                    Ok(())
+                }
+                Ok(PutBack::Taken) => {
+                    info!(
+                        "auto_route: the {} not put back: another route is there",
+                        r.describe()
+                    );
+                    self.ledger.forget(&item);
+                    Ok(())
+                }
+                Ok(PutBack::Rebooted) => {
+                    self.ledger.forget(&item);
+                    Ok(())
+                }
+                Ok(PutBack::Gone(why)) => {
+                    self.ledger.forget(&item);
+                    Err(format!(
+                        "the {}, which sail replaced: {}",
+                        r.describe(),
+                        why
+                    ))
+                }
+                // Kept in the ledger: a sweep tries again.
+                Err(e) => Err(format!(
+                    "the {}, which sail replaced: {}; put it back with `{}`",
+                    r.describe(),
+                    e,
+                    r.clear()
+                )),
+            }
+        }
+
+        /// The words a check gives a route of sail's that is gone, where it
+        /// had replaced another's.
+        fn had_replaced(&self, what: &str) -> Option<String> {
+            self.lock_replaced()
+                .iter()
+                .find(|r| format!("route {}/{} into {}", r.dst.0, r.dst.1, self.tun) == what)
+                .map(|r| format!("it had replaced the {}", r.describe()))
         }
 
         /// No one command removes them by hand; they go with the utun.
@@ -968,6 +1171,11 @@ mod backend {
                 },
             );
             drop(routed);
+            for b in &mut found {
+                if let Some(note) = self.had_replaced(&b.what) {
+                    b.how = format!("{}; {}", b.how, note);
+                }
+            }
             match addresses_up() {
                 Ok(up) => found.extend(
                     [self.ipv4, self.ipv6]
@@ -1163,6 +1371,9 @@ mod backend {
         }
 
         pub(super) fn routes_removed(&self) {}
+
+        /// Nothing is replaced here: nothing to put back.
+        pub(super) fn released(&self, _prefix: (IpAddr, u8)) {}
 
         /// The routes are there: DNS goes to the address after the TUN's,
         /// and, with strict_route, nowhere else. Each is undone by a step

@@ -597,6 +597,17 @@ When the host opens the TUN (`Platform::opens_tun`, as an app's
 NetworkExtension or VpnService does), sail neither routes nor sets the
 system's DNS: the host does both.
 
+**Routes of others (macOS).** A route auto_route adds where another,
+bound to no interface, already goes (another VPN's `128.0.0.0/1`, say)
+replaces it, as sing-box does. sail writes the one it replaced down and
+puts it back when it stops, where that is still right: only if sail's
+own route is still there (one its owner put back over sail's is left as
+it is), and only to the same interface, by name and index, still up.
+`instance.replaced_routes()` lists what is replaced, a line each ("route
+128.0.0.0/1 via 10.8.0.1 on utun4"), after a start or a reload. What
+could not be put back is in the stop's `StopReport::left`, with why and
+the `route add` that puts it back by hand.
+
 ## Leftovers after a kill
 
 An instance that changes the system (a TUN, its routes and rules) writes
@@ -604,7 +615,14 @@ down each change under its run directory, and undoes it when it stops.
 Every start first sweeps what a killed instance left there.
 
 - **Where.** `Options::run_dir(RunDir)` chooses the directory: `Default`
-  (`/run/sail` on Linux; none elsewhere yet), `Dir(path)`, or `Off`.
+  (`/run/sail` on Linux; `/var/run/sail` on macOS when sail runs as root;
+  none elsewhere), `Dir(path)`, or `Off`. A sandboxed host (a Network
+  Extension, an App Store app) gives its own. A directory that cannot be
+  written is warned of once, and sail runs on without a ledger.
+- **macOS.** A kill takes the utun and its routes with it; what is left is
+  a route of someone else's that auto_route replaced (below), which the
+  sweep puts back, unless the system booted since, a route to its
+  destination is there again, or its interface is not the one it was.
 - **Without an instance.** `sail::embed::sweep(&run_dir)` sweeps with no
   instance, as a desktop service does at its start, and returns one line
   per thing undone.

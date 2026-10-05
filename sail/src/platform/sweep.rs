@@ -13,13 +13,13 @@
 //! embedder runs several instances in one process, and may start another
 //! after one panicked.
 //!
-//! Only Linux leaves anything for the sweep: ip rules, routes that name no
-//! device, the nftables table and fw4's drop-in. Elsewhere the ledger
-//! records nothing and the sweep finds nothing.
+//! Linux leaves ip rules, routes that name no device, the nftables table
+//! and fw4's drop-in for the sweep; macOS a route auto_route replaced,
+//! which the sweep puts back. Windows leaves nothing.
 
-// Only the TUN on Linux writes to a ledger.
+// Only the TUN on Linux and macOS writes to a ledger.
 #![cfg_attr(
-    not(all(target_os = "linux", feature = "inbound-tun")),
+    not(all(any(target_os = "linux", target_os = "macos"), feature = "inbound-tun")),
     allow(dead_code)
 )]
 
@@ -34,11 +34,10 @@ use tracing::{debug, info, warn};
 /// Where the ledgers are kept.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum RunDir {
-    /// The system's: `/run/sail` on Linux, which empties at a reboot as
-    /// the kernel state the ledgers list does. None elsewhere: on
-    /// macOS a kill leaves nothing (the utun and its routes go with the
-    /// process), and nor does it on Windows (a Wintun adapter goes with
-    /// its process, with its routes and DNS).
+    /// The system's: `/run/sail` on Linux, `/var/run/sail` on macOS when
+    /// sail runs as root, both emptied at a reboot. None on Windows (a
+    /// Wintun adapter goes with its process, with its routes and DNS),
+    /// nor for macOS's unprivileged or sandboxed hosts: they give theirs.
     #[default]
     Default,
     /// The host's.
@@ -53,6 +52,11 @@ impl RunDir {
     fn path(&self) -> Option<PathBuf> {
         match self {
             RunDir::Default if cfg!(target_os = "linux") => Some(PathBuf::from("/run/sail")),
+            // SAFETY: geteuid has no failure and touches nothing.
+            #[cfg(target_os = "macos")]
+            RunDir::Default if unsafe { libc::geteuid() } == 0 => {
+                Some(PathBuf::from("/var/run/sail"))
+            }
             RunDir::Default => None,
             RunDir::Dir(dir) => Some(dir.clone()),
             RunDir::Off => None,
@@ -80,6 +84,98 @@ pub(crate) enum Item {
     NftTable(String),
     /// A file sail wrote.
     File(PathBuf),
+    /// Someone else's route auto_route replaced with its own (macOS): put
+    /// back, as `Replaced` says when.
+    #[cfg(any(target_os = "macos", test))]
+    ReplacedRoute(Replaced),
+}
+
+/// A route auto_route replaced with its own, as the table had it: enough to
+/// add it again, and to tell whether it should be.
+#[cfg(any(target_os = "macos", test))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct Replaced {
+    pub(crate) dst: (std::net::IpAddr, u8),
+    /// Its next hop; none for a route to an interface.
+    pub(crate) gateway: Option<std::net::IpAddr>,
+    /// Its interface, by name and index: a name alone may be another's by
+    /// then, an index alone reused.
+    pub(crate) interface: String,
+    pub(crate) index: u32,
+    /// Its flags (RTF_*), as the table had them.
+    pub(crate) flags: i32,
+    /// The utun whose route replaced it.
+    pub(crate) by: String,
+    /// The boot it was replaced in (kern.boottime): after a reboot it is
+    /// not put back.
+    pub(crate) boot: String,
+}
+
+/// Whether a replaced route goes back.
+#[cfg(any(target_os = "macos", test))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum PutBack {
+    /// Put it back.
+    Put,
+    /// Another route to its destination is there: someone's, which wins.
+    Taken,
+    /// The system booted since: it is no longer anyone's.
+    Rebooted,
+    /// Its interface is not the one it was: why.
+    Gone(String),
+}
+
+#[cfg(any(target_os = "macos", test))]
+impl Replaced {
+    /// "route 128.0.0.0/1 via 10.8.0.1 on utun4".
+    pub(crate) fn describe(&self) -> String {
+        match self.gateway {
+            Some(gateway) => format!(
+                "route {}/{} via {} on {}",
+                self.dst.0, self.dst.1, gateway, self.interface
+            ),
+            None => format!("route {}/{} on {}", self.dst.0, self.dst.1, self.interface),
+        }
+    }
+
+    /// The command that adds it again by hand.
+    pub(crate) fn clear(&self) -> String {
+        let family = if self.dst.0.is_ipv6() { " -inet6" } else { "" };
+        let to = match self.gateway {
+            Some(gateway) => gateway.to_string(),
+            None => format!("-interface {}", self.interface),
+        };
+        format!(
+            "sudo route -n add{} -net {}/{} {}",
+            family, self.dst.0, self.dst.1, to
+        )
+    }
+
+    /// Whether it goes back, now that sail's own route to its destination
+    /// is gone: in the boot `boot`; `taken` if a route to its destination
+    /// is there; `interface`, the index and whether it is up of the
+    /// interface of its name now, if there is one.
+    pub(crate) fn put_back(
+        &self,
+        boot: &str,
+        taken: bool,
+        interface: Option<(u32, bool)>,
+    ) -> PutBack {
+        if boot != self.boot {
+            return PutBack::Rebooted;
+        }
+        if taken {
+            return PutBack::Taken;
+        }
+        match interface {
+            Some((index, true)) if index == self.index => PutBack::Put,
+            Some((index, false)) if index == self.index => {
+                PutBack::Gone(format!("{} is down", self.interface))
+            }
+            Some(_) => PutBack::Gone(format!("{} is another interface now", self.interface)),
+            None => PutBack::Gone(format!("{} is gone", self.interface)),
+        }
+    }
 }
 
 /// Rules and routes as a ledger writes them: the netlink types stay free
@@ -278,6 +374,8 @@ struct Book {
     dir: PathBuf,
     path: PathBuf,
     entry: Mutex<Entry>,
+    /// Whether a failed write was warned of: once is enough.
+    warned: std::sync::atomic::AtomicBool,
 }
 
 impl Ledger {
@@ -293,6 +391,9 @@ impl Ledger {
         // Made with the first entry: an instance that changes nothing (an
         // unprivileged one, say) needs no directory it could not make.
         if let Err(e) = create_dir(&book.dir).and_then(|()| write(&book.path, &entry)) {
+            if book.warned.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                return;
+            }
             warn!(
                 "ledger {}: {}; what a kill leaves will not be swept",
                 book.path.display(),
@@ -376,6 +477,7 @@ pub fn begin(dir: &RunDir) -> (Ledger, Running) {
             netns: netns(),
             items: Vec::new(),
         }),
+        warned: Default::default(),
     };
     (Ledger(Some(Arc::new(book))), running)
 }
@@ -555,6 +657,10 @@ fn describe(item: &Item) -> String {
         Item::Route(route) => format!("the route to {} in table {}", route.dst, route.table),
         Item::NftTable(name) => format!("the nftables table inet {}", name),
         Item::File(path) => path.display().to_string(),
+        #[cfg(any(target_os = "macos", test))]
+        Item::ReplacedRoute(replaced) => {
+            format!("{}, which sail had replaced", replaced.describe())
+        }
     }
 }
 
@@ -590,6 +696,8 @@ fn undo(item: &Item) -> anyhow::Result<bool> {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
             Err(e) => Err(e.into()),
         },
+        #[cfg(test)]
+        Item::ReplacedRoute(_) => Ok(false),
     }
 }
 
@@ -600,6 +708,17 @@ fn undo(item: &Item) -> anyhow::Result<bool> {
             Ok(()) => Ok(true),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
             Err(e) => Err(e.into()),
+        },
+        // Put back if it should be; else it is no one's to put back, and
+        // the ledger lets it go.
+        #[cfg(target_os = "macos")]
+        Item::ReplacedRoute(replaced) => match crate::platform::route_socket::put_back(replaced)? {
+            PutBack::Put => Ok(true),
+            PutBack::Taken | PutBack::Rebooted => Ok(false),
+            PutBack::Gone(why) => {
+                warn!("sweep: {} not put back: {}", replaced.describe(), why);
+                Ok(false)
+            }
         },
         _ => Ok(false),
     }
@@ -798,5 +917,65 @@ mod tests {
         ];
         let json = serde_json::to_string(&items).unwrap();
         assert_eq!(serde_json::from_str::<Vec<Item>>(&json).unwrap(), items);
+    }
+
+    fn replaced(gateway: Option<&str>) -> Replaced {
+        Replaced {
+            dst: ("128.0.0.0".parse().unwrap(), 1),
+            gateway: gateway.map(|g| g.parse().unwrap()),
+            interface: "utun4".into(),
+            index: 17,
+            flags: 0x803,
+            by: "utun9".into(),
+            boot: "1791100000.123".into(),
+        }
+    }
+
+    /// Put back only in the boot it was replaced in, with its destination
+    /// free and its interface the same one, up.
+    #[test]
+    fn a_replaced_route_goes_back_only_where_it_was() {
+        let r = replaced(Some("10.8.0.1"));
+        let boot = "1791100000.123";
+        assert_eq!(r.put_back(boot, false, Some((17, true))), PutBack::Put);
+        assert_eq!(
+            r.put_back("1791200000.5", false, Some((17, true))),
+            PutBack::Rebooted
+        );
+        assert_eq!(r.put_back(boot, true, Some((17, true))), PutBack::Taken);
+        assert_eq!(
+            r.put_back(boot, false, None),
+            PutBack::Gone("utun4 is gone".into())
+        );
+        assert_eq!(
+            r.put_back(boot, false, Some((18, true))),
+            PutBack::Gone("utun4 is another interface now".into())
+        );
+        assert_eq!(
+            r.put_back(boot, false, Some((17, false))),
+            PutBack::Gone("utun4 is down".into())
+        );
+    }
+
+    #[test]
+    fn a_replaced_route_says_how_to_add_it_again() {
+        let r = replaced(Some("10.8.0.1"));
+        assert_eq!(r.describe(), "route 128.0.0.0/1 via 10.8.0.1 on utun4");
+        assert_eq!(r.clear(), "sudo route -n add -net 128.0.0.0/1 10.8.0.1");
+        let mut link = replaced(None);
+        link.dst = ("8000::".parse().unwrap(), 1);
+        assert_eq!(link.describe(), "route 8000::/1 on utun4");
+        assert_eq!(
+            link.clear(),
+            "sudo route -n add -inet6 -net 8000::/1 -interface utun4"
+        );
+    }
+
+    /// A ledger keeps a replaced route as it was written.
+    #[test]
+    fn a_replaced_route_is_read_back_from_a_ledger() {
+        let item = Item::ReplacedRoute(replaced(Some("10.8.0.1")));
+        let json = serde_json::to_string(&item).unwrap();
+        assert_eq!(serde_json::from_str::<Item>(&json).unwrap(), item);
     }
 }

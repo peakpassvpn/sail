@@ -46,8 +46,11 @@ marked *to verify*:
 So the sweep has three jobs:
 - on Linux: ip rules, routes, the nftables table and the fw4 drop-in;
 - on Windows: nothing for the TUN (measured, its WFP filters too);
-- on macOS: nothing (measured: after a kill -9 the routing table of both
-  families equals the one before the start, on every tun-macos CI run).
+- on macOS: of sail's own, nothing (measured: after a kill -9 the routing
+  table of both families equals the one before the start, on every
+  tun-macos CI run); but a route of someone else's that auto_route
+  replaced stays gone, and the sweep puts it back (its ledger entry
+  records the boot, and a reboot drops it).
 
 ### A kill, and a reboot
 
@@ -57,12 +60,13 @@ as the leftovers it lists:
 | System | Left by a kill | Left by a reboot | Ledger kept in |
 |---|---|---|---|
 | Linux | ip rules, `inet sail_<tun>`, fw4 drop-in | the fw4 drop-in only (a file; rules and nftables are kernel state) | tmpfs `/run/sail` |
-| macOS | nothing (measured) | nothing | none needed |
+| macOS | a route of another's that auto_route replaced | nothing (the entry records the boot, and is dropped) | `/var/run/sail` as root, else the host's |
 | Windows | nothing of the TUN (measured) | nothing (measured) | none needed for the TUN |
 
 So on Linux a ledger clears on reboot just as the kernel state it
-describes does. On macOS and Windows nothing of the TUN outlives the
-process, so they need no ledger.
+describes does, and on macOS by the boot it records where the host's
+directory outlives one. On Windows nothing of the TUN outlives the
+process, so it needs no ledger.
 
 Measured on Windows (2026-10-04, Windows 11, sail 0.16.0 windows-gnu,
 Wintun 0.14.1, a TUN with IPv4 and IPv6 addresses and auto_route):
@@ -97,8 +101,8 @@ So each instance writes down what it is about to create **before** it
 creates it, in a ledger file:
 
 - one file per instance, in a directory only root writes. By default it
-  is `/run/sail/` on Linux and OpenWrt, and there is none elsewhere:
-  macOS and Windows have nothing to sweep. The directory is made with the
+  is `/run/sail/` on Linux and OpenWrt, `/var/run/sail/` on macOS as
+  root, and there is none elsewhere: Windows has nothing to sweep. The directory is made with the
   first entry, so an instance that changes nothing (an unprivileged one,
   say) needs none;
 - a host can choose the directory (`run_dir`: a path, or `false` for

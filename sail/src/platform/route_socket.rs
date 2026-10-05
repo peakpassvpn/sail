@@ -36,11 +36,70 @@ pub(crate) enum Change {
 /// The message that adds or deletes the route to `dst` through `gateway`
 /// (an address of the TUN: the kernel finds the interface from it), as
 /// `route add -net DST GATEWAY` sends it.
-pub(crate) fn message(change: Change, seq: i32, dst: (IpAddr, u8), gateway: IpAddr) -> Vec<u8> {
+#[cfg(test)]
+fn message(change: Change, seq: i32, dst: (IpAddr, u8), gateway: IpAddr) -> Vec<u8> {
+    message_via(
+        change,
+        seq,
+        dst,
+        Some(&Gateway::Ip(gateway)),
+        RTF_UP | RTF_STATIC | RTF_GATEWAY,
+    )
+}
+
+/// Where a route goes: a next hop, or an interface (a link address with
+/// its index, as `route add -interface` sends it).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Gateway {
+    Ip(IpAddr),
+    Link { index: u16, name: String },
+}
+
+impl std::fmt::Display for Gateway {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Gateway::Ip(address) => write!(f, "{}", address),
+            Gateway::Link { name, .. } => write!(f, "interface {}", name),
+        }
+    }
+}
+
+/// Appends a `sockaddr_dl` of interface `index`, named `name` when the
+/// name fits.
+fn push_link(out: &mut Vec<u8>, index: u16, name: &str) {
+    // sdl_len, sdl_family, sdl_index, sdl_type, sdl_nlen, sdl_alen,
+    // sdl_slen, sdl_data[12]
+    let name = if name.len() <= 12 {
+        name.as_bytes()
+    } else {
+        &[]
+    };
+    out.extend_from_slice(&[20, libc::AF_LINK as u8]);
+    out.extend_from_slice(&index.to_ne_bytes());
+    out.extend_from_slice(&[0, name.len() as u8, 0, 0]);
+    let mut data = [0u8; 12];
+    data[..name.len()].copy_from_slice(name);
+    out.extend_from_slice(&data);
+}
+
+/// The message that adds or deletes the route to `dst` through `gateway`
+/// with `flags`; a delete may name no gateway: the route to `dst` that is
+/// not bound to an interface goes, whatever its next hop.
+pub(crate) fn message_via(
+    change: Change,
+    seq: i32,
+    dst: (IpAddr, u8),
+    gateway: Option<&Gateway>,
+    flags: i32,
+) -> Vec<u8> {
     let (address, len) = dst;
     let mut addresses = Vec::new();
     push_sockaddr(&mut addresses, masked(address, len));
-    push_sockaddr(&mut addresses, gateway);
+    match gateway {
+        Some(Gateway::Ip(gateway)) => push_sockaddr(&mut addresses, *gateway),
+        Some(Gateway::Link { index, name }) => push_link(&mut addresses, *index, name),
+        None => {}
+    }
     push_sockaddr(&mut addresses, mask(address.is_ipv6(), len));
 
     // SAFETY: a plain C struct, all zeros valid.
@@ -51,8 +110,8 @@ pub(crate) fn message(change: Change, seq: i32, dst: (IpAddr, u8), gateway: IpAd
         Change::Add => RTM_ADD,
         Change::Delete => RTM_DELETE,
     };
-    header.rtm_flags = RTF_UP | RTF_STATIC | RTF_GATEWAY;
-    header.rtm_addrs = RTA_DST | RTA_GATEWAY | RTA_NETMASK;
+    header.rtm_flags = flags;
+    header.rtm_addrs = RTA_DST | RTA_NETMASK | if gateway.is_some() { RTA_GATEWAY } else { 0 };
     header.rtm_seq = seq;
     let mut bytes = Vec::with_capacity(usize::from(header.rtm_msglen));
     // SAFETY: the header's bytes, for its size.
@@ -203,48 +262,12 @@ fn dump_ipv4() -> io::Result<Vec<u8>> {
     dump(libc::AF_INET)
 }
 
-/// The routes of a table dump to exactly `dst`: their gateways (an IP
-/// address, or none for an interface's own route) and interfaces.
-fn routes_to(mut dump: &[u8], dst: (IpAddr, u8)) -> Vec<(Option<IpAddr>, u16)> {
-    let want = masked(dst.0, dst.1);
-    let full = if want.is_ipv6() { 128 } else { 32 };
-    let mut routes = Vec::new();
-    while dump.len() >= HEADER {
-        let len = usize::from(u16::from_ne_bytes([dump[0], dump[1]]));
-        if len < HEADER || len > dump.len() {
-            break;
-        }
-        // SAFETY: at least a header's bytes; read unaligned.
-        let header: libc::rt_msghdr =
-            unsafe { std::ptr::read_unaligned(dump.as_ptr() as *const libc::rt_msghdr) };
-        let found = sockaddrs(header.rtm_addrs, &dump[HEADER..len]);
-        // A netmask may come with no address family (0 or 255, as BSD
-        // writes masks), which `sockaddrs` does not read: with none read,
-        // the destination alone decides. A host route has no netmask.
-        let length = found[2].map(|mask| match mask {
-            IpAddr::V4(m) => u32::from(m).count_ones() as u8,
-            IpAddr::V6(m) => u128::from(m).count_ones() as u8,
-        });
-        let host = header.rtm_flags & libc::RTF_HOST != 0;
-        let fits = match length {
-            Some(length) => length == dst.1,
-            None => !host || dst.1 == full,
-        };
-        if found[0] == Some(want) && fits {
-            routes.push((found[1], header.rtm_index));
-        }
-        dump = &dump[len..];
-    }
-    routes
-}
-
 /// RTF_WASCLONED: a host route the kernel cloned from another as a cache.
 #[cfg(feature = "inbound-tun")]
 const RTF_WASCLONED: i32 = 0x2_0000;
 
 /// The length of the netmask a message carries, read whatever family its
 /// sockaddr says (BSD writes masks with none); none without a netmask.
-#[cfg(feature = "inbound-tun")]
 fn netmask_length(addrs: i32, mut bytes: &[u8], v6: bool) -> Option<u8> {
     for kind in 0..RTAX_MAX {
         if addrs & (1 << kind) == 0 {
@@ -315,24 +338,177 @@ pub(crate) fn table(v6: bool) -> io::Result<Vec<crate::platform::integrity::Rout
     dump(if v6 { libc::AF_INET6 } else { libc::AF_INET }).map(|d| table_routes(&d))
 }
 
-/// What routes to `dst` now, in words: "via 192.168.1.1 on en0".
+/// A route of the table to exactly a destination, not bound to an
+/// interface: where it goes, its interface's index and its flags.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Exact {
+    pub(crate) gateway: Option<Gateway>,
+    pub(crate) index: u16,
+    pub(crate) flags: i32,
+}
+
+/// The `n`th socket address a message carries, if it carries it: its
+/// bytes.
+fn nth_sockaddr(addrs: i32, mut bytes: &[u8], n: u32) -> Option<&[u8]> {
+    for kind in 0..RTAX_MAX {
+        if addrs & (1 << kind) == 0 {
+            continue;
+        }
+        let &len = bytes.first()?;
+        let taken = if len == 0 {
+            4
+        } else {
+            (usize::from(len) + 3) & !3
+        };
+        if kind == n {
+            return bytes.get(..usize::from(len).min(bytes.len()));
+        }
+        bytes = bytes.get(taken..).unwrap_or_default();
+    }
+    None
+}
+
+/// The routes of a table dump to exactly `dst` that are up and bound to no
+/// interface; a route to an interface has a link address for gateway.
+fn exact_in(mut dump: &[u8], dst: (IpAddr, u8)) -> Vec<Exact> {
+    let want = masked(dst.0, dst.1);
+    let full = if want.is_ipv6() { 128 } else { 32 };
+    let mut routes = Vec::new();
+    while dump.len() >= HEADER {
+        let len = usize::from(u16::from_ne_bytes([dump[0], dump[1]]));
+        if len < HEADER || len > dump.len() {
+            break;
+        }
+        // SAFETY: at least a header's bytes; read unaligned.
+        let header: libc::rt_msghdr =
+            unsafe { std::ptr::read_unaligned(dump.as_ptr() as *const libc::rt_msghdr) };
+        let bytes = &dump[HEADER..len];
+        let flags = header.rtm_flags;
+        let found = sockaddrs(header.rtm_addrs, bytes);
+        let length = if flags & libc::RTF_HOST != 0 {
+            Some(full)
+        } else {
+            netmask_length(header.rtm_addrs, bytes, want.is_ipv6())
+        };
+        if found[0] == Some(want)
+            && length.unwrap_or(full) == dst.1
+            && flags & RTF_UP != 0
+            && flags & RTF_IFSCOPE == 0
+        {
+            let gateway = match found[1] {
+                Some(address) => Some(Gateway::Ip(address)),
+                None => nth_sockaddr(header.rtm_addrs, bytes, 1)
+                    .filter(|sa| sa.len() >= 4 && i32::from(sa[1]) == libc::AF_LINK)
+                    .map(|sa| Gateway::Link {
+                        index: u16::from_ne_bytes([sa[2], sa[3]]),
+                        name: String::new(),
+                    }),
+            };
+            routes.push(Exact {
+                gateway,
+                index: header.rtm_index,
+                flags,
+            });
+        }
+        dump = &dump[len..];
+    }
+    routes
+}
+
+/// The routes to exactly `dst` now, bound to no interface.
 #[cfg(target_os = "macos")]
-fn describe_route_to(dst: (IpAddr, u8)) -> String {
+pub(crate) fn exact(dst: (IpAddr, u8)) -> io::Result<Vec<Exact>> {
     let family = if dst.0.is_ipv6() {
         libc::AF_INET6
     } else {
         libc::AF_INET
     };
-    let routes = dump(family).map(|d| routes_to(&d, dst)).unwrap_or_default();
-    match routes.first() {
-        Some((gateway, index)) => {
-            let on = interface_name(*index).unwrap_or_else(|_| format!("interface {}", index));
-            match gateway {
-                Some(gateway) => format!("via {} on {}", gateway, on),
-                None => format!("on {}", on),
-            }
+    dump(family).map(|d| exact_in(&d, dst))
+}
+
+/// This boot, as kern.boottime tells it: "seconds.microseconds".
+#[cfg(target_os = "macos")]
+pub(crate) fn boot() -> io::Result<String> {
+    let mut time = libc::timeval {
+        tv_sec: 0,
+        tv_usec: 0,
+    };
+    let mut size = std::mem::size_of::<libc::timeval>();
+    // SAFETY: `time` is writable for `size` bytes.
+    let ret = unsafe {
+        libc::sysctlbyname(
+            c"kern.boottime".as_ptr(),
+            &mut time as *mut libc::timeval as *mut libc::c_void,
+            &mut size,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if ret != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(format!("{}.{:06}", time.tv_sec, time.tv_usec))
+}
+
+/// The index of the interface `name`, and whether it is up; none if
+/// there is no such interface.
+#[cfg(target_os = "macos")]
+pub(crate) fn interface_now(name: &str) -> Option<(u32, bool)> {
+    let c_name = std::ffi::CString::new(name).ok()?;
+    // SAFETY: a C string that lives through the call.
+    let index = unsafe { libc::if_nametoindex(c_name.as_ptr()) };
+    if index == 0 {
+        return None;
+    }
+    let mut list: *mut libc::ifaddrs = std::ptr::null_mut();
+    // SAFETY: getifaddrs fills `list`, freed below.
+    if unsafe { libc::getifaddrs(&mut list) } != 0 {
+        return Some((index, false));
+    }
+    let mut up = false;
+    let mut entry = list;
+    while !entry.is_null() {
+        // SAFETY: a node of the list getifaddrs returned, not yet freed.
+        let ifa = unsafe { &*entry };
+        entry = ifa.ifa_next;
+        // SAFETY: the name is a C string owned by the list.
+        if unsafe { std::ffi::CStr::from_ptr(ifa.ifa_name) }.to_bytes() == name.as_bytes() {
+            up |= ifa.ifa_flags & libc::IFF_UP as u32 != 0;
         }
-        None => "of unknown gateway".into(),
+    }
+    // SAFETY: the list getifaddrs returned, freed once.
+    unsafe { libc::freeifaddrs(list) };
+    Some((index, up))
+}
+
+/// Puts `replaced` back where it should go back (sweep's `put_back`), now
+/// that sail's own route to its destination is gone; says what it did.
+/// An error is the kernel's refusal to add it.
+#[cfg(target_os = "macos")]
+pub(crate) fn put_back(
+    replaced: &crate::platform::sweep::Replaced,
+) -> io::Result<crate::platform::sweep::PutBack> {
+    use crate::platform::sweep::PutBack;
+    let taken = !exact(replaced.dst)?.is_empty();
+    let decision = replaced.put_back(&boot()?, taken, interface_now(&replaced.interface));
+    if decision != PutBack::Put {
+        return Ok(decision);
+    }
+    let gateway = match replaced.gateway {
+        Some(address) => Gateway::Ip(address),
+        None => Gateway::Link {
+            index: u16::try_from(replaced.index).unwrap_or(0),
+            name: replaced.interface.clone(),
+        },
+    };
+    // Its own flags but those the kernel sets itself.
+    let flags = replaced.flags
+        & (RTF_GATEWAY | RTF_STATIC | libc::RTF_REJECT | libc::RTF_BLACKHOLE)
+        | RTF_UP;
+    match RouteSocket::open()?.send_via(Change::Add, replaced.dst, Some(&gateway), flags) {
+        // Added in between: someone's, which wins.
+        Err(e) if errno(&e) == Some(libc::EEXIST) => Ok(PutBack::Taken),
+        other => other.map(|()| PutBack::Put),
     }
 }
 
@@ -451,28 +627,27 @@ impl RouteSocket {
     /// by a run that died, another VPN's, or the kernel's for an address's
     /// own network -- is replaced, as sing-tun does (tun_darwin.go
     /// setRoutes); returns what was there, in words, when one was.
-    pub(crate) fn add(&self, dst: (IpAddr, u8), gateway: IpAddr) -> io::Result<Option<String>> {
-        match self.send(Change::Add, dst, gateway) {
-            Err(e) if errno(&e) == Some(libc::EEXIST) => {
-                let replaced = describe_route_to(dst);
-                let _ = self.send(Change::Delete, dst, gateway);
-                match self.send(Change::Add, dst, gateway) {
-                    Ok(()) => Ok(Some(replaced)),
-                    // The table has changed all the same: say so.
-                    Err(e) => Err(io::Error::new(
-                        e.kind(),
-                        Failed {
-                            errno: errno(&e).unwrap_or(0),
-                            message: format!(
-                                "{}, after deleting the route that was there ({})",
-                                e, replaced
-                            ),
-                        },
-                    )),
-                }
-            }
-            other => other.map(|()| None),
-        }
+    /// Adds the route to `dst` through `gateway`; one there already is
+    /// EEXIST, which `replace` deals with.
+    pub(crate) fn add(&self, dst: (IpAddr, u8), gateway: IpAddr) -> io::Result<()> {
+        self.send(Change::Add, dst, gateway)
+    }
+
+    /// Deletes the route to `dst` bound to no interface, whatever it goes
+    /// through (`was`, for what is said), and adds sail's through
+    /// `gateway`.
+    pub(crate) fn replace(&self, dst: (IpAddr, u8), was: &str, gateway: IpAddr) -> io::Result<()> {
+        let _ = self.send_via(Change::Delete, dst, None, RTF_UP);
+        self.send(Change::Add, dst, gateway).map_err(|e| {
+            // The table has changed all the same: say so.
+            io::Error::new(
+                e.kind(),
+                Failed {
+                    errno: errno(&e).unwrap_or(0),
+                    message: format!("{}, after deleting the route that was there ({})", e, was),
+                },
+            )
+        })
     }
 
     pub(crate) fn delete(&self, dst: (IpAddr, u8), gateway: IpAddr) -> io::Result<()> {
@@ -480,9 +655,24 @@ impl RouteSocket {
     }
 
     fn send(&self, change: Change, dst: (IpAddr, u8), gateway: IpAddr) -> io::Result<()> {
+        self.send_via(
+            change,
+            dst,
+            Some(&Gateway::Ip(gateway)),
+            RTF_UP | RTF_STATIC | RTF_GATEWAY,
+        )
+    }
+
+    fn send_via(
+        &self,
+        change: Change,
+        dst: (IpAddr, u8),
+        gateway: Option<&Gateway>,
+        flags: i32,
+    ) -> io::Result<()> {
         use std::os::fd::AsRawFd;
         let seq = self.seq.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let message = message(change, seq, dst, gateway);
+        let message = message_via(change, seq, dst, gateway, flags);
         // A write fails with the kernel's error for the message.
         // SAFETY: `message` is readable for its length.
         let written = unsafe {
@@ -517,20 +707,21 @@ impl std::error::Error for Failed {}
 
 /// `e`, the kernel's answer to `change`, with what was being changed; its
 /// errno kept.
-fn failed(e: io::Error, change: Change, dst: (IpAddr, u8), gateway: IpAddr) -> io::Error {
+fn failed(e: io::Error, change: Change, dst: (IpAddr, u8), gateway: Option<&Gateway>) -> io::Error {
+    let via = gateway.map(|g| format!(" via {}", g)).unwrap_or_default();
     io::Error::new(
         e.kind(),
         Failed {
             errno: e.raw_os_error().unwrap_or(0),
             message: format!(
-                "{} route {}/{} via {}: {}",
+                "{} route {}/{}{}: {}",
                 match change {
                     Change::Add => "adding",
                     Change::Delete => "deleting",
                 },
                 dst.0,
                 dst.1,
-                gateway,
+                via,
                 e
             ),
         },
@@ -630,7 +821,7 @@ mod tests {
                 io::Error::from_raw_os_error(errno_),
                 Change::Add,
                 ("10.0.0.0".parse().unwrap(), 8),
-                "172.19.0.1".parse().unwrap(),
+                Some(&Gateway::Ip("172.19.0.1".parse().unwrap())),
             );
             assert_eq!(super::errno(&e), Some(errno_));
             assert!(
@@ -834,6 +1025,55 @@ mod tests {
                 route("0.0.0.0", 0, 4, true),
             ]
         );
+    }
+
+    /// A route to an interface carries a link address for gateway, with
+    /// the interface's index, and no RTF_GATEWAY; a delete may carry no
+    /// gateway at all.
+    #[test]
+    fn a_route_to_an_interface_carries_its_link() {
+        let lo0 = Gateway::Link {
+            index: 1,
+            name: "lo0".into(),
+        };
+        let bytes = message_via(
+            Change::Add,
+            7,
+            ("198.18.0.0".parse().unwrap(), 15),
+            Some(&lo0),
+            RTF_UP | RTF_STATIC,
+        );
+        // SAFETY: at least a header's bytes; read unaligned.
+        let header: libc::rt_msghdr =
+            unsafe { std::ptr::read_unaligned(bytes.as_ptr() as *const libc::rt_msghdr) };
+        assert_eq!(header.rtm_flags, RTF_UP | RTF_STATIC);
+        assert_eq!(header.rtm_addrs, RTA_DST | RTA_GATEWAY | RTA_NETMASK);
+        let link = &bytes[HEADER + 16..HEADER + 36];
+        assert_eq!(&link[..4], &[20, libc::AF_LINK as u8, 1, 0]);
+        assert_eq!(&link[5..6], &[3]);
+        assert_eq!(&link[8..11], b"lo0");
+        assert_eq!(bytes.len(), HEADER + 16 + 20 + 16);
+
+        let delete = message_via(
+            Change::Delete,
+            8,
+            ("198.18.0.0".parse().unwrap(), 15),
+            None,
+            RTF_UP,
+        );
+        assert_eq!(delete.len(), HEADER + 16 + 16);
+        // The route as a dump gives it back: its link, index and flags.
+        let dump = bytes;
+        let found = exact_in(&dump, ("198.18.0.0".parse().unwrap(), 15));
+        assert_eq!(found.len(), 1);
+        assert_eq!(
+            found[0].gateway,
+            Some(Gateway::Link {
+                index: 1,
+                name: String::new()
+            })
+        );
+        assert!(exact_in(&dump, ("198.18.0.0".parse().unwrap(), 16)).is_empty());
     }
 
     /// Reading this host's table changes nothing: whatever it holds, the

@@ -384,6 +384,15 @@ impl Instance {
     pub fn tun_names(&self) -> Result<std::collections::BTreeMap<String, TunName>, Error> {
         Ok(self.manager()?.tun_names())
     }
+
+    /// The routes of others (another VPN's, say) that auto_route replaced
+    /// with its own, a line each: "route 128.0.0.0/1 via 10.8.0.1 on
+    /// utun4". sail puts them back when it stops, where they should go
+    /// back. Read it after a start or a reload. macOS only; empty
+    /// elsewhere.
+    pub fn replaced_routes(&self) -> Result<Vec<String>, Error> {
+        Ok(self.manager()?.replaced_routes())
+    }
 }
 
 pub use crate::control::events::{

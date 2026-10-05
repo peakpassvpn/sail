@@ -617,6 +617,17 @@ impl RuntimeManager {
             .clone()
     }
 
+    /// The routes of others auto_route replaced with its own, a line
+    /// each ("route 128.0.0.0/1 via 10.8.0.1 on utun4"): put back when it
+    /// stops. macOS only; none elsewhere.
+    pub fn replaced_routes(&self) -> Vec<String> {
+        self.env
+            .replaced_routes
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
     /// Reloads DNS, outbounds and routing from the configuration file. They
     /// are all built before any is replaced: a configuration that fails to
     /// build changes nothing. Connections already routed keep what they
