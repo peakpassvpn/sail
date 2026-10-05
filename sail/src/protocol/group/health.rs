@@ -3,7 +3,7 @@
 //! the group is in use and the network is up, and at once when the network
 //! changes, as sing-box's urltest does.
 
-use std::collections::HashMap;
+use std::collections::{hash_map, HashMap};
 use std::future::Future;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
@@ -16,7 +16,7 @@ use tokio::sync::Notify;
 use tokio::time::Instant;
 use tracing::debug;
 
-use super::members::{MemberKey, MemberLatencies, Members, Snapshot, Tested};
+use super::members::{Member, MemberKey, MemberLatencies, Members, Snapshot, Tested};
 use crate::adapter::AnyOutboundHandler;
 use crate::app::healthcheck::HttpProbe;
 use crate::app::SyncDnsClient;
@@ -108,6 +108,18 @@ impl Probes {
     #[cfg(any(feature = "outbound-urltest", feature = "outbound-fallback"))]
     fn first(&self) -> &HttpProbe {
         &self.probes[0]
+    }
+
+    /// Whether they test as `other` do: the same URLs, in order, the same
+    /// statuses passing, the same policy.
+    fn tests_as(&self, other: &Probes) -> bool {
+        self.policy == other.policy
+            && self.probes.len() == other.probes.len()
+            && self
+                .probes
+                .iter()
+                .zip(&other.probes)
+                .all(|(a, b)| a.tests_as(b))
     }
 }
 
@@ -323,6 +335,91 @@ impl Checker {
     #[cfg(any(feature = "outbound-urltest", feature = "outbound-fallback"))]
     pub fn latencies(&self) -> MemberLatencies {
         self.latencies.clone()
+    }
+
+    /// The members it tests now.
+    pub fn members(&self) -> Arc<Snapshot> {
+        self.members.load()
+    }
+
+    /// Whether it tests its members as `other` does: the same URLs and
+    /// statuses passing, under the same policy, on the same network.
+    fn tests_as(&self, other: &Checker) -> bool {
+        self.probes.tests_as(&other.probes) && self.network.is(&other.network)
+    }
+
+    /// Starts from what `previous` found, the checker of the group this
+    /// one's replaces, if it tests as this one does: of the members it
+    /// had, `before`, those that are members here and that `unchanged`
+    /// says are as they were, given each as it was and as it is, take
+    /// their last checks and standings, but not the failed connections
+    /// counted. Those of a round that ended first stay. The group then
+    /// chooses, as after a round, a member with no check carried counting
+    /// as one with no latency. The tests go on as they would: their first
+    /// round replaces what was carried.
+    pub fn carry(
+        &self,
+        previous: &Checker,
+        before: &Snapshot,
+        unchanged: impl Fn(&Member, &Member) -> bool,
+    ) {
+        if !self.tests_as(previous) {
+            return;
+        }
+        let snapshot = self.members.load();
+        let was: HashMap<&MemberKey, &Member> =
+            before.members.iter().map(|m| (&m.key, m)).collect();
+        let carried: Vec<&MemberKey> = snapshot
+            .members
+            .iter()
+            .filter(|now| was.get(&now.key).is_some_and(|was| unchanged(was, now)))
+            .map(|m| &m.key)
+            .collect();
+        let tested: Vec<(MemberKey, Tested)> = previous.latencies.read(|tested| {
+            carried
+                .iter()
+                .filter_map(|&key| tested.get(key).map(|t| (key.clone(), *t)))
+                .collect()
+        });
+        let standings: Vec<(MemberKey, Standing)> = {
+            let standings = previous.standings.lock().unwrap_or_else(|e| e.into_inner());
+            carried
+                .iter()
+                .filter_map(|&key| standings.get(key).map(|s| (key.clone(), *s)))
+                .collect()
+        };
+        if tested.is_empty() && standings.is_empty() {
+            return;
+        }
+        {
+            let mut current = self.standings.lock().unwrap_or_else(|e| e.into_inner());
+            for (key, standing) in standings {
+                current.entry(key).or_insert(standing);
+            }
+        }
+        self.latencies.update(|current| {
+            let mut changed = false;
+            for (key, t) in tested {
+                if let hash_map::Entry::Vacant(e) = current.entry(key) {
+                    e.insert(t);
+                    changed = true;
+                }
+            }
+            changed
+        });
+        let latencies: Vec<Option<Duration>> = self.latencies.read(|tested| {
+            snapshot
+                .members
+                .iter()
+                .map(|m| tested.get(&m.key).and_then(|t| t.latency))
+                .collect()
+        });
+        debug!(
+            "[{}] carries the checks of {} members over",
+            self.tag,
+            carried.len()
+        );
+        (self.on_tested)(self, &snapshot, &latencies);
     }
 
     /// Whether `member` stands up, as its rounds of tests have it, see
@@ -647,10 +744,27 @@ impl Checker {
 
     /// A round of tests that began now, after anything marked down, and
     /// ended with `latencies`, for the members as they are now.
-    #[cfg(all(test, feature = "outbound-fallback"))]
+    #[cfg(test)]
+    #[cfg_attr(
+        not(any(feature = "outbound-fallback", feature = "outbound-direct")),
+        allow(dead_code)
+    )]
     pub(crate) fn round(&self, latencies: &[Option<Duration>]) {
         let started = SystemTime::now() + Duration::from_nanos(1);
         self.round_ended(self.members.load(), started, latencies.to_vec());
+    }
+}
+
+/// A checker as the outbound manager keeps it, behind a trait object: a
+/// checker's types lead back to the manager, and proving the manager
+/// `Send` through them all overflows the compiler.
+pub(crate) trait Kept: Send + Sync {
+    fn checker(&self) -> &Checker;
+}
+
+impl Kept for Checker {
+    fn checker(&self) -> &Checker {
+        self
     }
 }
 

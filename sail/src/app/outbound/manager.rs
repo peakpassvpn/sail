@@ -19,6 +19,12 @@ use crate::{
 
 #[cfg(feature = "outbound-select")]
 use super::selector::OutboundSelector;
+#[cfg(any(
+    feature = "outbound-urltest",
+    feature = "outbound-load-balance",
+    feature = "outbound-fallback"
+))]
+use crate::protocol::group::members::Snapshot;
 #[cfg(feature = "outbound-provider")]
 use crate::{
     app::provider::Providers,
@@ -57,6 +63,14 @@ pub struct OutboundManager {
     /// providers.
     #[cfg(feature = "outbound-provider")]
     merges: HashMap<String, Arc<Merge>>,
+    /// The checkers of the groups that test their members, which a
+    /// reload carries over.
+    #[cfg(any(
+        feature = "outbound-urltest",
+        feature = "outbound-load-balance",
+        feature = "outbound-fallback"
+    ))]
+    checkers: super::Checkers,
 }
 
 impl OutboundManager {
@@ -121,6 +135,19 @@ impl OutboundManager {
                 "endpoints: changed; endpoints are only configured at start"
             ));
         }
+        // The members of the groups that test theirs, as they were: a
+        // group's merge follows the members of a provider configured as it
+        // was, which the providers built below publish into.
+        #[cfg(any(
+            feature = "outbound-urltest",
+            feature = "outbound-load-balance",
+            feature = "outbound-fallback"
+        ))]
+        let before: HashMap<String, Arc<Snapshot>> = previous
+            .checkers
+            .iter()
+            .map(|(tag, checker)| (tag.clone(), checker.checker().members()))
+            .collect();
         // The endpoints and what they are built on, all the way down.
         let mut kept: Vec<String> = previous.endpoints.keys().cloned().collect();
         let mut i = 0;
@@ -164,6 +191,14 @@ impl OutboundManager {
             if let Some(selector) = previous.selectors.get(tag) {
                 selectors.insert(tag.clone(), selector.clone());
             }
+            #[cfg(any(
+                feature = "outbound-urltest",
+                feature = "outbound-load-balance",
+                feature = "outbound-fallback"
+            ))]
+            if let Some(checker) = previous.checkers.get(tag) {
+                next.checkers.insert(tag.clone(), checker.clone());
+            }
             // A group kept follows the members of the providers it was
             // built on, which must be the ones there are.
             #[cfg(feature = "outbound-provider")]
@@ -195,7 +230,45 @@ impl OutboundManager {
         let next = next.with(&rest, &[], dial_defaults, env, dns_client.clone())?;
         #[cfg(feature = "outbound-provider")]
         next.build_providers(env, &dns_client)?;
+        #[cfg(any(
+            feature = "outbound-urltest",
+            feature = "outbound-load-balance",
+            feature = "outbound-fallback"
+        ))]
+        next.carry_checks(previous, &before);
         Ok(next)
+    }
+
+    /// Starts each group rebuilt that tests its members from what the
+    /// group of its tag and type in `previous` found, see `Checker::carry`,
+    /// for the members that are as they were: those with the same handler,
+    /// an endpoint kept or a provider's member unchanged, and outbounds of
+    /// the configuration configured as they were. `before` are the
+    /// previous groups' members, taken before the reload built anything.
+    #[cfg(any(
+        feature = "outbound-urltest",
+        feature = "outbound-load-balance",
+        feature = "outbound-fallback"
+    ))]
+    fn carry_checks(&self, previous: &OutboundManager, before: &HashMap<String, Arc<Snapshot>>) {
+        let configured_as_it_was = |tag: &str| {
+            previous
+                .configs
+                .get(tag)
+                .is_some_and(|was| self.configs.get(tag) == Some(was))
+        };
+        for (tag, checker) in &self.checkers {
+            let (Some(old), Some(before)) = (previous.checkers.get(tag), before.get(tag)) else {
+                continue;
+            };
+            if Arc::ptr_eq(old, checker) || previous.protocol(tag) != self.protocol(tag) {
+                continue;
+            }
+            checker.checker().carry(old.checker(), before, |was, now| {
+                Arc::ptr_eq(&was.handler, &now.handler)
+                    || (now.key.source.is_none() && configured_as_it_was(&now.key.name))
+            });
+        }
     }
 
     fn empty(outbounds: &[Outbound], endpoints: &[Endpoint]) -> Self {
@@ -221,6 +294,12 @@ impl OutboundManager {
             providers: Default::default(),
             #[cfg(feature = "outbound-provider")]
             merges: HashMap::new(),
+            #[cfg(any(
+                feature = "outbound-urltest",
+                feature = "outbound-load-balance",
+                feature = "outbound-fallback"
+            ))]
+            checkers: HashMap::new(),
         };
         if let Some(tag) = &empty.default_handler {
             tracing::debug!("default handler [{}]", tag);
@@ -280,6 +359,12 @@ impl OutboundManager {
                 external_handlers: &mut external_handlers,
                 #[cfg(feature = "outbound-provider")]
                 providers: &mut sources,
+                #[cfg(any(
+                    feature = "outbound-urltest",
+                    feature = "outbound-load-balance",
+                    feature = "outbound-fallback"
+                ))]
+                checkers: &mut next.checkers,
             },
         )?;
         for outbound in outbounds {
@@ -366,6 +451,12 @@ impl OutboundManager {
         }
         #[cfg(feature = "outbound-provider")]
         next.merges.remove(tag);
+        #[cfg(any(
+            feature = "outbound-urltest",
+            feature = "outbound-load-balance",
+            feature = "outbound-fallback"
+        ))]
+        next.checkers.remove(tag);
         Ok((next, tasks))
     }
 
@@ -745,5 +836,285 @@ mod pass_tests {
         assert_eq!(direct.tag(), IMPLICIT_DIRECT);
         assert!(direct.is_direct());
         assert!(om.get(IMPLICIT_DIRECT).is_none());
+    }
+}
+
+#[cfg(all(
+    test,
+    feature = "outbound-direct",
+    any(
+        feature = "outbound-urltest",
+        feature = "outbound-load-balance",
+        feature = "outbound-fallback"
+    )
+))]
+mod carry_tests {
+    use std::time::Duration;
+
+    use super::*;
+    use crate::config::Config;
+
+    /// A URL whose host never answers: no round of tests ends by itself,
+    /// nor does one begin, without a runtime.
+    const SILENT: &str = "http://192.0.2.1/";
+
+    /// Two members, configured apart, so that they share no handler.
+    const MEMBERS: &str = r#"{ "type": "direct", "tag": "a", "connect_timeout": "1s" },
+                             { "type": "direct", "tag": "b", "connect_timeout": "2s" }"#;
+
+    fn ms(v: u64) -> Option<Duration> {
+        Some(Duration::from_millis(v))
+    }
+
+    /// The outbounds of `json`, built, or reloaded over `previous`, in
+    /// `env`, whose network every build shares, as an instance's does.
+    fn build(json: &str, previous: Option<&OutboundManager>, env: &RuntimeEnv) -> OutboundManager {
+        let config = Config::from_json(json).unwrap();
+        let dial = DialDefaults::default();
+        let dns = crate::app::dns::DnsClient::new(
+            &config.dns,
+            Arc::new(dial.clone()),
+            &Default::default(),
+        )
+        .unwrap()
+        .into_shared();
+        #[cfg(feature = "outbound-provider")]
+        let providers = Providers::load(
+            &config.outbound_providers,
+            &crate::app::http::HttpClients::new(&config, Arc::new(dial.clone())),
+            Arc::new(dial.clone()),
+            env,
+            previous.map(|p| &*p.providers),
+        )
+        .unwrap();
+        match previous {
+            None => OutboundManager::with_endpoints(
+                &config.outbounds,
+                &config.endpoints,
+                #[cfg(feature = "outbound-provider")]
+                providers,
+                &dial,
+                env,
+                dns,
+            ),
+            Some(previous) => OutboundManager::reloaded(
+                previous,
+                &config.outbounds,
+                &config.endpoints,
+                #[cfg(feature = "outbound-provider")]
+                providers,
+                &dial,
+                env,
+                dns,
+            ),
+        }
+        .unwrap()
+    }
+
+    /// The configuration of the outbounds `members` and `group`.
+    fn config(members: &str, group: &str) -> String {
+        format!(r#"{{ "outbounds": [{}, {}] }}"#, members, group)
+    }
+
+    /// The group `g` of `kind`, of members [a] and [b], testing `url`,
+    /// with the fields `more`.
+    fn group(kind: &str, url: &str, more: &str) -> String {
+        format!(
+            r#"{{ "type": "{}", "tag": "g", "outbounds": ["a", "b"], "url": "{}"{} }}"#,
+            kind, url, more
+        )
+    }
+
+    #[cfg(any(feature = "outbound-urltest", feature = "outbound-fallback"))]
+    fn selected(om: &OutboundManager) -> String {
+        om.get_selector("g")
+            .unwrap()
+            .try_read()
+            .unwrap()
+            .get_selected_tag()
+    }
+
+    /// Each member of `g` with its last check's latency, as the API shows
+    /// them: `None` for one not checked.
+    #[cfg(any(feature = "outbound-urltest", feature = "outbound-fallback"))]
+    fn tested(om: &OutboundManager) -> Vec<(String, Option<Option<Duration>>)> {
+        om.get_selector("g")
+            .unwrap()
+            .try_read()
+            .unwrap()
+            .get_tested()
+            .unwrap()
+            .into_iter()
+            .map(|(name, t)| (name, t.map(|t| t.latency)))
+            .collect()
+    }
+
+    #[cfg(any(feature = "outbound-urltest", feature = "outbound-fallback"))]
+    fn named(name: &str, latency: Option<Option<Duration>>) -> (String, Option<Option<Duration>>) {
+        (name.to_string(), latency)
+    }
+
+    #[cfg(feature = "outbound-urltest")]
+    #[test]
+    fn after_a_reload_urltest_takes_the_member_found_fastest_at_once() {
+        let env = RuntimeEnv::default();
+        let json = config(MEMBERS, &group("urltest", SILENT, ""));
+        let first = build(&json, None, &env);
+        assert_eq!(selected(&first), "a");
+        first.checkers["g"].checker().round(&[ms(300), ms(20)]);
+        assert_eq!(selected(&first), "b");
+
+        // Before any round of its own.
+        let next = build(&json, Some(&first), &env);
+        assert!(!Arc::ptr_eq(&first.checkers["g"], &next.checkers["g"]));
+        assert_eq!(selected(&next), "b");
+        assert_eq!(
+            tested(&next),
+            [named("a", Some(ms(300))), named("b", Some(ms(20)))]
+        );
+        // A round of its own replaces them.
+        next.checkers["g"].checker().round(&[ms(10), ms(200)]);
+        assert_eq!(selected(&next), "a");
+    }
+
+    #[cfg(feature = "outbound-urltest")]
+    #[test]
+    fn a_member_configured_otherwise_starts_untested() {
+        let env = RuntimeEnv::default();
+        let first = build(&config(MEMBERS, &group("urltest", SILENT, "")), None, &env);
+        first.checkers["g"].checker().round(&[ms(300), ms(20)]);
+        let changed = MEMBERS.replace("2s", "3s");
+        let next = build(
+            &config(&changed, &group("urltest", SILENT, "")),
+            Some(&first),
+            &env,
+        );
+        assert_eq!(tested(&next), [named("a", Some(ms(300))), named("b", None)]);
+        // The one member found up is taken.
+        assert_eq!(selected(&next), "a");
+    }
+
+    #[cfg(feature = "outbound-urltest")]
+    #[test]
+    fn a_group_that_tests_otherwise_carries_nothing() {
+        let env = RuntimeEnv::default();
+        let json = config(MEMBERS, &group("urltest", SILENT, ""));
+        let first = build(&json, None, &env);
+        first.checkers["g"].checker().round(&[ms(300), ms(20)]);
+        let next = build(&json, Some(&first), &env);
+        assert_eq!(
+            tested(&next),
+            [named("a", Some(ms(300))), named("b", Some(ms(20)))]
+        );
+
+        // Another URL.
+        let elsewhere = build(
+            &config(MEMBERS, &group("urltest", "http://192.0.2.2/", "")),
+            Some(&next),
+            &env,
+        );
+        assert_eq!(tested(&elsewhere), [named("a", None), named("b", None)]);
+        assert_eq!(selected(&elsewhere), "a");
+        // Other statuses expected.
+        let expecting = build(
+            &config(
+                MEMBERS,
+                &group("urltest", SILENT, r#", "expected_status": "204""#),
+            ),
+            Some(&next),
+            &env,
+        );
+        assert_eq!(tested(&expecting), [named("a", None), named("b", None)]);
+        // A group of another type, of the same tag.
+        #[cfg(feature = "outbound-fallback")]
+        {
+            let fallback = build(
+                &config(MEMBERS, &group("fallback", SILENT, "")),
+                Some(&next),
+                &env,
+            );
+            assert_eq!(tested(&fallback), [named("a", None), named("b", None)]);
+        }
+    }
+
+    #[cfg(feature = "outbound-fallback")]
+    #[test]
+    fn after_a_reload_fallback_skips_a_member_found_down_and_keeps_its_standing() {
+        let env = RuntimeEnv::default();
+        let json = config(
+            MEMBERS,
+            &group(
+                "fallback",
+                SILENT,
+                r#", "debounce": { "recover_after": 2 }"#,
+            ),
+        );
+        let first = build(&json, None, &env);
+        assert_eq!(selected(&first), "a");
+        first.checkers["g"].checker().round(&[None, ms(10)]);
+        assert_eq!(selected(&first), "b");
+
+        let next = build(&json, Some(&first), &env);
+        assert_eq!(selected(&next), "b");
+        assert_eq!(
+            tested(&next),
+            [named("a", Some(None)), named("b", Some(ms(10)))]
+        );
+        // [a] is down as it stood: two rounds passed in a row take it back,
+        // as they would have before the reload.
+        let checker = next.checkers["g"].checker();
+        checker.round(&[ms(10), ms(10)]);
+        assert_eq!(selected(&next), "b");
+        checker.round(&[ms(10), ms(10)]);
+        assert_eq!(selected(&next), "a");
+    }
+
+    #[cfg(feature = "outbound-load-balance")]
+    #[test]
+    fn after_a_reload_load_balance_leaves_out_a_member_found_down() {
+        let env = RuntimeEnv::default();
+        let json = config(MEMBERS, &group("load-balance", SILENT, ""));
+        let first = build(&json, None, &env);
+        first.checkers["g"].checker().round(&[None, ms(10)]);
+        let next = build(&json, Some(&first), &env);
+        let checker = next.checkers["g"].checker();
+        let key = crate::protocol::group::members::MemberKey::outbound;
+        assert!(!checker.is_up(&key("a")));
+        assert!(checker.is_up(&key("b")));
+    }
+
+    /// A provider's member carries while the provider keeps its handler;
+    /// a provider configured otherwise builds its members anew, and they
+    /// carry nothing.
+    #[cfg(all(feature = "outbound-provider", feature = "outbound-urltest"))]
+    #[test]
+    fn a_provider_member_carries_while_its_handler_is_kept() {
+        let provider = |timeout: &str| {
+            format!(
+                r#"{{ "outbounds": [
+                        {{ "type": "direct", "tag": "d" }},
+                        {{ "type": "urltest", "tag": "g", "providers": "p", "url": "{}" }}
+                      ],
+                      "outbound_providers": [{{ "type": "inline", "tag": "p", "outbounds": [
+                        {{ "type": "direct", "tag": "x", "connect_timeout": "1s" }},
+                        {{ "type": "direct", "tag": "y", "connect_timeout": "{}" }}
+                      ] }}] }}"#,
+                SILENT, timeout
+            )
+        };
+        let env = RuntimeEnv::default();
+        let first = build(&provider("2s"), None, &env);
+        first.checkers["g"].checker().round(&[ms(300), ms(20)]);
+        assert_eq!(selected(&first), "y");
+
+        let next = build(&provider("2s"), Some(&first), &env);
+        assert_eq!(selected(&next), "y");
+        assert_eq!(
+            tested(&next),
+            [named("x", Some(ms(300))), named("y", Some(ms(20)))]
+        );
+
+        let otherwise = build(&provider("3s"), Some(&next), &env);
+        assert_eq!(tested(&otherwise), [named("x", None), named("y", None)]);
     }
 }

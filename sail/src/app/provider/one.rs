@@ -546,6 +546,12 @@ impl Provider {
                 #[cfg(feature = "plugin")]
                 external_handlers: &mut external_handlers,
                 providers: &mut Sources::default(),
+                #[cfg(any(
+                    feature = "outbound-urltest",
+                    feature = "outbound-load-balance",
+                    feature = "outbound-fallback"
+                ))]
+                checkers: &mut HashMap::new(),
             },
         )?;
         let handler = handlers

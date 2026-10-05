@@ -337,6 +337,11 @@ impl std::fmt::Debug for Network {
 }
 
 impl Network {
+    /// Whether `other` is this network: a clone of it.
+    pub fn is(&self, other: &Network) -> bool {
+        Arc::ptr_eq(&self.state, &other.state)
+    }
+
     /// The state now.
     pub fn snapshot(&self) -> Arc<NetworkState> {
         self.state.borrow().state.clone()

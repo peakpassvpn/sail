@@ -252,6 +252,12 @@ impl HttpProbe {
         self.expected.to_string()
     }
 
+    /// Whether it tests as `other` does: the same URL, the same statuses
+    /// passing.
+    pub fn tests_as(&self, other: &HttpProbe) -> bool {
+        self.url == other.url && self.expected == other.expected
+    }
+
     /// The time the request through `handler` took to be answered with a
     /// status expected.
     pub async fn run(

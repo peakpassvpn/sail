@@ -171,6 +171,13 @@ pub struct OutboundContext<'a> {
     /// What groups take members from besides their outbounds.
     #[cfg(feature = "outbound-provider")]
     pub providers: &'a mut crate::protocol::group::merge::Sources,
+    /// Where a group that tests its members puts its checker.
+    #[cfg(any(
+        feature = "outbound-urltest",
+        feature = "outbound-load-balance",
+        feature = "outbound-fallback"
+    ))]
+    pub(crate) checkers: &'a mut crate::app::outbound::Checkers,
     handlers: &'a Handlers<AnyOutboundHandler>,
     connector: Option<layers::Connector>,
 }
@@ -238,6 +245,13 @@ pub struct OutboundBuildState<'a> {
     /// What groups take members from besides their outbounds.
     #[cfg(feature = "outbound-provider")]
     pub providers: &'a mut crate::protocol::group::merge::Sources,
+    /// The checkers of the groups that test their members.
+    #[cfg(any(
+        feature = "outbound-urltest",
+        feature = "outbound-load-balance",
+        feature = "outbound-fallback"
+    ))]
+    pub(crate) checkers: &'a mut crate::app::outbound::Checkers,
 }
 
 /// What `build_outbounds` builds one of.
@@ -329,6 +343,12 @@ pub fn build_outbounds(
                         external_handlers: state.external_handlers,
                         #[cfg(feature = "outbound-provider")]
                         providers: state.providers,
+                        #[cfg(any(
+                            feature = "outbound-urltest",
+                            feature = "outbound-load-balance",
+                            feature = "outbound-fallback"
+                        ))]
+                        checkers: state.checkers,
                         handlers: state.handlers,
                         connector: None,
                     };
@@ -401,6 +421,12 @@ pub fn build_outbounds(
                 external_handlers: state.external_handlers,
                 #[cfg(feature = "outbound-provider")]
                 providers: state.providers,
+                #[cfg(any(
+                    feature = "outbound-urltest",
+                    feature = "outbound-load-balance",
+                    feature = "outbound-fallback"
+                ))]
+                checkers: state.checkers,
                 handlers: state.handlers,
                 connector,
             };

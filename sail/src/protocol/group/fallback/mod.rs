@@ -663,6 +663,7 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         on_tested,
     );
     ctx.abort_handles.push(abort_handle);
+    ctx.checkers.insert(ctx.tag.to_owned(), checker.clone());
     merged.on_merged({
         let choosing = choosing.clone();
         let checker = checker.clone();

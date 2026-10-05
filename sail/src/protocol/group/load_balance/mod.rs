@@ -121,6 +121,7 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         Box::new(|_, _, _| ()),
     );
     ctx.abort_handles.push(abort_handle);
+    ctx.checkers.insert(ctx.tag.to_owned(), checker.clone());
     merged.on_merged({
         let checker = checker.clone();
         // The new members are tested soon rather than an interval on.
