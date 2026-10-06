@@ -172,7 +172,9 @@ pub async fn serve_counted(
     });
     let server = Server {
         handle,
+        port,
         stopped: tokio::sync::Mutex::new(Some(stopped)),
+        held: std::sync::Mutex::new(None),
     };
     (server, delay, port, requests)
 }
@@ -180,17 +182,31 @@ pub async fn serve_counted(
 /// A member's server, as `serve` runs it.
 pub struct Server {
     handle: AbortHandle,
+    port: u16,
     stopped: tokio::sync::Mutex<Option<tokio::sync::oneshot::Receiver<()>>>,
+    /// Its port once stopped, bound and not listening.
+    held: std::sync::Mutex<Option<tokio::net::TcpSocket>>,
 }
 
 impl Server {
     /// Stops it, and returns once its listener is closed: from then on a
     /// connection to its port is refused rather than, for a moment,
     /// accepted into a backlog nothing reads.
+    ///
+    /// The port stays bound, not listening, as long as the server lives:
+    /// freed, another test's listener could take it, or a connection's
+    /// own source port be it (a connection to itself), and a member
+    /// stopped would connect.
     pub async fn stop(&self) {
         self.handle.abort();
         if let Some(stopped) = self.stopped.lock().await.take() {
             let _ = stopped.await;
+            // Over the connections it served, left in TIME_WAIT.
+            let held = tokio::net::TcpSocket::new_v4().unwrap();
+            held.set_reuseaddr(true).unwrap();
+            held.bind(([127, 0, 0, 1], self.port).into())
+                .expect("a stopped server's port is free to hold");
+            *self.held.lock().unwrap() = Some(held);
         }
     }
 }
