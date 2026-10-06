@@ -273,8 +273,12 @@ sing-box's apps; sail hands it the lists and routes by app:
 | Who opened a connection: `ConnectivityManager.getConnectionOwnerUid` (API 29+), then `PackageManager.getPackagesForUid` | the host, in `find_connection_owner` |
 | The rules `package_name`, `package_name_regex`, `user`, `user_id`, in routing and DNS rules, against what the host said; the uid and packages in the connections list | sail |
 
-With `find_connection_owner`, every connection is asked about before it is
-routed, as libbox asks on Android. Without it, those rules are errors.
+With `find_connection_owner`, a connection is asked about before it is
+routed when a routing or DNS rule has those conditions, or
+`route.find_process` is set, as sing-box asks: **since sail 0.19.0 the
+uid and packages in the connections list need `route.find_process` on
+Android** (before, every connection was asked). Without the callback,
+those rules are errors.
 Below API 29 the host cannot tell, and the rules do not match there.
 
 ## The command service

@@ -711,6 +711,8 @@ pub struct Router {
     #[cfg(feature = "rule-set")]
     rule_sets: rule_set::RuleSets,
     final_outbound: Option<String>,
+    /// `route.find_process`: who opened every connection is looked up.
+    find_process: bool,
     dns_client: SyncDnsClient,
     /// The network the host is on, when a rule may have conditions on
     /// it: its state is taken once for each connection matched.
@@ -797,6 +799,7 @@ impl Router {
             #[cfg(feature = "rule-set")]
             rule_sets: rule_sets.clone(),
             final_outbound: route.final_outbound.clone(),
+            find_process: route.find_process,
             dns_client,
             network,
             generation: 1,
@@ -819,6 +822,18 @@ impl Router {
     /// (`wifi_ssid`, `network_type`, …), its rule-sets' as they are now.
     pub fn needs_network(&self) -> bool {
         self.rules.iter().any(|rule| rule.matcher.needs().network)
+    }
+
+    /// Whether a rule, or a rule-set it names as it is now, has conditions
+    /// on who opened a connection.
+    pub fn needs_owner(&self) -> bool {
+        self.rules.iter().any(|rule| rule.matcher.needs().owner)
+    }
+
+    /// Whether who opened a connection is looked up: `find_process`, or a
+    /// rule needs it.
+    pub fn wants_owner(&self) -> bool {
+        self.find_process || self.needs_owner()
     }
 
     /// Whether a rule, or `final`, routes to the outbound `tag`.
@@ -1827,6 +1842,36 @@ mod tests {
             .pick_route(sess, &mut NoSniffer, &NoPass)
             .await
             .unwrap()
+    }
+
+    /// Who opened a connection is looked up only when a rule needs it, a
+    /// rule-set's rule too, or `find_process` asks for it always.
+    #[test]
+    fn the_owner_is_wanted_only_when_something_needs_it() {
+        assert!(!router(serde_json::json!([{ "port": [443], "outbound": "a" }])).wants_owner());
+        assert!(router(serde_json::json!([
+            { "process_name": ["curl"], "outbound": "a" }
+        ]))
+        .wants_owner());
+        assert!(router(serde_json::json!([
+            { "type": "logical", "mode": "or",
+              "rules": [{ "port": [1] }, { "process_path": ["/usr/bin/curl"] }], "outbound": "a" }
+        ]))
+        .needs_owner());
+        let config = crate::config::Config::from_json(
+            &serde_json::json!({
+                "outbounds": [{ "type": "direct", "tag": "a" }],
+                "route": { "find_process": true, "rules": [] },
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let dns = DnsClient::new(&config.dns, Default::default(), &Default::default())
+            .unwrap()
+            .into_shared();
+        let router = Router::new(&config.route, dns, &RuntimeEnv::default()).unwrap();
+        assert!(!router.needs_owner());
+        assert!(router.wants_owner());
     }
 
     /// A rule turned off is passed over as if it matched nothing, until

@@ -105,7 +105,10 @@ same.
   **The blocking pool** is the host's (tokio's default: at most 512
   threads). sail uses it for: one thread per concurrent lookup on a
   `local` DNS server (the system resolver); one per new connection while
-  `Platform::find_connection_owner` answers; one per TUN on Windows while
+  `Platform::find_connection_owner` answers, or sail looks the owner up
+  itself (Linux, macOS), when a rule needs it or `route.find_process` is
+  set (packages in the connection list need `route.find_process` on
+  Android); one per TUN on Windows while
   it waits for a packet; and short single calls (network detection, the
   default interface, NAT64 discovery, a reload's wait, the stats and
   Clash UI files). A host whose own blocking work is near its pool's limit

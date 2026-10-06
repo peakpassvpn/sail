@@ -25,6 +25,7 @@ pub mod instance;
 pub mod logger;
 pub mod nat_manager;
 pub mod outbound;
+pub(crate) mod owner;
 #[cfg(feature = "outbound-provider")]
 pub(crate) mod provider;
 pub(crate) mod recheck;

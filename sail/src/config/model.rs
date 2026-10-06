@@ -2104,6 +2104,11 @@ pub struct Route {
     /// routes everything, or outbound traffic would loop back into it.
     #[serde(default)]
     pub auto_detect_interface: bool,
+    /// Looks up who opened every connection (the program, the package,
+    /// the user), for the connections list, though no rule asks; without
+    /// it, only when a rule has conditions on it, as in sing-box.
+    #[serde(default)]
+    pub find_process: bool,
     /// The DNS server that resolves the names outbounds dial, for those
     /// that name no `domain_resolver` of their own. Unset, the DNS rules
     /// decide.

@@ -24,7 +24,7 @@ Rust 定义：[`Route`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/co
 | `rules` | array → [[]](#route-rules), [[action=bypass]](#route-rules-action-bypass), [[action=direct]](#route-rules-action-direct), [[action=reject]](#route-rules-action-reject), [[action=resolve]](#route-rules-action-resolve), [[action=route]](#route-rules-action-route), [[action=route-options]](#route-rules-action-route-options), [[action=sniff]](#route-rules-action-sniff), [[logical]](#route-rules-logical) | `[]` | 支持 | — |
 | `rule_set` | array → [[]](#route-rule-set), [[inline]](#route-rule-set-inline), [[local]](#route-rule-set-local), [[remote]](#route-rule-set-remote) | `[]` | 支持 | The rule-sets rules name, by tag. |
 | `final` | string | 未设置 | 支持 | The outbound for connections no rule matches; defaults to the first outbound. |
-| `find_process` | bool | — | 警告：sail looks processes up when a rule asks for them | — |
+| `find_process` | bool | `false` | 支持 | Looks up who opened every connection (the program, the package, the user), for the connections list, though no rule asks; without it, only when a rule has conditions on it, as in sing-box. |
 | `find_neighbor` | bool | `false` | 支持 | Looks up the LAN device of each connection's source even without a rule on it, for the logs (sing-box's, since 1.14). |
 | `dhcp_lease_files` | listable-string | `[]` | 支持 | The DHCP lease files the LAN devices' names are read from; the usual ones of dnsmasq, odhcpd, ISC dhcpd and Kea when none. |
 | `auto_detect_interface` | bool | `false` | 支持 | Sends outbounds that name no interface of their own through the system's default interface, found at start. Needed when a TUN inbound routes everything, or outbound traffic would loop back into it. |

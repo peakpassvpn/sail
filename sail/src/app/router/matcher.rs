@@ -662,6 +662,9 @@ pub(crate) struct Needs {
     /// The network the host is on: never learnt of a connection, but
     /// taken for it only when a rule needs it.
     pub network: bool,
+    /// Who opened the connection: the program, the package, the user;
+    /// looked up only when a rule needs it (sing-box's find_process).
+    pub owner: bool,
 }
 
 impl Needs {
@@ -671,6 +674,7 @@ impl Needs {
             domain: self.domain || other.domain,
             sniff: self.sniff || other.sniff,
             network: self.network || other.network,
+            owner: self.owner || other.owner,
         }
     }
 
@@ -1402,6 +1406,19 @@ impl Conditions {
                 )
             }),
             network: has(|i| matches!(i, Item::Network(n) if n.needs())),
+            owner: has(|i| {
+                matches!(
+                    i,
+                    Item::ProcessNames(_)
+                        | Item::ProcessPaths(_)
+                        | Item::ProcessPathRegex(_)
+                        | Item::ProcessNameRegex(_)
+                        | Item::PackageNames(_)
+                        | Item::PackageNameRegex(_)
+                        | Item::ProcessUsers(_)
+                        | Item::ProcessUserIds(_)
+                )
+            }),
         };
         #[cfg(feature = "rule-set")]
         for (_, set) in &self.rule_sets {

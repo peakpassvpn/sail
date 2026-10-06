@@ -44,8 +44,11 @@ class VpnTest {
     private val udpPort = args.getString("udpPort")!!.toInt()
     private val self = context.packageName
 
-    /** sail's configuration: a TUN taking every address, `apps` its per-app field. */
-    private fun config(apps: String = "") = """
+    /**
+     * sail's configuration: a TUN taking every address, `apps` its per-app
+     * field; `findProcess` asks the host who opened every connection.
+     */
+    private fun config(apps: String = "", findProcess: Boolean = false) = """
         {
           "log": { "level": "debug" },
           "dns": { "servers": [
@@ -57,7 +60,10 @@ class VpnTest {
             "auto_route": true $apps
           }],
           "outbounds": [{ "type": "direct", "tag": "direct" }],
-          "route": { "rules": [{ "port": 53, "action": "hijack-dns" }] }
+          "route": {
+            "find_process": $findProcess,
+            "rules": [{ "port": 53, "action": "hijack-dns" }]
+          }
         }
     """.trimIndent()
 
@@ -127,6 +133,26 @@ class VpnTest {
         waitFor(if (through) "the VPN to carry this app" else "the VPN to leave this app") {
             throughVpn() == through
         }
+        // The system says so a moment before this app's sockets take the
+        // VPN: a connection sail carries is what tells.
+        if (through) {
+            waitFor("sail to carry this app's connections", seconds = 20) {
+                runCatching {
+                    Socket().use { socket ->
+                        socket.connect(InetSocketAddress(echoHost, tcpPort), 2000)
+                        val until = System.currentTimeMillis() + 1000
+                        var carried = sailCarries(tcpPort)
+                        while (!carried && System.currentTimeMillis() < until) {
+                            Thread.sleep(100)
+                            carried = sailCarries(tcpPort)
+                        }
+                        carried
+                    }
+                }.getOrDefault(false)
+            }
+            // The probes' connections end before the test's own.
+            waitFor("the probes to end") { !sailCarries(tcpPort) }
+        }
     }
 
     /** A TCP round trip to the echo server, holding the socket open in [held]. */
@@ -188,7 +214,8 @@ class VpnTest {
     /** The app's own package included: its traffic goes through sail. */
     @Test
     fun anIncludedAppGoesThroughSail() {
-        start(config(""", "include_package": ["$self"]"""))
+        // find_process: who opened it is asked though no rule needs it.
+        start(config(""", "include_package": ["$self"]""", findProcess = true))
         val request = vpn().lastRequest!!
         assertEquals(self, request.getJSONArray("include_package").getString(0))
         tcpEcho {

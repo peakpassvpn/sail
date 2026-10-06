@@ -304,11 +304,6 @@ pub const GROUPS: &[Group] = &[
     ),
     // Routing.
     g(
-        "sail looks processes up when a rule asks for them",
-        Ignored,
-        &["route.find_process"],
-    ),
-    g(
         "Android's VPN is the host's to handle",
         Ignored,
         &["route.override_android_vpn"],

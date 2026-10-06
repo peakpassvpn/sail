@@ -519,6 +519,8 @@ pub struct Dispatcher {
     env: crate::runtime::SyncRuntimeEnv,
     /// The protocol of each inbound, by tag.
     inbound_types: std::sync::RwLock<std::collections::HashMap<String, &'static str>>,
+    /// Who opened the connections of the last few seconds, by socket.
+    owners: super::owner::Owners,
     /// The places for sessions, under `inbound.max_connections`.
     sessions: Option<super::sessions::Sessions>,
 }
@@ -539,6 +541,7 @@ impl Dispatcher {
             sessions: super::sessions::Sessions::new(env.options.inbound.max_connections),
             env,
             inbound_types: Default::default(),
+            owners: Default::default(),
         }
     }
 
@@ -1368,44 +1371,95 @@ impl Dispatcher {
         }
     }
 
-    /// Who opened the connection, when the host tells: asked of every
-    /// connection, as sing-box's libbox asks on Android, so that the rules
-    /// on it match and the connections list shows it.
-    /// The host's answer may wait on the system (a binder call on
-    /// Android), so it is waited for off the runtime's threads, as sing-box
-    /// asks on the connection's own goroutine. Each session gets here
-    /// once: `pre_match` only judges a packet, on a session of its own.
+    /// Who opened the connection: the host's answer where it finds it
+    /// (Android's VpnService), else what this system tells sail (Linux,
+    /// macOS); only when something needs it, a rule's conditions on it or
+    /// `route.find_process`, as sing-box's `needFindProcess`. Kept a few
+    /// seconds by the client's socket (`app::owner`). The answer may wait on
+    /// the system (a binder call on Android, a walk of /proc on Linux), so
+    /// it is waited for off the runtime's threads, as sing-box asks on the
+    /// connection's own goroutine. Each session gets here once:
+    /// `pre_match` only judges a packet, on a session of its own.
     async fn find_owner(&self, sess: &mut Session) {
-        if sess.owner.is_some() {
+        if sess.owner.is_some() || sess.process_name.is_some() {
             return;
         }
-        let Some(platform) = self
+        if !self.router.load().wants_owner() && !self.dns_client.load().needs_owner() {
+            return;
+        }
+        let socket = super::owner::Socket {
+            network: sess.network,
+            local: sess.source,
+            remote: sess.local_addr,
+        };
+        let found = match self.owners.get(&socket) {
+            Some(found) => found,
+            None => {
+                let found = self.look_up_owner(sess, socket).await;
+                self.owners.put(socket, found.clone());
+                found
+            }
+        };
+        sess.owner = found.owner;
+        sess.process_name = found.process;
+    }
+
+    /// Who opened the connection of `socket`, asked of the host where it
+    /// finds it, else of this system.
+    async fn look_up_owner(
+        &self,
+        sess: &Session,
+        socket: super::owner::Socket,
+    ) -> super::owner::Found {
+        let started = std::time::Instant::now();
+        let host = self
             .env
             .host
             .platform
             .clone()
-            .filter(|p| p.finds_connection_owner())
-        else {
-            return;
+            .filter(|p| p.finds_connection_owner());
+        let found = match host {
+            Some(platform) => {
+                let query = crate::runtime::platform::ConnectionQuery {
+                    network: sess.network.to_string(),
+                    source: sess.source,
+                    destination: sess.destination.to_string(),
+                };
+                let answer =
+                    crate::runtime::scope::spawn_blocking("connection owner lookup", move || {
+                        let answer = platform.find_connection_owner(&query);
+                        (query, answer)
+                    })
+                    .await;
+                match answer {
+                    Ok((_, Ok(owner))) => super::owner::Found {
+                        process: None,
+                        owner: owner.map(std::sync::Arc::new),
+                    },
+                    Ok((query, Err(e))) => {
+                        debug!("the host did not find who opened {:?}: {}", query, e);
+                        Default::default()
+                    }
+                    Err(e) => {
+                        debug!(
+                            "the host's search for who opened a connection failed: {}",
+                            e
+                        );
+                        Default::default()
+                    }
+                }
+            }
+            None => crate::runtime::scope::spawn_blocking("connection owner lookup", move || {
+                super::owner::find(&socket)
+            })
+            .await
+            .unwrap_or_default(),
         };
-        let query = crate::runtime::platform::ConnectionQuery {
-            network: sess.network.to_string(),
-            source: sess.source,
-            destination: sess.destination.to_string(),
-        };
-        let answer = crate::runtime::scope::spawn_blocking("connection owner lookup", move || {
-            let answer = platform.find_connection_owner(&query);
-            (query, answer)
-        })
-        .await;
-        match answer {
-            Ok((_, Ok(owner))) => sess.owner = owner.map(std::sync::Arc::new),
-            Ok((query, Err(e))) => debug!("the host did not find who opened {:?}: {}", query, e),
-            Err(e) => debug!(
-                "the host's search for who opened a connection failed: {}",
-                e
-            ),
+        let took = started.elapsed();
+        if took > std::time::Duration::from_millis(10) {
+            debug!("who opened {:?}: looked up in {:?}", socket, took);
         }
+        found
     }
 
     /// The connection `id`, just listed with `sess`, which a router older

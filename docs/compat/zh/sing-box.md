@@ -33,10 +33,10 @@ Windows 无法实现的拨号字段在 Windows 上报错。已知缺口是 `tcp_
 | `endpoints` | 433 | 48 | 13 | 372 |
 | `inbounds` | 1367 | 592 | 151 | 624 |
 | `outbounds` | 1228 | 680 | 75 | 473 |
-| `route` | 268 | 173 | 42 | 53 |
+| `route` | 268 | 174 | 41 | 53 |
 | `services` | 751 | 1 | 166 | 584 |
 | `experimental` | 34 | 16 | 17 | 1 |
-| **全部** | **5003** | **1918** | **577** | **2508** |
+| **全部** | **5003** | **1919** | **576** | **2508** |
 
 ## `$schema`
 
@@ -2753,7 +2753,7 @@ Windows 无法实现的拨号字段在 Windows 上报错。已知缺口是 `tcp_
 |---|---|---|
 | `route` | 支持 |  |
 | `final` | 支持 |  |
-| `find_process` | 警告 | sail looks processes up when a rule asks for them |
+| `find_process` | 支持 |  |
 | `find_neighbor` | 支持 |  |
 | `dhcp_lease_files` | 支持 |  |
 | `auto_detect_interface` | 支持 |  |

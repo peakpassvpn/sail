@@ -21487,8 +21487,7 @@
     },
     "find_process": {
      "type": "boolean",
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: sail looks processes up when a rule asks for them"
+     "description": "Looks up who opened every connection (the program, the package, the user), for the connections list, though no rule asks; without it, only when a rule has conditions on it, as in sing-box."
     },
     "find_neighbor": {
      "type": "boolean",

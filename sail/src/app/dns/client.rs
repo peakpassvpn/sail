@@ -192,6 +192,12 @@ impl DnsClient {
         self.network.is_some()
     }
 
+    /// Whether a rule, or a rule-set it names as it is now, has conditions
+    /// on who opened a connection.
+    pub fn needs_owner(&self) -> bool {
+        self.rules.iter().any(|r| r.matcher.needs().owner)
+    }
+
     /// Shares the client between its users, who see it replaced whole on
     /// reload.
     pub fn into_shared(self) -> crate::app::SyncDnsClient {

@@ -33,10 +33,10 @@ The dial fields Windows cannot take are refused there. A known gap is `tcp_fast_
 | `endpoints` | 433 | 48 | 13 | 372 |
 | `inbounds` | 1367 | 592 | 151 | 624 |
 | `outbounds` | 1228 | 680 | 75 | 473 |
-| `route` | 268 | 173 | 42 | 53 |
+| `route` | 268 | 174 | 41 | 53 |
 | `services` | 751 | 1 | 166 | 584 |
 | `experimental` | 34 | 16 | 17 | 1 |
-| **All** | **5003** | **1918** | **577** | **2508** |
+| **All** | **5003** | **1919** | **576** | **2508** |
 
 ## `$schema`
 
@@ -2753,7 +2753,7 @@ The dial fields Windows cannot take are refused there. A known gap is `tcp_fast_
 |---|---|---|
 | `route` | Supported |  |
 | `final` | Supported |  |
-| `find_process` | Warned | sail looks processes up when a rule asks for them |
+| `find_process` | Supported |  |
 | `find_neighbor` | Supported |  |
 | `dhcp_lease_files` | Supported |  |
 | `auto_detect_interface` | Supported |  |

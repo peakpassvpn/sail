@@ -1884,6 +1884,7 @@
   "route.rule_set[remote].update_interval",
   "route.rule_set[remote].download_detour",
   "route.final",
+  "route.find_process",
   "route.find_neighbor",
   "route.dhcp_lease_files",
   "route.auto_detect_interface",
@@ -2355,9 +2356,6 @@
    "route.rules[action=direct].fallback_network_type",
    "route.rules[action=direct].fallback_delay",
    "route.rules[action=direct].domain_strategy"
-  ],
-  "sail looks processes up when a rule asks for them": [
-   "route.find_process"
   ],
   "Android's VPN is the host's to handle": [
    "route.override_android_vpn"
