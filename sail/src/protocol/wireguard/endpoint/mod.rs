@@ -974,10 +974,21 @@ mod tests {
         let (_instance, dispatcher, nat) = routing();
         let scope = TaskScope::default();
         let run = start_member(server, dispatcher, nat, &scope).unwrap();
+        // Taken in either family: the member's dual-stack [::] socket does
+        // not keep a bind of 0.0.0.0 out on Windows.
+        let taken = move || {
+            [IpAddr::from([0u8; 4]), IpAddr::from([0u16; 8])]
+                .into_iter()
+                .any(|ip| match std::net::UdpSocket::bind((ip, port)) {
+                    Ok(_) => false,
+                    // A host without IPv6 has no [::] to bind.
+                    Err(e) => e.kind() != io::ErrorKind::AddrNotAvailable,
+                })
+        };
         let free = |within: Duration| async move {
             let deadline = tokio::time::Instant::now() + within;
             loop {
-                if std::net::UdpSocket::bind(("0.0.0.0", port)).is_ok() {
+                if !taken() {
                     return true;
                 }
                 if tokio::time::Instant::now() >= deadline {
@@ -988,7 +999,7 @@ mod tests {
         };
         // Up, on its port.
         let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
-        while std::net::UdpSocket::bind(("0.0.0.0", port)).is_ok() {
+        while !taken() {
             assert!(tokio::time::Instant::now() < deadline, "never bound");
             tokio::time::sleep(Duration::from_millis(5)).await;
         }
