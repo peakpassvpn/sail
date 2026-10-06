@@ -24,6 +24,8 @@
 //! themselves know only the default ones (docs/compat).
 //! - macOS: the services' resolvers with `SupplementalMatchDomains`, and
 //!   /etc/resolver's files, as `scutil --dns` lists them.
+//! - Linux, where resolv.conf is systemd-resolved's stub: each link's
+//!   servers for its routing and search domains (system_resolved.rs).
 //! - Windows: the NRPT's rules with generic DNS servers
 //!   (system_windows.rs), asked on the interface the system routes their
 //!   servers through.
@@ -69,6 +71,11 @@ pub(super) fn servers_asked(budget: Duration, n: usize) -> usize {
 #[cfg(target_os = "macos")]
 #[path = "system_macos.rs"]
 mod macos;
+
+// systemd-resolved's routing domains; their reading is tested everywhere.
+#[cfg(any(target_os = "linux", test))]
+#[path = "system_resolved.rs"]
+mod resolved;
 
 // Windows' NRPT; its rules' reading is tested everywhere.
 #[cfg(any(windows, test))]
@@ -159,8 +166,11 @@ pub(super) struct Chosen {
 
 /// `domain` as split resolvers are matched by: lowercase, with no dot at
 /// either end; none when that leaves nothing (a resolver for every name).
-// Linux's reader of split resolvers comes next.
-#[cfg_attr(not(any(target_os = "macos", windows)), allow(dead_code))]
+// Only macOS, Linux and Windows have readers of split resolvers.
+#[cfg_attr(
+    not(any(target_os = "macos", target_os = "linux", windows)),
+    allow(dead_code)
+)]
 pub(super) fn domain(domain: &str) -> Option<String> {
     let domain = domain.trim_matches('.').to_ascii_lowercase();
     (!domain.is_empty()).then_some(domain)
@@ -580,10 +590,25 @@ fn servers(interface: Option<&str>) -> Result<Listing> {
 
 #[cfg(all(unix, not(target_os = "macos")))]
 fn servers(_: Option<&str>) -> Result<Listing> {
-    Ok(Listing {
-        default: resolv_conf()?,
-        split: Vec::new(),
-    })
+    let default = resolv_conf()?;
+    // Where resolv.conf is resolved's stub, resolved routes names by its
+    // links' domains.
+    #[cfg(target_os = "linux")]
+    let split = if behind_resolved() {
+        resolved::read()
+    } else {
+        Vec::new()
+    };
+    #[cfg(not(target_os = "linux"))]
+    let split = Vec::new();
+    Ok(Listing { default, split })
+}
+
+/// Whether /etc/resolv.conf names only systemd-resolved's stub.
+#[cfg(target_os = "linux")]
+fn behind_resolved() -> bool {
+    std::fs::read_to_string("/etc/resolv.conf")
+        .is_ok_and(|text| only_resolved_stub(&nameservers(&text)))
 }
 
 /// resolv.conf's servers; an error when it cannot be read.
