@@ -5,22 +5,22 @@
     "warnings": 4
   },
   "clash/0002.yaml": {
-    "check": "route.rules[24].process_name: not supported, rule-process-name is not compiled in",
+    "check": "ok",
     "ok": true,
     "warnings": 27
   },
   "clash/0003.yaml": {
-    "check": "route.rules[15].process_name: not supported, rule-process-name is not compiled in",
+    "check": "ok",
     "ok": true,
     "warnings": 18
   },
   "clash/0004.yaml": {
-    "check": "route.rules[25].process_name: not supported, rule-process-name is not compiled in",
+    "check": "ok",
     "ok": true,
     "warnings": 18
   },
   "clash/0005.yaml": {
-    "check": "route.rules[25].process_name: not supported, rule-process-name is not compiled in",
+    "check": "ok",
     "ok": true,
     "warnings": 39
   },
@@ -53,7 +53,7 @@
     "warnings": 9
   },
   "clash/0011.yaml": {
-    "check": "route.rules[4].process_name: not supported, rule-process-name is not compiled in",
+    "check": "ok",
     "ok": true,
     "warnings": 1
   },
@@ -130,7 +130,7 @@
     "warnings": 0
   },
   "clash/0029.yaml": {
-    "check": "route.rules[9].process_name_regex: not supported, rule-process-name is not compiled in",
+    "check": "ok",
     "ok": true,
     "warnings": 27
   },
@@ -469,7 +469,7 @@
     "warnings": 0
   },
   "clash/0102.yaml": {
-    "check": "route.rules[2].process_name: not supported, rule-process-name is not compiled in",
+    "check": "ok",
     "ok": true,
     "warnings": 5
   },
@@ -506,7 +506,7 @@
     "warnings": 0
   },
   "clash/0108.yaml": {
-    "check": "route.rules[2].process_name: not supported, rule-process-name is not compiled in",
+    "check": "ok",
     "ok": true,
     "warnings": 5
   },
@@ -1090,7 +1090,7 @@
     "warnings": 0
   },
   "sing-box/0023.json": {
-    "check": "route.rules[2].process_name: not supported, rule-process-name is not compiled in",
+    "check": "route.rules[3].protocol: sail does not sniff ntp yet",
     "ok": true,
     "warnings": 3
   },
@@ -1300,7 +1300,7 @@
     "error": "dns.servers[0]: missing field `type`"
   },
   "sing-box/0087.json": {
-    "error": "route.default_domain_match_strategy: unknown field `default_domain_match_strategy`, expected one of `rules`, `rule_set`, `final`, `default_interface`, `default_mark`, `auto_detect_interface`, `default_domain_resolver`, `default_network_strategy`, `default_network_type`, `default_fallback_network_type`, `default_fallback_delay`, `find_neighbor`, `dhcp_lease_files`, `default_http_client`"
+    "error": "route.default_domain_match_strategy: unknown field `default_domain_match_strategy`, expected one of `rules`, `rule_set`, `final`, `default_interface`, `default_mark`, `auto_detect_interface`, `find_process`, `default_domain_resolver`, `default_network_strategy`, `default_network_type`, `default_fallback_network_type`, `default_fallback_delay`, `find_neighbor`, `dhcp_lease_files`, `default_http_client`"
   },
   "sing-box/0088.json": {
     "check": "[in-1] inbound: tls: load certificates from <data_dir>/./path-1.pem failed: No such file or directory (os error 2)",
@@ -1706,7 +1706,7 @@
     "warnings": 5
   },
   "surge/0015.conf": {
-    "check": "route.rules[2].process_name: not supported, rule-process-name is not compiled in",
+    "check": "ok",
     "ok": true,
     "warnings": 4
   },
@@ -1789,7 +1789,7 @@
     "warnings": 4
   },
   "surge/0034.conf": {
-    "check": "route.rules[1].process_name: not supported, rule-process-name is not compiled in",
+    "check": "ok",
     "ok": true,
     "warnings": 4
   },
@@ -1921,7 +1921,7 @@
     "error": "line 2: #!include ./path-1.conf: No such file or directory (os error 2)"
   },
   "surge/0066.conf": {
-    "check": "route.rules[1].process_name: not supported, rule-process-name is not compiled in",
+    "check": "ok",
     "ok": true,
     "warnings": 4
   },
@@ -1942,7 +1942,7 @@
     "warnings": 4
   },
   "surge/0071.conf": {
-    "check": "route.rules[1].process_name: not supported, rule-process-name is not compiled in",
+    "check": "ok",
     "ok": true,
     "warnings": 5
   },
@@ -1995,7 +1995,7 @@
     "error": "[Proxy] line 40: Proxy 1: sail does not implement Snell: versions 4 and 5, which most servers run, have no public specification"
   },
   "surge/0084.conf": {
-    "check": "route.rules[25].process_name: not supported, rule-process-name is not compiled in",
+    "check": "ok",
     "ok": true,
     "warnings": 8
   },
@@ -2206,15 +2206,8 @@
     "error": "[Proxy Group] line 23: Group 1: no policy or group is named \"Proxy 4\""
   },
   "surge/0135.conf": {
-    "check": "route.rules[9].rules[0].rules[0].process_name: not supported, rule-process-name is not compiled in",
+    "check": "ok",
     "ok": true,
-    "on": {
-      "macos": {
-        "check": "route.rules[11].rules[0].rules[0].process_name: not supported, rule-process-name is not compiled in",
-        "ok": true,
-        "warnings": 1
-      }
-    },
     "warnings": 1
   },
   "surge/0136.conf": {
@@ -2299,7 +2292,7 @@
     "warnings": 0
   },
   "surge/0155.conf": {
-    "check": "route.rules[7].process_path: not supported, rule-process-name is not compiled in",
+    "check": "ok",
     "ok": true,
     "warnings": 1
   },
@@ -2314,7 +2307,7 @@
     "warnings": 6
   },
   "surge/0158.conf": {
-    "check": "route.rules[1].process_name: not supported, rule-process-name is not compiled in",
+    "check": "ok",
     "ok": true,
     "warnings": 5
   },
@@ -2349,7 +2342,7 @@
     "warnings": 12
   },
   "surge/0165.conf": {
-    "check": "route.rules[3].process_name: not supported, rule-process-name is not compiled in",
+    "check": "ok",
     "ok": true,
     "warnings": 1
   },
@@ -2452,7 +2445,7 @@
     "error": "[General] line 25: udp-policy-not-supported-behaviour: \"false\" is neither REJECT nor DIRECT"
   },
   "surge/0190.conf": {
-    "check": "route.rules[1].process_name: not supported, rule-process-name is not compiled in",
+    "check": "ok",
     "ok": true,
     "warnings": 4
   },
@@ -2510,7 +2503,7 @@
     "error": "[Proxy Group] line 36: Group 9: no policy or group is named \"Proxy 1\""
   },
   "surge/0204.conf": {
-    "check": "route.rules[2].process_name: not supported, rule-process-name is not compiled in",
+    "check": "ok",
     "ok": true,
     "warnings": 5
   },
@@ -2526,7 +2519,7 @@
     "error": "[Proxy Group] line 17: Group 2: \"Proxy 7\": a subnet group takes `default = policy` and `expression = policy`, no members"
   },
   "surge/0208.conf": {
-    "check": "route.rules[1].process_name: not supported, rule-process-name is not compiled in",
+    "check": "ok",
     "ok": true,
     "warnings": 3
   },
@@ -2630,7 +2623,7 @@
     "error": "[Proxy Group] line 27: Group 1: no policy or group is named \"Proxy 3\""
   },
   "surge/0234.conf": {
-    "check": "route.rules[30].process_name: not supported, rule-process-name is not compiled in",
+    "check": "ok",
     "ok": true,
     "warnings": 11
   },
@@ -2651,15 +2644,8 @@
     "error": "[Rule] line 78: no policy or group is named \"Proxy 1\""
   },
   "surge/0239.conf": {
-    "check": "route.rules[9].rules[0].rules[0].process_name: not supported, rule-process-name is not compiled in",
+    "check": "ok",
     "ok": true,
-    "on": {
-      "macos": {
-        "check": "route.rules[11].rules[0].rules[0].process_name: not supported, rule-process-name is not compiled in",
-        "ok": true,
-        "warnings": 1
-      }
-    },
     "warnings": 1
   },
   "surge/0240.conf": {
@@ -2690,7 +2676,7 @@
     "error": "[Proxy Group] line 55: Group 10: interval: \"-1\" is not a number in range"
   },
   "surge/0247.conf": {
-    "check": "route.rules[30].process_name: not supported, rule-process-name is not compiled in",
+    "check": "ok",
     "ok": true,
     "warnings": 0
   },
@@ -2708,15 +2694,8 @@
     "error": "[Proxy Group] line 56: Group 14: no policy or group is named \"Proxy 1\""
   },
   "surge/0251.conf": {
-    "check": "route.rules[12].rules[0].rules[0].process_name: not supported, rule-process-name is not compiled in",
+    "check": "ok",
     "ok": true,
-    "on": {
-      "macos": {
-        "check": "route.rules[13].rules[0].rules[0].process_name: not supported, rule-process-name is not compiled in",
-        "ok": true,
-        "warnings": 1
-      }
-    },
     "warnings": 1
   },
   "surge/0252.conf": {
@@ -2730,7 +2709,7 @@
     "warnings": 7
   },
   "surge/0254.conf": {
-    "check": "route.rules[6].process_path: not supported, rule-process-name is not compiled in",
+    "check": "ok",
     "ok": true,
     "warnings": 2
   },
@@ -2825,7 +2804,7 @@
     "error": "[Proxy] line 11: \"str2\" is not Name = type, ..."
   },
   "surge/0275.conf": {
-    "check": "route.rules[9].process_name: not supported, rule-process-name is not compiled in",
+    "check": "route.rules[26].ip_asn: open <data_dir>/asn.mmdb failed: No such file or directory (os error 2) (sail assets --fetch <config>, or place the file there)",
     "ok": true,
     "warnings": 6
   },
@@ -2903,12 +2882,12 @@
     "warnings": 6
   },
   "surge/0293.conf": {
-    "check": "route.rules[1].process_name: not supported, rule-process-name is not compiled in",
+    "check": "ok",
     "ok": true,
     "warnings": 5
   },
   "surge/0294.conf": {
-    "check": "route.rules[1].process_name: not supported, rule-process-name is not compiled in",
+    "check": "ok",
     "ok": true,
     "warnings": 5
   },

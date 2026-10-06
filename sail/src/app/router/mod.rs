@@ -836,6 +836,12 @@ impl Router {
         self.find_process || self.needs_owner()
     }
 
+    /// Whether the program that opened a connection is wanted too:
+    /// `find_process`, or a rule on it.
+    pub fn wants_process(&self) -> bool {
+        self.find_process || self.rules.iter().any(|rule| rule.matcher.needs().process)
+    }
+
     /// Whether a rule, or `final`, routes to the outbound `tag`.
     pub fn uses(&self, tag: &str) -> bool {
         self.final_outbound.as_deref() == Some(tag)

@@ -1384,13 +1384,15 @@ impl Dispatcher {
         if sess.owner.is_some() || sess.process_name.is_some() {
             return;
         }
-        if !self.router.load().wants_owner() && !self.dns_client.load().needs_owner() {
+        let (router, dns) = (self.router.load(), self.dns_client.load());
+        if !router.wants_owner() && !dns.needs_owner() {
             return;
         }
         let socket = super::owner::Socket {
             network: sess.network,
             local: sess.source,
             remote: sess.local_addr,
+            process: router.wants_process() || dns.needs_process(),
         };
         let found = match self.owners.get(&socket) {
             Some(found) => found,

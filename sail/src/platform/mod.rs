@@ -43,6 +43,10 @@ pub(crate) mod integrity;
 #[cfg(target_os = "linux")]
 pub(crate) mod addr_monitor;
 
+// Who opened a socket, on Linux: sock_diag and /proc.
+#[cfg(target_os = "linux")]
+pub(crate) mod owner_linux;
+
 #[cfg(all(target_os = "linux", feature = "inbound-tun"))]
 pub(crate) mod openwrt;
 #[cfg(target_os = "macos")]

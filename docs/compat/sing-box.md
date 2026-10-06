@@ -556,9 +556,9 @@ The dial fields Windows cannot take are refused there. A known gap is `tcp_fast_
 | `[].source_port_range` | Supported |  |
 | `[].port` | Supported |  |
 | `[].port_range` | Supported |  |
-| `[].process_name` | Supported | With the `rule-process-name` feature, off by default, and only where sail tells the program (the NetFilter inbound on Windows) |
-| `[].process_path` | Supported | With the `rule-process-name` feature, off by default, and only where sail tells the program (the NetFilter inbound on Windows) |
-| `[].process_path_regex` | Supported | With the `rule-process-name` feature, off by default, and only where sail tells the program (the NetFilter inbound on Windows) |
+| `[].process_name` | Supported | Where sail finds the program: itself on Linux, through the NetFilter inbound on Windows (the `rule-process-name` feature, on by default) |
+| `[].process_path` | Supported | Where sail finds the program: itself on Linux, through the NetFilter inbound on Windows (the `rule-process-name` feature, on by default) |
+| `[].process_path_regex` | Supported | Where sail finds the program: itself on Linux, through the NetFilter inbound on Windows (the `rule-process-name` feature, on by default) |
 | `[].package_name` | Supported |  |
 | `[].package_name_regex` | Supported |  |
 | `[].user` | Supported |  |
@@ -2800,9 +2800,9 @@ The dial fields Windows cannot take are refused there. A known gap is `tcp_fast_
 | `[].source_port_range` | Supported |  |
 | `[].port` | Supported |  |
 | `[].port_range` | Supported |  |
-| `[].process_name` | Supported | With the `rule-process-name` feature, off by default, and only where sail tells the program (the NetFilter inbound on Windows) |
-| `[].process_path` | Supported | With the `rule-process-name` feature, off by default, and only where sail tells the program (the NetFilter inbound on Windows) |
-| `[].process_path_regex` | Supported | With the `rule-process-name` feature, off by default, and only where sail tells the program (the NetFilter inbound on Windows) |
+| `[].process_name` | Supported | Where sail finds the program: itself on Linux, through the NetFilter inbound on Windows (the `rule-process-name` feature, on by default) |
+| `[].process_path` | Supported | Where sail finds the program: itself on Linux, through the NetFilter inbound on Windows (the `rule-process-name` feature, on by default) |
+| `[].process_path_regex` | Supported | Where sail finds the program: itself on Linux, through the NetFilter inbound on Windows (the `rule-process-name` feature, on by default) |
 | `[].package_name` | Supported |  |
 | `[].package_name_regex` | Supported |  |
 | `[].user` | Supported |  |
@@ -2963,9 +2963,9 @@ The dial fields Windows cannot take are refused there. A known gap is `tcp_fast_
 | `rules[].source_port_range` | Supported |  |
 | `rules[].port` | Supported |  |
 | `rules[].port_range` | Supported |  |
-| `rules[].process_name` | Supported | With the `rule-process-name` feature, off by default, and only where sail tells the program (the NetFilter inbound on Windows) |
-| `rules[].process_path` | Supported | With the `rule-process-name` feature, off by default, and only where sail tells the program (the NetFilter inbound on Windows) |
-| `rules[].process_path_regex` | Supported | With the `rule-process-name` feature, off by default, and only where sail tells the program (the NetFilter inbound on Windows) |
+| `rules[].process_name` | Supported | Where sail finds the program: itself on Linux, through the NetFilter inbound on Windows (the `rule-process-name` feature, on by default) |
+| `rules[].process_path` | Supported | Where sail finds the program: itself on Linux, through the NetFilter inbound on Windows (the `rule-process-name` feature, on by default) |
+| `rules[].process_path_regex` | Supported | Where sail finds the program: itself on Linux, through the NetFilter inbound on Windows (the `rule-process-name` feature, on by default) |
 | `rules[].package_name` | Supported |  |
 | `rules[].package_name_regex` | Supported |  |
 | `rules[].network_type` | Supported |  |

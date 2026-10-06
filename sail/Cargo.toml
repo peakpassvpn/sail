@@ -16,6 +16,9 @@ default = [
     "config-clash",
     "config-surge",
     "rule-set",
+    # Rules on the program a connection comes from: regex comes with
+    # rule-set already.
+    "rule-process-name",
     "outbound-provider",
     "api",
     "clash-api",

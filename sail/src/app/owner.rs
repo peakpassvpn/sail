@@ -36,6 +36,8 @@ pub(crate) struct Socket {
     pub network: Network,
     pub local: SocketAddr,
     pub remote: SocketAddr,
+    /// Whether the program is wanted, not only the user.
+    pub process: bool,
 }
 
 /// The answers of the last few seconds.
@@ -79,9 +81,74 @@ impl Owners {
 /// Who opened the connection of `socket`, as this system tells sail
 /// itself; none where it does not (another machine's socket, or a
 /// system sail cannot ask).
+#[cfg(not(target_os = "linux"))]
 pub(crate) fn find(socket: &Socket) -> Found {
     let _ = socket;
     Found::default()
+}
+
+/// Linux: the socket's uid and inode from sock_diag, then, when the
+/// program is wanted, the process holding it (platform::owner_linux). A
+/// client's dual-stack socket sending to an IPv4 address is an IPv6 one:
+/// looked for so too.
+#[cfg(target_os = "linux")]
+pub(crate) fn find(socket: &Socket) -> Found {
+    use crate::platform::owner_linux;
+    let protocol = match socket.network {
+        Network::Tcp => libc::IPPROTO_TCP,
+        Network::Udp => libc::IPPROTO_UDP,
+    } as u8;
+    let mapped = |a: SocketAddr| match a {
+        SocketAddr::V4(v4) => SocketAddr::new(v4.ip().to_ipv6_mapped().into(), v4.port()),
+        v6 => v6,
+    };
+    let found = owner_linux::socket(protocol, socket.local, socket.remote)
+        .ok()
+        .flatten()
+        .or_else(|| {
+            socket.local.is_ipv4().then(|| {
+                owner_linux::socket(protocol, mapped(socket.local), mapped(socket.remote))
+                    .ok()
+                    .flatten()
+            })?
+        });
+    let Some(found) = found else {
+        return Found::default();
+    };
+    let process = if socket.process {
+        owner_linux::pid_of(found.inode, found.uid).and_then(owner_linux::path_of)
+    } else {
+        None
+    };
+    Found {
+        process,
+        owner: Some(Arc::new(ConnectionOwner {
+            uid: found.uid,
+            user: user_name(found.uid),
+            packages: Vec::new(),
+        })),
+    }
+}
+
+/// The name of the user `uid`, from the password database.
+#[cfg(unix)]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub(crate) fn user_name(uid: u32) -> Option<String> {
+    let mut buf = vec![0 as libc::c_char; 4096];
+    // SAFETY: zeroed is a valid passwd, filled by getpwuid_r.
+    let mut pwd: libc::passwd = unsafe { std::mem::zeroed() };
+    let mut out: *mut libc::passwd = std::ptr::null_mut();
+    // SAFETY: the buffers are as long as said, and live through the call.
+    let ret = unsafe { libc::getpwuid_r(uid, &mut pwd, buf.as_mut_ptr(), buf.len(), &mut out) };
+    if ret != 0 || out.is_null() || pwd.pw_name.is_null() {
+        return None;
+    }
+    // SAFETY: getpwuid_r wrote a C string into `buf`.
+    Some(
+        unsafe { std::ffi::CStr::from_ptr(pwd.pw_name) }
+            .to_string_lossy()
+            .into_owned(),
+    )
 }
 
 #[cfg(test)]
@@ -93,6 +160,7 @@ mod tests {
             network: Network::Tcp,
             local: SocketAddr::from(([127, 0, 0, 1], port)),
             remote: SocketAddr::from(([127, 0, 0, 1], 80)),
+            process: true,
         }
     }
 
@@ -120,5 +188,31 @@ mod tests {
         }
         assert_eq!(owners.get(&socket(0)), None);
         assert!(owners.get(&socket(CAPACITY as u16)).is_some());
+    }
+
+    /// This process's own connection, found as another's would be: its
+    /// user, and its path when the program is wanted.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_connection_of_this_process_is_found() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let client = std::net::TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let mut socket = Socket {
+            network: Network::Tcp,
+            local: client.local_addr().unwrap(),
+            remote: client.peer_addr().unwrap(),
+            process: false,
+        };
+        let found = find(&socket);
+        // SAFETY: getuid cannot fail.
+        assert_eq!(found.owner.as_ref().unwrap().uid, unsafe { libc::getuid() });
+        assert_eq!(found.process, None);
+        socket.process = true;
+        let found = find(&socket);
+        assert_eq!(
+            std::path::PathBuf::from(found.process.unwrap()),
+            std::env::current_exe().unwrap()
+        );
+        assert_eq!(user_name(0).as_deref(), Some("root"));
     }
 }

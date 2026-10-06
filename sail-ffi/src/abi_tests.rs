@@ -2171,12 +2171,16 @@ mod owner {
     fn without_a_host_that_tells_a_package_rule_is_an_error() {
         let _serial = serial();
         let instance = new_instance(None, None);
-        for rule in [
+        let mut rules = vec![
             serde_json::json!({ "package_name": "com.x", "action": "reject" }),
             serde_json::json!({ "package_name_regex": "^com\\.", "action": "reject" }),
-            serde_json::json!({ "user_id": [10123], "action": "reject" }),
-            serde_json::json!({ "user": ["u0_a123"], "action": "reject" }),
-        ] {
+        ];
+        // Where sail finds the user itself (Linux), a rule on it needs no host.
+        if !cfg!(target_os = "linux") {
+            rules.push(serde_json::json!({ "user_id": [10123], "action": "reject" }));
+            rules.push(serde_json::json!({ "user": ["u0_a123"], "action": "reject" }));
+        }
+        for rule in rules {
             let config = CString::new(config(free_port(), rule.clone())).unwrap();
             let mut err = std::ptr::null_mut();
             let code = unsafe { sail_instance_start(instance, config.as_ptr(), &mut err) };

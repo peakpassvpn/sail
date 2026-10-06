@@ -164,6 +164,17 @@ struct Sail {
 
 impl Sail {
     async fn start(id: u16, udp_timeout: &str, session_check: Duration) -> Result<Self> {
+        Self::start_with(id, udp_timeout, session_check, "").await
+    }
+
+    /// `start`, with `rules` (JSON, each followed by a comma) before the
+    /// DNS hijack.
+    async fn start_with(
+        id: u16,
+        udp_timeout: &str,
+        session_check: Duration,
+        rules: &str,
+    ) -> Result<Self> {
         let config = format!(
             r#"{{
                 "inbounds": [{{
@@ -179,7 +190,7 @@ impl Sail {
                     "one.sail": ["192.0.2.1", "2001:db8::1"],
                     "many.sail": [{many}]
                 }} }}] }},
-                "route": {{ "rules": [{{ "port": 53, "action": "hijack-dns" }}] }}
+                "route": {{ "rules": [{rules} {{ "port": 53, "action": "hijack-dns" }}] }}
             }}"#,
             many = (1..=60)
                 .map(|i| format!("\"2001:db8::{i:x}\""))
@@ -464,5 +475,80 @@ async fn tun_inbound_carries_tcp_udp_and_icmp_over_ipv4_and_ipv6() -> Result<()>
     for answer in late {
         ensure!(answer? == b"late", "the late answer changed");
     }
+    Ok(())
+}
+
+/// What `client` (argv) gets back through the TUN from the TCP echo
+/// server, sent `hello`: the echo, or nothing when sail refused it.
+#[cfg(feature = "rule-process-name")]
+fn echoed(client: &[&str]) -> Result<String> {
+    let output = Command::new(client[0])
+        .args(&client[1..])
+        .stdin(Stdio::null())
+        .output()
+        .with_context(|| client.join(" "))?;
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+/// A Python TCP client: sends `hello` to the echo server and prints what
+/// comes back, nothing when the connection is refused or reset.
+#[cfg(feature = "rule-process-name")]
+const PYTHON_CLIENT: &str = r#"
+import socket, sys
+try:
+    s = socket.create_connection(("10.212.1.2", 7001), timeout=3)
+    s.sendall(b"hello")
+    s.shutdown(socket.SHUT_WR)
+    data = b""
+    while chunk := s.recv(64):
+        data += chunk
+    sys.stdout.write(data.decode())
+except OSError:
+    pass
+"#;
+
+/// Rules on who opened a connection, found by sail itself (sock_diag and
+/// /proc, roadmap 2.8): curl, by its name, and the user nobody, by its id,
+/// are refused; python as root is let through.
+#[cfg(feature = "rule-process-name")]
+#[tokio::test]
+#[ignore = "requires root: network namespaces, veth, a TUN and policy routing"]
+async fn rules_on_who_opened_a_connection_are_matched() -> Result<()> {
+    let _peer = Peer::up()?;
+    let _sail = Sail::start_with(
+        61_003,
+        "30s",
+        Duration::from_secs(10),
+        r#"{ "process_name": ["curl"], "action": "reject" },
+           { "user_id": [65534], "action": "reject" },"#,
+    )
+    .await?;
+    let python = ["python3", "-c", PYTHON_CLIENT];
+    ensure!(
+        echoed(&python)? == "hello",
+        "python as root was not let through"
+    );
+    let curl = echoed(&[
+        "sh",
+        "-c",
+        "printf hello | curl -s --max-time 3 telnet://10.212.1.2:7001",
+    ])?;
+    ensure!(curl.is_empty(), "curl was let through: {curl:?}");
+    let nobody = echoed(&[
+        "setpriv",
+        "--reuid=65534",
+        "--regid=65534",
+        "--clear-groups",
+        "python3",
+        "-c",
+        PYTHON_CLIENT,
+    ])?;
+    ensure!(
+        nobody.is_empty(),
+        "the user nobody was let through: {nobody:?}"
+    );
+    // And as root again, after the others: the cache keeps no answer of
+    // another socket for it.
+    ensure!(echoed(&python)? == "hello", "python as root, again");
     Ok(())
 }

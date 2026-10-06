@@ -1269,7 +1269,8 @@ jobs:
         if: always() && steps.build.outcome == 'success'
         env:
           TUN: ${{ steps.build.outputs.tun }}
-        run: cd sail && sudo -E "$TUN" --ignored --nocapture
+        # One at a time: the tests share the namespace and the TUN's name.
+        run: cd sail && sudo -E "$TUN" --ignored --nocapture --test-threads=1
 
       # sail's own netlink, nf_tables and nfnetlink_queue code: the ignored
       # tests under platform::, in a namespace made for them.

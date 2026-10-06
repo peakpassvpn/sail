@@ -581,8 +581,16 @@ fn patterns(field: &str, values: &[String]) -> Result<Vec<Pattern>> {
 }
 
 /// Whether sail can tell which program a connection comes from: the
-/// NetFilter inbound on Windows says. Tests match as if it could.
-const PROCESS_KNOWN: bool = cfg!(any(test, all(feature = "inbound-nf", windows)));
+/// NetFilter inbound on Windows says; on Linux and macOS sail finds it
+/// itself (app::owner). Tests match as if it could.
+const PROCESS_KNOWN: bool = cfg!(any(
+    test,
+    all(feature = "inbound-nf", windows),
+    target_os = "linux",
+    target_os = "macos"
+));
+/// Whether sail finds the user who opened a connection itself.
+const USER_KNOWN: bool = cfg!(any(target_os = "linux", target_os = "macos"));
 /// Whether process conditions are compiled in.
 const PROCESS_COMPILED: bool = cfg!(any(test, feature = "rule-process-name"));
 
@@ -665,6 +673,9 @@ pub(crate) struct Needs {
     /// Who opened the connection: the program, the package, the user;
     /// looked up only when a rule needs it (sing-box's find_process).
     pub owner: bool,
+    /// Of the owner, the program: costlier to find than the user (on
+    /// Linux a walk of /proc).
+    pub process: bool,
 }
 
 impl Needs {
@@ -675,6 +686,7 @@ impl Needs {
             sniff: self.sniff || other.sniff,
             network: self.network || other.network,
             owner: self.owner || other.owner,
+            process: self.process || other.process,
         }
     }
 
@@ -1110,8 +1122,8 @@ impl Conditions {
         for (name, set) in [
             ("package_name", !rule.package_name.is_empty()),
             ("package_name_regex", !rule.package_name_regex.is_empty()),
-            ("user", !rule.user.is_empty()),
-            ("user_id", !rule.user_id.is_empty()),
+            ("user", !rule.user.is_empty() && !USER_KNOWN),
+            ("user_id", !rule.user_id.is_empty() && !USER_KNOWN),
         ] {
             if set && !host_tells {
                 return Err(anyhow!(
@@ -1417,6 +1429,15 @@ impl Conditions {
                         | Item::PackageNameRegex(_)
                         | Item::ProcessUsers(_)
                         | Item::ProcessUserIds(_)
+                )
+            }),
+            process: has(|i| {
+                matches!(
+                    i,
+                    Item::ProcessNames(_)
+                        | Item::ProcessPaths(_)
+                        | Item::ProcessPathRegex(_)
+                        | Item::ProcessNameRegex(_)
                 )
             }),
         };
@@ -2216,7 +2237,7 @@ pub(crate) mod tests {
             .unwrap_err()
             .to_string()
             .starts_with("rules[0].process_path: sail cannot tell which program"));
-        for (rule, message) in [
+        let mut refused = vec![
             (
                 serde_json::json!({ "package_name": "com.android.chrome" }),
                 "route.rules[3].package_name: sail tells who opened a connection only from a host",
@@ -2224,14 +2245,6 @@ pub(crate) mod tests {
             (
                 serde_json::json!({ "package_name_regex": "^com\\." }),
                 "route.rules[3].package_name_regex: sail tells who opened a connection only from a host",
-            ),
-            (
-                serde_json::json!({ "user": "root" }),
-                "route.rules[3].user: sail tells who opened a connection only from a host",
-            ),
-            (
-                serde_json::json!({ "user_id": [0, 1000] }),
-                "route.rules[3].user_id: sail tells who opened a connection only from a host",
             ),
             (
                 serde_json::json!({ "type": "logical", "mode": "or", "rules": [
@@ -2245,7 +2258,19 @@ pub(crate) mod tests {
                 serde_json::json!({ "source_port_range": "2:1" }),
                 "route.rules[3].source_port_range: invalid port range",
             ),
-        ] {
+        ];
+        // Where sail finds the user itself, a rule on it needs no host.
+        if !USER_KNOWN {
+            refused.push((
+                serde_json::json!({ "user": "root" }),
+                "route.rules[3].user: sail tells who opened a connection only from a host",
+            ));
+            refused.push((
+                serde_json::json!({ "user_id": [0, 1000] }),
+                "route.rules[3].user_id: sail tells who opened a connection only from a host",
+            ));
+        }
+        for (rule, message) in refused {
             let err = compile_err(rule.clone());
             assert!(err.starts_with(message), "{}: {}", rule, err);
         }
