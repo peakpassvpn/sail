@@ -282,7 +282,8 @@ fn for_socket(socket: &UdpSocket, addr: SocketAddr) -> SocketAddr {
 fn unmapped_ipv4(addr: SocketAddr) -> SocketAddr {
     let addr = super::nat64::unmap(addr);
     if let SocketAddr::V6(ref a) = addr {
-        if let Some(a_v4) = a.ip().to_ipv4() {
+        // Mapped only: `to_ipv4` would take ::1 for 0.0.0.1.
+        if let Some(a_v4) = a.ip().to_ipv4_mapped() {
             return SocketAddr::new(IpAddr::V4(a_v4), a.port());
         }
     }
@@ -470,6 +471,22 @@ impl InboundDatagramSendHalf for SimpleInboundDatagramSendHalf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An IPv4-mapped address comes back as IPv4; ::1 and other IPv6
+    /// addresses stay as they are (a reply from ::1 is from ::1).
+    #[test]
+    fn only_a_mapped_address_is_unmapped() {
+        let addr = |s: &str| s.parse::<SocketAddr>().unwrap();
+        assert_eq!(
+            unmapped_ipv4(addr("[::ffff:192.0.2.1]:53")),
+            addr("192.0.2.1:53")
+        );
+        assert_eq!(unmapped_ipv4(addr("[::1]:53")), addr("[::1]:53"));
+        assert_eq!(
+            unmapped_ipv4(addr("[2001:db8::10]:53")),
+            addr("[2001:db8::10]:53")
+        );
+    }
 
     #[tokio::test]
     async fn replies_carry_the_target_their_address_was_sent_as() {
