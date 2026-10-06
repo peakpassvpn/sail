@@ -200,9 +200,14 @@ pub struct Quic {
     #[serde(with = "duration")]
     pub server_keep_alive_interval: Duration,
     /// What a Hysteria2 connection's peer may send ahead of what is read,
-    /// all streams together, in KiB. At eight times a stream's 8 MiB,
-    /// streams nobody reads do not hold up the rest.
+    /// all streams together, in KiB. Streams nobody reads hold up the rest
+    /// once they fill it: at eight times `hysteria2_stream_window`, it
+    /// takes eight of them.
     pub hysteria2_receive_window: usize,
+    /// What a Hysteria2 stream's peer may send ahead of what is read, in
+    /// KiB: what one stream nobody reads holds. 8 MiB, the reference
+    /// implementation's, but on a router.
+    pub hysteria2_stream_window: usize,
     /// What a Hysteria2 connection keeps sent and not yet acknowledged, in
     /// KiB: the memory it may take for what it sends.
     pub hysteria2_send_window: usize,
@@ -381,6 +386,7 @@ impl RuntimeOptions {
                 server_handshake_timeout: Duration::from_secs(5),
                 server_keep_alive_interval: Duration::ZERO,
                 hysteria2_receive_window: 64 << 10,
+                hysteria2_stream_window: 8 << 10,
                 hysteria2_send_window: 16 << 10,
             },
             ws: Ws { half_close: false },
@@ -488,6 +494,13 @@ impl RuntimeOptions {
                 quic: Quic {
                     max_concurrent_streams: 128,
                     hysteria2_receive_window: 32 << 10,
+                    // At 8 MiB, four streams a LAN client stopped reading
+                    // filled the 32 MiB and froze the connection's other
+                    // streams for good; at 4 MiB the others went on, and
+                    // the stuck ones held 14 to 18 MB less. One stream
+                    // alone, at 250 ms, carried 20 to 30% less (measured,
+                    // two noisy rounds).
+                    hysteria2_stream_window: 4 << 10,
                     ..desktop.quic
                 },
                 // As mobile's: with the kernel's TCP buffers of a 256 or

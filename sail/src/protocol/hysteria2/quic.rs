@@ -14,9 +14,6 @@ use crate::transport::quic::Side;
 /// The ALPN Hysteria2 speaks unless configured otherwise: it is HTTP/3.
 pub const DEFAULT_ALPN: &[&str] = &["h3"];
 
-/// A stream's flow control window, the reference implementation's. The
-/// connection's, and what is kept in flight, are the `quic` options'.
-const STREAM_RECEIVE_WINDOW: u32 = 8 * 1024 * 1024;
 /// Unidirectional streams a peer may open: HTTP/3 needs three at most.
 const MAX_UNI_STREAMS: u32 = 16;
 
@@ -36,7 +33,10 @@ pub fn transport_config(
     }
     config
         .max_concurrent_uni_streams(quinn::VarInt::from_u32(MAX_UNI_STREAMS))
-        .stream_receive_window(quinn::VarInt::from_u32(STREAM_RECEIVE_WINDOW))
+        .stream_receive_window(
+            quinn::VarInt::from_u64(tuning.hysteria2_stream_window as u64 * 1024)
+                .unwrap_or(quinn::VarInt::MAX),
+        )
         .receive_window(
             quinn::VarInt::from_u64(tuning.hysteria2_receive_window as u64 * 1024)
                 .unwrap_or(quinn::VarInt::MAX),
@@ -121,17 +121,16 @@ mod tests {
         )
     }
 
-    /// A connection takes eight times a stream, so that five streams
-    /// nobody reads leave room for the rest; what it keeps in flight is
-    /// bounded apart from that.
+    /// A stream's window, the connection's, and what is kept in flight,
+    /// as each profile sets them: a router's connection takes eight times
+    /// a stream, so that streams nobody reads leave room for the rest.
     #[test]
     fn windows_follow_the_profile() {
         let mib = |n: u64| (n << 20).to_string();
         for profile in [Profile::Desktop, Profile::Server] {
             assert_eq!(windows(profile), (mib(8), mib(64), mib(16)));
         }
-        for profile in [Profile::Mobile, Profile::Router] {
-            assert_eq!(windows(profile), (mib(8), mib(32), mib(16)));
-        }
+        assert_eq!(windows(Profile::Mobile), (mib(8), mib(32), mib(16)));
+        assert_eq!(windows(Profile::Router), (mib(4), mib(32), mib(16)));
     }
 }
