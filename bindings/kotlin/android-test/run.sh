@@ -45,6 +45,26 @@ read -r tcp_port udp_port <"$ports"
 host=$(hostname -I | awk '{ print $1 }')
 echo "echo servers: $host, tcp $tcp_port, udp $udp_port"
 
+# The device booted, and its package manager answering, before the tests
+# begin; then the mark that they did (CI tries the boot again only without
+# it).
+adb wait-for-device
+for _ in $(seq 120); do
+	[ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = 1 ] &&
+		adb shell pm path android >/dev/null 2>&1 && break
+	sleep 1
+done
+[ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = 1 ] || {
+	echo "the device did not finish booting" >&2
+	exit 1
+}
+adb shell pm path android >/dev/null || {
+	echo "the device's package manager does not answer" >&2
+	exit 1
+}
+mkdir -p "$ROOT/bindings/kotlin/android-test/build"
+touch "$ROOT/bindings/kotlin/android-test/build/tests-began"
+
 ndk_version=$(sed -n 's/^Pkg\.Revision *= *//p' "$NDK_PATH/source.properties")
 status=0
 gradle --no-daemon -p "$ROOT/bindings/kotlin/android-test" connectedDebugAndroidTest \

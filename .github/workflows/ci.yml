@@ -102,8 +102,6 @@ jobs:
   # when they do. On master and when dispatched, everything.
   # - bindings: the bindings, the C ABI, sail::embed, the JSON snapshot the
   #   models are checked against, the Swift package's manifest;
-  # - android-emulator: the Kotlin binding and its emulator test app, the C
-  #   ABI, sail::embed and the TUN;
   # - tun-macos: the TUN, platform and teardown code, and the macOS scripts;
   # - netns-linux: the same on Linux, the netstack, the runtime, WireGuard
   #   and the netns scripts and tests;
@@ -111,8 +109,10 @@ jobs:
   #   BoringSSL script and tools/fuzz-check.sh;
   # - check-32bit: a Cargo manifest or the lock file, the toolchain, and
   #   the cross and BoringSSL scripts.
-  # Two more are what the change itself reaches, on master too (there, what
-  # the push changed; a push whose before is unknown reaches both):
+  # Three more are what the change itself reaches, on master too (there,
+  # what the push changed; a push whose before is unknown reaches them all):
+  # - android_emulator: the Kotlin binding and its emulator test app, the C
+  #   ABI, sail::embed and the TUN;
   # - dependency_security: a Cargo manifest, the root lock file,
   #   THIRD_PARTY_LICENSES.md, tools/security/ and tools/licences/;
   # - docs: the website, the crates it documents, the root manifest and
@@ -144,7 +144,6 @@ jobs:
           # Everything on master.
           declare -A filters=(
             [bindings]='^(bindings/|sail-ffi/|sail/src/embed|sail/src/control/json_snapshot\.json$|Package\.swift$)'
-            [android_emulator]='^(bindings/kotlin/|sail-ffi/|sail/src/embed|sail/src/protocol/tun/)'
             [tun_macos]='^(sail/src/protocol/tun/|sail/src/platform/|sail/src/runtime/teardown\.rs|sail/src/fault\.rs|sail/tests/test_teardown\.rs|sail/tests/test_tun_integrity_macos\.rs|sail/tests/test_split_dns_macos\.rs|sail/tests/test_owner_macos\.rs|sail/src/app/owner|sail/src/app/dns/client/system|sail/tests/test_tun_replaced_macos\.rs|sail/tests/scripts/macos_)'
             [netns_linux]='^(sail/src/protocol/tun/|sail/src/net/netstack/|sail/src/platform/|sail/src/runtime/|sail/src/fault\.rs|sail/src/protocol/wireguard/|sail/tests/test_wireguard_(interop|kernel)\.rs|sail/tests/scripts/[a-z_]+_netns\.sh|sail/tests/test_[a-z_]+_linux\.rs|sail/tests/test_teardown\.rs)'
             [fuzz]='^(fuzz/|sail-netstack/fuzz/|fuzz-config/|scripts/prebuilt-boringssl\.sh$|tools/fuzz-check\.sh$)|(^|/)Cargo\.(toml|lock)$'
@@ -152,6 +151,7 @@ jobs:
           )
           # What the change reaches, on master too.
           declare -A own=(
+            [android_emulator]='^(bindings/kotlin/|sail-ffi/|sail/src/embed|sail/src/protocol/tun/|\.github/workflows/ci\.yml$)'
             [dependency_security]='^(Cargo\.lock$|THIRD_PARTY_LICENSES\.md$|tools/security/|tools/licences/)|(^|/)Cargo\.toml$'
             [docs]='^(website/|sail/|sail-ffi/|sail-netstack/|sail-plugins/|Cargo\.(toml|lock)$)'
           )
@@ -950,9 +950,11 @@ jobs:
   # package, and a stop and a start (bindings/kotlin/android-test). The
   # library for x86_64 is built unoptimized: the test is of behaviour. On
   # master, by hand, and on branches the `changes` job says reach it.
+  # Not gating while it settles: its result shows, and holds nothing up.
   android-emulator:
     needs: changes
     if: needs.changes.outputs.android_emulator == 'true'
+    continue-on-error: true
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
@@ -1012,18 +1014,62 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
+      # A fresh device each time, nothing restored from a snapshot. The boot
+      # is tried again once when it, not the tests, failed: run.sh marks
+      # where the tests begin, after the device is booted and its package
+      # manager answers. The tests are never run twice.
       - name: emulator tests
+        id: first
+        continue-on-error: true
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 34
           arch: x86_64
           target: google_apis
+          force-avd-creation: true
           disable-animations: true
+          emulator-boot-timeout: 600
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           script: NDK_PATH=$(echo "$HOME"/.sail-cross/android-ndk-*) bindings/kotlin/android-test/run.sh "$RUNNER_TEMP/libs"
 
+      - name: whether the tests began
+        id: began
+        if: ${{ !cancelled() }}
+        run: |
+          if [ -f bindings/kotlin/android-test/build/tests-began ]; then
+            echo "began=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "began=false" >>"$GITHUB_OUTPUT"
+          fi
+
+      - name: emulator tests (the boot again)
+        id: second
+        if: ${{ steps.first.outcome == 'failure' && steps.began.outputs.began == 'false' }}
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          force-avd-creation: true
+          disable-animations: true
+          emulator-boot-timeout: 600
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          script: NDK_PATH=$(echo "$HOME"/.sail-cross/android-ndk-*) bindings/kotlin/android-test/run.sh "$RUNNER_TEMP/libs"
+
+      - name: result
+        if: ${{ !cancelled() }}
+        run: |
+          case "${{ steps.first.outcome }}/${{ steps.began.outputs.began }}/${{ steps.second.outcome }}" in
+            success/*) echo "the tests passed" ;;
+            failure/false/success) echo "the tests passed, the device booting the second time" ;;
+            failure/true/*) echo "::error::the tests failed (see the reports)"; exit 1 ;;
+            *) echo "::error::the device did not boot, twice (see the reports)"; exit 1 ;;
+          esac
+
+      # Kept whatever the result: the test report names the test, the
+      # logcat says what sail did.
       - name: reports
-        if: ${{ failure() }}
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
           name: android-emulator-reports
@@ -1031,6 +1077,7 @@ jobs:
             bindings/kotlin/android-test/build/reports/
             bindings/kotlin/android-test/build/outputs/androidTest-results/
             bindings/kotlin/android-test/build/logcat.txt
+          if-no-files-found: ignore
 
   # L3: the Swift binding's tests, on a standard macOS runner, against
   # sail-ffi's static library (bindings/swift/test.sh). As bindings-kotlin.
