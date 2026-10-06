@@ -577,7 +577,12 @@ const EN: Words = Words {
             its platforms), and sail passes it over. Warned: dropped with a warning. Error: \
             refused as not implemented.\n\nA deliberate difference: a `#!include`'s download \
             is not redirected from https to http, nor to another scheme: what the request \
-            carries, a token in its URL, would go in the clear.",
+            carries, a token in its URL, would go in the clear.\n\n`#!MANAGED-CONFIG` \
+            is warned as the profile is read: the CLI keeps the profile up to date with \
+            `sail --managed-update`, as its interval and `strict` say. A deliberate \
+            difference: a strict profile past its interval whose update fails is still \
+            served, and the update tried again, where Surge asks for an update before \
+            using it; sail never stops serving for it.",
     summary: "| Section | Fields | Supported | Ignored silently | Warned | Error |",
     head: "| Field | sail | What sail says |",
     tiers: [
@@ -600,7 +605,10 @@ const ZH: Words = Words {
     intro: "Surge 手册（{surge}）列出的全部字段，以及 sail 如何读取：逐个以只含该字段的配置实测。\
             支持：读取（或仅因取值被拒）。静默忽略：在 sail 运行处无意义（Surge 的界面、平台），\
             sail 不作提示地跳过。警告：丢弃并警告。报错：未实现，拒绝。\n\n有意的差异：`#!include` \
-            的下载不跟随从 https 到 http 或到其他协议的重定向，否则请求携带的内容（如 URL 中的令牌）会以明文传出。",
+            的下载不跟随从 https 到 http 或到其他协议的重定向，否则请求携带的内容（如 URL 中的令牌）会以明文传出。\n\n\
+            读取配置时 `#!MANAGED-CONFIG` 给出警告：配置的更新由 CLI 的 `sail --managed-update` \
+            按其 interval 与 `strict` 进行。有意的差异：strict 配置过了更新间隔而更新失败时，\
+            sail 继续使用现有配置并重试更新，不停止服务；Surge 则要求先更新成功再使用。",
     summary: "| 部分 | 字段 | 支持 | 静默忽略 | 警告 | 报错 |",
     head: "| 字段 | sail | sail 的说明 |",
     tiers: ["支持", "静默忽略", "警告", "报错", "未知"],

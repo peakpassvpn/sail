@@ -126,11 +126,16 @@ CLI 启动时使用的来源成为宿主的 `asset_sources`，运行中的更新
 # 读取前先下载 Surge 配置 include 的 URL
 sail -c profile.conf --cache-dir /var/lib/sail --fetch-includes
 
+# 保持托管的 Surge 配置（#!MANAGED-CONFIG）为最新
+sail -c profile.conf --cache-dir /var/lib/sail --managed-update
+
 # 把 sub.store 地址解析到你自己的 Sub-Store 后端
 sail -c profile.conf --sub-store https://substore.example.com/secret-path
 ```
 
 `--fetch-includes` 把 Surge 配置中每个 `#!include https://...`，以及它们再 include 的内容，下载到缓存目录，配置从那里读取。它需要 `--cache-dir`，且配置必须是 `.conf` 文件。某个下载失败时保留已有副本；没有副本则启动失败。
+
+`--managed-update` 按 `#!MANAGED-CONFIG https://... interval=86400 strict=true` 行保持托管的 Surge 配置为最新：距上次更新超过 interval 时（启动时也检查）重新下载配置，像启动时一样加载验证，替换原文件并重载。下载的配置加载不了，或运行中的实例不接受时，原文件保持不变。interval 小于 60 秒按 60 秒算。更新失败后 1 分钟重试，之后间隔逐次翻倍，最长 1 小时且不超过 interval。新配置没有该行时只采用这一次，此后不再更新。上次更新时间保存在缓存目录中，因此需要 `--cache-dir`。同时给了 `--fetch-includes` 时，先下载新配置的 include 再加载。与 Surge 不同：strict 配置过了 interval 而更新失败时，sail 继续使用现有配置，记录错误并重试，不会停止服务。
 
 `--sub-store` 指定基础 URL（含密钥路径），用来替换订阅和规则集 URL 中的 `sub.store`——这是 Sub-Store 在 Surge、Loon 和 Quantumult X 中使用的地址。
 
@@ -187,6 +192,7 @@ Sail 默认使用多线程运行时。`--single-thread` 适合资源受限的宿
 | `--sub-store` | 自有 Sub-Store 后端的基础 URL，替换 `sub.store` |
 | `--ui-download-url` | Clash API 下载到空 `external_ui` 的 ZIP；默认 metacubexd，空值表示不下载 |
 | `--fetch-includes` | 启动前把 Surge 配置的远程 include 下载到缓存目录 |
+| `--managed-update` | 保持托管的 Surge 配置为最新：超过 interval 后重新下载并重载 |
 | `--fetch-assets` | 启动前下载缺少的资源文件 |
 | `--asset-source` | `name=url`：资源文件的下载地址，可重复 |
 | `assets [config]` | 列出资源文件（未给出时用 `-c` 的配置）；`--fetch`、`--update`、`--source name=url` |

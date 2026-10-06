@@ -6,6 +6,8 @@ Surge 手册（manual.nssurge.com of 2026-09-22）列出的全部字段，以及
 
 有意的差异：`#!include` 的下载不跟随从 https 到 http 或到其他协议的重定向，否则请求携带的内容（如 URL 中的令牌）会以明文传出。
 
+读取配置时 `#!MANAGED-CONFIG` 给出警告：配置的更新由 CLI 的 `sail --managed-update` 按其 interval 与 `strict` 进行。有意的差异：strict 配置过了更新间隔而更新失败时，sail 继续使用现有配置并重试更新，不停止服务；Surge 则要求先更新成功再使用。
+
 | 部分 | 字段 | 支持 | 静默忽略 | 警告 | 报错 |
 |---|--:|--:|--:|--:|--:|
 | `General` | 58 | 23 | 29 | 6 | 0 |

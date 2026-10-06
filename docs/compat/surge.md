@@ -6,6 +6,8 @@ Every field Surge's manual (manual.nssurge.com of 2026-09-22) lists, and how sai
 
 A deliberate difference: a `#!include`'s download is not redirected from https to http, nor to another scheme: what the request carries, a token in its URL, would go in the clear.
 
+`#!MANAGED-CONFIG` is warned as the profile is read: the CLI keeps the profile up to date with `sail --managed-update`, as its interval and `strict` say. A deliberate difference: a strict profile past its interval whose update fails is still served, and the update tried again, where Surge asks for an update before using it; sail never stops serving for it.
+
 | Section | Fields | Supported | Ignored silently | Warned | Error |
 |---|--:|--:|--:|--:|--:|
 | `General` | 58 | 23 | 29 | 6 | 0 |

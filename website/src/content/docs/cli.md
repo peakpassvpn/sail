@@ -138,11 +138,16 @@ The sources the CLI starts with become the host's `asset_sources`, which the run
 # Download the URLs a Surge profile includes before reading it
 sail -c profile.conf --cache-dir /var/lib/sail --fetch-includes
 
+# Keep a managed Surge profile (#!MANAGED-CONFIG) up to date
+sail -c profile.conf --cache-dir /var/lib/sail --managed-update
+
 # Resolve sub.store URLs to your own Sub-Store backend
 sail -c profile.conf --sub-store https://substore.example.com/secret-path
 ```
 
 `--fetch-includes` downloads every `#!include https://...` of a Surge profile, and what those include, into the cache directory, where the profile reads them. It needs `--cache-dir` and a `.conf` file. A download that fails keeps the copy already there; with no copy, startup fails.
+
+`--managed-update` keeps a managed Surge profile up to date, as its `#!MANAGED-CONFIG https://... interval=86400 strict=true` line says. Once the interval has passed since the last update (at startup too), sail fetches the profile again. It loads the new profile as a start would, puts it in place of the file and reloads. A profile that does not load, or that the running instance refuses, leaves the file as it was. An interval below 60 seconds counts as 60. A failed update is retried after a minute, then twice as late each time, up to an hour or the interval. A new profile without the line is taken once, and updating stops. The time of the last update is kept in the cache directory, so `--cache-dir` is needed. With `--fetch-includes`, the new profile's includes are fetched before it is loaded. Unlike Surge, a strict profile whose update fails past its interval is still served: the failure is logged as an error and the update retried. sail never stops serving for it.
 
 `--sub-store` gives the base URL (secret path included) that `sub.store`, the address Sub-Store uses inside Surge, Loon and Quantumult X, stands for in subscription and rule-set URLs.
 
@@ -199,6 +204,7 @@ On Unix, the CLI raises the open-file soft limit to the hard limit at startup (o
 | `--sub-store` | Base URL of your own Sub-Store backend, which `sub.store` stands for |
 | `--ui-download-url` | ZIP the Clash API downloads into an empty `external_ui`; default metacubexd, empty for none |
 | `--fetch-includes` | Download a Surge profile's remote includes into the cache directory before starting |
+| `--managed-update` | Keep a managed Surge profile up to date: fetched again once its interval has passed, and reloaded |
 | `--fetch-assets` | Download the missing assets before starting |
 | `--asset-source` | `name=url`: where an asset is downloaded from; repeatable |
 | `assets [config]` | List the assets (of `-c` when no config is given); `--fetch`, `--update`, `--source name=url` |

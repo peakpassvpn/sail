@@ -2,6 +2,8 @@ use std::process::exit;
 
 use argh::FromArgs;
 
+mod managed;
+
 const COMMIT_DATE: Option<&'static str> = option_env!("CFG_COMMIT_DATE");
 
 /// The release and the commit, as `sail::embed::BUILD` tells them, with
@@ -101,6 +103,11 @@ struct Args {
     /// a download that fails leaves the copy there is
     #[argh(switch)]
     fetch_includes: bool,
+
+    /// keeps a managed Surge profile (#!MANAGED-CONFIG) up to date: fetched
+    /// again once its interval has passed, and reloaded; needs --cache-dir
+    #[argh(switch)]
+    managed_update: bool,
 
     /// downloads the assets the configuration reads that are missing (asn.mmdb,
     /// geo.mmdb, site.dat, ...) into the data directory before it starts
@@ -592,6 +599,27 @@ fn main() {
         ..Default::default()
     };
 
+    // Before the includes are fetched: those of the profile it puts in
+    // place, when it updates one.
+    let updater = match args.managed_update {
+        true => match managed::Updater::new(
+            &args.config,
+            args.cache_dir.as_deref(),
+            env.clone(),
+            args.fetch_includes,
+        ) {
+            Ok(mut updater) => {
+                updater.update_at_start();
+                Some(updater)
+            }
+            Err(e) => {
+                println!("--managed-update: {}", e);
+                exit(1);
+            }
+        },
+        false => None,
+    };
+
     if args.fetch_includes {
         if let Err(e) = fetch_includes(&args.config, args.cache_dir.as_deref()) {
             println!("fetching includes failed: {}", e);
@@ -678,6 +706,12 @@ fn main() {
         }
     }
 
+    if let Some(updater) = updater {
+        std::thread::Builder::new()
+            .name("managed-update".to_string())
+            .spawn(move || updater.run())
+            .expect("a thread for the managed profile's updates");
+    }
     if let Err(e) = sail::util::run_with_options(
         0,
         args.config,

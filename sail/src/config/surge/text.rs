@@ -178,8 +178,8 @@ impl Reader<'_> {
             }
             if strip_word(line, "#!MANAGED-CONFIG").is_some() {
                 self.warnings.push(format!(
-                    "{}: #!MANAGED-CONFIG: the profile's own updates are its host's to make; \
-                     read as it is",
+                    "{}: #!MANAGED-CONFIG: the profile's own updates are its host's to make \
+                     (sail --managed-update); read as it is",
                     loc
                 ));
                 continue;
@@ -409,6 +409,48 @@ pub fn remote_includes(text: &str) -> Vec<String> {
         }
     }
     urls
+}
+
+/// What a managed profile's `#!MANAGED-CONFIG` line says: where its host
+/// updates it from, and how.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Managed {
+    pub url: String,
+    /// How long the host waits, at least, before it updates the profile
+    /// again: `interval`, in seconds, a day when none is given.
+    pub interval: std::time::Duration,
+    /// Whether an update must have succeeded once `interval` has passed,
+    /// as `strict` says; false when none is given.
+    pub strict: bool,
+}
+
+/// The `#!MANAGED-CONFIG` line of `text`, as Surge reads it: what a host
+/// updates the profile by. None when it has none, or one without a URL.
+pub fn managed(text: &str) -> Option<Managed> {
+    let rest = text
+        .lines()
+        .find_map(|line| strip_word(line.trim(), "#!MANAGED-CONFIG"))?;
+    let mut words = rest.split_whitespace();
+    let url = words.next().filter(|url| url.contains("://"))?;
+    let mut managed = Managed {
+        url: url.to_string(),
+        interval: std::time::Duration::from_secs(86_400),
+        strict: false,
+    };
+    for word in words {
+        match word.split_once('=') {
+            Some((key, value)) if key.eq_ignore_ascii_case("interval") => {
+                if let Ok(seconds) = value.parse::<u64>() {
+                    managed.interval = std::time::Duration::from_secs(seconds);
+                }
+            }
+            Some((key, value)) if key.eq_ignore_ascii_case("strict") => {
+                managed.strict = value.eq_ignore_ascii_case("true");
+            }
+            _ => {}
+        }
+    }
+    Some(managed)
 }
 
 /// `line` past `word` and the space after it, whatever the case.
@@ -688,6 +730,36 @@ mod tests {
         .to_string();
         assert!(err.contains("has no [Host] section"), "{}", err);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_managed_profile_tells_its_url_interval_and_strictness() {
+        use std::time::Duration;
+        assert_eq!(
+            managed(
+                "#!MANAGED-CONFIG https://h.example/p.conf interval=3600 strict=true\n[General]\n"
+            ),
+            Some(Managed {
+                url: "https://h.example/p.conf".to_string(),
+                interval: Duration::from_secs(3600),
+                strict: true,
+            })
+        );
+        // Surge's defaults: a day, not strict; a value not read is the default.
+        let m =
+            managed("#!managed-config http://h.example/p?a=1 interval=x Strict=TRUE\n").unwrap();
+        assert_eq!(m.url, "http://h.example/p?a=1");
+        assert_eq!(m.interval, Duration::from_secs(86_400));
+        assert!(m.strict);
+        assert!(
+            !managed("#!MANAGED-CONFIG https://h.example/p.conf\n")
+                .unwrap()
+                .strict
+        );
+        // None without a URL, or without the line.
+        assert_eq!(managed("#!MANAGED-CONFIG\n[General]\n"), None);
+        assert_eq!(managed("#!MANAGED-CONFIG str1 interval=60\n"), None);
+        assert_eq!(managed("[General]\nloglevel = notify\n"), None);
     }
 
     #[test]

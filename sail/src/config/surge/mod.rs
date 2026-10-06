@@ -59,7 +59,7 @@ mod text;
 #[cfg(feature = "outbound-provider")]
 pub(crate) use proxy::external;
 use text::Profile;
-pub use text::{include_path, remote_includes};
+pub use text::{include_path, managed, remote_includes, Managed};
 
 /// Where a host keeps the URLs Surge profiles include, fetched, in its
 /// cache directory `cache_dir`.

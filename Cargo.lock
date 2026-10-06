@@ -2754,6 +2754,7 @@ dependencies = [
  "sail",
  "serde_json",
  "tokio",
+ "tracing",
 ]
 
 [[package]]
