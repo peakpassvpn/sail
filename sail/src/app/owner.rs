@@ -81,7 +81,7 @@ impl Owners {
 /// Who opened the connection of `socket`, as this system tells sail
 /// itself; none where it does not (another machine's socket, or a
 /// system sail cannot ask).
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 pub(crate) fn find(socket: &Socket) -> Found {
     let _ = socket;
     Found::default()
@@ -130,9 +130,35 @@ pub(crate) fn find(socket: &Socket) -> Found {
     }
 }
 
+/// macOS: the pid of the socket with the client's address in the kernel's
+/// list (platform::owner_macos), then its path and uid. The list holds
+/// every socket of the host: the program comes with it, wanted or not.
+#[cfg(target_os = "macos")]
+pub(crate) fn find(socket: &Socket) -> Found {
+    use crate::platform::owner_macos;
+    let tcp = socket.network == Network::Tcp;
+    let Some(pid) = owner_macos::list(tcp)
+        .ok()
+        .and_then(|list| owner_macos::pid_in(&list, socket.local))
+    else {
+        return Found::default();
+    };
+    let Some((path, uid)) = owner_macos::process(pid) else {
+        return Found::default();
+    };
+    Found {
+        process: path.filter(|_| socket.process),
+        owner: Some(Arc::new(ConnectionOwner {
+            uid,
+            user: user_name(uid),
+            packages: Vec::new(),
+        })),
+    }
+}
+
 /// The name of the user `uid`, from the password database.
 #[cfg(unix)]
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+#[cfg_attr(not(any(target_os = "linux", target_os = "macos")), allow(dead_code))]
 pub(crate) fn user_name(uid: u32) -> Option<String> {
     let mut buf = vec![0 as libc::c_char; 4096];
     // SAFETY: zeroed is a valid passwd, filled by getpwuid_r.
@@ -192,7 +218,7 @@ mod tests {
 
     /// This process's own connection, found as another's would be: its
     /// user, and its path when the program is wanted.
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
     fn a_connection_of_this_process_is_found() {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
@@ -210,8 +236,10 @@ mod tests {
         socket.process = true;
         let found = find(&socket);
         assert_eq!(
-            std::path::PathBuf::from(found.process.unwrap()),
-            std::env::current_exe().unwrap()
+            std::path::PathBuf::from(found.process.unwrap())
+                .canonicalize()
+                .unwrap(),
+            std::env::current_exe().unwrap().canonicalize().unwrap()
         );
         assert_eq!(user_name(0).as_deref(), Some("root"));
     }

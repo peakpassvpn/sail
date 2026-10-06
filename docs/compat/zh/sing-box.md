@@ -556,9 +556,9 @@ Windows 无法实现的拨号字段在 Windows 上报错。已知缺口是 `tcp_
 | `[].source_port_range` | 支持 |  |
 | `[].port` | 支持 |  |
 | `[].port_range` | 支持 |  |
-| `[].process_name` | 支持 | 仅在 sail 能识别程序时：Linux 上自行查找，Windows 上经 NetFilter 入站（`rule-process-name` feature，默认开启） |
-| `[].process_path` | 支持 | 仅在 sail 能识别程序时：Linux 上自行查找，Windows 上经 NetFilter 入站（`rule-process-name` feature，默认开启） |
-| `[].process_path_regex` | 支持 | 仅在 sail 能识别程序时：Linux 上自行查找，Windows 上经 NetFilter 入站（`rule-process-name` feature，默认开启） |
+| `[].process_name` | 支持 | 仅在 sail 能识别程序时：Linux 与 macOS 上自行查找，Windows 上经 NetFilter 入站（`rule-process-name` feature，默认开启） |
+| `[].process_path` | 支持 | 仅在 sail 能识别程序时：Linux 与 macOS 上自行查找，Windows 上经 NetFilter 入站（`rule-process-name` feature，默认开启） |
+| `[].process_path_regex` | 支持 | 仅在 sail 能识别程序时：Linux 与 macOS 上自行查找，Windows 上经 NetFilter 入站（`rule-process-name` feature，默认开启） |
 | `[].package_name` | 支持 |  |
 | `[].package_name_regex` | 支持 |  |
 | `[].user` | 支持 |  |
@@ -2800,9 +2800,9 @@ Windows 无法实现的拨号字段在 Windows 上报错。已知缺口是 `tcp_
 | `[].source_port_range` | 支持 |  |
 | `[].port` | 支持 |  |
 | `[].port_range` | 支持 |  |
-| `[].process_name` | 支持 | 仅在 sail 能识别程序时：Linux 上自行查找，Windows 上经 NetFilter 入站（`rule-process-name` feature，默认开启） |
-| `[].process_path` | 支持 | 仅在 sail 能识别程序时：Linux 上自行查找，Windows 上经 NetFilter 入站（`rule-process-name` feature，默认开启） |
-| `[].process_path_regex` | 支持 | 仅在 sail 能识别程序时：Linux 上自行查找，Windows 上经 NetFilter 入站（`rule-process-name` feature，默认开启） |
+| `[].process_name` | 支持 | 仅在 sail 能识别程序时：Linux 与 macOS 上自行查找，Windows 上经 NetFilter 入站（`rule-process-name` feature，默认开启） |
+| `[].process_path` | 支持 | 仅在 sail 能识别程序时：Linux 与 macOS 上自行查找，Windows 上经 NetFilter 入站（`rule-process-name` feature，默认开启） |
+| `[].process_path_regex` | 支持 | 仅在 sail 能识别程序时：Linux 与 macOS 上自行查找，Windows 上经 NetFilter 入站（`rule-process-name` feature，默认开启） |
 | `[].package_name` | 支持 |  |
 | `[].package_name_regex` | 支持 |  |
 | `[].user` | 支持 |  |
@@ -2963,9 +2963,9 @@ Windows 无法实现的拨号字段在 Windows 上报错。已知缺口是 `tcp_
 | `rules[].source_port_range` | 支持 |  |
 | `rules[].port` | 支持 |  |
 | `rules[].port_range` | 支持 |  |
-| `rules[].process_name` | 支持 | 仅在 sail 能识别程序时：Linux 上自行查找，Windows 上经 NetFilter 入站（`rule-process-name` feature，默认开启） |
-| `rules[].process_path` | 支持 | 仅在 sail 能识别程序时：Linux 上自行查找，Windows 上经 NetFilter 入站（`rule-process-name` feature，默认开启） |
-| `rules[].process_path_regex` | 支持 | 仅在 sail 能识别程序时：Linux 上自行查找，Windows 上经 NetFilter 入站（`rule-process-name` feature，默认开启） |
+| `rules[].process_name` | 支持 | 仅在 sail 能识别程序时：Linux 与 macOS 上自行查找，Windows 上经 NetFilter 入站（`rule-process-name` feature，默认开启） |
+| `rules[].process_path` | 支持 | 仅在 sail 能识别程序时：Linux 与 macOS 上自行查找，Windows 上经 NetFilter 入站（`rule-process-name` feature，默认开启） |
+| `rules[].process_path_regex` | 支持 | 仅在 sail 能识别程序时：Linux 与 macOS 上自行查找，Windows 上经 NetFilter 入站（`rule-process-name` feature，默认开启） |
 | `rules[].package_name` | 支持 |  |
 | `rules[].package_name_regex` | 支持 |  |
 | `rules[].network_type` | 支持 |  |

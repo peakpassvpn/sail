@@ -47,6 +47,10 @@ pub(crate) mod addr_monitor;
 #[cfg(target_os = "linux")]
 pub(crate) mod owner_linux;
 
+// Who opened a socket, on macOS: the kernel's socket list and libproc.
+#[cfg(target_os = "macos")]
+pub(crate) mod owner_macos;
+
 #[cfg(all(target_os = "linux", feature = "inbound-tun"))]
 pub(crate) mod openwrt;
 #[cfg(target_os = "macos")]

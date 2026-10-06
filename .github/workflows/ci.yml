@@ -145,7 +145,7 @@ jobs:
           declare -A filters=(
             [bindings]='^(bindings/|sail-ffi/|sail/src/embed|sail/src/control/json_snapshot\.json$|Package\.swift$)'
             [android_emulator]='^(bindings/kotlin/|sail-ffi/|sail/src/embed|sail/src/protocol/tun/)'
-            [tun_macos]='^(sail/src/protocol/tun/|sail/src/platform/|sail/src/runtime/teardown\.rs|sail/src/fault\.rs|sail/tests/test_teardown\.rs|sail/tests/test_tun_integrity_macos\.rs|sail/tests/test_split_dns_macos\.rs|sail/src/app/dns/client/system|sail/tests/test_tun_replaced_macos\.rs|sail/tests/scripts/macos_)'
+            [tun_macos]='^(sail/src/protocol/tun/|sail/src/platform/|sail/src/runtime/teardown\.rs|sail/src/fault\.rs|sail/tests/test_teardown\.rs|sail/tests/test_tun_integrity_macos\.rs|sail/tests/test_split_dns_macos\.rs|sail/tests/test_owner_macos\.rs|sail/src/app/owner|sail/src/app/dns/client/system|sail/tests/test_tun_replaced_macos\.rs|sail/tests/scripts/macos_)'
             [netns_linux]='^(sail/src/protocol/tun/|sail/src/net/netstack/|sail/src/platform/|sail/src/runtime/|sail/src/fault\.rs|sail/src/protocol/wireguard/|sail/tests/test_wireguard_(interop|kernel)\.rs|sail/tests/scripts/[a-z_]+_netns\.sh|sail/tests/test_[a-z_]+_linux\.rs|sail/tests/test_teardown\.rs)'
             [fuzz]='^(fuzz/|sail-netstack/fuzz/|fuzz-config/|scripts/prebuilt-boringssl\.sh$|tools/fuzz-check\.sh$)|(^|/)Cargo\.(toml|lock)$'
             [check_32bit]='^(rust-toolchain\.toml$|scripts/(cross|install_cross_toolchain|prebuilt-boringssl)\.sh$)|(^|/)Cargo\.(toml|lock)$'
@@ -1099,7 +1099,7 @@ jobs:
         run: cargo build --locked -p sail-cli --target aarch64-apple-darwin
 
       - name: route socket tests
-        run: cargo test --locked -p sail --lib --target aarch64-apple-darwin -- platform::route_socket platform::sc_dns
+        run: cargo test --locked -p sail --lib --target aarch64-apple-darwin -- platform::route_socket platform::sc_dns platform::owner_macos app::owner
 
       # A datagram to lo0's link-local fe80::1 keeps its zone through
       # sail::embed's dial_udp (Linux runs it on the runner's Ethernet).
@@ -1140,6 +1140,15 @@ jobs:
       - name: the system's split DNS
         run: |
           bin=$(cargo test --locked -p sail --test test_split_dns_macos \
+            --target aarch64-apple-darwin --no-run --message-format=json \
+            | jq -r 'select(.executable != null) | .executable')
+          sudo "$bin" --ignored --nocapture --test-threads=1
+
+      # Rules on who opened a connection: curl by its name and the user
+      # nobody refused, found by sail itself. As root, the test alone.
+      - name: who opened a connection
+        run: |
+          bin=$(cargo test --locked -p sail --test test_owner_macos \
             --target aarch64-apple-darwin --no-run --message-format=json \
             | jq -r 'select(.executable != null) | .executable')
           sudo "$bin" --ignored --nocapture --test-threads=1

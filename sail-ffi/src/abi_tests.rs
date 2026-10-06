@@ -2175,8 +2175,9 @@ mod owner {
             serde_json::json!({ "package_name": "com.x", "action": "reject" }),
             serde_json::json!({ "package_name_regex": "^com\\.", "action": "reject" }),
         ];
-        // Where sail finds the user itself (Linux), a rule on it needs no host.
-        if !cfg!(target_os = "linux") {
+        // Where sail finds the user itself (Linux, macOS), a rule on it
+        // needs no host.
+        if !cfg!(any(target_os = "linux", target_os = "macos")) {
             rules.push(serde_json::json!({ "user_id": [10123], "action": "reject" }));
             rules.push(serde_json::json!({ "user": ["u0_a123"], "action": "reject" }));
         }
