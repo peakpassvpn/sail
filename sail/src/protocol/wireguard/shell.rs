@@ -1,6 +1,7 @@
 //! An async shell around the sans-IO [`Device`]: a task receiving
 //! datagrams from a [`Transport`], a task running the timers, and
-//! [`WireGuard::send`] for IP packets going out.
+//! [`WireGuard::send`] for IP packets going out. Once either task ends,
+//! however it ends, the device is dead: [`WireGuard::ended`] says so.
 //!
 //! The transport is a trait so that WireGuard's UDP can later go through a
 //! sail outbound (a detour) instead of a socket of its own.
@@ -11,11 +12,12 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use parking_lot::Mutex;
-use tokio::sync::{mpsc, Notify};
+use tokio::sync::{mpsc, watch, Notify};
 use tokio::task::JoinHandle;
 
 use super::device::{Device, Error, Incoming, PeerId, Transmit};
 use crate::net::accept::AcceptBackoff;
+use crate::runtime::scope::TaskClass;
 
 /// Where WireGuard's datagrams go and come from.
 #[async_trait]
@@ -29,6 +31,10 @@ pub trait Transport: Send + Sync + 'static {
     async fn rebind(&self) -> io::Result<()> {
         Ok(())
     }
+
+    /// Lets go of what it sends on at once, for good: a stopped endpoint's
+    /// port is free again while its tasks are still being ended.
+    fn close(&self) {}
 }
 
 #[async_trait]
@@ -156,18 +162,29 @@ impl Inner {
     }
 }
 
+/// Tells that its task ended when dropped: returned, panicked or aborted.
+struct Ending(Arc<watch::Sender<bool>>);
+
+impl Drop for Ending {
+    fn drop(&mut self) {
+        self.0.send_replace(true);
+    }
+}
+
 /// A running WireGuard device.
 pub struct WireGuard {
     inner: Arc<Inner>,
     tasks: Vec<JoinHandle<()>>,
+    ended: Arc<watch::Sender<bool>>,
 }
 
 impl WireGuard {
-    /// Starts the receive and timer tasks. Packets out of the tunnel arrive
-    /// on the returned receiver.
+    /// Starts the receive and timer tasks, of `class`. Packets out of the
+    /// tunnel arrive on the returned receiver.
     pub fn spawn(
         device: Device,
         transport: Arc<dyn Transport>,
+        class: TaskClass,
     ) -> (Self, mpsc::Receiver<InboundPacket>) {
         let inner = Arc::new(Inner {
             device: Mutex::new(device),
@@ -175,11 +192,45 @@ impl WireGuard {
             timer: Notify::new(),
         });
         let (tx, rx) = mpsc::channel(INBOUND_QUEUE);
+        let ended = Arc::new(watch::Sender::new(false));
+        let recv = {
+            let ending = Ending(ended.clone());
+            let recv = inner.clone().recv_loop(tx);
+            async move {
+                let _ending = ending;
+                recv.await
+            }
+        };
+        let timer = {
+            let ending = Ending(ended.clone());
+            let timer = inner.clone().timer_loop();
+            async move {
+                let _ending = ending;
+                timer.await
+            }
+        };
         let tasks = vec![
-            crate::runtime::scope::spawn_essential("wireguard recv", inner.clone().recv_loop(tx)),
-            crate::runtime::scope::spawn_essential("wireguard timer", inner.clone().timer_loop()),
+            crate::runtime::scope::spawn_of(class, "wireguard recv", recv),
+            crate::runtime::scope::spawn_of(class, "wireguard timer", timer),
         ];
-        (WireGuard { inner, tasks }, rx)
+        (
+            WireGuard {
+                inner,
+                tasks,
+                ended,
+            },
+            rx,
+        )
+    }
+
+    /// Resolves once its receive or timer task has ended, however: a
+    /// transport gone, a panic caught, an abort. The device does not work
+    /// without either.
+    pub fn ended(&self) -> impl std::future::Future<Output = ()> + Send + 'static {
+        let mut ended = self.ended.subscribe();
+        async move {
+            let _ = ended.wait_for(|ended| *ended).await;
+        }
     }
 
     /// Sends an IP packet into the tunnel, to the peer its destination

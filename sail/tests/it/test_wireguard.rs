@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use sail::protocol::wireguard::crypto;
 use sail::protocol::wireguard::{Device, DeviceConfig, PeerConfig, WireGuard};
+use sail::runtime::scope::TaskClass;
 use tokio::net::UdpSocket;
 use tokio::time::timeout;
 
@@ -45,7 +46,10 @@ async fn node(
     let mut pc = PeerConfig::new(peer_public);
     pc.allowed_ips = vec![(peer_ip.parse::<IpAddr>().unwrap(), 32)];
     let id = dev.add_peer(pc).unwrap();
-    let (wg, rx) = crate::common::scoped(async { WireGuard::spawn(dev, Arc::new(sock)) }).await;
+    let (wg, rx) = crate::common::scoped(async {
+        WireGuard::spawn(dev, Arc::new(sock), TaskClass::Essential)
+    })
+    .await;
     (wg, rx, addr, id)
 }
 

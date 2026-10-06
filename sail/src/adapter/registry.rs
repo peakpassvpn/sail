@@ -11,6 +11,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::app::SyncDnsClient;
+use crate::runtime::scope::{TaskClass, TaskScope};
 use crate::runtime::RuntimeEnv;
 use crate::transport::layers::{self, Blocks, InboundBlocks, OutboundBlocks, OutboundLayering};
 use anyhow::{anyhow, Result};
@@ -164,6 +165,10 @@ pub struct OutboundContext<'a> {
     pub env: &'a RuntimeEnv,
     /// Tasks the handler spawned, aborted when the outbounds are replaced.
     pub abort_handles: &'a mut Vec<AbortHandle>,
+    /// The class of the tasks what is built runs: `Essential` for the
+    /// configuration's own, `Contained` for a provider's members, whose
+    /// failure takes that member down and leaves the instance running.
+    pub task_class: TaskClass,
     #[cfg(feature = "outbound-select")]
     pub selectors: &'a mut crate::app::outbound::Selectors,
     #[cfg(feature = "plugin")]
@@ -260,16 +265,45 @@ enum Buildable<'a> {
     Endpoint(&'a crate::config::model::Endpoint, &'a EndpointFactory),
 }
 
+/// What `build_outbounds` hands back besides what it builds into its
+/// state.
+#[derive(Default)]
+pub struct BuiltOutbounds {
+    /// The running sides of the endpoints built, by tag, to start: the
+    /// instance's at its start, a provider's members with `start_member`.
+    pub servers: Vec<(String, AnyEndpointServer)>,
+}
+
 /// Builds every outbound in `outbounds` and every endpoint in
 /// `endpoints`, each after the ones it is built on, into `state`, where
-/// they may be built on the outbounds already there.
+/// they may be built on the outbounds already there. Their tasks are
+/// essential: `build_outbounds_as` builds a provider's members.
 pub fn build_outbounds(
     registry: &OutboundRegistry,
     endpoint_registry: &EndpointRegistry,
     outbounds: &[crate::config::model::Outbound],
     endpoints: &[crate::config::model::Endpoint],
     state: OutboundBuildState<'_>,
-) -> Result<()> {
+) -> Result<BuiltOutbounds> {
+    build_outbounds_as(
+        TaskClass::Essential,
+        registry,
+        endpoint_registry,
+        outbounds,
+        endpoints,
+        state,
+    )
+}
+
+/// `build_outbounds`, with what is built running tasks of `class`.
+pub fn build_outbounds_as(
+    class: TaskClass,
+    registry: &OutboundRegistry,
+    endpoint_registry: &EndpointRegistry,
+    outbounds: &[crate::config::model::Outbound],
+    endpoints: &[crate::config::model::Endpoint],
+    state: OutboundBuildState<'_>,
+) -> Result<BuiltOutbounds> {
     let outbound_nodes = outbounds.iter().map(|o| {
         let factory = registry.require(&o.tag, &o.protocol)?;
         let (options, blocks) = factory.blocks.split(&o.options);
@@ -303,6 +337,7 @@ pub fn build_outbounds(
     // `OutboundFactory::shareable`.
     let mut shared: Vec<(&str, &str, &Options)> = Vec::new();
     let existing: HashSet<String> = state.handlers.keys().cloned().collect();
+    let mut built = BuiltOutbounds::default();
 
     in_dependency_order(
         "outbound",
@@ -337,6 +372,7 @@ pub fn build_outbounds(
                         )?,
                         env: state.env,
                         abort_handles: &mut tasks,
+                        task_class: class,
                         #[cfg(feature = "outbound-select")]
                         selectors: state.selectors,
                         #[cfg(feature = "plugin")]
@@ -352,14 +388,19 @@ pub fn build_outbounds(
                         handlers: state.handlers,
                         connector: None,
                     };
-                    let built = (factory.build)(&mut ctx)?;
-                    state.handlers.insert(endpoint.tag.clone(), built.outbound);
+                    let endpoint_built = (factory.build)(&mut ctx)?;
+                    state
+                        .handlers
+                        .insert(endpoint.tag.clone(), endpoint_built.outbound);
                     state.abort_handles.insert(endpoint.tag.clone(), tasks);
+                    built
+                        .servers
+                        .push((endpoint.tag.clone(), endpoint_built.server.clone()));
                     state.endpoints.insert(
                         endpoint.tag.clone(),
                         EndpointEntry {
                             config: endpoint.clone(),
-                            server: built.server,
+                            server: endpoint_built.server,
                         },
                     );
                     return Ok(());
@@ -415,6 +456,7 @@ pub fn build_outbounds(
                 dialer: dialer.clone(),
                 env: state.env,
                 abort_handles: &mut tasks,
+                task_class: class,
                 #[cfg(feature = "outbound-select")]
                 selectors: state.selectors,
                 #[cfg(feature = "plugin")]
@@ -454,7 +496,8 @@ pub fn build_outbounds(
             }
             Ok(())
         },
-    )
+    )?;
+    Ok(built)
 }
 
 // ---------------------------------------------------------------------------
@@ -513,9 +556,65 @@ pub trait EndpointServer: Send + Sync {
         dispatcher: Arc<crate::app::dispatcher::Dispatcher>,
         nat_manager: Arc<crate::app::nat_manager::NatManager>,
     ) -> Result<crate::Runner>;
+
+    /// Stops the endpoint for good, at once: what it holds in the system
+    /// (a socket, a stack) is let go of though its outbound is still held,
+    /// and the outbound fails every dial from then on. It does not start
+    /// again.
+    fn stop(&self);
 }
 
 pub type AnyEndpointServer = Arc<dyn EndpointServer>;
+
+/// Starts `server`, a provider's member, as contained work of `scope`:
+/// its tasks are the scope's whichever task this is called on (a reload
+/// on a host's own, outside every scope), and a panic in one of them ends
+/// the member alone. It runs until the returned `MemberRun` is stopped or
+/// dropped.
+pub fn start_member(
+    server: &AnyEndpointServer,
+    dispatcher: Arc<crate::app::dispatcher::Dispatcher>,
+    nat: Arc<crate::app::nat_manager::NatManager>,
+    scope: &TaskScope,
+) -> Result<MemberRun> {
+    let handle = tokio::runtime::Handle::try_current()
+        .map_err(|_| anyhow!("an endpoint is started within a runtime"))?;
+    let (runner, abort) = futures::future::abortable(server.start(dispatcher, nat)?);
+    scope.spawn_on(&handle, "endpoint member", async move {
+        let _ = runner.await;
+    });
+    Ok(MemberRun {
+        server: server.clone(),
+        abort,
+    })
+}
+
+/// A provider's member endpoint, running (`start_member`).
+pub struct MemberRun {
+    server: AnyEndpointServer,
+    abort: AbortHandle,
+}
+
+impl MemberRun {
+    /// Stops it: its tasks are aborted, and the endpoint stopped at once
+    /// (`EndpointServer::stop`). As when it is dropped.
+    pub fn stop(self) {
+        drop(self)
+    }
+
+    /// Aborts its tasks, as a provider aborts a retired member's. The
+    /// endpoint stops as they end.
+    pub fn abort_handle(&self) -> AbortHandle {
+        self.abort.clone()
+    }
+}
+
+impl Drop for MemberRun {
+    fn drop(&mut self) {
+        self.abort.abort();
+        self.server.stop();
+    }
+}
 
 /// A built endpoint, as the outbound manager keeps it: its configuration,
 /// to tell whether a reload changed it, and its running side.

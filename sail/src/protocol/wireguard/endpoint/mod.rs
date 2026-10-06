@@ -49,6 +49,7 @@ use crate::net::netstack::{
 use crate::net::network::NetworkChange;
 use crate::net::Dialer;
 use crate::runtime::options::{Netstack, NetstackBudget};
+use crate::runtime::scope::{spawn_child_of, TaskClass};
 use crate::session::{DatagramSource, Network, Session, SocksAddr};
 use crate::transport::layers::Blocks;
 
@@ -69,7 +70,8 @@ const PACKET_BATCH: usize = 64;
 /// How long the stack keeps a UDP flow without traffic. The NAT sessions
 /// the flows carry end sooner, by `udp_timeout`.
 const STACK_UDP_IDLE: Duration = Duration::from_secs(10 * 60);
-/// How long the outbound waits for the endpoint to be up.
+/// How long the outbound waits for the endpoint to be up, once it is
+/// starting; one stopped fails it at once.
 const START_WAIT: Duration = Duration::from_secs(10);
 
 pub(crate) fn register(registry: &mut EndpointRegistry) {
@@ -90,6 +92,7 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<BuiltEndpoint> {
         ctx.dialer.clone(),
         ctx.dns_client.clone(),
         ctx.env.options.netstack.clone(),
+        ctx.task_class,
     ));
     Ok(BuiltEndpoint {
         outbound: shared.outbound(),
@@ -105,13 +108,39 @@ struct Shared {
     dialer: Dialer,
     dns_client: SyncDnsClient,
     netstack: Netstack,
+    /// The class of its tasks: a provider's member's are contained.
+    class: TaskClass,
     started: AtomicBool,
-    running_tx: watch::Sender<Option<Arc<Running>>>,
-    running_rx: watch::Receiver<Option<Arc<Running>>>,
-    /// What the tunnel sends on, while it runs.
+    state: watch::Sender<State>,
+    /// What the tunnel sends on, while it runs. Its lock orders a stop
+    /// against the start binding it.
     bind: parking_lot::Mutex<Option<Arc<dyn Transport>>>,
     /// The last network change it was bound anew for.
     rebound: AtomicU64,
+    /// What a test has it send on instead of a socket of its own.
+    #[cfg(test)]
+    test_transport: parking_lot::Mutex<Option<Arc<dyn Transport>>>,
+}
+
+/// Where an endpoint is, as its outbound sees it.
+#[derive(Clone)]
+enum State {
+    /// Not up yet: a dial waits for it, up to `START_WAIT`.
+    Starting,
+    Running(Arc<Running>),
+    /// Ended, however: a task of it ended or panicked, or it was stopped.
+    /// It does not start again, and a dial fails at once.
+    Stopped,
+}
+
+/// Stops the endpoint when its run ends, however it ends: returned,
+/// failed, panicked or aborted.
+struct StopOnDrop(Arc<Shared>);
+
+impl Drop for StopOnDrop {
+    fn drop(&mut self) {
+        self.0.stop();
+    }
 }
 
 /// A started endpoint, as the outbound uses it.
@@ -171,19 +200,21 @@ impl Shared {
         dialer: Dialer,
         dns_client: SyncDnsClient,
         netstack: Netstack,
+        class: TaskClass,
     ) -> Self {
-        let (running_tx, running_rx) = watch::channel(None);
         Shared {
             tag: tag.to_string(),
             settings,
             dialer,
             dns_client,
             netstack,
+            class,
             started: AtomicBool::new(false),
-            running_tx,
-            running_rx,
+            state: watch::Sender::new(State::Starting),
             bind: parking_lot::Mutex::new(None),
             rebound: AtomicU64::new(0),
+            #[cfg(test)]
+            test_transport: parking_lot::Mutex::new(None),
         }
     }
 
@@ -215,19 +246,45 @@ impl Shared {
         });
     }
 
-    /// The running endpoint, once it is up.
+    /// The running endpoint, once it is up; an error at once if it has
+    /// stopped.
     async fn running(&self) -> io::Result<Arc<Running>> {
-        let mut rx = self.running_rx.clone();
-        let running = tokio::time::timeout(START_WAIT, rx.wait_for(Option::is_some))
-            .await
-            .map_err(|_| {
-                io::Error::new(
-                    io::ErrorKind::NotConnected,
-                    format!("endpoint [{}] is not running", self.tag),
-                )
-            })?
-            .map_err(|_| io::Error::other(format!("endpoint [{}] stopped", self.tag)))?;
-        Ok(running.clone().expect("waited for it"))
+        let stopped = || {
+            io::Error::new(
+                io::ErrorKind::NotConnected,
+                format!("endpoint [{}] stopped", self.tag),
+            )
+        };
+        let mut rx = self.state.subscribe();
+        let state =
+            tokio::time::timeout(START_WAIT, rx.wait_for(|s| !matches!(s, State::Starting)))
+                .await
+                .map_err(|_| {
+                    io::Error::new(
+                        io::ErrorKind::NotConnected,
+                        format!("endpoint [{}] is not running", self.tag),
+                    )
+                })?
+                .map_err(|_| stopped())?;
+        match &*state {
+            State::Running(running) => Ok(running.clone()),
+            _ => Err(stopped()),
+        }
+    }
+
+    /// Stops it for good: what the tunnel sends on is closed and let go
+    /// of, and the stack with the running state, whoever still holds the
+    /// outbound; every dial fails from then on. Its tasks end as they are
+    /// aborted, or as the stack and the tunnel they work on are gone.
+    fn stop(&self) {
+        let bind = {
+            let mut bind = self.bind.lock();
+            self.state.send_replace(State::Stopped);
+            bind.take()
+        };
+        if let Some(bind) = bind {
+            bind.close();
+        }
     }
 
     fn address(&self, v4: bool) -> Option<IpAddr> {
@@ -277,6 +334,10 @@ impl Shared {
     }
 
     async fn transport(&self, peers: &[Option<SocketAddr>]) -> io::Result<Arc<dyn Transport>> {
+        #[cfg(test)]
+        if let Some(transport) = self.test_transport.lock().take() {
+            return Ok(transport);
+        }
         if self.dialer.detour().is_some() {
             let first = self
                 .settings
@@ -327,9 +388,17 @@ impl Shared {
         dispatcher: Arc<Dispatcher>,
         nat_manager: Arc<NatManager>,
     ) -> Result<()> {
+        let _stop = StopOnDrop(self.clone());
         let peers = self.resolve_peers().await;
         let transport = self.transport(&peers).await?;
-        *self.bind.lock() = Some(transport.clone());
+        {
+            let mut bind = self.bind.lock();
+            if matches!(*self.state.borrow(), State::Stopped) {
+                transport.close();
+                return Ok(());
+            }
+            *bind = Some(transport.clone());
+        }
 
         let now = tokio::time::Instant::now().into_std();
         let mut device_config = DeviceConfig::new(*self.settings.private_key);
@@ -346,7 +415,8 @@ impl Shared {
                 .add_peer(config)
                 .map_err(|e| anyhow!("peer {}: {}", peer.name, e))?;
         }
-        let (wg, mut from_tunnel) = WireGuard::spawn(device, transport);
+        let (wg, mut from_tunnel) = WireGuard::spawn(device, transport, self.class);
+        let tunnel_ended = wg.ended();
 
         let (stack_in_tx, stack_in_rx) = mpsc::channel::<Vec<u8>>(PACKET_QUEUE);
         let (stack_out_tx, mut stack_out_rx) = mpsc::channel::<Vec<u8>>(PACKET_QUEUE);
@@ -375,7 +445,17 @@ impl Shared {
             }),
             flows: parking_lot::Mutex::new(HashMap::new()),
         });
-        self.running_tx.send_replace(Some(running.clone()));
+        // Not when a stop came meanwhile.
+        let up = self.state.send_if_modified(|state| match state {
+            State::Starting => {
+                *state = State::Running(running.clone());
+                true
+            }
+            _ => false,
+        });
+        if !up {
+            return Ok(());
+        }
         info!("wireguard [{}]: started", self.tag);
 
         // Out of the tunnel, into the stack. The stack takes packets up to
@@ -430,68 +510,58 @@ impl Shared {
             flow_capacity,
         );
         // Each on a task of its own, so that they run in parallel; the set
-        // aborts them all when the endpoint stops, or is dropped.
+        // aborts them all when the endpoint stops, or is dropped. The end
+        // of any, a panic caught among them, ends the endpoint.
+        let class = self.class;
         let mut tasks = tokio::task::JoinSet::new();
         let stack_tag = self.tag.clone();
-        crate::runtime::scope::spawn_child_essential(&mut tasks, "wireguard stack", async move {
+        spawn_child_of(class, &mut tasks, "wireguard stack", async move {
             if let Err(e) = runtime.run().await {
                 error!("wireguard [{}]: the stack failed: {}", stack_tag, e);
             }
             "stack"
         });
-        crate::runtime::scope::spawn_child_essential(
-            &mut tasks,
-            "wireguard endpoint task",
-            async move {
-                pump_in.await;
-                "tunnel to stack"
-            },
-        );
-        crate::runtime::scope::spawn_child_essential(
-            &mut tasks,
-            "wireguard endpoint task",
-            async move {
-                pump_out.await;
-                "stack to tunnel"
-            },
-        );
-        crate::runtime::scope::spawn_child_essential(
-            &mut tasks,
-            "wireguard endpoint task",
-            async move {
-                accept_loop.await;
-                "accept"
-            },
-        );
-        crate::runtime::scope::spawn_child_essential(
-            &mut tasks,
-            "wireguard endpoint task",
-            async move {
-                datagram_loop.await;
-                "datagrams"
-            },
-        );
+        spawn_child_of(class, &mut tasks, "wireguard endpoint task", async move {
+            pump_in.await;
+            "tunnel to stack"
+        });
+        spawn_child_of(class, &mut tasks, "wireguard endpoint task", async move {
+            pump_out.await;
+            "stack to tunnel"
+        });
+        // The tunnel's receive and timer tasks are not the set's.
+        spawn_child_of(class, &mut tasks, "wireguard endpoint task", async move {
+            tunnel_ended.await;
+            "tunnel"
+        });
+        spawn_child_of(class, &mut tasks, "wireguard endpoint task", async move {
+            accept_loop.await;
+            "accept"
+        });
+        spawn_child_of(class, &mut tasks, "wireguard endpoint task", async move {
+            datagram_loop.await;
+            "datagrams"
+        });
         if tracing::enabled!(tracing::Level::DEBUG) {
             let mut control = control.clone();
             let tag = self.tag.clone();
-            crate::runtime::scope::spawn_child_essential(
-                &mut tasks,
-                "wireguard endpoint task",
-                async move {
-                    loop {
-                        tokio::time::sleep(Duration::from_secs(5)).await;
-                        if let Ok(s) = control.stats_snapshot().await {
-                            debug!("wireguard [{}]: stack {:?}", tag, s.stack);
-                        }
+            spawn_child_of(class, &mut tasks, "wireguard endpoint task", async move {
+                loop {
+                    tokio::time::sleep(Duration::from_secs(5)).await;
+                    if let Ok(s) = control.stats_snapshot().await {
+                        debug!("wireguard [{}]: stack {:?}", tag, s.stack);
                     }
-                },
-            );
+                }
+            });
         }
         let stopped = tasks.join_next().await;
-        self.running_tx.send_replace(None);
-        *self.bind.lock() = None;
+        self.stop();
+        match &stopped {
+            Some(Ok(what)) => warn!("wireguard [{}]: {} stopped", self.tag, what),
+            Some(Err(e)) if e.is_panic() => warn!("wireguard [{}]: a task panicked", self.tag),
+            _ => {}
+        }
         if let Some(Ok(what)) = stopped {
-            warn!("wireguard [{}]: {} stopped", self.tag, what);
             if what != "stack" {
                 if let Err(e) = control.shutdown(0).await {
                     debug!("wireguard [{}]: stack shutdown failed: {}", self.tag, e);
@@ -600,7 +670,8 @@ impl EndpointServer for Server {
             // On a task of its own, which is aborted when the runner is
             // dropped.
             let mut task = tokio::task::JoinSet::new();
-            crate::runtime::scope::spawn_child_essential(
+            spawn_child_of(
+                shared.class,
                 &mut task,
                 "wireguard endpoint",
                 shared.run(dispatcher, nat_manager),
@@ -609,6 +680,10 @@ impl EndpointServer for Server {
                 error!("wireguard [{}]: {:#}", tag, e);
             }
         }))
+    }
+
+    fn stop(&self) {
+        self.0.stop();
     }
 }
 
@@ -619,7 +694,11 @@ mod tests {
     use async_trait::async_trait;
 
     use super::*;
+    use crate::adapter::registry::{
+        build_outbounds_as, start_member, AnyEndpointServer, OutboundBuildState,
+    };
     use crate::net::network::ChangeReason;
+    use crate::runtime::scope::TaskScope;
 
     /// Counts its rebinds.
     #[derive(Default)]
@@ -641,8 +720,23 @@ mod tests {
         }
     }
 
-    fn shared() -> Arc<Shared> {
-        let options: WireGuardOptions = serde_json::from_value(serde_json::json!({
+    /// Panics on a send, as a bug would; receives nothing.
+    struct PanicsOnSend;
+
+    #[async_trait]
+    impl Transport for PanicsOnSend {
+        async fn send_to(&self, _datagram: &[u8], _dst: SocketAddr) -> io::Result<()> {
+            panic!("a bug in the transport")
+        }
+
+        async fn recv_from(&self, _buf: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
+            std::future::pending().await
+        }
+    }
+
+    /// An endpoint's options, its peer's with `peer` added.
+    fn options(peer: serde_json::Value) -> serde_json::Value {
+        let mut options = serde_json::json!({
             "address": ["10.0.0.2/32"],
             "private_key": "YFf6vyGG0nAu8ZlKIYO7nZbcfdd2dbmodt1XRkcCdU4=",
             "peers": [{
@@ -651,22 +745,90 @@ mod tests {
                 "public_key": "Z1XXLsKYkYxuiYjJIkRvtIKFepCYHTgON+GwPq7SOV4=",
                 "allowed_ips": ["0.0.0.0/0"],
             }],
-        }))
-        .unwrap();
-        let dns = crate::app::dns::DnsClient::new(
+        });
+        for (key, value) in peer.as_object().unwrap() {
+            options["peers"][0][key] = value.clone();
+        }
+        options
+    }
+
+    fn dns() -> SyncDnsClient {
+        crate::app::dns::DnsClient::new(
             &crate::config::Dns::default(),
             Default::default(),
             &Default::default(),
         )
         .unwrap()
-        .into_shared();
-        Arc::new(Shared::new(
+        .into_shared()
+    }
+
+    /// An endpoint of tasks of `class`, sending on `transport`.
+    fn shared_on(
+        class: TaskClass,
+        peer: serde_json::Value,
+        transport: Arc<dyn Transport>,
+    ) -> Arc<Shared> {
+        let options: WireGuardOptions = serde_json::from_value(options(peer)).unwrap();
+        let shared = Arc::new(Shared::new(
             "wg",
             Settings::parse(&options, false).unwrap(),
             Dialer::system(),
-            dns,
+            dns(),
             Netstack::default(),
-        ))
+            class,
+        ));
+        *shared.test_transport.lock() = Some(transport);
+        shared
+    }
+
+    fn shared() -> Arc<Shared> {
+        shared_on(
+            TaskClass::Essential,
+            serde_json::json!({}),
+            Arc::new(Counting::default()),
+        )
+    }
+
+    /// What an instance routes with, and the instance, to keep.
+    fn routing() -> (
+        crate::app::instance::Instance,
+        Arc<Dispatcher>,
+        Arc<NatManager>,
+    ) {
+        let config = crate::config::Config::from_json("{}").unwrap();
+        let instance = crate::app::instance::Instance::build(
+            &config,
+            Vec::new(),
+            Arc::default(),
+            Arc::default(),
+        )
+        .unwrap();
+        let dispatcher = instance.dispatcher.clone();
+        let nat = Arc::new(NatManager::new(dispatcher.clone(), &[]));
+        (instance, dispatcher, nat)
+    }
+
+    /// Waits up to 5 s for the endpoint's state to be as `is` says.
+    async fn until(shared: &Shared, is: impl FnMut(&State) -> bool) {
+        let mut state = shared.state.subscribe();
+        tokio::time::timeout(Duration::from_secs(5), state.wait_for(is))
+            .await
+            .expect("in time")
+            .unwrap();
+    }
+
+    /// The error a TCP dial through `outbound` fails with, and how long it
+    /// took.
+    async fn dial(outbound: &AnyOutboundHandler) -> (io::Error, Duration) {
+        let sess = Session {
+            destination: SocksAddr::Ip("10.0.0.9:80".parse().unwrap()),
+            ..Default::default()
+        };
+        let started = tokio::time::Instant::now();
+        match outbound.stream().unwrap().handle(&sess, None, None).await {
+            Ok(_) => panic!("dialed"),
+            Err(e) => (e, started.elapsed()),
+        }
     }
 
     fn change(generation: u64) -> NetworkChange {
@@ -706,5 +868,192 @@ mod tests {
         assert_eq!(rebinds(&bind, 1).await, 1);
         outbound.network_changed(&change(3));
         assert_eq!(rebinds(&bind, 2).await, 2);
+    }
+
+    /// A provider's member whose timer task panics (a contained one, not
+    /// in the endpoint's own set of tasks) stops, and fails a dial at once;
+    /// the scope counts the panic and goes on.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_member_s_panic_stops_it_alone() {
+        let scope = TaskScope::default();
+        // The timer sends the first keepalive's handshake at once.
+        let shared = shared_on(
+            TaskClass::Contained,
+            serde_json::json!({ "persistent_keepalive_interval": 25 }),
+            Arc::new(PanicsOnSend),
+        );
+        let server: AnyEndpointServer = Arc::new(Server(shared.clone()));
+        let (_instance, dispatcher, nat) = routing();
+        let run = start_member(&server, dispatcher, nat, &scope).unwrap();
+        until(&shared, |s| matches!(s, State::Stopped)).await;
+        assert_eq!(scope.faults(), 1);
+        assert!(scope.failure().is_none(), "{:?}", scope.failure());
+        let (e, took) = dial(&shared.outbound()).await;
+        assert!(e.to_string().contains("endpoint [wg] stopped"), "{}", e);
+        assert!(took < Duration::from_millis(100), "{:?}", took);
+        run.stop();
+    }
+
+    /// The configuration's endpoints are essential: the same panic fails
+    /// the instance.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_configured_endpoint_s_panic_fails_the_instance() {
+        let scope = TaskScope::default();
+        let shared = shared_on(
+            TaskClass::Essential,
+            serde_json::json!({ "persistent_keepalive_interval": 25 }),
+            Arc::new(PanicsOnSend),
+        );
+        let (_instance, dispatcher, nat) = routing();
+        let runner = Server(shared.clone()).start(dispatcher, nat).unwrap();
+        scope.spawn_essential("endpoint", runner);
+        tokio::time::timeout(Duration::from_secs(5), scope.failed())
+            .await
+            .expect("failed in time");
+        let why = scope.failure().unwrap();
+        assert!(why.contains("[wireguard timer] panicked"), "{}", why);
+        assert_eq!(scope.faults(), 0);
+        scope.stop(Duration::from_secs(2)).await;
+    }
+
+    /// A stopped member lets its port go at once, though its outbound is
+    /// still held, as a connection or a group holds it.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_stopped_member_frees_its_port() {
+        let port = std::net::UdpSocket::bind("0.0.0.0:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let mut endpoint = options(serde_json::json!({}));
+        endpoint["type"] = "wireguard".into();
+        endpoint["tag"] = "p/wg".into();
+        endpoint["listen_port"] = port.into();
+        let config = crate::config::Config::from_json(
+            &serde_json::json!({ "endpoints": [endpoint] }).to_string(),
+        )
+        .unwrap();
+        let env = crate::runtime::RuntimeEnv::default();
+        let mut handlers = HashMap::new();
+        #[cfg(feature = "plugin")]
+        let mut external_handlers = crate::app::outbound::plugin::ExternalHandlers::new();
+        let built = build_outbounds_as(
+            TaskClass::Contained,
+            &crate::include::OUTBOUNDS,
+            &crate::include::ENDPOINTS,
+            &[],
+            &config.endpoints,
+            OutboundBuildState {
+                dns_client: &dns(),
+                dial_defaults: &Default::default(),
+                env: &env,
+                handlers: &mut handlers,
+                abort_handles: &mut HashMap::new(),
+                dependencies: &mut HashMap::new(),
+                endpoints: &mut HashMap::new(),
+                #[cfg(feature = "outbound-select")]
+                selectors: &mut Default::default(),
+                #[cfg(feature = "plugin")]
+                external_handlers: &mut external_handlers,
+                #[cfg(feature = "outbound-provider")]
+                providers: &mut Default::default(),
+                #[cfg(any(
+                    feature = "outbound-urltest",
+                    feature = "outbound-load-balance",
+                    feature = "outbound-fallback"
+                ))]
+                checkers: &mut HashMap::new(),
+            },
+        )
+        .unwrap();
+        assert_eq!(built.servers.len(), 1);
+        let (tag, server) = &built.servers[0];
+        assert_eq!(tag, "p/wg");
+        let outbound = handlers.remove("p/wg").unwrap();
+
+        let (_instance, dispatcher, nat) = routing();
+        let scope = TaskScope::default();
+        let run = start_member(server, dispatcher, nat, &scope).unwrap();
+        let free = |within: Duration| async move {
+            let deadline = tokio::time::Instant::now() + within;
+            loop {
+                if std::net::UdpSocket::bind(("0.0.0.0", port)).is_ok() {
+                    return true;
+                }
+                if tokio::time::Instant::now() >= deadline {
+                    return false;
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        };
+        // Up, on its port.
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        while std::net::UdpSocket::bind(("0.0.0.0", port)).is_ok() {
+            assert!(tokio::time::Instant::now() < deadline, "never bound");
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        run.stop();
+        let started = tokio::time::Instant::now();
+        assert!(
+            free(Duration::from_secs(1)).await,
+            "the port is still taken"
+        );
+        eprintln!("the port was free in {:?}", started.elapsed());
+        let (e, _) = dial(&outbound).await;
+        assert!(e.to_string().contains("endpoint [p/wg] stopped"), "{}", e);
+        drop(outbound);
+    }
+
+    /// A member not started yet has a dial wait for it; one stopped fails
+    /// a dial at once, not after `START_WAIT`.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_stopped_member_fails_a_dial_at_once() {
+        let shared = shared_on(
+            TaskClass::Contained,
+            serde_json::json!({}),
+            Arc::new(Counting::default()),
+        );
+        let outbound = shared.outbound();
+        assert!(
+            tokio::time::timeout(Duration::from_millis(200), dial(&outbound))
+                .await
+                .is_err(),
+            "not started: the dial waits"
+        );
+        let server: AnyEndpointServer = Arc::new(Server(shared.clone()));
+        let (_instance, dispatcher, nat) = routing();
+        let scope = TaskScope::default();
+        let run = start_member(&server, dispatcher.clone(), nat.clone(), &scope).unwrap();
+        until(&shared, |s| matches!(s, State::Running(_))).await;
+        run.stop();
+        let (e, took) = dial(&outbound).await;
+        assert!(e.to_string().contains("endpoint [wg] stopped"), "{}", e);
+        assert!(took < Duration::from_millis(100), "{:?}", took);
+        assert!(server.start(dispatcher, nat).is_err(), "started once");
+    }
+
+    /// A member started from a task outside every scope, as a host's
+    /// reload is, runs in the scope it is given: the scope's stop ends it.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_member_runs_in_the_scope_it_is_given() {
+        assert!(TaskScope::current().is_none());
+        let shared = shared_on(
+            TaskClass::Contained,
+            serde_json::json!({}),
+            Arc::new(Counting::default()),
+        );
+        let server: AnyEndpointServer = Arc::new(Server(shared.clone()));
+        let (_instance, dispatcher, nat) = routing();
+        let scope = TaskScope::default();
+        let run = start_member(&server, dispatcher, nat, &scope).unwrap();
+        until(&shared, |s| matches!(s, State::Running(_))).await;
+        let tasks = scope.tasks();
+        for name in ["endpoint member", "wireguard recv", "wireguard timer"] {
+            assert!(tasks.iter().any(|(n, _)| *n == name), "{:?}", tasks);
+        }
+        let report = scope.stop(Duration::from_secs(2)).await;
+        assert!(report.clean(), "{:?}", report);
+        until(&shared, |s| matches!(s, State::Stopped)).await;
+        drop(run);
     }
 }

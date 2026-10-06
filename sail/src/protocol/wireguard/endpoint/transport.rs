@@ -4,7 +4,7 @@
 
 use std::io;
 use std::net::{IpAddr, SocketAddr};
-use std::sync::atomic::{AtomicU16, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -38,6 +38,8 @@ pub struct SocketTransport {
     fixed: bool,
     dialer: Dialer,
     rebinding: Mutex<()>,
+    /// Closed for good: a rebind binds nothing.
+    closed: AtomicBool,
 }
 
 impl SocketTransport {
@@ -52,14 +54,18 @@ impl SocketTransport {
             fixed: port != 0,
             dialer: dialer.clone(),
             rebinding: Mutex::new(()),
+            closed: AtomicBool::new(false),
         })
     }
 
     fn socket(&self) -> io::Result<Arc<UdpSocket>> {
-        self.socket
-            .borrow()
-            .clone()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "the socket is being bound"))
+        self.socket.borrow().clone().ok_or_else(|| {
+            let why = match self.closed.load(Ordering::SeqCst) {
+                true => "the socket is closed",
+                false => "the socket is being bound",
+            };
+            io::Error::new(io::ErrorKind::NotConnected, why)
+        })
     }
 
     pub fn local_addr(&self) -> io::Result<SocketAddr> {
@@ -188,9 +194,31 @@ impl Transport for SocketTransport {
         };
         let local = socket.local_addr()?;
         self.port.store(local.port(), Ordering::Relaxed);
+        // Under the channel's lock, so that a close meanwhile is not undone.
+        let socket = Arc::new(socket);
+        let mut bound = false;
+        self.socket.send_if_modified(|current| {
+            bound = !self.closed.load(Ordering::SeqCst);
+            if bound {
+                *current = Some(socket.clone());
+            }
+            bound
+        });
+        if !bound {
+            return Err(io::Error::new(
+                io::ErrorKind::NotConnected,
+                "the socket is closed",
+            ));
+        }
         debug!("wireguard: bound anew on udp {}", local);
-        self.socket.send_replace(Some(Arc::new(socket)));
         Ok(())
+    }
+
+    /// Closes the socket: a receive pending lets its share go as it is
+    /// told, and nothing binds it again.
+    fn close(&self) {
+        self.closed.store(true, Ordering::SeqCst);
+        self.socket.send_replace(None);
     }
 }
 
@@ -352,6 +380,7 @@ mod tests {
     use crate::protocol::wireguard::crypto;
     use crate::protocol::wireguard::shell::InboundPacket;
     use crate::protocol::wireguard::{Device, DeviceConfig, PeerConfig, PeerId, WireGuard};
+    use crate::runtime::scope::TaskClass;
 
     fn ipv4_udp(src: [u8; 4], dst: [u8; 4], payload: &[u8]) -> Vec<u8> {
         let total = 28 + payload.len();
@@ -409,12 +438,13 @@ mod tests {
         );
         let port = transport.local_addr().unwrap().port();
         let (device_a, pa) = device(ka, crypto::public_key(&kb), "10.0.0.2");
-        let (a, mut rx_a) = WireGuard::spawn(device_a, transport.clone());
+        let (a, mut rx_a) = WireGuard::spawn(device_a, transport.clone(), TaskClass::Essential);
         let b_socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
         let b_addr = b_socket.local_addr().unwrap();
         let (b, mut rx_b) = WireGuard::spawn(
             device(kb, crypto::public_key(&ka), "10.0.0.1").0,
             Arc::new(b_socket),
+            TaskClass::Essential,
         );
         a.with_device(|d, _| (d.set_endpoint(pa, b_addr).unwrap(), Vec::new()))
             .await;

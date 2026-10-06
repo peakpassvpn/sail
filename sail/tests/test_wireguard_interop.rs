@@ -51,6 +51,7 @@ use std::time::{Duration, Instant};
 
 use sail::protocol::wireguard::shell::InboundPacket;
 use sail::protocol::wireguard::{Device, DeviceConfig, PeerConfig, PeerId, WireGuard};
+use sail::runtime::scope::TaskClass;
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc::Receiver;
 use tokio::time::timeout;
@@ -371,7 +372,7 @@ async fn kernel_wireguard_scoped() {
         tokio::time::Instant::now().into_std(),
     );
     let peer = dev.add_peer(kernel_peer(kernel_public)).unwrap();
-    let (wg, rx) = WireGuard::spawn(dev, Arc::new(sock));
+    let (wg, rx) = WireGuard::spawn(dev, Arc::new(sock), TaskClass::Essential);
     let mut sail = Sail {
         wg,
         rx,
@@ -551,7 +552,7 @@ async fn kernel_cookie_under_load_scoped() {
         tokio::time::Instant::now().into_std(),
     );
     let peer = dev.add_peer(kernel_peer(kernel_public)).unwrap();
-    let (wg, rx) = WireGuard::spawn(dev, transport.clone());
+    let (wg, rx) = WireGuard::spawn(dev, transport.clone(), TaskClass::Essential);
     let mut sail = Sail {
         wg,
         rx,

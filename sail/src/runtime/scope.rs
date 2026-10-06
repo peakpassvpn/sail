@@ -652,6 +652,24 @@ where
     set.spawn(scoped_essential(name, fut))
 }
 
+/// Spawns `fut` into `set` as `class` says (`spawn_of`), which the set
+/// ends.
+pub fn spawn_child_of<T, F>(
+    class: TaskClass,
+    set: &mut tokio::task::JoinSet<T>,
+    name: &'static str,
+    fut: F,
+) -> AbortHandle
+where
+    T: Send + 'static,
+    F: Future<Output = T> + Send + 'static,
+{
+    match class {
+        TaskClass::Contained => spawn_child(set, name, fut),
+        TaskClass::Essential => spawn_child_essential(set, name, fut),
+    }
+}
+
 /// Spawns `fut` as contained work in `scope`, a scope kept for a spawn
 /// from where none is set (a `Drop`, a stored handle); as `spawn` where it
 /// is none.
