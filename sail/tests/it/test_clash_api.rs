@@ -10,7 +10,7 @@ use crate::common;
     feature = "inbound-socks",
     feature = "tokio-tungstenite"
 ))]
-async fn call(
+pub(crate) async fn call(
     port: u16,
     method: &str,
     path: &str,
@@ -59,7 +59,7 @@ async fn call(
     feature = "inbound-socks",
     feature = "tokio-tungstenite"
 ))]
-fn json(body: &str) -> serde_json::Value {
+pub(crate) fn json(body: &str) -> serde_json::Value {
     let start = body.find(['{', '[']).unwrap_or(0);
     let end = body.rfind(['}', ']']).map_or(body.len(), |e| e + 1);
     serde_json::from_str(&body[start..end]).unwrap_or_else(|e| panic!("{}: {}", e, body))
@@ -73,7 +73,7 @@ fn json(body: &str) -> serde_json::Value {
     feature = "inbound-socks",
     feature = "tokio-tungstenite"
 ))]
-async fn socks_connect(socks: u16, to: u16) -> anyhow::Result<tokio::net::TcpStream> {
+pub(crate) async fn socks_connect(socks: u16, to: u16) -> anyhow::Result<tokio::net::TcpStream> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let mut s = tokio::net::TcpStream::connect(("127.0.0.1", socks)).await?;
     s.write_all(&[5, 1, 0]).await?;

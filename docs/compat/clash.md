@@ -15,6 +15,15 @@ As in Mihomo, a rule on addresses (`IP-CIDR`, `GEOIP` and the like, without `no-
 
 As in Mihomo, the sniffer's `override-destination` makes the sniffed name the destination where the sniff stands: the rules after match the name, and rules on addresses resolve it. sail's own `override_destination` route option differs: it dials a proxy by the name while the rules match the address.
 
+## Clash API
+
+The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the type they read it as, from the requests they make: `sail/tests/it/test_clash_dashboards.rs` makes them. What sail does not give:
+- `GET /configs`: `interface-name`, `sniffing`, `tun.stack`, `tun.device`, `unified-delay` and `dns`. `PATCH /configs` sets `mode` and `log-level`; the ports, `allow-lan`, `tun`, `sniffing` and `interface-name` stay as the configuration has them, as in sing-box.
+- `/rules`: no `extra` (hit counts, disabling) and no `PATCH /rules/disable`, so the dashboards show no switch. `size` is a rule-set's rule count, -1 for the others; Mihomo counts GeoIP and GeoSite too. A condition Mihomo has no type for goes by sing-box's field name (`clash_mode`).
+- `/connections`: no `providerChains`, nor the metadata's `sourceGeoIP`, `destinationGeoIP`, `sourceIPASN`, `destinationIPASN`, `inboundIP`, `inboundPort`, `inboundUser`, `uid`, `process`, `specialProxy`, `specialRules`, `remoteDestination` and `dscp`: the dashboards show those columns empty.
+- `/memory`: `oslimit` is 0.
+- `POST /restart`, `/upgrade`, `/upgrade/geo` and `/configs/geo` are not served: sail's host restarts and updates it.
+
 | Section | Fields | Supported | Warned | Error |
 |---|--:|--:|--:|--:|
 | `clash-for-android` | 3 | 0 | 3 | 0 |

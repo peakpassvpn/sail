@@ -19,6 +19,7 @@ mod test_api;
 mod test_assets;
 mod test_check;
 mod test_clash_api;
+mod test_clash_dashboards;
 mod test_components;
 mod test_config_clash;
 mod test_config_surge;

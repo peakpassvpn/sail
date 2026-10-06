@@ -350,7 +350,25 @@ of sail's own configuration pauses after its `idle_timeout`, 30 minutes by defau
 As in Mihomo, the sniffer's `override-destination` makes the sniffed name the destination \
 where the sniff stands: the rules after match the name, and rules on addresses resolve it. \
 sail's own `override_destination` route option differs: it dials a proxy by the name while \
-the rules match the address.",
+the rules match the address.\n\n\
+## Clash API\n\n\
+The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the type they read \
+it as, from the requests they make: `sail/tests/it/test_clash_dashboards.rs` makes them. What \
+sail does not give:\n\
+- `GET /configs`: `interface-name`, `sniffing`, `tun.stack`, `tun.device`, `unified-delay` \
+  and `dns`. `PATCH /configs` sets `mode` and `log-level`; the ports, `allow-lan`, `tun`, \
+  `sniffing` and `interface-name` stay as the configuration has them, as in sing-box.\n\
+- `/rules`: no `extra` (hit counts, disabling) and no `PATCH /rules/disable`, so the \
+  dashboards show no switch. `size` is a rule-set's rule count, -1 for the others; Mihomo \
+  counts GeoIP and GeoSite too. A condition Mihomo has no type for goes by sing-box's field \
+  name (`clash_mode`).\n\
+- `/connections`: no `providerChains`, nor the metadata's `sourceGeoIP`, \
+  `destinationGeoIP`, `sourceIPASN`, `destinationIPASN`, `inboundIP`, `inboundPort`, \
+  `inboundUser`, `uid`, `process`, `specialProxy`, `specialRules`, `remoteDestination` and \
+  `dscp`: the dashboards show those columns empty.\n\
+- `/memory`: `oslimit` is 0.\n\
+- `POST /restart`, `/upgrade`, `/upgrade/geo` and `/configs/geo` are not served: sail's host \
+  restarts and updates it.",
     summary: "| Section | Fields | Supported | Warned | Error |",
     head: "| Field | sail | What sail says |",
     tiers: ["Supported", "Warned", "Error", "Unknown"],
@@ -376,7 +394,21 @@ const ZH: Words = Words {
 与 Mihomo 一致，地址规则（`IP-CIDR`、`GEOIP` 等，未加 `no-resolve`）解析域名只为匹配：直连出站连接解析出的地址，代理服务器收到的仍是域名。\n\n\
 `timeout`、`max-failed-times`、`expected-status` 和 `lazy` 对 `url-test` 与 `fallback` 组生效，对其他组（即表中实测的组）警告并忽略。lazy 的 `url-test` 组在闲置一个 `interval` 后暂停测试，与 Mihomo 一致；sail 自身配置中的 urltest 在 `idle_timeout`（默认 30 分钟）后暂停。\n\n\
 与 Mihomo 一致，嗅探器的 `override-destination` 在嗅探处把嗅探到的域名设为目标：之后的规则匹配该域名，地址规则会解析它。\
-sail 自己的 `override_destination` 路由选项不同：规则匹配原地址，只在连接代理时使用域名。",
+sail 自己的 `override_destination` 路由选项不同：规则匹配原地址，只在连接代理时使用域名。\n\n\
+## Clash API\n\n\
+面板（yacd、Yacd-meta、metacubexd）实际发出的请求，sail 都给出它们读取的全部字段，类型也一致：\
+`sail/tests/it/test_clash_dashboards.rs` 按面板的方式逐个发出这些请求。sail 不提供的有：\n\
+- `GET /configs`：`interface-name`、`sniffing`、`tun.stack`、`tun.device`、`unified-delay` 和 `dns`。\
+`PATCH /configs` 只设置 `mode` 和 `log-level`；端口、`allow-lan`、`tun`、`sniffing` 与 `interface-name` \
+保持配置中的值，与 sing-box 一致。\n\
+- `/rules`：没有 `extra`（命中计数、停用），也没有 `PATCH /rules/disable`，面板因此不显示开关。\
+`size` 是规则集的规则数，其他规则为 -1；Mihomo 对 GeoIP 和 GeoSite 也计数。Mihomo 没有对应类型的条件\
+用 sing-box 的字段名（`clash_mode`）。\n\
+- `/connections`：没有 `providerChains`，元数据里也没有 `sourceGeoIP`、`destinationGeoIP`、`sourceIPASN`、\
+`destinationIPASN`、`inboundIP`、`inboundPort`、`inboundUser`、`uid`、`process`、`specialProxy`、\
+`specialRules`、`remoteDestination` 和 `dscp`：面板中这些列为空。\n\
+- `/memory`：`oslimit` 为 0。\n\
+- 不提供 `POST /restart`、`/upgrade`、`/upgrade/geo` 和 `/configs/geo`：sail 由宿主重启和更新。",
     summary: "| 部分 | 字段 | 支持 | 警告 | 报错 |",
     head: "| 字段 | sail | sail 的说明 |",
     tiers: ["支持", "警告", "报错", "未知"],

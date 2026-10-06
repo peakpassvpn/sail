@@ -15,6 +15,15 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 
 与 Mihomo 一致，嗅探器的 `override-destination` 在嗅探处把嗅探到的域名设为目标：之后的规则匹配该域名，地址规则会解析它。sail 自己的 `override_destination` 路由选项不同：规则匹配原地址，只在连接代理时使用域名。
 
+## Clash API
+
+面板（yacd、Yacd-meta、metacubexd）实际发出的请求，sail 都给出它们读取的全部字段，类型也一致：`sail/tests/it/test_clash_dashboards.rs` 按面板的方式逐个发出这些请求。sail 不提供的有：
+- `GET /configs`：`interface-name`、`sniffing`、`tun.stack`、`tun.device`、`unified-delay` 和 `dns`。`PATCH /configs` 只设置 `mode` 和 `log-level`；端口、`allow-lan`、`tun`、`sniffing` 与 `interface-name` 保持配置中的值，与 sing-box 一致。
+- `/rules`：没有 `extra`（命中计数、停用），也没有 `PATCH /rules/disable`，面板因此不显示开关。`size` 是规则集的规则数，其他规则为 -1；Mihomo 对 GeoIP 和 GeoSite 也计数。Mihomo 没有对应类型的条件用 sing-box 的字段名（`clash_mode`）。
+- `/connections`：没有 `providerChains`，元数据里也没有 `sourceGeoIP`、`destinationGeoIP`、`sourceIPASN`、`destinationIPASN`、`inboundIP`、`inboundPort`、`inboundUser`、`uid`、`process`、`specialProxy`、`specialRules`、`remoteDestination` 和 `dscp`：面板中这些列为空。
+- `/memory`：`oslimit` 为 0。
+- 不提供 `POST /restart`、`/upgrade`、`/upgrade/geo` 和 `/configs/geo`：sail 由宿主重启和更新。
+
 | 部分 | 字段 | 支持 | 警告 | 报错 |
 |---|--:|--:|--:|--:|
 | `clash-for-android` | 3 | 0 | 3 | 0 |
