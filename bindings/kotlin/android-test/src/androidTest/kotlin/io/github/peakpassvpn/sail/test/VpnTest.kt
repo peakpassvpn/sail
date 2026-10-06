@@ -370,4 +370,29 @@ class VpnTest {
             assertTrue("sail ended the connection, and the app's socket did not end within 1 s", ended)
         }
     }
+
+    /**
+     * A connection sail closes itself (here through closeConnection, as
+     * the Clash API's DELETE does) ends at the app within a second: a
+     * reset or a FIN, not a read that waits out its timeout.
+     */
+    @Test
+    fun aConnectionSailClosesEndsAtTheApp() {
+        start(config())
+        Socket().use { socket ->
+            socket.connect(InetSocketAddress(echoHost, tcpPort), 5000)
+            waitFor("sail to list the TCP connection") { sailCarries(tcpPort) }
+            val id = vpn().sail!!.connections().first { it.destination.endsWith(":$tcpPort") }.id
+            assertTrue("sail closes the connection", vpn().sail!!.closeConnection(id))
+            socket.soTimeout = 1000
+            val ended = try {
+                socket.getInputStream().read() == -1
+            } catch (_: java.net.SocketTimeoutException) {
+                false
+            } catch (_: java.io.IOException) {
+                true
+            }
+            assertTrue("sail closed the connection, and the app's socket did not end within 1 s", ended)
+        }
+    }
 }
