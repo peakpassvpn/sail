@@ -6,7 +6,8 @@
 #     cargo +nightly fuzz run --fuzz-dir fuzz sniff_quic -- -max_total_time=60
 #
 # Targets: sniff_tls, sniff_http, sniff_dns, sniff_quic, sniff_any,
-# share_link, dhcp_leases.
+# share_link, dhcp_leases, and on Linux the TUN's tun_vnet_header and
+# tun_coalesce.
 
 [package]
 name = "sail-fuzz"
@@ -21,7 +22,7 @@ cargo-fuzz = true
 libfuzzer-sys = "0.4"
 # The sniffers, btls for QUIC's Initial packets, and the entry points of
 # sail's fuzzing module.
-sail = { path = "../sail", default-features = false, features = ["aead", "fuzzing"] }
+sail = { path = "../sail", default-features = false, features = ["aead", "fuzzing", "inbound-tun"] }
 
 # A workspace of its own: the targets build on nightly with sanitizers,
 # apart from sail's.
@@ -82,6 +83,20 @@ bench = false
 [[bin]]
 name = "dhcp_leases"
 path = "fuzz_targets/dhcp_leases.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tun_vnet_header"
+path = "fuzz_targets/tun_vnet_header.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tun_coalesce"
+path = "fuzz_targets/tun_coalesce.rs"
 test = false
 doc = false
 bench = false

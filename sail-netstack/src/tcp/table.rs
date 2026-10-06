@@ -3692,6 +3692,45 @@ fn pipe<C: Scored>(chunks: &VecDeque<C>, max_segment: usize) -> usize {
         .sum()
 }
 
+/// The SACK scoreboard's reading, for the fuzz target that holds it to RFC
+/// 6675's `IsLost` asked chunk by chunk (feature `fuzzing`).
+#[cfg(feature = "fuzzing")]
+#[doc(hidden)]
+pub mod sack_fuzzing {
+    use std::collections::VecDeque;
+
+    /// A chunk in flight, in a queue without gaps.
+    pub struct Chunk {
+        pub len: usize,
+        pub sacked: bool,
+        pub retransmitted: bool,
+    }
+
+    impl super::Scored for Chunk {
+        fn sacked(&self) -> bool {
+            self.sacked
+        }
+        fn retransmitted(&self) -> bool {
+            self.retransmitted
+        }
+        fn len(&self) -> usize {
+            self.len
+        }
+    }
+
+    /// How many chunks at the front count as lost.
+    #[must_use]
+    pub fn lost_prefix(chunks: &VecDeque<Chunk>, max_segment: usize) -> usize {
+        super::lost_prefix(chunks, max_segment)
+    }
+
+    /// RFC 6675's pipe of the queue.
+    #[must_use]
+    pub fn pipe(chunks: &VecDeque<Chunk>, max_segment: usize) -> usize {
+        super::pipe(chunks, max_segment)
+    }
+}
+
 fn sack_pipe(flow: &TcpFlow) -> usize {
     debug_assert!(
         flow.send

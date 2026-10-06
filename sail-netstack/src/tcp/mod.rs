@@ -13,6 +13,8 @@ pub use state::{
     AppEvent, SendControl, SeqNumber, TcpAction, TcpError, TcpFlags, TcpSegmentMeta, TcpState,
     TcpTcb, TimerEvent,
 };
+#[cfg(feature = "fuzzing")]
+pub use table::sack_fuzzing;
 pub use table::{
     AcceptOverflowPolicy, TcpConnection, TcpEvent, TcpIngress, TcpRead, TcpTable, TcpTableConfig,
     TcpTableError, TcpTableStats, TcpTimerCancel, TcpTimerRequest,

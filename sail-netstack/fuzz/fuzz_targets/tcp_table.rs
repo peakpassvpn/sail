@@ -300,6 +300,26 @@ impl Harness {
         }
     }
 
+    fn reclaim(&mut self, operation: &[u8]) {
+        let older_than = [0, 1, 1_000, 3_000, u64::MAX][usize::from(operation[6] % 5)];
+        let before = self.table.stats().active_flows;
+        let Some(token) = self
+            .table
+            .reclaim_stale_syn_received(self.now_ms, older_than)
+        else {
+            return;
+        };
+        assert_ne!(older_than, u64::MAX, "nothing is that stale");
+        // A flow the application has (accepted or connected) is never a
+        // half-open one.
+        assert!(
+            self.peers.iter().all(|peer| peer.token != Some(token)),
+            "reclaimed a flow past its handshake"
+        );
+        assert_eq!(self.table.stats().active_flows + 1, before);
+        self.timers.retain(|(timer, _, _)| *timer != token);
+    }
+
     fn run(&mut self, operation: &[u8]) {
         let index = usize::from(operation[0] >> 7);
         if tracing() {
@@ -386,6 +406,11 @@ impl Harness {
                 self.now_ms = self
                     .now_ms
                     .saturating_add(u64::from(u32_at(operation, 1) % 120_000));
+                // Pressure's reclaim, as the runner calls it on entering
+                // Critical: only half-open flows, and only stale ones.
+                if operation[5] & 1 != 0 {
+                    self.reclaim(operation);
+                }
             }
             _ => {
                 // An active open on the four-tuple the passive side uses, so

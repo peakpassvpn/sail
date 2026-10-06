@@ -305,7 +305,9 @@ impl PacketIo for WintunPacketIo {
 fn plain_header(packet: &[u8]) -> [u8; tun_rs::VIRTIO_NET_HDR_LEN] {
     const DATA_VALID: u8 = 2;
     let headers = parse_ip_packet(packet, false).ok().map_or(0, |ip| {
-        let ip_header = packet.len() - ip.payload.len();
+        // Where the transport header starts: bytes after the IP packet's
+        // own length are not headers.
+        let ip_header = ip.payload.as_ptr() as usize - packet.as_ptr() as usize;
         let transport = match ip.next_header {
             6 => ip
                 .payload
@@ -750,6 +752,200 @@ impl PacketIo for TunRsPacketIo {
             rx_checksum: ChecksumCapabilities::default(),
             tx_checksum: ChecksumCapabilities::default(),
             gso: None,
+        }
+    }
+}
+
+/// Fuzzing (sail::fuzzing): the header written before a packet with
+/// offload, on raw bytes and on TCP and UDP packets of both families built
+/// from them. It always fits the packet, says DATA_VALID and nothing else,
+/// and its hdr_len is where the TCP or UDP payload starts.
+#[cfg(all(target_os = "linux", feature = "fuzzing"))]
+pub(crate) fn fuzz_vnet_header(data: &[u8]) {
+    use sail_netstack::{emit_tcp_segment_with_options, emit_udp_packet};
+    check_header(data);
+    let Some((&shape, rest)) = data.split_first() else {
+        return;
+    };
+    let (source, destination) = fuzz_endpoints(shape & 1 != 0, 0);
+    let payload = &rest[..rest.len().min(8_000)];
+    let packet = if shape & 2 != 0 {
+        emit_udp_packet(source, destination, payload, 64, 1)
+    } else {
+        // 0 to 40 bytes of options: NOPs.
+        let options = vec![1_u8; usize::from((shape >> 2) % 11) * 4];
+        emit_tcp_segment_with_options(
+            source,
+            destination,
+            fuzz_control(1, sail_netstack::TcpFlags::ACK),
+            &options,
+            payload,
+            64,
+            1,
+        )
+    };
+    let Ok(packet) = packet else {
+        return;
+    };
+    let header = check_header(&packet);
+    assert_eq!(
+        usize::from(header.hdr_len),
+        packet.len() - payload.len(),
+        "hdr_len of a packet sail built"
+    );
+}
+
+#[cfg(all(target_os = "linux", feature = "fuzzing"))]
+fn check_header(packet: &[u8]) -> tun_rs::VirtioNetHdr {
+    let bytes = plain_header(packet);
+    let header = tun_rs::VirtioNetHdr::decode(&bytes).expect("the header decodes");
+    assert_eq!((header.flags, header.gso_type, header.gso_size), (2, 0, 0));
+    assert!(
+        usize::from(header.hdr_len) <= packet.len(),
+        "hdr_len past the packet"
+    );
+    // Where each parser puts the payload: the same place.
+    if let Ok(ip) = parse_ip_packet(packet, false) {
+        let payload = match ip.next_header {
+            6 => parse_tcp_segment(ip, false)
+                .ok()
+                .map(|segment| segment.payload),
+            17 => sail_netstack::parse_udp_datagram(ip, false)
+                .ok()
+                .map(|datagram| datagram.payload),
+            _ => None,
+        };
+        if let Some(payload) = payload {
+            let offset = payload.as_ptr() as usize - packet.as_ptr() as usize;
+            assert_eq!(
+                usize::from(header.hdr_len),
+                offset,
+                "hdr_len is not the payload's offset"
+            );
+        }
+    }
+    header
+}
+
+#[cfg(all(target_os = "linux", feature = "fuzzing"))]
+fn fuzz_endpoints(v6: bool, flow: u16) -> (std::net::SocketAddr, std::net::SocketAddr) {
+    use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
+    if v6 {
+        (
+            SocketAddr::from((Ipv6Addr::new(0xfd00, 0, 0, 0, 0, 0, 0, 1), 443)),
+            SocketAddr::from((Ipv6Addr::new(0xfd00, 0, 0, 0, 0, 0, 0, 2), 40_000 + flow)),
+        )
+    } else {
+        (
+            SocketAddr::from((Ipv4Addr::new(10, 0, 0, 1), 443)),
+            SocketAddr::from((Ipv4Addr::new(10, 0, 0, 2), 40_000 + flow)),
+        )
+    }
+}
+
+#[cfg(all(target_os = "linux", feature = "fuzzing"))]
+fn fuzz_control(sequence: u32, flags: sail_netstack::TcpFlags) -> sail_netstack::SendControl {
+    sail_netstack::SendControl {
+        sequence: sail_netstack::SeqNumber::new(sequence),
+        acknowledgment: sail_netstack::SeqNumber::new(77),
+        flags,
+        window: 32_000,
+    }
+}
+
+/// Fuzzing (sail::fuzzing): a batch of TCP segments of up to three flows,
+/// any lengths, some with gaps or PSH, grouped flow by flow and coalesced.
+/// The groups partition the batch in its order, one flow each; a group that
+/// coalesces into one GSO frame splits back into exactly its segments.
+#[cfg(all(target_os = "linux", feature = "fuzzing"))]
+pub(crate) fn fuzz_coalesce(data: &[u8]) {
+    use sail_netstack::{emit_tcp_segment, TcpFlags};
+    let Some((&shape, rest)) = data.split_first() else {
+        return;
+    };
+    let v6 = shape & 1 != 0;
+    let mut next = [1_000_u32, 50_000, 900_000];
+    let mut wires = Vec::new();
+    for op in rest.chunks_exact(3).take(64) {
+        let flow = usize::from(op[0] % 3);
+        let len = 1 + usize::from(u16::from_le_bytes([op[1], op[2]]) % 1_460);
+        if op[0] & 0x80 != 0 {
+            next[flow] = next[flow].wrapping_add(7);
+        }
+        // ACK, or ACK and PSH (0x08), which stops a coalesced run.
+        let flags = if op[0] & 0x40 != 0 {
+            TcpFlags::from_bits(TcpFlags::ACK.bits() | 0x08)
+        } else {
+            TcpFlags::ACK
+        };
+        let payload: Vec<u8> = (0..len).map(|i| (i as u8) ^ op[0]).collect();
+        let (source, destination) = fuzz_endpoints(v6, flow as u16);
+        let Ok(wire) = emit_tcp_segment(
+            source,
+            destination,
+            fuzz_control(next[flow], flags),
+            &payload,
+            64,
+            1,
+        ) else {
+            return;
+        };
+        next[flow] = next[flow].wrapping_add(len as u32);
+        wires.push(wire);
+    }
+    let payloads: Vec<&[u8]> = wires.iter().map(Vec::as_slice).collect();
+    let groups = flow_groups(&payloads);
+    let mut seen = vec![false; payloads.len()];
+    let mut firsts = Vec::new();
+    for group in &groups {
+        assert!(!group.is_empty());
+        assert!(
+            group.windows(2).all(|w| w[0] < w[1]),
+            "a group out of order"
+        );
+        let flow = tcp_flow(payloads[group[0]]);
+        for &index in group {
+            assert!(
+                !std::mem::replace(&mut seen[index], true),
+                "a packet in two groups"
+            );
+            assert_eq!(tcp_flow(payloads[index]), flow, "two flows in a group");
+        }
+        firsts.push(group[0]);
+    }
+    assert!(seen.iter().all(|&s| s), "a packet in no group");
+    assert!(
+        firsts.windows(2).all(|w| w[0] < w[1]),
+        "groups out of order"
+    );
+
+    let mut table = tun_rs::GROTable::default();
+    let mut buffers: Vec<Vec<u8>> = (0..64).map(|_| Vec::new()).collect();
+    for group in &groups {
+        let segments: Vec<&[u8]> = group.iter().map(|&i| payloads[i]).collect();
+        let Some(index) = prepare_coalesced_tcp_batch(&mut table, &mut buffers, &segments) else {
+            continue;
+        };
+        let header = tun_rs::VirtioNetHdr::decode(&buffers[index]).expect("the header decodes");
+        let mut frame = buffers[index][tun_rs::VIRTIO_NET_HDR_LEN..].to_vec();
+        let mut split = vec![vec![0_u8; 1_600]; segments.len() + 1];
+        let mut sizes = vec![0; segments.len() + 1];
+        let count = tun_rs::gso_split(&mut frame, header, &mut split, &mut sizes, 0, v6)
+            .expect("a coalesced frame splits");
+        assert_eq!(
+            count,
+            segments.len(),
+            "split into another number of segments"
+        );
+        for (k, original) in segments.iter().enumerate() {
+            let got = parse_tcp_segment(
+                parse_ip_packet(&split[k][..sizes[k]], true).expect("a split segment parses"),
+                true,
+            )
+            .expect("a split segment is TCP, its checksums right");
+            let want = parse_tcp_segment(parse_ip_packet(original, false).unwrap(), false).unwrap();
+            assert_eq!(got.payload, want.payload, "segment {k} changed");
+            assert_eq!(got.meta.sequence, want.meta.sequence, "segment {k} moved");
         }
     }
 }

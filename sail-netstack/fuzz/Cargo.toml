@@ -9,7 +9,7 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
-sail-netstack = { path = ".." }
+sail-netstack = { path = "..", features = ["fuzzing"] }
 
 [[bin]]
 name = "wire_parse"
@@ -35,6 +35,13 @@ bench = false
 [[bin]]
 name = "tcp_table"
 path = "fuzz_targets/tcp_table.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "sack_scoreboard"
+path = "fuzz_targets/sack_scoreboard.rs"
 test = false
 doc = false
 bench = false

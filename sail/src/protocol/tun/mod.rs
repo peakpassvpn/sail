@@ -4,5 +4,7 @@ pub(crate) mod auto_redirect;
 pub(crate) mod auto_route;
 pub mod inbound;
 mod packet_io;
+#[cfg(all(target_os = "linux", feature = "fuzzing"))]
+pub(crate) use packet_io::{fuzz_coalesce, fuzz_vnet_header};
 #[cfg(target_os = "linux")]
 mod prematch;

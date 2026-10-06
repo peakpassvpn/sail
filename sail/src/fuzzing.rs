@@ -84,3 +84,15 @@ pub fn inbound_protocol(data: &[u8]) {
     crate::protocol::tuic::fuzz_decode(data);
     let _ = std::hint::black_box(crate::protocol::vmess::xudp::parse_addr_port(data));
 }
+
+/// A Linux TUN's virtio-net header of one packet, written with offload.
+#[cfg(all(target_os = "linux", feature = "inbound-tun"))]
+pub fn tun_vnet_header(data: &[u8]) {
+    crate::protocol::tun::fuzz_vnet_header(data);
+}
+
+/// A Linux TUN's batch of TCP segments, coalesced flow by flow.
+#[cfg(all(target_os = "linux", feature = "inbound-tun"))]
+pub fn tun_coalesce(data: &[u8]) {
+    crate::protocol::tun::fuzz_coalesce(data);
+}
