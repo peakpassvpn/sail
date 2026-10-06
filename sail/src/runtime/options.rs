@@ -469,8 +469,12 @@ impl RuntimeOptions {
                     command_channel_size: 128,
                     udp_uplink_channel_size: 64,
                     // As mobile's: at 16 KiB 436 of 2000 connections opened, at 4 KiB 1753,
-                    // which another budget than the TCP bytes then bounds (2 KiB opened
+                    // which another budget than the TCP bytes then bounded (2 KiB opened
                     // 1736); one upload stream carried 590 to 736 Mbit/s (measured).
+                    // Since the 512 sessions of `inbound.max_connections`, 512 of 2000 open
+                    // at any ceiling. A ceiling of 128 or 256 took four upload streams over
+                    // Trojan from 0.67 of sing-box's to 0.74-0.75, not enough to be worth
+                    // its reservations (medians of 3).
                     receive_window: 4,
                     receive_window_max: 64,
                 },
