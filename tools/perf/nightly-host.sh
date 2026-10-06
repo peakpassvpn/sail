@@ -49,6 +49,10 @@ CALIBRATION_ROUNDS=${CALIBRATION_ROUNDS:-6}
 MAX_LOAD=${MAX_LOAD:-1.0}
 KEEP=${KEEP:-14}
 SRC=$(cd "$(dirname "$0")/../.." && pwd)
+# A timer's service has no HOME; the cross toolchain and rustup live
+# under the user's own.
+[ -n "${HOME:-}" ] || HOME=$(getent passwd "$(id -u)" | cut -d: -f6)
+export HOME
 MUSL_TARGET=x86_64-unknown-linux-musl
 musl_ready() {
   local tc
@@ -62,7 +66,9 @@ if musl_ready; then
   PROFILE="x86_64 musl, mimalloc, release profile, lto=false"
 else
   KIND=glibc
-  TARGET=$(rustc -vV | sed -n 's/^host: //p')
+  # In the checkout, whose rust-toolchain.toml names the Rust: elsewhere
+  # rustup may have no default.
+  TARGET=$(cd "$SRC" && rustc -vV | sed -n 's/^host: //p')
   PROFILE="x86_64 glibc, no LTO: the host's build and allocator, not the shipped musl/mimalloc binary"
 fi
 JOB=sail-5.4-nightly
