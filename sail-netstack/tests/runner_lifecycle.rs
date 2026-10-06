@@ -1087,6 +1087,107 @@ fn draining_accepts_existing_flow_but_rejects_new_flow_then_closes() {
     assert_eq!(ledger.snapshot().total_bytes, 0);
 }
 
+/// The resets in `sent`, by the client address each goes to.
+fn sent_resets(sent: &Arc<Mutex<Vec<Vec<u8>>>>) -> Vec<(SocketAddr, TcpSegmentMeta)> {
+    sent.lock()
+        .unwrap()
+        .iter()
+        .filter_map(|packet| {
+            let segment = parse_tcp_segment(parse_ip_packet(packet, true).ok()?, true).ok()?;
+            segment
+                .meta
+                .flags
+                .contains(TcpFlags::RST)
+                .then_some((segment.destination, segment.meta))
+        })
+        .collect()
+}
+
+/// A network reset ends each TCP flow with a reset toward its app, as an
+/// abort does one, instead of forgetting it: an app that only reads learns
+/// at once that the flow is gone.
+#[test]
+fn a_network_reset_resets_each_tcp_flow_toward_its_app() {
+    let source = SocketAddr::from((Ipv4Addr::new(10, 7, 7, 2), 40_201));
+    let destination = SocketAddr::from((Ipv4Addr::new(10, 7, 7, 1), 443));
+    let (mut io, _) = MockIo::new(1);
+    let sent = io.sent_payloads();
+    io.push_recv(vec![tcp_packet(source, destination, 100, 0, TcpFlags::SYN)]);
+    let (mut runner, _) = runner(io);
+    block_on(runner.step(1)).unwrap();
+    block_on(runner.step(2)).unwrap();
+    let (syn_ack, _) = last_sent_tcp(&sent);
+    assert!(syn_ack.flags.contains(TcpFlags::SYN));
+
+    runner.reset_network(NetworkGeneration::new(1));
+    block_on(runner.step(3)).unwrap();
+    let resets = sent_resets(&sent);
+    assert_eq!(resets.len(), 1);
+    let (to, reset) = resets[0];
+    assert_eq!(to, source);
+    assert_eq!(reset.sequence, syn_ack.sequence.wrapping_add(1));
+    assert_eq!(runner.stats_snapshot().tcp_active_flows, 0);
+    assert_eq!(runner.stats_snapshot().reset_rsts_dropped, 0);
+}
+
+/// More flows than the TX queue takes at once are all reset, over the
+/// steps that follow, none dropped, though another reset comes before they
+/// are out.
+#[test]
+fn a_network_reset_of_more_flows_than_the_queue_takes_resets_them_all() {
+    const FLOWS: u16 = 40;
+    let destination = SocketAddr::from((Ipv4Addr::new(10, 7, 7, 1), 443));
+    let (mut io, _) = MockIo::new(8);
+    let sent = io.sent_payloads();
+    let syns: Vec<Vec<u8>> = (0..FLOWS)
+        .map(|i| {
+            let source = SocketAddr::from((Ipv4Addr::new(10, 7, 7, 2), 41_000 + i));
+            tcp_packet(source, destination, 100, 0, TcpFlags::SYN)
+        })
+        .collect();
+    for batch in syns.chunks(8) {
+        io.push_recv(batch.to_vec());
+    }
+    let mut config = deterministic_runner_config();
+    config.scheduler.max_queued_packets = 8;
+    let (mut runner, _) = runner_with_config(io, &config);
+    for now in 1..=20 {
+        block_on(runner.step(now)).unwrap();
+    }
+    assert_eq!(runner.stats_snapshot().tcp_active_flows, usize::from(FLOWS));
+
+    runner.reset_network(NetworkGeneration::new(1));
+    // Another change before those resets are out keeps them.
+    runner.reset_network(NetworkGeneration::new(2));
+    for now in 21..=40 {
+        block_on(runner.step(now)).unwrap();
+    }
+    let resets = sent_resets(&sent);
+    assert_eq!(resets.len(), usize::from(FLOWS));
+    assert_eq!(runner.stats_snapshot().reset_rsts_dropped, 0);
+}
+
+/// A runner past its draining deadline resets the flows it still has, and
+/// closes once those are sent.
+#[test]
+fn a_draining_runner_resets_its_flows_before_it_closes() {
+    let source = SocketAddr::from((Ipv4Addr::new(10, 7, 7, 2), 40_202));
+    let destination = SocketAddr::from((Ipv4Addr::new(10, 7, 7, 1), 443));
+    let (mut io, _) = MockIo::new(1);
+    let sent = io.sent_payloads();
+    io.push_recv(vec![tcp_packet(source, destination, 100, 0, TcpFlags::SYN)]);
+    let (mut runner, ledger) = runner(io);
+    block_on(runner.step(1)).unwrap();
+    block_on(runner.step(2)).unwrap();
+    runner.shutdown(5);
+
+    block_on(runner.step(5)).unwrap();
+    assert_eq!(sent_resets(&sent).len(), 1);
+    block_on(runner.step(6)).unwrap();
+    assert_eq!(runner.state(), RunnerState::Closed);
+    assert_eq!(ledger.snapshot().total_bytes, 0);
+}
+
 #[test]
 fn invalid_platform_count_is_a_runner_failure() {
     let (mut io, _) = MockIo::new(2);

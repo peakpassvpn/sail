@@ -36,6 +36,14 @@ const SYN_RECEIVED_STALE_MS: u64 = 3_000;
 /// Exhausted pressure; new SYNs are refused meanwhile (a judgment).
 const SYN_RECLAIM_CAP: usize = 256;
 const TCP_CONTROL_PACKET_BYTES: usize = TCP_MAX_HEADER_BYTES;
+/// Resets a network reset or a closing runner holds for flows still to be
+/// told, about 70 bytes each; a phone's change of network can end
+/// thousands of flows at once, and each step sends what the control pool
+/// and the TX queue allow. Those past it are counted (a judgment).
+const RESET_QUEUE_CAP: usize = 8192;
+/// How long a runner past its draining deadline still sends the resets of
+/// the flows it ends, before it closes (a judgment).
+const CLOSING_FLUSH_MS: u64 = 100;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RunnerConfig {
@@ -287,6 +295,11 @@ pub struct SingleShardRunner<I> {
     flow_hasher: RandomState,
     tx: PacketBatch,
     tx_pending: VecDeque<Packet>,
+    /// Resets of flows a network reset or a closing runner ended, still to
+    /// be sent: see `RESET_QUEUE_CAP`.
+    pending_resets: VecDeque<Vec<u8>>,
+    /// Past its draining deadline: when it closes, whatever is left.
+    closing_until_ms: Option<u64>,
     tx_pending_limit: usize,
     tcp_timers: TimerWheel<ScheduledTcpTimer>,
     tcp_timer_ids: HashMap<(TcpFlowToken, TimerEvent), (TimerId, u64)>,
@@ -331,6 +344,7 @@ struct RunnerCounters {
     shutdowns: u64,
     aborts: u64,
     network_resets: u64,
+    reset_rsts_dropped: u64,
     mtu_changes: u64,
     scheduler_rounds: u64,
     scheduler_packets: u64,
@@ -831,6 +845,8 @@ impl<I: PacketIo> SingleShardRunner<I> {
             flow_hasher: RandomState::new(),
             tx: PacketBatch::with_limit(capabilities.max_batch),
             tx_pending: VecDeque::new(),
+            pending_resets: VecDeque::new(),
+            closing_until_ms: None,
             tx_pending_limit: config.scheduler.max_queued_packets,
             tcp_timers: TimerWheel::new(config.timer_tick_ms, 0),
             tcp_timer_ids: HashMap::new(),
@@ -1005,8 +1021,22 @@ impl<I: PacketIo> SingleShardRunner<I> {
         }
         if let RunnerState::Draining { deadline_ms } = self.state {
             if now_ms >= deadline_ms {
-                self.close();
-                return Ok(StepOutcome::default());
+                // The flows left are reset, so that their apps learn they
+                // ended; the runner closes once those are sent, or soon.
+                let until = if let Some(until) = self.closing_until_ms {
+                    until
+                } else {
+                    let resets = self.tcp.abort_all();
+                    self.queue_resets(resets);
+                    let until = now_ms.saturating_add(CLOSING_FLUSH_MS);
+                    self.closing_until_ms = Some(until);
+                    until
+                };
+                let sent = self.pending_resets.is_empty() && self.pending_tx() == 0;
+                if sent || now_ms >= until {
+                    self.close();
+                    return Ok(StepOutcome::default());
+                }
             }
         }
 
@@ -1023,6 +1053,7 @@ impl<I: PacketIo> SingleShardRunner<I> {
         if !outcome.tcp_events.is_empty() {
             return Ok(outcome);
         }
+        self.send_pending_resets();
         self.flush_tx(&mut outcome).await?;
         while !outcome.would_block
             && outcome.sent_packets < self.packets_per_step
@@ -1441,6 +1472,9 @@ impl<I: PacketIo> SingleShardRunner<I> {
     }
 
     pub fn reset_network(&mut self, generation: NetworkGeneration) {
+        // Each flow's reset, before its state goes: an app that only reads
+        // would otherwise wait for its own timeout.
+        let resets = self.tcp.abort_all();
         self.udp.reset_network(generation);
         self.tcp.reset_network(generation);
         self.fragments.clear();
@@ -1452,6 +1486,10 @@ impl<I: PacketIo> SingleShardRunner<I> {
         self.tx = PacketBatch::with_limit(self.capabilities.max_batch);
         self.tx_pending.clear();
         self.clear_tcp_timers();
+        // Added to those of a reset before not yet sent (a phone's Wi-Fi
+        // gone and its cellular up, close together): the next step sends
+        // them, after the TX queue this reset cleared.
+        self.queue_resets(resets);
         self.counters.network_resets = self.counters.network_resets.saturating_add(1);
         self.trace.record(
             self.tcp_timers.now_ms(),
@@ -1524,6 +1562,7 @@ impl<I: PacketIo> SingleShardRunner<I> {
             shutdowns: self.counters.shutdowns,
             aborts: self.counters.aborts,
             network_resets: self.counters.network_resets,
+            reset_rsts_dropped: self.counters.reset_rsts_dropped,
             mtu_changes: self.counters.mtu_changes,
             scheduler_rounds: self.counters.scheduler_rounds,
             scheduler_packets: self.counters.scheduler_packets,
@@ -1679,6 +1718,8 @@ impl<I: PacketIo> SingleShardRunner<I> {
         self.clear_scheduled();
         self.tx = PacketBatch::with_limit(self.capabilities.max_batch);
         self.tx_pending.clear();
+        self.pending_resets.clear();
+        self.closing_until_ms = None;
         self.clear_tcp_timers();
         self.state = RunnerState::Closed;
     }
@@ -1966,6 +2007,35 @@ impl<I: PacketIo> SingleShardRunner<I> {
 
     fn queue_wire(&mut self, wire: &[u8]) -> Result<(), RunnerError> {
         self.queue_wires(std::slice::from_ref(&wire))
+    }
+
+    /// Holds `resets` to send, up to `RESET_QUEUE_CAP`; those past it are
+    /// counted.
+    fn queue_resets(&mut self, resets: Vec<Vec<u8>>) {
+        for wire in resets {
+            if self.pending_resets.len() < RESET_QUEUE_CAP {
+                self.pending_resets.push_back(wire);
+            } else {
+                increment_counter(&mut self.counters.reset_rsts_dropped);
+            }
+        }
+    }
+
+    /// Moves held resets to the TX queue while it and the control pool
+    /// take them; the rest wait for the next step.
+    fn send_pending_resets(&mut self) {
+        while let Some(wire) = self.pending_resets.pop_front() {
+            match self.queue_control_wire(&wire) {
+                Ok(()) => {}
+                Err(RunnerError::PacketExceedsMtu) => {
+                    increment_counter(&mut self.counters.reset_rsts_dropped);
+                }
+                Err(_) => {
+                    self.pending_resets.push_front(wire);
+                    break;
+                }
+            }
+        }
     }
 
     fn queue_control_wire(&mut self, wire: &[u8]) -> Result<(), RunnerError> {

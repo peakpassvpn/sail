@@ -26,6 +26,9 @@ const TABLE: &str = "2120";
 const SERVER_V4: Ipv4Addr = Ipv4Addr::new(10, 212, 1, 2);
 const SERVER_V6: Ipv6Addr = Ipv6Addr::new(0xfd00, 0x212, 1, 0, 0, 0, 0, 2);
 const TCP_PORT: u16 = 7001;
+
+/// The tests here share one namespace, TUN and routing table: one at a time.
+static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 const UDP_PORT: u16 = 7002;
 
 /// Echoes TCP until the client's FIN, then closes. Echoes UDP, except
@@ -155,6 +158,37 @@ impl Drop for Peer {
     }
 }
 
+/// The configuration `Sail` runs: a TUN inbound, a direct outbound that
+/// marks its sockets, and `rules` before the DNS one.
+fn sail_config(udp_timeout: &str, rules: &str) -> String {
+    let inbound = format!(
+        r#"{{
+            "type": "tun",
+            "tag": "tun",
+            "interface_name": "{TUN}",
+            "address": "10.213.0.1/24",
+            "mtu": 1500,
+            "udp_timeout": "{udp_timeout}"
+        }}"#
+    );
+    format!(
+        r#"{{
+            "inbounds": [{inbounds}],
+            "outbounds": [{{ "type": "direct", "tag": "direct", "routing_mark": {TABLE} }}],
+            "dns": {{ "servers": [{{ "type": "hosts", "predefined": {{
+                "one.sail": ["192.0.2.1", "2001:db8::1"],
+                "many.sail": [{many}]
+            }} }}] }},
+            "route": {{ "rules": [{rules}{{ "port": 53, "action": "hijack-dns" }}] }}
+        }}"#,
+        inbounds = inbound,
+        many = (1..=60)
+            .map(|i| format!("\"2001:db8::{i:x}\""))
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
+}
+
 /// A sail runtime with a TUN inbound and a direct outbound that marks its
 /// sockets, with the servers routed into the TUN.
 struct Sail {
@@ -164,28 +198,7 @@ struct Sail {
 
 impl Sail {
     async fn start(id: u16, udp_timeout: &str, session_check: Duration) -> Result<Self> {
-        let config = format!(
-            r#"{{
-                "inbounds": [{{
-                    "type": "tun",
-                    "tag": "tun",
-                    "interface_name": "{TUN}",
-                    "address": "10.213.0.1/24",
-                    "mtu": 1500,
-                    "udp_timeout": "{udp_timeout}"
-                }}],
-                "outbounds": [{{ "type": "direct", "tag": "direct", "routing_mark": {TABLE} }}],
-                "dns": {{ "servers": [{{ "type": "hosts", "predefined": {{
-                    "one.sail": ["192.0.2.1", "2001:db8::1"],
-                    "many.sail": [{many}]
-                }} }}] }},
-                "route": {{ "rules": [{{ "port": 53, "action": "hijack-dns" }}] }}
-            }}"#,
-            many = (1..=60)
-                .map(|i| format!("\"2001:db8::{i:x}\""))
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
+        let config = sail_config(udp_timeout, "");
         let mut runtime = sail::runtime::RuntimeOptions::default();
         runtime.udp.session_check_interval = session_check;
         let thread = std::thread::spawn(move || {
@@ -392,6 +405,7 @@ fn ping(server: IpAddr) -> Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires root: network namespaces, veth, a TUN and policy routing"]
 async fn tun_inbound_carries_tcp_udp_and_icmp_over_ipv4_and_ipv6() -> Result<()> {
+    let _serial = SERIAL.lock().await;
     let _peer = Peer::up()?;
     let servers = [IpAddr::V4(SERVER_V4), IpAddr::V6(SERVER_V6)];
 
@@ -465,4 +479,108 @@ async fn tun_inbound_carries_tcp_udp_and_icmp_over_ipv4_and_ipv6() -> Result<()>
         ensure!(answer? == b"late", "the late answer changed");
     }
     Ok(())
+}
+
+/// How sail closes a connection from its side.
+#[derive(Clone, Copy, Debug)]
+enum Close {
+    /// The host pushes a network the connections do not survive.
+    NetworkMove,
+    /// Every connection, as the Clash API's DELETE closes them.
+    ClashApi,
+    /// A reload whose rules now reject it, rechecked.
+    Recheck,
+    /// The instance stops: a TUN inbound goes only with a restart, as a
+    /// reload without it says.
+    Stop,
+}
+
+/// A network the host pushes, on `interface`.
+fn pushed_network(interface: &str) -> String {
+    format!(
+        r#"{{ "interface": "{interface}", "type": "wifi", "ssid": "{interface}",
+             "gateway": "192.168.1.1", "addresses": ["192.168.1.2/24"] }}"#
+    )
+}
+
+/// A TCP connection through the TUN that sail closes as `how` says: the app,
+/// reading and sending nothing, learns of it within a second, by a reset or
+/// an end, instead of waiting for its own timeout.
+async fn a_closed_session_ends_its_tun_flow(id: u16, how: Close) -> Result<()> {
+    let _serial = SERIAL.lock().await;
+    let _peer = Peer::up()?;
+    let _sail = Sail::start(id, "30s", Duration::from_secs(1)).await?;
+    if let Close::NetworkMove = how {
+        sail::set_network_state(id, &pushed_network("en0")).map_err(|e| anyhow!("{e}"))?;
+    }
+    let mut stream = timeout(
+        Duration::from_secs(5),
+        TcpStream::connect(SocketAddr::new(IpAddr::V4(SERVER_V4), TCP_PORT)),
+    )
+    .await
+    .map_err(|_| anyhow!("connecting timed out"))??;
+    stream.write_all(b"ping").await?;
+    let mut echo = [0; 4];
+    timeout(Duration::from_secs(5), stream.read_exact(&mut echo))
+        .await
+        .map_err(|_| anyhow!("no echo"))??;
+    let manager = sail::runtime_manager(id).ok_or_else(|| anyhow!("no instance"))?;
+    match how {
+        Close::NetworkMove => {
+            sail::set_network_state(id, &pushed_network("en1")).map_err(|e| anyhow!("{e}"))?;
+        }
+        Close::ClashApi => {
+            ensure!(
+                manager.stat_manager().close_all() > 0,
+                "no connection to close"
+            );
+        }
+        Close::Recheck => {
+            let rejecting = sail_config("30s", r#"{ "port": 7001, "action": "reject" },"#);
+            let config = sail::config::from_string(&rejecting).map_err(|e| anyhow!("{e}"))?;
+            manager
+                .reload_rechecking(
+                    Some(config),
+                    sail::control::ReloadOptions::new()
+                        .recheck_open(sail::control::RecheckOpen::CloseRejected),
+                )
+                .await
+                .map_err(|e| anyhow!("reload: {e}"))?;
+        }
+        Close::Stop => {
+            // Asks it to stop, without waiting.
+            ensure!(sail::shutdown(id), "no instance to stop");
+        }
+    }
+    let mut buf = [0; 16];
+    match timeout(Duration::from_secs(1), stream.read(&mut buf)).await {
+        Ok(Ok(0)) => Ok(()),
+        Ok(Err(e)) if e.kind() == std::io::ErrorKind::ConnectionReset => Ok(()),
+        Ok(other) => Err(anyhow!("{how:?}: the app read {other:?}, not an end")),
+        Err(_) => Err(anyhow!("{how:?}: no reset or end within 1 s")),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires root: network namespaces, veth, a TUN and policy routing"]
+async fn a_network_move_ends_the_tun_flows_it_closes() -> Result<()> {
+    a_closed_session_ends_its_tun_flow(61_011, Close::NetworkMove).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires root: network namespaces, veth, a TUN and policy routing"]
+async fn a_connection_closed_as_the_clash_api_does_ends_its_tun_flow() -> Result<()> {
+    a_closed_session_ends_its_tun_flow(61_012, Close::ClashApi).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires root: network namespaces, veth, a TUN and policy routing"]
+async fn a_reload_s_recheck_ends_the_tun_flows_it_rejects() -> Result<()> {
+    a_closed_session_ends_its_tun_flow(61_013, Close::Recheck).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires root: network namespaces, veth, a TUN and policy routing"]
+async fn stopping_the_instance_ends_its_tun_flows() -> Result<()> {
+    a_closed_session_ends_its_tun_flow(61_014, Close::Stop).await
 }
