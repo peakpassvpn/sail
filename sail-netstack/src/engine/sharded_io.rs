@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::fmt;
 use std::future::{poll_fn, Future};
 use std::hash::{BuildHasher, RandomState};
@@ -28,7 +28,7 @@ struct DirectoryEntry {
 
 #[derive(Debug, Default)]
 struct DirectoryStripe {
-    entries: HashMap<FlowKey, DirectoryEntry>,
+    entries: crate::FlowMap<FlowKey, DirectoryEntry>,
     insertion_order: VecDeque<FlowKey>,
 }
 
@@ -52,7 +52,7 @@ struct LocalRouteEntry {
 
 #[derive(Debug)]
 struct LocalRouteCache {
-    entries: HashMap<FlowKey, LocalRouteEntry>,
+    entries: crate::FlowMap<FlowKey, LocalRouteEntry>,
     insertion_order: VecDeque<FlowKey>,
     max_entries: usize,
 }
@@ -595,7 +595,7 @@ impl<I: PacketIo> ShardedPacketIo<I> {
         let local_caches = (0..queue_count)
             .map(|_| {
                 Arc::new(Mutex::new(LocalRouteCache {
-                    entries: HashMap::new(),
+                    entries: crate::FlowMap::default(),
                     insertion_order: VecDeque::new(),
                     max_entries: scheduler.max_active_flows,
                 }))
@@ -823,7 +823,7 @@ mod tests {
             cache_pressure_active: AtomicBool::new(false),
             counters: ConcurrentCounters::default(),
         };
-        let mut first_by_stripe = HashMap::new();
+        let mut first_by_stripe = std::collections::HashMap::new();
         let mut collision = None;
         for port in 1_000..=u16::MAX {
             let key = FlowKey {

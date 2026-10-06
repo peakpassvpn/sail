@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::fmt;
 use std::future::{poll_fn, Future};
 use std::hash::{BuildHasher, RandomState};
@@ -280,7 +280,7 @@ pub struct SingleShardRunner<I> {
     tx_pending: VecDeque<Packet>,
     tx_pending_limit: usize,
     tcp_timers: TimerWheel<ScheduledTcpTimer>,
-    tcp_timer_ids: HashMap<(TcpFlowToken, TimerEvent), (TimerId, u64)>,
+    tcp_timer_ids: crate::FlowMap<(TcpFlowToken, TimerEvent), (TimerId, u64)>,
     next_timer_serial: u64,
     timer_tick_ms: u64,
     packets_per_step: usize,
@@ -816,7 +816,7 @@ impl<I: PacketIo> SingleShardRunner<I> {
             tx_pending: VecDeque::new(),
             tx_pending_limit: config.scheduler.max_queued_packets,
             tcp_timers: TimerWheel::new(config.timer_tick_ms, 0),
-            tcp_timer_ids: HashMap::new(),
+            tcp_timer_ids: crate::FlowMap::default(),
             next_timer_serial: 0,
             timer_tick_ms: config.timer_tick_ms,
             state: RunnerState::Created,

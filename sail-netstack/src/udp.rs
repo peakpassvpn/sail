@@ -1,4 +1,4 @@
-use std::collections::{hash_map::RandomState, HashMap};
+use std::collections::hash_map::RandomState;
 use std::fmt;
 use std::hash::BuildHasher;
 use std::net::SocketAddr;
@@ -118,8 +118,8 @@ pub struct UdpTable {
     expiry_tick_ms: u64,
     expiry: TimerWheel<UdpFlowKey>,
     next_flow_id: u64,
-    by_key: HashMap<UdpFlowKey, UdpFlow>,
-    by_id: HashMap<FlowId, UdpFlowKey>,
+    by_key: crate::FlowMap<UdpFlowKey, UdpFlow>,
+    by_id: crate::FlowMap<FlowId, UdpFlowKey>,
     stats: UdpTableStats,
     hash_state: RandomState,
 }
@@ -173,8 +173,8 @@ impl UdpTable {
             expiry_tick_ms,
             expiry: TimerWheel::new(expiry_tick_ms, 0),
             next_flow_id: 0,
-            by_key: HashMap::new(),
-            by_id: HashMap::new(),
+            by_key: crate::FlowMap::default(),
+            by_id: crate::FlowMap::default(),
             stats: UdpTableStats::default(),
             hash_state: RandomState::new(),
         }

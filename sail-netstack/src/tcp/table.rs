@@ -1,4 +1,4 @@
-use std::collections::{hash_map::RandomState, BTreeMap, HashMap, VecDeque};
+use std::collections::{hash_map::RandomState, BTreeMap, VecDeque};
 use std::fmt;
 use std::hash::{BuildHasher, Hash, Hasher};
 use std::net::SocketAddr;
@@ -426,10 +426,10 @@ pub struct TcpTable {
     next_flow_id: u64,
     next_ipv4_id: u16,
     now_ms: u64,
-    by_key: HashMap<TcpFlowKey, TcpFlow>,
-    time_wait: HashMap<TcpFlowKey, TimeWaitEntry>,
+    by_key: crate::FlowMap<TcpFlowKey, TcpFlow>,
+    time_wait: crate::FlowMap<TcpFlowKey, TimeWaitEntry>,
     time_wait_order: BTreeMap<u64, TcpFlowKey>,
-    by_id: HashMap<FlowId, TcpFlowKey>,
+    by_id: crate::FlowMap<FlowId, TcpFlowKey>,
     syn_received_order: BTreeMap<u64, TcpFlowKey>,
     stats: TcpTableStats,
     syn_limiter: ControlRateLimiter,
@@ -582,10 +582,10 @@ impl TcpTable {
             next_flow_id: 0,
             next_ipv4_id: 0,
             now_ms: 0,
-            by_key: HashMap::new(),
-            time_wait: HashMap::new(),
+            by_key: crate::FlowMap::default(),
+            time_wait: crate::FlowMap::default(),
             time_wait_order: BTreeMap::new(),
-            by_id: HashMap::new(),
+            by_id: crate::FlowMap::default(),
             syn_received_order: BTreeMap::new(),
             stats: TcpTableStats::default(),
             syn_limiter: ControlRateLimiter::new(config.syn_burst, config.syn_refill_ms),
@@ -3617,43 +3617,79 @@ fn update_sender_sack(
 }
 
 fn sack_loss_detected(flow: &TcpFlow) -> bool {
-    flow.send
-        .iter()
-        .enumerate()
-        .any(|(index, chunk)| !chunk.sacked && chunk_is_lost(flow, index))
+    let lost = lost_prefix(&flow.send, flow.max_send_segment_bytes);
+    flow.send.iter().take(lost).any(|chunk| !chunk.sacked)
 }
 
-fn chunk_is_lost(flow: &TcpFlow, lost_index: usize) -> bool {
-    let Some(lost) = flow.send.get(lost_index) else {
-        return false;
-    };
-    let lost_end = lost.sequence.wrapping_add(lost.bytes.len());
-    let mut discontiguous_sequences = 0_usize;
-    let mut bytes_above = 0_usize;
-    for chunk in flow.send.iter().skip(lost_index + 1) {
-        if chunk.sacked && !chunk.sequence.before(lost_end) {
-            discontiguous_sequences += 1;
-            bytes_above = bytes_above.saturating_add(chunk.bytes.len());
+/// What the SACK scoreboard reads of a chunk sent and not yet acknowledged.
+trait Scored {
+    fn sacked(&self) -> bool;
+    fn retransmitted(&self) -> bool;
+    fn len(&self) -> usize;
+}
+
+impl Scored for SendChunk {
+    fn sacked(&self) -> bool {
+        self.sacked
+    }
+    fn retransmitted(&self) -> bool {
+        self.retransmitted
+    }
+    fn len(&self) -> usize {
+        self.bytes.len()
+    }
+}
+
+/// How many chunks at the front of `chunks` count as lost, as RFC 6675's
+/// `IsLost` has it: a chunk is, once three chunks above it, or three
+/// segments' bytes of them, are selectively acknowledged. The queue runs in
+/// sequence order without gaps, so every chunk after one is above it, and
+/// what is acknowledged above a chunk only shrinks along the queue: the
+/// lost chunks are a prefix of it, found in one pass from the end.
+fn lost_prefix<C: Scored>(chunks: &VecDeque<C>, max_segment: usize) -> usize {
+    let three_segments = max_segment.saturating_mul(3);
+    let (mut sacked, mut bytes) = (0_usize, 0_usize);
+    for (index, chunk) in chunks.iter().enumerate().rev() {
+        if sacked >= 3 || bytes >= three_segments {
+            return index + 1;
+        }
+        if chunk.sacked() {
+            sacked += 1;
+            bytes = bytes.saturating_add(chunk.len());
         }
     }
-    discontiguous_sequences >= 3 || bytes_above >= flow.max_send_segment_bytes.saturating_mul(3)
+    0
 }
 
-fn sack_pipe(flow: &TcpFlow) -> usize {
-    flow.send
+/// RFC 6675's pipe: what is presumed in the network, the chunks neither
+/// selectively acknowledged nor lost, and those retransmitted once more.
+fn pipe<C: Scored>(chunks: &VecDeque<C>, max_segment: usize) -> usize {
+    let lost = lost_prefix(chunks, max_segment);
+    chunks
         .iter()
         .enumerate()
-        .filter(|(_, chunk)| !chunk.sacked)
+        .filter(|(_, chunk)| !chunk.sacked())
         .map(|(index, chunk)| {
-            let presumed_in_network = (!chunk_is_lost(flow, index)).then_some(chunk.bytes.len());
-            presumed_in_network.unwrap_or(0)
-                + if chunk.retransmitted {
-                    chunk.bytes.len()
+            let in_network = if index < lost { 0 } else { chunk.len() };
+            in_network
+                + if chunk.retransmitted() {
+                    chunk.len()
                 } else {
                     0
                 }
         })
         .sum()
+}
+
+fn sack_pipe(flow: &TcpFlow) -> usize {
+    debug_assert!(
+        flow.send
+            .iter()
+            .zip(flow.send.iter().skip(1))
+            .all(|(a, b)| b.sequence == a.sequence.wrapping_add(a.bytes.len())),
+        "the send queue runs in sequence order without gaps"
+    );
+    pipe(&flow.send, flow.max_send_segment_bytes)
 }
 
 fn next_sack_segment(flow: &TcpFlow, recovery: SackRecovery) -> Option<(usize, bool)> {
@@ -3666,11 +3702,12 @@ fn next_sack_segment(flow: &TcpFlow, recovery: SackRecovery) -> Option<(usize, b
             left.distance_from(flow.tcb.send_unacked())
                 .cmp(&right.distance_from(flow.tcb.send_unacked()))
         })?;
+    let lost = lost_prefix(&flow.send, flow.max_send_segment_bytes);
     if let Some((index, _)) = flow.send.iter().enumerate().find(|(index, chunk)| {
         !chunk.sacked
             && !chunk.retransmitted
             && chunk.sequence.before(highest_sacked)
-            && chunk_is_lost(flow, *index)
+            && *index < lost
     }) {
         return Some((index, false));
     }
@@ -3713,6 +3750,99 @@ mod tests {
 
     use super::*;
     use crate::{BudgetProfile, ResourceLedger, SeqNumber, TcpFlags};
+
+    /// A chunk of a scoreboard under test.
+    struct Scoreboard {
+        sequence: SeqNumber,
+        len: usize,
+        sacked: bool,
+        retransmitted: bool,
+    }
+
+    impl Scored for Scoreboard {
+        fn sacked(&self) -> bool {
+            self.sacked
+        }
+        fn retransmitted(&self) -> bool {
+            self.retransmitted
+        }
+        fn len(&self) -> usize {
+            self.len
+        }
+    }
+
+    /// RFC 6675's `IsLost` as sail had it, over the chunks above the one
+    /// asked about, each time.
+    fn is_lost_each(chunks: &VecDeque<Scoreboard>, lost_index: usize, max_segment: usize) -> bool {
+        let lost = &chunks[lost_index];
+        let lost_end = lost.sequence.wrapping_add(lost.len);
+        let (mut sacked, mut bytes) = (0_usize, 0_usize);
+        for chunk in chunks.iter().skip(lost_index + 1) {
+            if chunk.sacked && !chunk.sequence.before(lost_end) {
+                sacked += 1;
+                bytes = bytes.saturating_add(chunk.len);
+            }
+        }
+        sacked >= 3 || bytes >= max_segment.saturating_mul(3)
+    }
+
+    /// The pipe as sail had it: `IsLost` asked for each chunk.
+    fn pipe_each(chunks: &VecDeque<Scoreboard>, max_segment: usize) -> usize {
+        chunks
+            .iter()
+            .enumerate()
+            .filter(|(_, chunk)| !chunk.sacked)
+            .map(|(index, chunk)| {
+                let in_network = if is_lost_each(chunks, index, max_segment) {
+                    0
+                } else {
+                    chunk.len
+                };
+                in_network + if chunk.retransmitted { chunk.len } else { 0 }
+            })
+            .sum()
+    }
+
+    /// The scoreboard read in one pass says what it said chunk by chunk:
+    /// which chunks are lost, and the pipe, over random scoreboards (sizes,
+    /// selectively acknowledged and retransmitted chunks, sequence numbers that wrap).
+    #[test]
+    fn the_scoreboard_in_one_pass_reads_as_chunk_by_chunk() {
+        let mut state = 0x9e37_79b9_7f4a_7c15_u64;
+        let mut next = move |below: u64| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state % below
+        };
+        for _ in 0..5000 {
+            let max_segment = [1, 536, 1460][usize::try_from(next(3)).unwrap()];
+            let sacked_one_in = next(4) + 1;
+            let mut sequence = SeqNumber::new(u32::try_from(next(1 << 32)).unwrap());
+            let chunks: VecDeque<Scoreboard> = (0..next(40))
+                .map(|_| {
+                    let len = usize::try_from(next(3 * max_segment as u64) + 1).unwrap();
+                    let chunk = Scoreboard {
+                        sequence,
+                        len,
+                        sacked: next(sacked_one_in) == 0,
+                        retransmitted: next(5) == 0,
+                    };
+                    sequence = sequence.wrapping_add(len);
+                    chunk
+                })
+                .collect();
+            let lost = lost_prefix(&chunks, max_segment);
+            for index in 0..chunks.len() {
+                assert_eq!(
+                    index < lost,
+                    is_lost_each(&chunks, index, max_segment),
+                    "chunk {index}"
+                );
+            }
+            assert_eq!(pipe(&chunks, max_segment), pipe_each(&chunks, max_segment));
+        }
+    }
 
     fn segment(
         source: SocketAddr,

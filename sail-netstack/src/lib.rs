@@ -16,6 +16,11 @@ mod trace;
 pub mod udp;
 pub mod wire;
 
+/// The hash maps keyed by what arrives from the network (addresses, ports,
+/// flow and timer ids): foldhash, seeded at random for each map, where
+/// std's `SipHash` took about 2% of a TUN download's CPU (measured).
+pub(crate) type FlowMap<K, V> = std::collections::HashMap<K, V, foldhash::fast::RandomState>;
+
 pub use api::{
     ChecksumCapabilities, FlowDecision, FlowId, FlowKey, GsoCapabilities, IpEndpoint,
     NetworkGeneration, Packet, PacketBatch, PacketCapabilities, PacketIo, PacketToken, ShardId,

@@ -1,6 +1,6 @@
 //! Shard-local hierarchical timer wheel with a virtual-time API.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::BTreeSet;
 use std::fmt;
 
 const LEVELS: usize = 4;
@@ -59,7 +59,7 @@ pub struct TimerWheel<T> {
     current_tick: u64,
     next_id: u64,
     buckets: Vec<Vec<BTreeSet<TimerId>>>,
-    entries: HashMap<TimerId, Entry<T>>,
+    entries: crate::FlowMap<TimerId, Entry<T>>,
 }
 
 impl<T> TimerWheel<T> {
@@ -77,7 +77,7 @@ impl<T> TimerWheel<T> {
             current_tick: now_ms / tick_ms,
             next_id: 0,
             buckets,
-            entries: HashMap::new(),
+            entries: crate::FlowMap::default(),
         }
     }
 

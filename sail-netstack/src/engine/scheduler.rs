@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::fmt;
 use std::time::{Duration, Instant};
 
@@ -157,7 +157,7 @@ pub struct RoundStats {
 pub struct Scheduler<T> {
     config: SchedulerConfig,
     control: VecDeque<Item<T>>,
-    flows: HashMap<FlowId, FlowQueue<T>>,
+    flows: crate::FlowMap<FlowId, FlowQueue<T>>,
     active: VecDeque<FlowId>,
     queued_packets: usize,
     queued_bytes: usize,
@@ -171,7 +171,7 @@ impl<T> Scheduler<T> {
         Ok(Self {
             config: config.validate()?,
             control: VecDeque::new(),
-            flows: HashMap::new(),
+            flows: crate::FlowMap::default(),
             active: VecDeque::new(),
             queued_packets: 0,
             queued_bytes: 0,

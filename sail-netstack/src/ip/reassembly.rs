@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::fmt;
 use std::net::IpAddr;
 use std::sync::Arc;
@@ -123,7 +123,7 @@ pub struct FragmentReassembler {
     timeout_divisor: u64,
     expiry_tick_ms: u64,
     expiry: TimerWheel<FragmentKey>,
-    assemblies: HashMap<FragmentKey, Assembly>,
+    assemblies: crate::FlowMap<FragmentKey, Assembly>,
     eviction_index: BTreeMap<(u64, u64), FragmentKey>,
     next_eviction_serial: u64,
     stats: FragmentStats,
@@ -146,7 +146,7 @@ impl FragmentReassembler {
             timeout_divisor: 1,
             expiry_tick_ms,
             expiry: TimerWheel::new(expiry_tick_ms, 0),
-            assemblies: HashMap::new(),
+            assemblies: crate::FlowMap::default(),
             eviction_index: BTreeMap::new(),
             next_eviction_serial: 0,
             stats: FragmentStats::default(),

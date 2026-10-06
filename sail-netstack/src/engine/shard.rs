@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::fmt;
 use std::hash::{BuildHasher, RandomState};
 use std::net::SocketAddr;
@@ -171,7 +171,7 @@ pub struct ShardRouter<T> {
     ledger: Arc<ResourceLedger>,
     shard_count: u16,
     hasher: RandomState,
-    directory: HashMap<FlowKey, DirectoryEntry>,
+    directory: crate::FlowMap<FlowKey, DirectoryEntry>,
     directory_order: VecDeque<FlowKey>,
     max_directory_entries: usize,
     queues: Vec<Scheduler<T>>,
@@ -203,7 +203,7 @@ impl<T> ShardRouter<T> {
             ledger,
             shard_count,
             hasher: RandomState::new(),
-            directory: HashMap::new(),
+            directory: crate::FlowMap::default(),
             directory_order: VecDeque::new(),
             max_directory_entries: queue_config.max_active_flows,
             queues,

@@ -7,6 +7,7 @@ description = "Resource-bounded userspace TCP/IP stack for sail"
 publish = false
 
 [dependencies]
+foldhash = "0.2"
 
 [dev-dependencies]
 futures = "0.3"
