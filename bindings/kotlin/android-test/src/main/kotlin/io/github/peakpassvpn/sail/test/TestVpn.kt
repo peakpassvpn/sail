@@ -48,6 +48,11 @@ class TestVpn : VpnService() {
     var underlying: JSONObject? = null
         private set
 
+    /** When sail was last told of the network, in ms of the uptime clock. */
+    @Volatile
+    var toldAt: Long = 0
+        private set
+
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var lastNetwork: Network? = null
 
@@ -141,6 +146,7 @@ class TestVpn : VpnService() {
         val moved = lastNetwork != null && lastNetwork != network
         lastNetwork = network
         underlying = state
+        toldAt = android.os.SystemClock.uptimeMillis()
         if (moved) instance.networkChanged()
     }
 

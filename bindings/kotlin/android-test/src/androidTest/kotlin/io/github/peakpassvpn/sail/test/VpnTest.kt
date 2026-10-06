@@ -48,7 +48,7 @@ class VpnTest {
      * sail's configuration: a TUN taking every address, `apps` its per-app
      * field; `findProcess` asks the host who opened every connection.
      */
-    private fun config(apps: String = "", findProcess: Boolean = false) = """
+    private fun config(apps: String = "", findProcess: Boolean = false, rules: String = "") = """
         {
           "log": { "level": "debug" },
           "dns": { "servers": [
@@ -62,7 +62,7 @@ class VpnTest {
           "outbounds": [{ "type": "direct", "tag": "direct" }],
           "route": {
             "find_process": $findProcess,
-            "rules": [{ "port": 53, "action": "hijack-dns" }]
+            "rules": [$rules { "port": 53, "action": "hijack-dns" }]
           }
         }
     """.trimIndent()
@@ -128,14 +128,21 @@ class VpnTest {
      * app's traffic through the VPN, or not, as [through] says: it does
      * a moment after the TUN is up.
      */
-    private fun start(config: String, through: Boolean = true) {
+    private fun start(config: String, through: Boolean = true, probe: Boolean = through) {
         vpn().startSail(config)
         waitFor(if (through) "the VPN to carry this app" else "the VPN to leave this app") {
             throughVpn() == through
         }
+        // The network under the VPN changes a little as the VPN comes up (an
+        // address more): each change told closes the connections open, as
+        // 2.12 has it. The tests' own begin once it has been quiet 2 s.
+        waitFor("the network under the VPN to settle", seconds = 20) {
+            val told = vpn().toldAt
+            told != 0L && android.os.SystemClock.uptimeMillis() - told > 2000
+        }
         // The system says so a moment before this app's sockets take the
         // VPN: a connection sail carries is what tells.
-        if (through) {
+        if (probe) {
             waitFor("sail to carry this app's connections", seconds = 20) {
                 runCatching {
                     Socket().use { socket ->
@@ -305,6 +312,33 @@ class VpnTest {
             tcpEcho { waitFor("sail to list a new TCP connection") { sailCarries(tcpPort) } }
             udpEcho()
             collecting.cancel()
+        }
+    }
+
+    /**
+     * A rule on this app's package (2.8, 2.13): the host is asked who
+     * opened the connection, and the rule refuses it.
+     */
+    @Test
+    fun aPackageRuleRefusesThisApp() {
+        // Its own connections are refused: nothing to probe with.
+        start(
+            config(rules = """{ "package_name": ["$self"], "action": "reject" },"""),
+            probe = false,
+        )
+        Thread.sleep(2000)
+        val echoed = runCatching { tcpEcho() }.isSuccess
+        assertTrue("this app's connection went through a rule refusing its package", !echoed)
+    }
+
+    /** Without a rule on it, or find_process, the host is not asked. */
+    @Test
+    fun withoutARuleTheHostIsNotAsked() {
+        start(config())
+        tcpEcho {
+            waitFor("sail to list the TCP connection") { sailCarries(tcpPort) }
+            val listed = vpn().sail!!.connections().first { it.destination.endsWith(":$tcpPort") }
+            assertTrue("the host was asked: $listed", listed.packages.isEmpty())
         }
     }
 }
