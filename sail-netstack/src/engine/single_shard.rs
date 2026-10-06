@@ -26,6 +26,15 @@ use crate::{
 /// bytes, TCP's 20, and 40 of options (timestamps and three SACK blocks).
 /// A payload of at most the MTU less this always fits.
 pub const TCP_MAX_HEADER_BYTES: usize = 100;
+/// A half-open flow is reclaimed under pressure only once it has waited
+/// this long for its handshake's last ACK: the initial RTO and one
+/// doubling, so a client on a slow or lossy link whose ACK comes after
+/// the SYN-ACK's first retransmission keeps its connection (a judgment,
+/// not measured).
+const SYN_RECEIVED_STALE_MS: u64 = 3_000;
+/// Half-open flows reclaimed at most on one entry into Critical or
+/// Exhausted pressure; new SYNs are refused meanwhile (a judgment).
+const SYN_RECLAIM_CAP: usize = 256;
 const TCP_CONTROL_PACKET_BYTES: usize = TCP_MAX_HEADER_BYTES;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -574,7 +583,13 @@ impl ScheduledContext<'_> {
             self.drop_packet(PacketDropReason::Output);
             return;
         }
-        let Ok(allocation) = self.arena.allocate_control(self.headroom, self.mtu) else {
+        // Room for a control reply (IPv6 and a TCP header with every
+        // option), taken before the packet changes any state; a reply that
+        // carries data gets an allocation of its own size.
+        let Ok(allocation) = self
+            .arena
+            .allocate_control(self.headroom, TCP_CONTROL_PACKET_BYTES)
+        else {
             self.drop_packet(PacketDropReason::Resource);
             return;
         };
@@ -591,7 +606,9 @@ impl ScheduledContext<'_> {
                         self.fatal = Some(RunnerError::PacketExceedsMtu);
                         return;
                     }
-                    let mut allocation = if let Some(allocation) = reserved.take() {
+                    let mut allocation = if let Some(allocation) = reserved
+                        .take_if(|allocation| allocation.payload_capacity_mut().len() >= wire.len())
+                    {
                         allocation
                     } else {
                         let Ok(allocation) = self.arena.allocate_control(self.headroom, wire.len())
@@ -901,8 +918,16 @@ impl<I: PacketIo> SingleShardRunner<I> {
                     self.counters.pressure_exhausted_entries.saturating_add(1);
             }
         }
+        // Only handshakes that went stale: a client that already has its
+        // SYN-ACK and answers in time keeps its connection.
         if matches!(pressure, PressureLevel::Critical | PressureLevel::Exhausted) {
-            while let Some(token) = self.tcp.reclaim_oldest_syn_received() {
+            for _ in 0..SYN_RECLAIM_CAP {
+                let Some(token) = self
+                    .tcp
+                    .reclaim_stale_syn_received(now_ms, SYN_RECEIVED_STALE_MS)
+                else {
+                    break;
+                };
                 self.cancel_tcp_timer(token, TimerEvent::Retransmission);
             }
         }
