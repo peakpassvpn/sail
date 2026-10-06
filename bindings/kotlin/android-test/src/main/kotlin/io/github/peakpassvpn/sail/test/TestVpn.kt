@@ -2,8 +2,14 @@ package io.github.peakpassvpn.sail.test
 
 import android.content.Intent
 import android.net.ConnectivityManager
+import android.net.LinkProperties
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.net.VpnService
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.system.OsConstants
 import io.github.peakpassvpn.sail.ConnectionOwner
 import io.github.peakpassvpn.sail.ConnectionQuery
@@ -16,8 +22,9 @@ import org.json.JSONObject
 /**
  * sail in a VpnService, as a host runs it (docs/ffi.md): it opens the TUN
  * sail asks for, applying the per-app lists of the request, protects the
- * sockets sail dials, and tells sail who opened a connection. The tests
- * reach the running service through [running].
+ * sockets sail dials, tells sail who opened a connection, and follows the
+ * network under the VPN, telling sail of it as it changes (as sing-box's
+ * app does). The tests reach the running service through [running].
  */
 class TestVpn : VpnService() {
     companion object {
@@ -35,6 +42,14 @@ class TestVpn : VpnService() {
     @Volatile
     var lastRequest: JSONObject? = null
         private set
+
+    /** The network under the VPN, as last told to sail. */
+    @Volatile
+    var underlying: JSONObject? = null
+        private set
+
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private var lastNetwork: Network? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -61,15 +76,72 @@ class TestVpn : VpnService() {
         )
         instance.start(config)
         sail = instance
+        followNetwork()
     }
 
     /** Stops sail, which closes the TUN, and frees it. */
     fun stopSail() {
+        networkCallback?.let {
+            getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(it)
+        }
+        networkCallback = null
+        lastNetwork = null
         sail?.let {
             it.stop()
             it.close()
         }
         sail = null
+    }
+
+    /**
+     * Follows the best network that is not a VPN, the one under ours: each
+     * change is told to sail (`setNetworkState`), and a new network is also
+     * a change the TUN's flows do not survive (`networkChanged`).
+     */
+    private fun followNetwork() {
+        val connectivity = getSystemService(ConnectivityManager::class.java)
+        val request = NetworkRequest.Builder()
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+            .build()
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
+                tell(network, caps, connectivity.getLinkProperties(network))
+            }
+
+            override fun onLinkPropertiesChanged(network: Network, link: LinkProperties) {
+                tell(network, connectivity.getNetworkCapabilities(network), link)
+            }
+        }
+        connectivity.registerBestMatchingNetworkCallback(
+            request,
+            callback,
+            Handler(Looper.getMainLooper()),
+        )
+        networkCallback = callback
+    }
+
+    private fun tell(network: Network, caps: NetworkCapabilities?, link: LinkProperties?) {
+        val instance = sail ?: return
+        caps ?: return
+        val type = when {
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "wifi"
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "cellular"
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "ethernet"
+            else -> "other"
+        }
+        val state = JSONObject()
+            .put("type", type)
+            .put("interface", link?.interfaceName ?: "")
+            .put("addresses", org.json.JSONArray(link?.linkAddresses?.map { it.toString() }.orEmpty()))
+            .put("expensive", !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED))
+        if (state.toString() == underlying?.toString()) return
+        setUnderlyingNetworks(arrayOf(network))
+        instance.setNetworkState(state.toString())
+        val moved = lastNetwork != null && lastNetwork != network
+        lastNetwork = network
+        underlying = state
+        if (moved) instance.networkChanged()
     }
 
     /**

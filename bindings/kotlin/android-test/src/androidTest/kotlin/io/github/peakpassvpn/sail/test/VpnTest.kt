@@ -6,6 +6,7 @@ import android.net.NetworkCapabilities
 import android.net.VpnService
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import io.github.peakpassvpn.sail.EventKind
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
@@ -20,6 +21,10 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import org.json.JSONObject
 
 /**
  * sail in a VpnService on an emulator: DNS, TCP and UDP through it to the
@@ -70,6 +75,21 @@ class VpnTest {
     fun stopService() {
         TestVpn.running?.stopSail()
         context.stopService(Intent(context, TestVpn::class.java))
+        // As the emulator was: a test that switched a network turns it on
+        // again, and the next test waits for Wi-Fi to be back.
+        shell("svc wifi enable")
+        shell("svc data enable")
+        waitFor("Wi-Fi to be back", seconds = 60) { onValidatedWifi() }
+    }
+
+    /** Whether this app goes out a validated Wi-Fi network, no VPN between. */
+    private fun onValidatedWifi(): Boolean {
+        val connectivity = context.getSystemService(ConnectivityManager::class.java)
+        val caps = connectivity.activeNetwork?.let { connectivity.getNetworkCapabilities(it) }
+            ?: return false
+        return caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) &&
+            !caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
+            caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
     }
 
     private fun shell(command: String): String {
@@ -203,5 +223,61 @@ class VpnTest {
         assertNotNull(vpn().sail)
         tcpEcho { waitFor("sail to list the TCP connection again") { sailCarries(tcpPort) } }
         udpEcho()
+    }
+
+    /**
+     * A switch of the network under the VPN, Wi-Fi to cellular, during a
+     * TCP connection and a UDP flow through sail: the service tells sail
+     * (2.12), which tells the host back (`Event::Network`); the connection
+     * that went out the old network is closed, as 2.12 has those that are
+     * not bound to another; new ones go out the new network.
+     */
+    @Test
+    fun aSwitchOfNetworkIsFollowed() {
+        start(config())
+        waitFor("sail to be told of Wi-Fi") { vpn().underlying?.optString("type") == "wifi" }
+        runBlocking {
+            val events = java.util.Collections.synchronizedList(mutableListOf<JSONObject>())
+            val collecting = launch(Dispatchers.IO) {
+                vpn().sail!!.events(EventKind.NETWORK).collect { events.add(JSONObject(it)) }
+            }
+            Socket().use { socket ->
+                // A TCP connection open across the switch, and UDP before it.
+                socket.connect(InetSocketAddress(echoHost, tcpPort), 5000)
+                socket.soTimeout = 5000
+                socket.getOutputStream().write("before".toByteArray())
+                val before = ByteArray(6)
+                var read = 0
+                while (read < before.size) {
+                    read += socket.getInputStream().read(before, read, before.size - read)
+                }
+                waitFor("sail to list the TCP connection") { sailCarries(tcpPort) }
+                val old = vpn().sail!!.connections().first { it.destination.endsWith(":$tcpPort") }.id
+                udpEcho()
+
+                shell("svc wifi disable")
+                waitFor("sail to be told of cellular", seconds = 30) {
+                    vpn().underlying?.optString("type") == "cellular"
+                }
+                waitFor("the network event") {
+                    synchronized(events) {
+                        events.any { it.optJSONObject("new")?.optString("type") == "cellular" }
+                    }
+                }
+                // The connection of the old network is closed by sail, not
+                // left to time out.
+                waitFor("sail to close the old connection") {
+                    vpn().sail!!.connections().none { it.id == old }
+                }
+                socket.soTimeout = 10_000
+                val ended = runCatching { socket.getInputStream().read() }
+                    .fold({ it == -1 }, { true })
+                assertTrue("the old TCP connection went on", ended)
+            }
+            // New connections, out the new network.
+            tcpEcho { waitFor("sail to list a new TCP connection") { sailCarries(tcpPort) } }
+            udpEcho()
+            collecting.cancel()
+        }
     }
 }
