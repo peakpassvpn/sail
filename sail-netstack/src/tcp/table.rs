@@ -252,6 +252,9 @@ enum PendingSendReason {
 struct TimeWaitEntry {
     id: FlowId,
     acknowledgment: SendControl,
+    /// The peer's last timestamp, when the connection used them: a SYN
+    /// with a newer one may open the four-tuple again.
+    peer_timestamp: Option<u32>,
     _slot_lease: BudgetLease,
     _metadata_lease: BudgetLease,
 }
@@ -327,6 +330,8 @@ pub struct TcpTableStats {
     pub created_flows: u64,
     pub closed_flows: u64,
     pub time_wait_evictions: u64,
+    /// TIME-WAIT entries a new connection's SYN ended (RFC 6191).
+    pub time_wait_reuses: u64,
     pub malformed_packets: u64,
     pub invalid_address_drops: u64,
     pub timestamp_missing_drops: u64,
@@ -691,7 +696,9 @@ impl TcpTable {
                 segment.payload,
                 outgoing_limit,
             )
-        } else if self.time_wait.contains_key(&key) {
+        } else if self.time_wait.contains_key(&key)
+            && !self.time_wait_yields_to(key, segment.meta, &segment.options)
+        {
             self.ingest_time_wait(key, segment.meta)
         } else if is_initial_syn(segment.meta) {
             if !allow_new {
@@ -701,7 +708,12 @@ impl TcpTable {
                 self.stats.syns_rate_limited = self.stats.syns_rate_limited.saturating_add(1);
                 return Ok(TcpIngress::default());
             }
-            self.ingest_new(key, segment.meta, segment.options, segment.payload)
+            // A SYN a TIME-WAIT yields to: the old connection ends first.
+            let ended = self.end_time_wait(key);
+            let mut output =
+                self.ingest_new(key, segment.meta, segment.options, segment.payload)?;
+            output.cancelled_timers.extend(ended);
+            Ok(output)
         } else {
             self.reject_unknown(key, segment.meta, segment.options)
         }
@@ -2591,6 +2603,52 @@ impl TcpTable {
         )
     }
 
+    /// Whether a SYN on a four-tuple in TIME-WAIT opens a new connection, as
+    /// Linux's `tcp_timewait_state_process` has it (RFC 6191): unless its
+    /// timestamp is older than the old connection's last (an old duplicate,
+    /// PAWS), when its timestamp is newer, or its sequence number is past
+    /// what the old connection received. sail closes first toward the app,
+    /// so TIME-WAIT is sail's, and the app's kernel, holding none, reuses
+    /// the port: refused, its SYNs would retransmit until TIME-WAIT ends.
+    fn time_wait_yields_to(
+        &self,
+        key: TcpFlowKey,
+        segment: crate::TcpSegmentMeta,
+        options: &TcpOptions,
+    ) -> bool {
+        if !is_initial_syn(segment) {
+            return false;
+        }
+        let Some(entry) = self.time_wait.get(&key) else {
+            return false;
+        };
+        let (newer, older) = match (entry.peer_timestamp, options.timestamps) {
+            (Some(recent), Some((value, _))) => {
+                // Serial-number arithmetic, as PAWS compares them.
+                #[allow(clippy::cast_possible_wrap)]
+                let ahead = value.wrapping_sub(recent) as i32;
+                (ahead > 0, ahead < 0)
+            }
+            _ => (false, false),
+        };
+        !older && (newer || segment.sequence.after(entry.acknowledgment.acknowledgment))
+    }
+
+    /// Ends the TIME-WAIT of `key` for a new connection: its timer is the
+    /// one to cancel.
+    fn end_time_wait(&mut self, key: TcpFlowKey) -> Option<TcpTimerCancel> {
+        let entry = self.time_wait.remove(&key)?;
+        self.time_wait_order.remove(&entry.id.get());
+        self.by_id.remove(&entry.id);
+        increment_counter(&mut self.stats.closed_flows);
+        increment_counter(&mut self.stats.time_wait_reuses);
+        self.refresh_structural_stats();
+        Some(TcpTimerCancel {
+            token: TcpFlowToken::new_on_shard(entry.id, self.generation, self.shard),
+            event: TimerEvent::TimeWaitExpired,
+        })
+    }
+
     fn ingest_time_wait(
         &mut self,
         key: TcpFlowKey,
@@ -2647,6 +2705,7 @@ impl TcpTable {
             id,
             tcb,
             stats,
+            timestamp,
             _metadata_lease: mut metadata_lease,
             ..
         } = flow;
@@ -2664,6 +2723,7 @@ impl TcpTable {
             TimeWaitEntry {
                 id,
                 acknowledgment,
+                peer_timestamp: timestamp.map(|state| state.recent),
                 _slot_lease: slot_lease,
                 _metadata_lease: metadata_lease,
             },

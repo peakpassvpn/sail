@@ -4339,3 +4339,142 @@ fn closing_in_syn_sent_releases_the_flow_without_a_segment() {
     assert_eq!(closed.events, [TcpEvent::Closed(token)]);
     assert_eq!(ledger.snapshot().total_bytes, 0);
 }
+
+/// A flow the app's side ended into TIME-WAIT, with timestamps when `ts`
+/// gives the peer's first one: its token, and the server's next sequence.
+fn into_time_wait(
+    table: &mut TcpTable,
+    source: SocketAddr,
+    destination: SocketAddr,
+    ts: Option<u32>,
+) -> sail_netstack::TcpFlowToken {
+    let options = |value: u32, echo: u32| {
+        ts.map(|_| {
+            let mut options = vec![8, 10];
+            options.extend_from_slice(&value.to_be_bytes());
+            options.extend_from_slice(&echo.to_be_bytes());
+            options.extend_from_slice(&[1, 1]);
+            options
+        })
+        .unwrap_or_default()
+    };
+    let first = ts.unwrap_or(0);
+    let syn = packet_with_options(
+        source,
+        destination,
+        100,
+        0,
+        TcpFlags::SYN,
+        &options(first, 0),
+    );
+    let syn_ack = table.ingest_with_policy_at(&syn, true, 1_000).unwrap();
+    let syn_ack =
+        parse_tcp_segment(parse_ip_packet(&syn_ack.outgoing[0], true).unwrap(), true).unwrap();
+    let server_next = syn_ack.meta.sequence.wrapping_add(1).get();
+    let echo = syn_ack.options.timestamps.map_or(0, |(value, _)| value);
+    let ack = packet_with_options(
+        source,
+        destination,
+        101,
+        server_next,
+        TcpFlags::ACK,
+        &options(first + 1, echo),
+    );
+    let accepted = table.ingest_with_policy_at(&ack, true, 1_100).unwrap();
+    let token = match accepted.events.as_slice() {
+        [TcpEvent::Accepted(connection)] => connection.token,
+        events => panic!("unexpected events: {events:?}"),
+    };
+    table.accept(token).unwrap();
+    table.close(token).unwrap();
+    let fin = packet_with_options(
+        source,
+        destination,
+        101,
+        server_next.wrapping_add(1),
+        TcpFlags::ACK.union(TcpFlags::FIN),
+        &options(first + 2, echo),
+    );
+    let closed = table.ingest_with_policy_at(&fin, true, 1_200).unwrap();
+    assert_eq!(closed.timers[0].event, TimerEvent::TimeWaitExpired);
+    assert_eq!(table.stats().time_wait, 1);
+    token
+}
+
+/// What a SYN on the four-tuple in TIME-WAIT gets back: SYN-ACK (a new
+/// connection) or the old connection's bare ACK.
+fn answer_to_syn(
+    table: &mut TcpTable,
+    source: SocketAddr,
+    destination: SocketAddr,
+    sequence: u32,
+    ts: Option<u32>,
+) -> (TcpFlags, sail_netstack::TcpIngress) {
+    let options = ts
+        .map(|value| {
+            let mut options = vec![8, 10];
+            options.extend_from_slice(&value.to_be_bytes());
+            options.extend_from_slice(&0_u32.to_be_bytes());
+            options.extend_from_slice(&[1, 1]);
+            options
+        })
+        .unwrap_or_default();
+    let syn = packet_with_options(source, destination, sequence, 0, TcpFlags::SYN, &options);
+    let result = table.ingest_with_policy_at(&syn, true, 2_000).unwrap();
+    let reply =
+        parse_tcp_segment(parse_ip_packet(&result.outgoing[0], true).unwrap(), true).unwrap();
+    (reply.meta.flags, result)
+}
+
+/// sail closes first toward the app, so TIME-WAIT is sail's, and the app's
+/// kernel reuses the port at once: a SYN past what the old connection
+/// received opens a new one (RFC 6191, as Linux), its TIME-WAIT ended and
+/// its timer cancelled; one inside it gets the old connection's ACK.
+#[test]
+fn a_syn_past_what_time_wait_received_opens_a_new_connection() {
+    let ledger = ResourceLedger::new(BudgetProfile::Router.budget()).unwrap();
+    let mut table = TcpTable::new(ledger, NetworkGeneration::new(1), TcpTableConfig::default());
+    let (source, destination) = endpoints(61);
+    let old = into_time_wait(&mut table, source, destination, None);
+
+    let (flags, _) = answer_to_syn(&mut table, source, destination, 50, None);
+    assert_eq!(flags, TcpFlags::ACK, "a SYN inside the old connection");
+    assert_eq!(table.stats().time_wait, 1);
+
+    let (flags, result) = answer_to_syn(&mut table, source, destination, 50_000, None);
+    assert_eq!(flags, TcpFlags::SYN.union(TcpFlags::ACK));
+    assert_eq!(
+        result
+            .cancelled_timers
+            .iter()
+            .map(|c| (c.token, c.event))
+            .collect::<Vec<_>>(),
+        [(old, TimerEvent::TimeWaitExpired)]
+    );
+    assert_eq!(table.stats().time_wait, 0);
+    assert_eq!(table.stats().time_wait_reuses, 1);
+    assert_eq!(table.stats().active_flows, 1);
+}
+
+/// With timestamps, a newer one opens a new connection whatever its
+/// sequence number; an older one is an old duplicate (PAWS) whatever its
+/// sequence number, and gets the old ACK.
+#[test]
+fn a_syn_with_a_newer_timestamp_opens_a_new_connection_an_older_does_not() {
+    let ledger = ResourceLedger::new(BudgetProfile::Router.budget()).unwrap();
+    let mut table = TcpTable::new(ledger, NetworkGeneration::new(1), TcpTableConfig::default());
+    let (source, destination) = endpoints(62);
+    into_time_wait(&mut table, source, destination, Some(1_000));
+
+    let (flags, _) = answer_to_syn(&mut table, source, destination, 50_000, Some(900));
+    assert_eq!(flags, TcpFlags::ACK, "an older timestamp, a sequence past");
+    assert_eq!(table.stats().time_wait, 1);
+
+    let (flags, _) = answer_to_syn(&mut table, source, destination, 50, Some(5_000));
+    assert_eq!(
+        flags,
+        TcpFlags::SYN.union(TcpFlags::ACK),
+        "a newer timestamp"
+    );
+    assert_eq!(table.stats().time_wait, 0);
+}
