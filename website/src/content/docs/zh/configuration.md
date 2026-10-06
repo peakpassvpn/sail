@@ -136,7 +136,7 @@ sing-box 的 `ntp` 段会被丢弃并给出警告；其 `services`、`certificat
 }
 ```
 
-日志级别有 `trace`、`debug`、`info`、`warn`（或 `warning`）和 `error`；`fatal` 与 `panic` 也接受，效果同 `error`。`disabled` 关闭全部日志，`timestamp` 在每行开头加时间。`format: compact` 是 Sail 扩展，只输出消息本身。不设置 `output` 时输出到控制台。
+日志级别有 `trace`、`debug`、`info`、`warn`（或 `warning`）和 `error`；`fatal` 与 `panic` 也接受，效果同 `error`。`disabled` 关闭全部日志，`timestamp` 在每行开头加时间。`format: compact` 是 Sail 扩展，只输出消息本身。不设置 `output` 时输出到控制台。控制台是终端时才带颜色，管道或 systemd journal 不带；设置环境变量 `NO_COLOR` 后终端也不带颜色（对应 sing-box 的 `--disable-color`）。
 
 设置了 `api` 才会提供 API。默认在 Unix socket 上，即数据目录下的 `api.sock`（用 `path` 指定别处），只有运行 Sail 的用户能打开。`listen` 让它同时在回环地址上提供，例如 `127.0.0.1:9091`，此时必须设置 `secret`：用 `sail generate secret` 生成，每次调用以 `Authorization: Bearer <secret>` 携带，缺少或错误时返回 401。本机任何进程都能连上回环端口，而经网络发送的密钥是明文，所以 `listen` 只接受回环地址；要从别处访问，请用 SSH 隧道或反向代理。Unix socket 上设置了 `secret` 时也会校验。错误以 JSON 返回，形如 `{"error": {"code": "invalid", "message": "..."}}`；重载失败时也这样返回原因，原来的配置继续运行。
 

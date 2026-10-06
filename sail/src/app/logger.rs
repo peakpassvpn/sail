@@ -160,8 +160,13 @@ fn get_writer(config: &config::Log, host: &Host) -> Result<(WriterLayer, WorkerG
             (writer, writer_guard)
         }
         None => {
+            let colors = console_colors(
+                std::io::IsTerminal::is_terminal(&std::io::stdout()),
+                std::env::var_os("NO_COLOR"),
+            );
             let (writer, writer_guard) = tracing_appender::non_blocking(std::io::stdout());
             let writer = fmt::Layer::default()
+                .with_ansi(colors)
                 .with_writer(writer)
                 .event_format(LogEventFormat { mode, timestamp });
             (writer, writer_guard)
@@ -177,6 +182,14 @@ fn get_writer(config: &config::Log, host: &Host) -> Result<(WriterLayer, WorkerG
             (writer, writer_guard)
         }
     })
+}
+
+/// Whether lines to the console carry colour codes: only when it is a
+/// terminal, as a pipe or a file (the systemd journal, a supervisor) would
+/// keep the codes as text; and not when `NO_COLOR` is set and not empty,
+/// as no-color.org asks.
+fn console_colors(is_terminal: bool, no_color: Option<std::ffi::OsString>) -> bool {
+    is_terminal && no_color.is_none_or(|v| v.is_empty())
 }
 
 /// Writes out the lines logged so far, before the process exits: a thread
@@ -586,6 +599,15 @@ mod tests {
         });
         assert_eq!(out, 7);
         assert_eq!(kept, ["a field is ignored", "and an error"]);
+    }
+
+    #[test]
+    fn the_console_has_colours_only_as_a_terminal_without_no_color() {
+        assert!(console_colors(true, None));
+        assert!(!console_colors(false, None));
+        assert!(!console_colors(true, Some("1".into())));
+        assert!(console_colors(true, Some("".into())));
+        assert!(!console_colors(false, Some("".into())));
     }
 
     fn line(message: &str) -> Arc<LogLine> {

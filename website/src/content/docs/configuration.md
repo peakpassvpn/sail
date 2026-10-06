@@ -136,7 +136,7 @@ Unlike sing-box, sail's queries ask for a unicast reply (the QU bit of RFC 6762)
 }
 ```
 
-Log levels are `trace`, `debug`, `info`, `warn` (or `warning`) and `error`; `fatal` and `panic` are accepted and act as `error`. Set `disabled` to log nothing and `timestamp` to start each line with the time. `format: compact`, a Sail extension, writes the message alone. Leave `output` unset to log to the console.
+Log levels are `trace`, `debug`, `info`, `warn` (or `warning`) and `error`; `fatal` and `panic` are accepted and act as `error`. Set `disabled` to log nothing and `timestamp` to start each line with the time. `format: compact`, a Sail extension, writes the message alone. Leave `output` unset to log to the console. Console lines carry colours only when the console is a terminal, not a pipe or the systemd journal; set the `NO_COLOR` environment variable to leave them out there too (sing-box's `--disable-color`).
 
 The API is served when `api` is set. By default it is on a unix socket, `api.sock` in the data directory (`path` sets another), which only the user Sail runs as can open. `listen` serves it on a loopback address too, such as `127.0.0.1:9091`, and needs `secret`: one `sail generate secret` makes, which every call sends as `Authorization: Bearer <secret>`; a call without it gets 401. Any process on the host can reach a loopback port, and a secret sent over a network travels in the clear, so `listen` takes loopback addresses only; reach the API from elsewhere through an SSH tunnel or a reverse proxy. A `secret` set for the socket is checked there too. Errors are JSON, `{"error": {"code": "invalid", "message": "..."}}`; a reload that fails answers so, with why, and the configuration that ran runs on.
 
