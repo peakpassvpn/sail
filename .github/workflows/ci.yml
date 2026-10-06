@@ -885,6 +885,10 @@ jobs:
           # told, and left (tests/test_tun_integrity_windows.rs).
           cargo test --locked -p sail --features fault-injection --target x86_64-pc-windows-msvc --test test_tun_integrity_windows -- --ignored --test-threads 1 --nocapture
           if ($LASTEXITCODE -ne 0) { $status = $LASTEXITCODE }
+          # The system's split DNS (NRPT) is followed, and a rule reached
+          # through sail's own TUN passed over (tests/test_split_dns_windows.rs).
+          cargo test --locked -p sail --features fault-injection --target x86_64-pc-windows-msvc --test test_split_dns_windows -- --ignored --test-threads 1 --nocapture
+          if ($LASTEXITCODE -ne 0) { $status = $LASTEXITCODE }
           exit $status
 
   # L3: the Kotlin binding's tests, on a desktop JVM, against libsail_jni

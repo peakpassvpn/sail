@@ -24,6 +24,9 @@
 //! themselves know only the default ones (docs/compat).
 //! - macOS: the services' resolvers with `SupplementalMatchDomains`, and
 //!   /etc/resolver's files, as `scutil --dns` lists them.
+//! - Windows: the NRPT's rules with generic DNS servers
+//!   (system_windows.rs), asked on the interface the system routes their
+//!   servers through.
 //!
 //! Read again at most every 5 s, as Go's resolver reads resolv.conf, every
 //! second while none is found, and after the network changed. Servers on sail's own TUNs' networks are
@@ -66,6 +69,11 @@ pub(super) fn servers_asked(budget: Duration, n: usize) -> usize {
 #[cfg(target_os = "macos")]
 #[path = "system_macos.rs"]
 mod macos;
+
+// Windows' NRPT; its rules' reading is tested everywhere.
+#[cfg(any(windows, test))]
+#[path = "system_windows.rs"]
+mod nrpt;
 
 /// The interface whose servers are asked: the one the instance's dialer
 /// sends through, as it is when a query is asked.
@@ -151,8 +159,8 @@ pub(super) struct Chosen {
 
 /// `domain` as split resolvers are matched by: lowercase, with no dot at
 /// either end; none when that leaves nothing (a resolver for every name).
-// Windows' and Linux's readers of split resolvers come next.
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+// Linux's reader of split resolvers comes next.
+#[cfg_attr(not(any(target_os = "macos", windows)), allow(dead_code))]
 pub(super) fn domain(domain: &str) -> Option<String> {
     let domain = domain.trim_matches('.').to_ascii_lowercase();
     (!domain.is_empty()).then_some(domain)
@@ -594,7 +602,7 @@ fn resolv_conf() -> Result<Vec<Listed>> {
 fn servers(interface: Option<&str>) -> Result<Listing> {
     Ok(Listing {
         default: adapters(interface)?,
-        split: Vec::new(),
+        split: nrpt::nrpt(),
     })
 }
 
