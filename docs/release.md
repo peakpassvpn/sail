@@ -51,6 +51,31 @@ workflow adds the hashes, provenance and size lines after them.
    `gh attestation verify <file> -R peakpassvpn/sail`, and that SwiftPM
    resolves the tag.
 
+## A patch release from a tag
+
+When `master` already holds changes that must not ship yet, a patch
+release (X.Y.Z+1) is cut from the tag it fixes, with only its fixes:
+
+1. Branch from the tagged release's source commit (the parent of the
+   tag's `Package.swift` commit) as `ci/release-X.Y.Z`, the new version.
+2. Cherry-pick each fix with `git cherry-pick -x`. Resolve conflicts
+   minimally, and say in the commit message what was taken and left.
+3. Set the version and write `docs/releases/X.Y.Z.md` as in a release
+   from `master`: fixes only, and whether anything breaks.
+4. Run the whole matrix on the branch, not just what a push runs:
+
+       gh workflow run ci.yml --ref ci/release-X.Y.Z
+
+5. Dispatch the release on the branch. The workflow publishes from
+   `master` or from `ci/release-<version>` only:
+
+       gh workflow run release.yml --ref ci/release-X.Y.Z \
+         -f version=X.Y.Z -f publish=true -f prerelease=true
+
+6. Check the release as in step 6 above. Then delete the branch (the tag
+   keeps its commits), and add `docs/releases/X.Y.Z.md` to `master` in a
+   docs-only commit. `master` does not take the version bump.
+
 ## Dry runs
 
 Without `publish`, the workflow is a dry run: everything is built and

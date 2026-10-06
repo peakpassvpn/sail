@@ -1,6 +1,7 @@
 name: release
 
-# A release is started by hand on master, with its version; without
+# A release is started by hand on master (a patch release on its
+# ci/release-<version> branch, docs/release.md), with its version; without
 # `publish` it is a dry run, whose files stay in the run's artifacts.
 # The 5.8 release design: each target is built by its own job with the
 # scripts ci.yml's cross job checks, symbols are kept apart, two Linux
@@ -65,8 +66,11 @@ jobs:
           crate=$(sed -n 's/^version = "\(.*\)"/\1/p' sail-cli/Cargo.toml | head -1)
           [ "$crate" = "$VERSION" ] ||
             { echo "::error::sail-cli is $crate, not $VERSION"; exit 1; }
-          if [ "$PUBLISH" = true ] && [ "$GITHUB_REF" != refs/heads/master ]; then
-            echo "::error::a release is published from master only"; exit 1
+          # From master, or a patch release's branch cut from its tag
+          # (docs/release.md): ci/release-<this version>, nothing broader.
+          if [ "$PUBLISH" = true ] && [ "$GITHUB_REF" != refs/heads/master ] &&
+            [ "$GITHUB_REF" != "refs/heads/ci/release-$VERSION" ]; then
+            echo "::error::a release is published from master or ci/release-$VERSION only"; exit 1
           fi
 
       # Not run again here: the ci run on this commit must have passed. A
