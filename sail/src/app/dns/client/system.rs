@@ -16,6 +16,15 @@
 //!   where it sends by the default route, of the adapters that are up and
 //!   have a gateway, as IP Helper tells them.
 //!
+//! The system's split DNS is followed too: a resolver for some domains
+//! only (a corporate VPN's for its own, Tailscale's for ts.net) is asked
+//! for names under them, the longest domain first, through the interface
+//! the system asks it on, which is seldom the one the dialer follows.
+//! sing-box's and Mihomo's servers that ask the system's servers
+//! themselves know only the default ones (docs/compat).
+//! - macOS: the services' resolvers with `SupplementalMatchDomains`, and
+//!   /etc/resolver's files, as `scutil --dns` lists them.
+//!
 //! Read again at most every 5 s, as Go's resolver reads resolv.conf, every
 //! second while none is found, and after the network changed. Servers on sail's own TUNs' networks are
 //! left out: auto_route gives a TUN a DNS server of its own (resolved's,
@@ -99,6 +108,54 @@ struct Read {
     at: Instant,
     interface: Option<String>,
     servers: Vec<SocketAddr>,
+    split: Vec<SplitRead>,
+}
+
+/// A resolver the system has for some domains only (split DNS).
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct Split {
+    /// Lowercase, with no dot at either end; never empty.
+    pub domains: Vec<String>,
+    pub servers: Vec<Listed>,
+    /// The interface the system asks it on, where it names one.
+    pub interface: Option<String>,
+}
+
+/// What the system lists: the servers asked for any name, and those for
+/// some names only.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(super) struct Listing {
+    pub default: Vec<Listed>,
+    pub split: Vec<Split>,
+}
+
+/// A split resolver as read: its servers where they are asked.
+#[derive(Clone, Debug, PartialEq)]
+struct SplitRead {
+    domains: Vec<String>,
+    servers: Vec<SocketAddr>,
+    interface: Option<String>,
+}
+
+/// The servers one query is asked of, and the interface it leaves
+/// through when that is not the dialer's.
+#[derive(Debug, PartialEq)]
+pub(super) struct Chosen {
+    pub servers: Vec<SocketAddr>,
+    /// A split resolver's interface, or the one the system routes its
+    /// servers through; none for the dialer's own.
+    pub interface: Option<String>,
+    /// The domain of the split resolver asked, if one is.
+    pub domain: Option<String>,
+}
+
+/// `domain` as split resolvers are matched by: lowercase, with no dot at
+/// either end; none when that leaves nothing (a resolver for every name).
+// Windows' and Linux's readers of split resolvers come next.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub(super) fn domain(domain: &str) -> Option<String> {
+    let domain = domain.trim_matches('.').to_ascii_lowercase();
+    (!domain.is_empty()).then_some(domain)
 }
 
 impl Read {
@@ -122,6 +179,30 @@ impl SystemServers {
             at: Instant::now() + Duration::from_secs(86400),
             interface: None,
             servers,
+            split: Vec::new(),
+        });
+    }
+
+    /// Takes `servers` as the system's, and `split` (domains, servers) as
+    /// its split resolvers, naming no interface, for good.
+    #[cfg(test)]
+    pub(super) fn set_split(
+        &self,
+        servers: Vec<SocketAddr>,
+        split: Vec<(&[&str], Vec<SocketAddr>)>,
+    ) {
+        *self.read.lock().unwrap_or_else(|e| e.into_inner()) = Some(Read {
+            at: Instant::now() + Duration::from_secs(86400),
+            interface: None,
+            servers,
+            split: split
+                .into_iter()
+                .map(|(domains, servers)| SplitRead {
+                    domains: domains.iter().map(|d| d.to_string()).collect(),
+                    servers,
+                    interface: None,
+                })
+                .collect(),
         });
     }
 
@@ -136,66 +217,198 @@ impl SystemServers {
     /// interfaces `own` (sail's TUNs); an error at once when no other is
     /// left, with no fallback to the system's resolver or to a server on
     /// this host.
+    #[cfg(test)]
     pub(super) fn get(&self, own: &[String], interface: Option<&str>) -> Result<Vec<SocketAddr>> {
         self.get_with(own, interface, servers)
     }
 
     /// `get`, reading the system's servers with `servers`.
+    #[cfg(test)]
     fn get_with(
         &self,
         own: &[String],
         interface: Option<&str>,
-        servers: impl FnOnce(Option<&str>) -> Result<Vec<Listed>>,
+        servers: impl FnOnce(Option<&str>) -> Result<Listing>,
     ) -> Result<Vec<SocketAddr>> {
-        let servers = {
-            let mut read = self.read.lock().unwrap_or_else(|e| e.into_inner());
-            match read.as_ref() {
-                Some(r) if r.fresh(interface) => r.servers.clone(),
-                _ => {
-                    match servers(interface) {
-                        Ok(listed) => {
-                            let mut servers = Vec::new();
-                            for address in listed.iter().filter_map(|l| l.address(interface)) {
-                                if !servers.contains(&address) {
-                                    servers.push(address);
-                                }
-                            }
-                            if read.as_ref().is_none_or(|r| r.servers != servers) {
-                                tell(&servers, interface, own);
-                            }
-                            *read = Some(Read {
-                                at: Instant::now(),
-                                interface: interface.map(str::to_owned),
-                                servers: servers.clone(),
-                            });
-                            servers
-                        }
-                        // What was read of the same interface stays, rather than
-                        // no server at all.
-                        Err(e) => match read.as_mut() {
-                            Some(r) if r.interface.as_deref() == interface => {
-                                warn!("dns: reading the system's servers: {}; keeping those read before", e);
-                                r.at = Instant::now();
-                                r.servers.clone()
-                            }
-                            _ => return Err(anyhow!("reading the system's DNS servers: {}", e)),
-                        },
-                    }
-                }
-            }
-        };
-        let servers: Vec<SocketAddr> = servers
-            .into_iter()
-            .filter(|s| !crate::net::interface::on_interfaces(own, s.ip()))
-            .collect();
-        if servers.is_empty() {
-            return Err(match interface {
-                Some(interface) => anyhow!("the system has no DNS server to ask on {}", interface),
-                None => anyhow!("the system has no DNS server to ask"),
-            });
-        }
-        Ok(servers)
+        let (default, _) = self.read_with(own, interface, servers)?;
+        not_own(own, interface, default)
     }
+
+    /// The servers a query for `name` is asked of: a split resolver's,
+    /// that of the longest of its domains `name` is under, when `split`;
+    /// else the system's (`get`). A split resolver on one of `own`, or
+    /// whose servers all are, is passed over.
+    pub(super) fn choose(
+        &self,
+        own: &[String],
+        interface: Option<&str>,
+        name: &str,
+        split: bool,
+    ) -> Result<Chosen> {
+        self.choose_with(own, interface, name, split, servers, route_interface)
+    }
+
+    /// `choose`, reading the system's servers with `servers`, and the
+    /// interface the system routes an address through with `routed`.
+    fn choose_with(
+        &self,
+        own: &[String],
+        interface: Option<&str>,
+        name: &str,
+        split: bool,
+        servers: impl FnOnce(Option<&str>) -> Result<Listing>,
+        routed: impl Fn(IpAddr) -> Option<String>,
+    ) -> Result<Chosen> {
+        let (default, splits) = self.read_with(own, interface, servers)?;
+        let usable: Vec<&SplitRead> = splits
+            .iter()
+            .filter(|s| s.interface.as_ref().is_none_or(|i| !own.contains(i)))
+            .collect();
+        if let Some((entry, domain)) = split.then(|| matching(&usable, name)).flatten() {
+            let servers: Vec<SocketAddr> = entry
+                .servers
+                .iter()
+                .copied()
+                .filter(|s| !crate::net::interface::on_interfaces(own, s.ip()))
+                .collect();
+            if !servers.is_empty() {
+                let via = entry
+                    .interface
+                    .clone()
+                    .or_else(|| servers.iter().find_map(|s| routed(s.ip())))
+                    .filter(|i| !own.contains(i));
+                return Ok(Chosen {
+                    servers,
+                    interface: via,
+                    domain: Some(domain.to_owned()),
+                });
+            }
+        }
+        Ok(Chosen {
+            servers: not_own(own, interface, default)?,
+            interface: None,
+            domain: None,
+        })
+    }
+
+    /// The system's servers and split resolvers, as read within 5 s, or
+    /// read now with `servers`.
+    fn read_with(
+        &self,
+        own: &[String],
+        interface: Option<&str>,
+        servers: impl FnOnce(Option<&str>) -> Result<Listing>,
+    ) -> Result<(Vec<SocketAddr>, Vec<SplitRead>)> {
+        let mut read = self.read.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(r) = read.as_ref().filter(|r| r.fresh(interface)) {
+            return Ok((r.servers.clone(), r.split.clone()));
+        }
+        match servers(interface) {
+            Ok(listing) => {
+                let servers = addresses(&listing.default, interface);
+                let split: Vec<SplitRead> = listing
+                    .split
+                    .iter()
+                    .map(|s| SplitRead {
+                        domains: s.domains.clone(),
+                        servers: addresses(&s.servers, s.interface.as_deref().or(interface)),
+                        interface: s.interface.clone(),
+                    })
+                    .filter(|s| !s.servers.is_empty())
+                    .collect();
+                if read
+                    .as_ref()
+                    .is_none_or(|r| r.servers != servers || r.split != split)
+                {
+                    tell(&servers, &split, interface, own);
+                }
+                *read = Some(Read {
+                    at: Instant::now(),
+                    interface: interface.map(str::to_owned),
+                    servers: servers.clone(),
+                    split: split.clone(),
+                });
+                Ok((servers, split))
+            }
+            // What was read of the same interface stays, rather than no
+            // server at all.
+            Err(e) => match read.as_mut() {
+                Some(r) if r.interface.as_deref() == interface => {
+                    warn!(
+                        "dns: reading the system's servers: {}; keeping those read before",
+                        e
+                    );
+                    r.at = Instant::now();
+                    Ok((r.servers.clone(), r.split.clone()))
+                }
+                _ => Err(anyhow!("reading the system's DNS servers: {}", e)),
+            },
+        }
+    }
+}
+
+/// Where `listed` are asked, each once, in order.
+fn addresses(listed: &[Listed], interface: Option<&str>) -> Vec<SocketAddr> {
+    let mut servers = Vec::new();
+    for address in listed.iter().filter_map(|l| l.address(interface)) {
+        if !servers.contains(&address) {
+            servers.push(address);
+        }
+    }
+    servers
+}
+
+/// `servers` but those on the networks of the interfaces `own`; an error
+/// when none is left.
+fn not_own(
+    own: &[String],
+    interface: Option<&str>,
+    servers: Vec<SocketAddr>,
+) -> Result<Vec<SocketAddr>> {
+    let servers: Vec<SocketAddr> = servers
+        .into_iter()
+        .filter(|s| !crate::net::interface::on_interfaces(own, s.ip()))
+        .collect();
+    if servers.is_empty() {
+        return Err(match interface {
+            Some(interface) => anyhow!("the system has no DNS server to ask on {}", interface),
+            None => anyhow!("the system has no DNS server to ask"),
+        });
+    }
+    Ok(servers)
+}
+
+/// The split resolver of `splits` for `name`, with the domain it is
+/// chosen by: the longest of their domains that `name` is or is under.
+fn matching<'a>(splits: &[&'a SplitRead], name: &str) -> Option<(&'a SplitRead, &'a str)> {
+    let name = name.trim_end_matches('.').to_ascii_lowercase();
+    let mut best: Option<(&SplitRead, &str)> = None;
+    for &split in splits {
+        for domain in &split.domains {
+            let under = name == *domain
+                || name
+                    .strip_suffix(domain.as_str())
+                    .is_some_and(|rest| rest.ends_with('.'));
+            if under && best.is_none_or(|(_, b)| domain.len() > b.len()) {
+                best = Some((split, domain));
+            }
+        }
+    }
+    best
+}
+
+/// The interface the system routes `address` through, where sail asks
+/// the system: on Windows, whose split resolvers (NRPT) name none.
+#[cfg(not(windows))]
+fn route_interface(_: IpAddr) -> Option<String> {
+    None
+}
+
+#[cfg(windows)]
+fn route_interface(address: IpAddr) -> Option<String> {
+    use crate::platform::windows::ip_helper::{best_route, Luid};
+    let (index, _, _) = best_route(address).ok()?;
+    Luid::by_index(index).and_then(Luid::alias).ok()
 }
 
 /// A server as the system lists it, with the interface a link-local one
@@ -272,7 +485,7 @@ impl Listed {
 /// forwarder's own queries go out through the default route, which such a
 /// TUN takes, unless it is left out of it. sing-box asks one on this host
 /// as resolv.conf names it, and so does sail.
-fn tell(servers: &[SocketAddr], interface: Option<&str>, own: &[String]) {
+fn tell(servers: &[SocketAddr], split: &[SplitRead], interface: Option<&str>, own: &[String]) {
     let on = interface.map(|i| format!(" on {}", i)).unwrap_or_default();
     let list: Vec<String> = servers.iter().map(|s| s.ip().to_string()).collect();
     info!(
@@ -284,6 +497,18 @@ fn tell(servers: &[SocketAddr], interface: Option<&str>, own: &[String]) {
             list.join(", ")
         }
     );
+    for s in split {
+        let list: Vec<String> = s.servers.iter().map(|s| s.ip().to_string()).collect();
+        info!(
+            "dns: the system's servers for {}{}: {}",
+            s.domains.join(", "),
+            s.interface
+                .as_ref()
+                .map(|i| format!(" on {}", i))
+                .unwrap_or_default(),
+            list.join(", ")
+        );
+    }
     if !own.is_empty() && servers.iter().any(|s| s.ip().is_loopback()) {
         warn!(
             "dns: the system's DNS server is on this host (a forwarder): its own queries go into \
@@ -331,18 +556,26 @@ fn only_resolved_stub(listed: &[Listed]) -> bool {
     !listed.is_empty() && listed.iter().all(stub)
 }
 
-/// The servers of `interface`, where the system tells them by interface.
+/// The servers of `interface`, where the system tells them by interface,
+/// and the split resolvers.
 #[cfg(target_os = "macos")]
-fn servers(interface: Option<&str>) -> Result<Vec<Listed>> {
-    match interface {
-        Some(interface) => macos::servers_of(interface),
-        None => resolv_conf(),
-    }
+fn servers(interface: Option<&str>) -> Result<Listing> {
+    let services = macos::services()?;
+    let default = match interface {
+        Some(interface) => macos::select(&services, interface),
+        None => resolv_conf()?,
+    };
+    let mut split = macos::split(&services);
+    split.extend(macos::resolver_files());
+    Ok(Listing { default, split })
 }
 
 #[cfg(all(unix, not(target_os = "macos")))]
-fn servers(_: Option<&str>) -> Result<Vec<Listed>> {
-    resolv_conf()
+fn servers(_: Option<&str>) -> Result<Listing> {
+    Ok(Listing {
+        default: resolv_conf()?,
+        split: Vec::new(),
+    })
 }
 
 /// resolv.conf's servers; an error when it cannot be read.
@@ -358,7 +591,17 @@ fn resolv_conf() -> Result<Vec<Listed>> {
 }
 
 #[cfg(windows)]
-fn servers(interface: Option<&str>) -> Result<Vec<Listed>> {
+fn servers(interface: Option<&str>) -> Result<Listing> {
+    Ok(Listing {
+        default: adapters(interface)?,
+        split: Vec::new(),
+    })
+}
+
+/// The DNS servers of the adapter `interface`, or of those that are up
+/// with a gateway.
+#[cfg(windows)]
+fn adapters(interface: Option<&str>) -> Result<Vec<Listed>> {
     use windows_sys::Win32::NetworkManagement::IpHelper::{
         GetAdaptersAddresses, GAA_FLAG_INCLUDE_GATEWAYS, GAA_FLAG_SKIP_ANYCAST,
         GAA_FLAG_SKIP_MULTICAST, IP_ADAPTER_ADDRESSES_LH,
@@ -452,8 +695,8 @@ fn servers(interface: Option<&str>) -> Result<Vec<Listed>> {
 }
 
 #[cfg(not(any(unix, windows)))]
-fn servers(_: Option<&str>) -> Vec<IpAddr> {
-    Vec::new()
+fn servers(_: Option<&str>) -> Result<Listing> {
+    Ok(Listing::default())
 }
 
 #[cfg(test)]
@@ -580,6 +823,7 @@ mod tests {
             at: Instant::now() - Duration::from_millis(age),
             interface: Some("en0".into()),
             servers,
+            split: Vec::new(),
         };
         let some = vec!["192.0.2.1:53".parse().unwrap()];
         assert!(read(1500, some.clone()).fresh(Some("en0")));
@@ -610,8 +854,11 @@ mod tests {
     /// none read before, or for another interface.
     #[test]
     fn a_read_that_fails_keeps_those_read_before() {
-        let listed = |all: &[&str]| -> Result<Vec<Listed>> {
-            Ok(all.iter().map(|s| Listed::parse(s).unwrap()).collect())
+        let listed = |all: &[&str]| -> Result<Listing> {
+            Ok(Listing {
+                default: all.iter().map(|s| Listed::parse(s).unwrap()).collect(),
+                split: Vec::new(),
+            })
         };
         let addr = |s: &str| -> SocketAddr { s.parse().unwrap() };
         let servers = SystemServers::default();
@@ -642,5 +889,142 @@ mod tests {
         assert!(servers
             .get_with(&[], Some("en1"), |_| Err(anyhow!("unreadable")))
             .is_err());
+    }
+
+    fn split(domains: &[&str], servers: &[&str], interface: Option<&str>) -> Split {
+        Split {
+            domains: domains.iter().map(|d| d.to_string()).collect(),
+            servers: servers.iter().map(|s| Listed::parse(s).unwrap()).collect(),
+            interface: interface.map(str::to_owned),
+        }
+    }
+
+    fn listing(split: Vec<Split>) -> impl FnOnce(Option<&str>) -> Result<Listing> {
+        move |_| {
+            Ok(Listing {
+                default: vec![Listed::parse("192.0.2.1").unwrap()],
+                split,
+            })
+        }
+    }
+
+    fn choose(
+        own: &[String],
+        name: &str,
+        on: bool,
+        splits: Vec<Split>,
+        routed: impl Fn(IpAddr) -> Option<String>,
+    ) -> (Vec<String>, Option<String>, Option<String>) {
+        let chosen = SystemServers::default()
+            .choose_with(own, Some("en0"), name, on, listing(splits), routed)
+            .unwrap();
+        (
+            chosen.servers.iter().map(|s| s.ip().to_string()).collect(),
+            chosen.interface,
+            chosen.domain,
+        )
+    }
+
+    fn none(_: IpAddr) -> Option<String> {
+        None
+    }
+
+    /// A name under a split resolver's domain is asked of its servers, on
+    /// its interface; the longest domain wins, whatever the case or a
+    /// final dot; another name, or split DNS off, the system's servers.
+    #[test]
+    fn a_name_under_a_split_domain_is_asked_of_its_resolver() {
+        let splits = || {
+            vec![
+                split(&["corp.example"], &["10.0.0.53"], Some("utun4")),
+                split(&["eu.corp.example"], &["10.1.0.53"], Some("utun5")),
+            ]
+        };
+        let corp = |s: &str| Some(s.to_string());
+        assert_eq!(
+            choose(&[], "Intranet.CORP.example.", true, splits(), none),
+            (
+                vec!["10.0.0.53".into()],
+                corp("utun4"),
+                corp("corp.example")
+            )
+        );
+        assert_eq!(
+            choose(&[], "a.eu.corp.example", true, splits(), none),
+            (
+                vec!["10.1.0.53".into()],
+                corp("utun5"),
+                corp("eu.corp.example")
+            )
+        );
+        assert_eq!(
+            choose(&[], "corp.example", true, splits(), none).1,
+            corp("utun4")
+        );
+        for name in ["notcorp.example", "example", "corp.example.com"] {
+            assert_eq!(
+                choose(&[], name, true, splits(), none),
+                (vec!["192.0.2.1".into()], None, None),
+                "{name}"
+            );
+        }
+        assert_eq!(
+            choose(&[], "intranet.corp.example", false, splits(), none),
+            (vec!["192.0.2.1".into()], None, None)
+        );
+    }
+
+    /// A resolver naming no interface (NRPT) is asked on the one the
+    /// system routes its server through, unless that is sail's own TUN:
+    /// then on the dialer's.
+    #[test]
+    fn a_split_resolver_with_no_interface_goes_where_its_server_is_routed() {
+        let own = vec!["tun0".to_string()];
+        let splits = || vec![split(&["corp.example"], &["10.0.0.53"], None)];
+        let via = |name: &'static str| move |_: IpAddr| Some(name.to_string());
+        assert_eq!(
+            choose(&own, "a.corp.example", true, splits(), via("Corp VPN")).1,
+            Some("Corp VPN".into())
+        );
+        let (servers, interface, _) = choose(&own, "a.corp.example", true, splits(), via("tun0"));
+        assert_eq!((servers, interface), (vec!["10.0.0.53".into()], None));
+    }
+
+    /// A split resolver on sail's own TUN (a host pointing a domain at
+    /// it) is passed over for the system's servers.
+    #[test]
+    fn a_split_resolver_on_sail_s_own_tun_is_passed_over() {
+        let own = vec!["utun9".to_string()];
+        let splits = vec![split(&["corp.example"], &["10.0.0.53"], Some("utun9"))];
+        assert_eq!(
+            choose(&own, "a.corp.example", true, splits, none),
+            (vec!["192.0.2.1".into()], None, None)
+        );
+    }
+
+    /// A split resolver whose servers are all on the network of sail's own
+    /// TUN is passed over too.
+    #[cfg(unix)]
+    #[test]
+    fn a_split_resolver_reached_through_sail_s_own_tun_is_passed_over() {
+        let Some((network, _, name)) = crate::net::interface::subnets()
+            .unwrap()
+            .into_iter()
+            .find(|(network, ..)| network.is_ipv4() && !network.is_loopback())
+        else {
+            return;
+        };
+        let splits = vec![split(&["corp.example"], &[&network.to_string()], None)];
+        assert_eq!(
+            choose(&[name], "a.corp.example", true, splits, none),
+            (vec!["192.0.2.1".into()], None, None)
+        );
+    }
+
+    #[test]
+    fn domains_are_taken_lowercase_without_dots() {
+        assert_eq!(domain(".Corp.Example."), Some("corp.example".into()));
+        assert_eq!(domain(""), None);
+        assert_eq!(domain("."), None);
     }
 }

@@ -1932,6 +1932,42 @@ mod tests {
         assert_eq!(asked(&count), 1);
     }
 
+    /// A name under a split resolver's domain is asked of its servers,
+    /// another of the system's.
+    #[tokio::test]
+    async fn a_local_server_asks_a_split_resolver_for_its_domains() {
+        let (default_port, default_count) = counting_server(60, false).await;
+        let (split_port, split_count) = counting_server(60, false).await;
+        let at = |port: u16| std::net::SocketAddr::from(([127, 0, 0, 1], port));
+        let config = crate::config::Config::from_json(
+            &serde_json::json!({ "dns": { "servers": [
+                { "type": "local", "tag": "sys", "connect_timeout": "2s" }
+            ] } })
+            .to_string(),
+        )
+        .unwrap();
+        let client = DnsClient::new(&config.dns, Default::default(), &Default::default())
+            .unwrap()
+            .into_arc();
+        let Kind::Local(local) = &client.servers["sys"].kind else {
+            panic!("a local server");
+        };
+        let dialed = local
+            .dialed
+            .as_ref()
+            .expect("dial fields make it ask the servers itself");
+        assert!(dialed.split);
+        dialed.servers.set_split(
+            vec![at(default_port)],
+            vec![(&["corp.example"][..], vec![at(split_port)])],
+        );
+        let answer = exchange(&client, "intranet.corp.example", RecordType::A).await;
+        assert_eq!(answer_ips(&answer), ips(&["10.0.0.1"]));
+        assert_eq!((asked(&default_count), asked(&split_count)), (0, 1));
+        exchange(&client, "a.example", RecordType::A).await;
+        assert_eq!((asked(&default_count), asked(&split_count)), (1, 1));
+    }
+
     /// The system's servers are asked in order, each with its share of
     /// the query's time: one that does not answer leaves time for the
     /// next, rather than taking it all.

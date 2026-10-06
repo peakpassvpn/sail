@@ -1513,8 +1513,13 @@ resolv.conf's timeout (5 s), so that with a 10 s query its third server is never
 interface to send through, it fails at once rather than asking the system's servers of no \
 network in particular, where sing-box falls back to 127.0.0.1 and ::1. On macOS, where sing-box \
 leaves names to the system's resolver, sail asks the servers of the interface its dialer sends \
-through, set by hand or else told by the network; those of a split-DNS resolver \
-(`SupplementalMatchDomains`) are not asked.",
+through, set by hand or else told by the network. The system's split DNS is followed, which \
+neither sing-box's local server asking servers itself nor Mihomo's `system` does: a name under \
+the domain of a resolver for some domains only (on macOS one with `SupplementalMatchDomains`, or \
+a file of /etc/resolver) is asked of that resolver's servers, through the interface the system \
+asks it on, the longest domain first. A resolver on sail's own TUN, or whose servers are all on \
+its network, is passed over; a server with a `detour` or a `bind_interface` of its own follows \
+none.",
     summary: "## Summary",
     area: "Section",
     total: "Fields",
@@ -1551,7 +1556,7 @@ const ZH: Words = Words {
 
 与 sing-box 一致，`resolve` 路由动作把目标域名解析出的地址交给连接所走的任一出站：代理服务器收到的是由本地 DNS 决定的地址，而不是域名，它不会自己再解析。
 
-在默认拨号器绑定套接字时（占用默认路由的 TUN 即如此），`local` 服务器自己询问系统的 DNS 服务器：按顺序询问，每个服务器平分查询剩余的时间，最多三个，每个至少一秒；sing-box 给每个服务器 resolv.conf 的超时（5 秒），因此在 10 秒的查询里它的第三个服务器永远不会被询问。没有可发送的接口时立即失败，而不去询问不属于任何网络的系统服务器（sing-box 此时回退到 127.0.0.1 和 ::1）。在 macOS 上 sing-box 把名字交给系统解析器，sail 则询问其拨号器所走接口的服务器：手动设置的优先，否则用网络告知的；分离 DNS 解析器（`SupplementalMatchDomains`）的服务器不询问。",
+在默认拨号器绑定套接字时（占用默认路由的 TUN 即如此），`local` 服务器自己询问系统的 DNS 服务器：按顺序询问，每个服务器平分查询剩余的时间，最多三个，每个至少一秒；sing-box 给每个服务器 resolv.conf 的超时（5 秒），因此在 10 秒的查询里它的第三个服务器永远不会被询问。没有可发送的接口时立即失败，而不去询问不属于任何网络的系统服务器（sing-box 此时回退到 127.0.0.1 和 ::1）。在 macOS 上 sing-box 把名字交给系统解析器，sail 则询问其拨号器所走接口的服务器：手动设置的优先，否则用网络告知的。sail 会遵循系统的分离 DNS，sing-box 自己询问服务器的 local 服务器和 Mihomo 的 `system` 都不会：名字落在只负责部分域名的解析器的域名下（macOS 上带 `SupplementalMatchDomains` 的解析器，或 /etc/resolver 下的文件）时，询问该解析器的服务器，并从系统询问它所用的接口发出，最长的域名优先。位于 sail 自己 TUN 上、或服务器全在其网络内的解析器会被跳过；带 `detour` 或自己设了 `bind_interface` 的服务器不遵循分离 DNS。",
     summary: "## 汇总",
     area: "部分",
     total: "字段数",

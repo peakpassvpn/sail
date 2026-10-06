@@ -395,6 +395,10 @@ pub(super) struct LocalDialed {
     /// The interface the dialer sends through, whose servers are asked
     /// where the system tells them by interface.
     pub interface: super::system::Interface,
+    /// Whether the system's split resolvers are asked for their domains:
+    /// not through a detour, which reaches no private network, nor where
+    /// the server's own `bind_interface` says where it sends.
+    pub split: bool,
 }
 
 impl Server {
@@ -493,6 +497,7 @@ impl Server {
                             }
                             _ => super::system::Interface::Any,
                         },
+                        split: o.dial.detour.is_none() && o.dial.bind_interface.is_none(),
                     })
                 };
                 // A system without a hosts file has no names in it.

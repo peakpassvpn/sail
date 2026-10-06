@@ -141,7 +141,7 @@ jobs:
           # Everything on master.
           declare -A filters=(
             [bindings]='^(bindings/|sail-ffi/|sail/src/embed|sail/src/control/json_snapshot\.json$|Package\.swift$)'
-            [tun_macos]='^(sail/src/protocol/tun/|sail/src/platform/|sail/src/runtime/teardown\.rs|sail/src/fault\.rs|sail/tests/test_teardown\.rs|sail/tests/test_tun_integrity_macos\.rs|sail/tests/test_tun_replaced_macos\.rs|sail/tests/scripts/macos_)'
+            [tun_macos]='^(sail/src/protocol/tun/|sail/src/platform/|sail/src/runtime/teardown\.rs|sail/src/fault\.rs|sail/tests/test_teardown\.rs|sail/tests/test_tun_integrity_macos\.rs|sail/tests/test_split_dns_macos\.rs|sail/src/app/dns/client/system|sail/tests/test_tun_replaced_macos\.rs|sail/tests/scripts/macos_)'
             [netns_linux]='^(sail/src/protocol/tun/|sail/src/net/netstack/|sail/src/platform/|sail/src/runtime/|sail/src/fault\.rs|sail/src/protocol/wireguard/|sail/tests/test_wireguard_(interop|kernel)\.rs|sail/tests/scripts/[a-z_]+_netns\.sh|sail/tests/test_[a-z_]+_linux\.rs|sail/tests/test_teardown\.rs)'
             [fuzz]='^(fuzz/|sail-netstack/fuzz/|fuzz-config/|scripts/prebuilt-boringssl\.sh$|tools/fuzz-check\.sh$)|(^|/)Cargo\.(toml|lock)$'
             [check_32bit]='^(rust-toolchain\.toml$|scripts/(cross|install_cross_toolchain|prebuilt-boringssl)\.sh$)|(^|/)Cargo\.(toml|lock)$'
@@ -1029,6 +1029,16 @@ jobs:
       - name: what others change of a TUN's routes
         run: |
           bin=$(cargo test --locked -p sail --test test_tun_integrity_macos \
+            --target aarch64-apple-darwin --no-run --message-format=json \
+            | jq -r 'select(.executable != null) | .executable')
+          sudo "$bin" --ignored --nocapture --test-threads=1
+
+      # The system's split DNS is followed by a local server that asks the
+      # system's servers itself, and a resolver reached through sail's own
+      # TUN is passed over. As root, the test alone.
+      - name: the system's split DNS
+        run: |
+          bin=$(cargo test --locked -p sail --test test_split_dns_macos \
             --target aarch64-apple-darwin --no-run --message-format=json \
             | jq -r 'select(.executable != null) | .executable')
           sudo "$bin" --ignored --nocapture --test-threads=1

@@ -404,6 +404,29 @@ impl Dialer {
         }
     }
 
+    /// The same dialer with its sockets bound to `interface` instead of
+    /// the interface or addresses it binds to: for a query that must leave
+    /// through another interface than the one it follows, a split DNS
+    /// server's. A detour's opens no sockets, and is itself.
+    pub fn bound_to(&self, interface: &str) -> Dialer {
+        match &*self.0 {
+            Kind::Socket(socket) => Dialer::new(
+                DialSpec {
+                    bind_interface: Some(interface.to_owned()),
+                    auto_detect_interface: false,
+                    inet4_bind_address: None,
+                    inet6_bind_address: None,
+                    networks: None,
+                    network_fallback_delay: None,
+                    ..socket.spec.clone()
+                },
+                socket.resolve.clone(),
+                socket.env.clone(),
+            ),
+            Kind::Detour(_) => self.clone(),
+        }
+    }
+
     /// The outbound it dials through, if it has a `detour`.
     pub fn detour(&self) -> Option<&str> {
         match &*self.0 {

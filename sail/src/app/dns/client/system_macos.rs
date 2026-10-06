@@ -5,14 +5,14 @@
 //! global one (`State:/Network/Global/DNS`, /etc/resolv.conf): that is the
 //! primary service's, which another VPN, or a host pointing the system at
 //! sail's own TUN, may be. A split-DNS resolver (one with
-//! `SupplementalMatchDomains`) is left out: its servers answer only its
-//! domains.
+//! `SupplementalMatchDomains`) is not among them: its servers answer only
+//! its domains, and are asked for those (`split`), as are those of
+//! /etc/resolver's files.
 //!
 //! Public CoreFoundation and SystemConfiguration calls, declared here
 //! rather than through a crate.
 
 use std::ffi::{c_char, c_void, CStr};
-use std::net::IpAddr;
 
 type CFTypeRef = *const c_void;
 type CFIndex = isize;
@@ -127,7 +127,8 @@ pub(super) struct Service {
     pub learned: Vec<String>,
     /// Its resolver answers only some domains (split DNS, a VPN's
     /// `SupplementalMatchDomains`): not a general one, and left out.
-    pub supplemental: bool,
+    /// Its `SupplementalMatchDomains`: a split resolver's, when any.
+    pub domains: Vec<String>,
 }
 
 /// The servers of the services on `interface`: those set by hand where a
@@ -136,7 +137,7 @@ pub(super) struct Service {
 pub(super) fn select(services: &[Service], interface: &str) -> Vec<super::Listed> {
     let mut servers = Vec::new();
     for service in services {
-        if service.supplemental || service.interface.as_deref() != Some(interface) {
+        if !service.domains.is_empty() || service.interface.as_deref() != Some(interface) {
             continue;
         }
         let addresses = if service.manual.is_empty() {
@@ -156,13 +157,14 @@ pub(super) fn select(services: &[Service], interface: &str) -> Vec<super::Listed
 
 /// The DNS servers of the services on `interface`, as the dynamic store
 /// has them; none when no service there has any.
+#[cfg(test)]
 pub(super) fn servers_of(interface: &str) -> anyhow::Result<Vec<super::Listed>> {
     Ok(select(&services()?, interface))
 }
 
 /// The network services the dynamic store knows, with DNS servers set by
 /// hand or told.
-fn services() -> anyhow::Result<Vec<Service>> {
+pub(super) fn services() -> anyhow::Result<Vec<Service>> {
     // SAFETY: every object is checked for its type before it is read, and
     // those created or copied are owned and released once.
     let services = unsafe {
@@ -214,7 +216,7 @@ fn services() -> anyhow::Result<Vec<Service>> {
                     interface,
                     manual: strings(get(setup.0, "ServerAddresses")),
                     learned: strings(get(dns.0, "ServerAddresses")),
-                    supplemental: !strings(get(dns.0, "SupplementalMatchDomains")).is_empty(),
+                    domains: strings(get(dns.0, "SupplementalMatchDomains")),
                 }
             })
             .collect::<Vec<_>>()
@@ -222,8 +224,78 @@ fn services() -> anyhow::Result<Vec<Service>> {
     Ok(services)
 }
 
+/// The services' split resolvers: their domains, their servers (those
+/// set by hand first, as `select` takes them) and their interface. A
+/// match domain that is empty makes none: such a resolver is for every
+/// name, and is not taken (`select`).
+pub(super) fn split(services: &[Service]) -> Vec<super::Split> {
+    services
+        .iter()
+        .filter_map(|service| {
+            let domains: Vec<String> = service
+                .domains
+                .iter()
+                .filter_map(|d| super::domain(d))
+                .collect();
+            if domains.is_empty() {
+                return None;
+            }
+            let addresses = if service.manual.is_empty() {
+                &service.learned
+            } else {
+                &service.manual
+            };
+            Some(super::Split {
+                domains,
+                servers: addresses
+                    .iter()
+                    .filter_map(|a| super::Listed::parse(a))
+                    .collect(),
+                interface: service.interface.clone(),
+            })
+        })
+        .collect()
+}
+
+/// The resolvers of /etc/resolver's files (`man 5 resolver`).
+pub(super) fn resolver_files() -> Vec<super::Split> {
+    let Ok(entries) = std::fs::read_dir("/etc/resolver") else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        .filter_map(|entry| {
+            let text = std::fs::read_to_string(entry.path()).ok()?;
+            resolver_file(&entry.file_name().to_string_lossy(), &text)
+        })
+        .collect()
+}
+
+/// One file's resolver: for the domain the file is named after, or its
+/// `domain` line, with its `nameserver` lines. One whose `port` is not 53
+/// is left out: sail asks port 53.
+fn resolver_file(name: &str, text: &str) -> Option<super::Split> {
+    let mut domain = name.to_owned();
+    for line in text.lines() {
+        let mut words = line.split_whitespace();
+        match (words.next(), words.next()) {
+            (Some("domain"), Some(d)) => domain = d.to_owned(),
+            (Some("port"), Some(port)) if port != "53" => return None,
+            _ => {}
+        }
+    }
+    let servers = super::nameservers(text);
+    (!servers.is_empty()).then_some(super::Split {
+        domains: vec![super::domain(&domain)?],
+        servers,
+        interface: None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
+    use std::net::IpAddr;
+
     use super::*;
 
     /// What `scutil` shows for each service's DNS on this Mac is what
@@ -284,7 +356,7 @@ mod tests {
             interface: Some(interface.into()),
             manual: manual.iter().map(|s| s.to_string()).collect(),
             learned: learned.iter().map(|s| s.to_string()).collect(),
-            supplemental: false,
+            domains: Vec::new(),
         }
     }
 
@@ -323,7 +395,7 @@ mod tests {
     #[test]
     fn split_dns_is_left_out_and_link_local_keeps_its_zone() {
         let mut split = service("en0", &[], &["192.0.2.99"]);
-        split.supplemental = true;
+        split.domains = vec!["corp.example".into()];
         let services = [
             split,
             service("en0", &[], &["fe80::1%en0", "192.0.2.1", "192.0.2.1"]),
@@ -334,5 +406,33 @@ mod tests {
             selected[0].zone,
             Some(super::super::Zone::Name("en0".into()))
         );
+    }
+
+    /// A service with match domains is a split resolver of those domains,
+    /// on its interface; one whose only domain is empty is none.
+    #[test]
+    fn supplemental_resolvers_are_split_ones() {
+        let mut corp = service("utun4", &[], &["10.0.0.53"]);
+        corp.domains = vec!["Corp.Example.".into(), "".into()];
+        let mut every = service("utun5", &[], &["100.100.100.100"]);
+        every.domains = vec!["".into()];
+        let split = split(&[corp, every, service("en0", &[], &["192.0.2.1"])]);
+        assert_eq!(split.len(), 1);
+        assert_eq!(split[0].domains, ["corp.example"]);
+        assert_eq!(ips(&split[0].servers), ["10.0.0.53"]);
+        assert_eq!(split[0].interface.as_deref(), Some("utun4"));
+    }
+
+    #[test]
+    fn resolver_files_are_read_as_man_5_resolver_has_them() {
+        let file = resolver_file("test", "nameserver 127.0.0.1\nnameserver ::1\n").unwrap();
+        assert_eq!(file.domains, ["test"]);
+        assert_eq!(ips(&file.servers), ["127.0.0.1", "::1"]);
+        assert_eq!(file.interface, None);
+        let named = resolver_file("x", "domain Dev.Example\nnameserver 192.0.2.53\n").unwrap();
+        assert_eq!(named.domains, ["dev.example"]);
+        assert!(resolver_file("test", "nameserver 127.0.0.1\nport 5353\n").is_none());
+        assert!(resolver_file("test", "port 53\nnameserver 127.0.0.1\n").is_some());
+        assert!(resolver_file("test", "search_order 1\n").is_none());
     }
 }

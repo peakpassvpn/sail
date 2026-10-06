@@ -843,9 +843,33 @@ impl DnsClient {
                 if interface.is_none() && dialed.interface.names_one() {
                     return Err(anyhow!("{}: no interface to send through", server));
                 }
-                let servers = dialed
-                    .servers
-                    .get(&dialed.own_interfaces, interface.as_deref())?;
+                let chosen = dialed.servers.choose(
+                    &dialed.own_interfaces,
+                    interface.as_deref(),
+                    host,
+                    dialed.split,
+                )?;
+                // A split resolver is asked through its own interface,
+                // which is seldom the one the dialer follows.
+                let bound;
+                let dialer = match &chosen.interface {
+                    Some(via) => {
+                        debug!(
+                            "{}: {} is under {}: asking its servers on {}",
+                            server,
+                            host,
+                            chosen.domain.as_deref().unwrap_or_default(),
+                            via
+                        );
+                        bound = Dialer {
+                            dial: dialed.dialer.dial.bound_to(via),
+                            ..dialed.dialer.clone()
+                        };
+                        &bound
+                    }
+                    None => &dialed.dialer,
+                };
+                let servers = chosen.servers;
                 // In order, each with its share of the time left, so that
                 // one that does not answer leaves time for the next.
                 let asked = system::servers_asked(time, servers.len());
@@ -854,7 +878,7 @@ impl DnsClient {
                     let left = deadline.saturating_duration_since(tokio::time::Instant::now());
                     let share = left / (asked - i) as u32;
                     let asked = self
-                        .exchange_plain(&dialed.dialer, addr, &wire, server, share)
+                        .exchange_plain(dialer, addr, &wire, server, share)
                         .await;
                     match asked {
                         Ok(response) => {
