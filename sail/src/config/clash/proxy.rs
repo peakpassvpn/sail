@@ -4,6 +4,7 @@
 use std::collections::HashSet;
 
 use anyhow::{anyhow, Result};
+use base64::Engine;
 use serde_json::{json, Map, Value};
 
 use super::fields::{Fields, Tier};
@@ -62,6 +63,7 @@ pub fn lower(doc: &mut Fields, out: &mut Lowered, warnings: &mut Vec<String>) ->
             ));
         }
         match proxy.outbound {
+            Some(endpoint) if proxy.endpoint => out.endpoints.push(endpoint),
             Some(outbound) => out.outbounds.push(outbound),
             None => {
                 proxies.dns.insert(proxy.name.clone());
@@ -88,6 +90,11 @@ pub fn lower(doc: &mut Fields, out: &mut Lowered, warnings: &mut Vec<String>) ->
 #[cfg(feature = "outbound-provider")]
 pub(super) fn lower_one(f: Fields, warnings: &mut Vec<String>) -> Result<Value> {
     let proxy = Proxy::read(f, warnings)?;
+    if proxy.endpoint {
+        return Err(anyhow!(
+            "a wireguard proxy: sail does not run WireGuard in a provider yet"
+        ));
+    }
     if !proxy.derived.is_empty() {
         return Err(anyhow!(
             "the shadow-tls plugin: sail does not implement it in a provider yet"
@@ -103,6 +110,8 @@ struct Proxy {
     name: String,
     /// None for a `dns` proxy.
     outbound: Option<Value>,
+    /// Whether `outbound` is an endpoint: a `wireguard` proxy's.
+    endpoint: bool,
     /// Outbounds it goes through, made for it: a shadow-tls plugin's.
     derived: Vec<Value>,
 }
@@ -136,6 +145,7 @@ impl Proxy {
                 return Ok(Proxy {
                     name,
                     outbound: None,
+                    endpoint: false,
                     derived: Vec::new(),
                 });
             }
@@ -177,7 +187,11 @@ impl Proxy {
                 http(&mut f, &mut o, warnings)?;
                 TLS_ONLY
             }
-            "ssr" | "hysteria" | "snell" | "mieru" | "ssh" | "sudoku" | "masque" | "wireguard"
+            "wireguard" => {
+                wireguard(&mut f, &mut o, warnings)?;
+                WIREGUARD
+            }
+            "ssr" | "hysteria" | "snell" | "mieru" | "ssh" | "sudoku" | "masque"
             | "trusttunnel" | "shadowquic" | "gost-relay" | "rematch" | "openvpn" | "tailscale"
             | "zerotier" | "easytier" => {
                 return Err(anyhow!(
@@ -202,6 +216,7 @@ impl Proxy {
         f.finish(&known, |_| false, warnings)?;
         Ok(Proxy {
             name,
+            endpoint: o.get("type").is_some_and(|t| t == "wireguard"),
             outbound: Some(Value::Object(o)),
             derived,
         })
@@ -280,6 +295,15 @@ const ANYTLS: &[(&str, Tier)] = &[
 ];
 
 const TLS_ONLY: &[(&str, Tier)] = TLS;
+
+const WIREGUARD: &[(&str, Tier)] = &[
+    // Another wire format: what goes out would not be WireGuard's.
+    ("amnezia-wg-option", Unsupported),
+    // sail's own userspace stack.
+    ("ip-stack", Ignored),
+    // A peer's address is resolved as the endpoint starts.
+    ("refresh-server-ip-interval", Ignored),
+];
 
 /// The server, and how it is dialled.
 fn server(f: &mut Fields, o: &mut Map<String, Value>, w: &mut Vec<String>) -> Result<()> {
@@ -985,6 +1009,186 @@ fn anytls(f: &mut Fields, o: &mut Map<String, Value>, w: &mut Vec<String>) -> Re
         o.insert("min_idle_session".into(), json!(n));
     }
     tls(f, o, w, "sni", true)
+}
+
+/// Mihomo's `wireguard` proxy (`adapter/outbound/wireguard.go`), a
+/// WireGuard endpoint: its own addresses `ip` and `ipv6` (a /32 and a /128
+/// when no prefix is given), and one peer of the server, port and keys
+/// given beside them, or those `peers` lists. A peer's `allowed-ips` are,
+/// when none are given, all of the families of the endpoint's addresses.
+fn wireguard(f: &mut Fields, o: &mut Map<String, Value>, w: &mut Vec<String>) -> Result<()> {
+    o.insert("type".into(), json!("wireguard"));
+    let mut address = Vec::new();
+    let (mut has4, mut has6) = (false, false);
+    for (key, len) in [("ip", 32), ("ipv6", 128)] {
+        let Some(ip) = f.string(key)?.filter(|ip| !ip.is_empty()) else {
+            continue;
+        };
+        let bare = ip.split('/').next().unwrap_or_default();
+        let parsed: std::net::IpAddr = bare
+            .parse()
+            .map_err(|_| anyhow!("{}: {:?} is not an IP address", f.at(key), ip))?;
+        has4 |= parsed.is_ipv4();
+        has6 |= parsed.is_ipv6();
+        address.push(match ip.contains('/') {
+            true => ip,
+            false => format!("{}/{}", ip, len),
+        });
+    }
+    if address.is_empty() {
+        return Err(anyhow!("{}: missing, and so is ipv6", f.at("ip")));
+    }
+    o.insert("address".into(), json!(address));
+    let private_key = f
+        .string("private-key")?
+        .ok_or_else(|| anyhow!("{}: missing", f.at("private-key")))?;
+    o.insert(
+        "private_key".into(),
+        json!(wireguard_key(&private_key, &f.at("private-key"))?),
+    );
+    if let Some(mtu) = f.int::<u32>("mtu")? {
+        o.insert("mtu".into(), json!(mtu));
+    }
+    // sail has no use for it, as sing-box's endpoint has none.
+    f.int::<u32>("workers")?;
+    let keepalive = f.int::<u16>("persistent-keepalive")?.filter(|k| *k > 0);
+    let default_ips = || {
+        let mut ips = Vec::new();
+        if has4 {
+            ips.push("0.0.0.0/0".to_string());
+        }
+        if has6 {
+            ips.push("::/0".to_string());
+        }
+        ips
+    };
+    let mut peers = Vec::new();
+    let listed = f.list("peers")?;
+    if listed.is_empty() {
+        peers.push(wireguard_peer(f, keepalive, &default_ips)?);
+    } else {
+        for key in [
+            "server",
+            "port",
+            "public-key",
+            "pre-shared-key",
+            "reserved",
+            "allowed-ips",
+        ] {
+            if f.take(key).is_some() {
+                w.push(format!(
+                    "{}: peers lists the peers; ignored, as by Mihomo",
+                    f.at(key)
+                ));
+            }
+        }
+        for (i, node) in listed.into_iter().enumerate() {
+            let mut peer = Fields::of(node, &format!("{}[{}]", f.at("peers"), i))?;
+            peers.push(wireguard_peer(&mut peer, keepalive, &default_ips)?);
+            peer.finish(&[], |_| false, w)?;
+        }
+    }
+    o.insert("peers".into(), Value::Array(peers));
+    // Mihomo resolves the names its connections dial through these servers,
+    // inside the tunnel; sail resolves them as its DNS says.
+    let remote = f.bool("remote-dns-resolve")?.unwrap_or(false);
+    let servers = f.strings("dns")?;
+    if remote && !servers.is_empty() {
+        w.push(format!(
+            "{}: sail resolves the names the tunnel's connections dial as its DNS says, not \
+             through these servers; ignored",
+            f.at("dns")
+        ));
+    }
+    dial(f, o, false, w)
+}
+
+/// A peer of a `wireguard` proxy: its server, port and keys, from `f`,
+/// the proxy itself or an entry of its `peers`.
+fn wireguard_peer(
+    f: &mut Fields,
+    keepalive: Option<u16>,
+    default_ips: &dyn Fn() -> Vec<String>,
+) -> Result<Value> {
+    let mut peer = Map::new();
+    let server = f
+        .string("server")?
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| anyhow!("{}: missing", f.at("server")))?;
+    let port = f
+        .int::<u16>("port")?
+        .ok_or_else(|| anyhow!("{}: missing", f.at("port")))?;
+    peer.insert("address".into(), json!(server));
+    peer.insert("port".into(), json!(port));
+    let public_key = f
+        .string("public-key")?
+        .ok_or_else(|| anyhow!("{}: missing", f.at("public-key")))?;
+    peer.insert(
+        "public_key".into(),
+        json!(wireguard_key(&public_key, &f.at("public-key"))?),
+    );
+    if let Some(psk) = f.string("pre-shared-key")?.filter(|k| !k.is_empty()) {
+        peer.insert(
+            "pre_shared_key".into(),
+            json!(wireguard_key(&psk, &f.at("pre-shared-key"))?),
+        );
+    }
+    let at = f.at("reserved");
+    match f.take("reserved") {
+        None => {}
+        Some(Node::Seq(bytes)) => {
+            let bytes = bytes
+                .iter()
+                .map(|b| match b {
+                    Node::Int(n) => u8::try_from(*n).ok(),
+                    _ => None,
+                })
+                .collect::<Option<Vec<u8>>>()
+                .ok_or_else(|| anyhow!("{}: not a list of bytes", at))?;
+            if bytes.len() != 3 {
+                return Err(anyhow!(
+                    "{}: {} bytes, where there must be 3",
+                    at,
+                    bytes.len()
+                ));
+            }
+            peer.insert("reserved".into(), json!(bytes));
+        }
+        Some(Node::Str(s)) => {
+            let bytes = base64::engine::general_purpose::STANDARD
+                .decode(s.trim())
+                .map_err(|_| anyhow!("{}: {:?} is not base64", at, s))?;
+            if bytes.len() != 3 {
+                return Err(anyhow!(
+                    "{}: {} bytes, where there must be 3",
+                    at,
+                    bytes.len()
+                ));
+            }
+            peer.insert("reserved".into(), json!(bytes));
+        }
+        Some(n) => return Err(anyhow!("{}: three bytes, not {}", at, n.kind())),
+    }
+    let mut allowed = f.strings("allowed-ips")?;
+    if allowed.is_empty() {
+        allowed = default_ips();
+    }
+    peer.insert("allowed_ips".into(), json!(allowed));
+    if let Some(seconds) = keepalive {
+        peer.insert("persistent_keepalive_interval".into(), json!(seconds));
+    }
+    Ok(Value::Object(peer))
+}
+
+/// A WireGuard key as Mihomo takes it: 32 bytes, in base64.
+fn wireguard_key(key: &str, at: &str) -> Result<String> {
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(key.trim())
+        .map_err(|_| anyhow!("{}: not base64", at))?;
+    if bytes.len() != 32 {
+        return Err(anyhow!("{}: {} bytes, where a key has 32", at, bytes.len()));
+    }
+    Ok(key.trim().to_string())
 }
 
 fn socks5(f: &mut Fields, o: &mut Map<String, Value>, w: &mut Vec<String>) -> Result<()> {

@@ -24,7 +24,7 @@ default = [
 ]
 
 # Clash / Mihomo YAML configurations.
-config-clash = ["serde-saphyr", "indexmap", "fancy-regex"]
+config-clash = ["serde-saphyr", "indexmap", "fancy-regex", "base64"]
 # Surge profiles; they share the Clash front-end's rule-sets and groups.
 config-surge = ["config-clash", "base64"]
 

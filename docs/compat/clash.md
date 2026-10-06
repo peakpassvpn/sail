@@ -71,7 +71,7 @@ As in Mihomo, the sniffer's `override-destination` makes the sniffed name the de
 | `proxies[tuic]` | 41 | 26 | 12 | 3 |
 | `proxies[vless]` | 137 | 45 | 2 | 90 |
 | `proxies[vmess]` | 128 | 46 | 2 | 80 |
-| `proxies[wireguard]` | 64 | 0 | 0 | 64 |
+| `proxies[wireguard]` | 64 | 27 | 6 | 31 |
 | `proxies[zerotier]` | 30 | 0 | 0 | 30 |
 | `proxy-groups` | 23 | 18 | 5 | 0 |
 | `proxy-providers` | 39 | 28 | 8 | 3 |
@@ -80,7 +80,7 @@ As in Mihomo, the sniffer's `override-destination` makes the sniffed name the de
 | `tls` | 7 | 0 | 7 | 0 |
 | `tuic-server` | 13 | 0 | 0 | 13 |
 | `tun` | 50 | 33 | 10 | 7 |
-| **All** | **2077** | **460** | **137** | **1480** |
+| **All** | **2077** | **487** | **143** | **1447** |
 
 
 ## `general`
@@ -1302,7 +1302,70 @@ As in Mihomo, the sniffer's `override-destination` makes the sniffed name the de
 
 | Field | sail | What sail says |
 |---|---|---|
-| `proxies[wireguard]` | Error | proxies[0].type: sail does not implement "wireguard" yet |
+| `proxies[wireguard].allowed-ips` | Supported |  |
+| `proxies[wireguard].amnezia-wg-option` | Error | proxies[0].amnezia-wg-option: sail does not implement this field yet |
+| `proxies[wireguard].amnezia-wg-option.content-padding-addition` | Error | proxies[0].amnezia-wg-option: sail does not implement this field yet |
+| `proxies[wireguard].amnezia-wg-option.disable-cookies` | Error | proxies[0].amnezia-wg-option: sail does not implement this field yet |
+| `proxies[wireguard].amnezia-wg-option.h1` | Error | proxies[0].amnezia-wg-option: sail does not implement this field yet |
+| `proxies[wireguard].amnezia-wg-option.h2` | Error | proxies[0].amnezia-wg-option: sail does not implement this field yet |
+| `proxies[wireguard].amnezia-wg-option.h3` | Error | proxies[0].amnezia-wg-option: sail does not implement this field yet |
+| `proxies[wireguard].amnezia-wg-option.h4` | Error | proxies[0].amnezia-wg-option: sail does not implement this field yet |
+| `proxies[wireguard].amnezia-wg-option.header-protection-key` | Error | proxies[0].amnezia-wg-option: sail does not implement this field yet |
+| `proxies[wireguard].amnezia-wg-option.i1` | Error | proxies[0].amnezia-wg-option: sail does not implement this field yet |
+| `proxies[wireguard].amnezia-wg-option.i2` | Error | proxies[0].amnezia-wg-option: sail does not implement this field yet |
+| `proxies[wireguard].amnezia-wg-option.i3` | Error | proxies[0].amnezia-wg-option: sail does not implement this field yet |
+| `proxies[wireguard].amnezia-wg-option.i4` | Error | proxies[0].amnezia-wg-option: sail does not implement this field yet |
+| `proxies[wireguard].amnezia-wg-option.i5` | Error | proxies[0].amnezia-wg-option: sail does not implement this field yet |
+| `proxies[wireguard].amnezia-wg-option.itime` | Error | proxies[0].amnezia-wg-option: sail does not implement this field yet |
+| `proxies[wireguard].amnezia-wg-option.j1` | Error | proxies[0].amnezia-wg-option: sail does not implement this field yet |
+| `proxies[wireguard].amnezia-wg-option.j2` | Error | proxies[0].amnezia-wg-option: sail does not implement this field yet |
+| `proxies[wireguard].amnezia-wg-option.j3` | Error | proxies[0].amnezia-wg-option: sail does not implement this field yet |
+| `proxies[wireguard].amnezia-wg-option.jc` | Error | proxies[0].amnezia-wg-option: sail does not implement this field yet |
+| `proxies[wireguard].amnezia-wg-option.jmax` | Error | proxies[0].amnezia-wg-option: sail does not implement this field yet |
+| `proxies[wireguard].amnezia-wg-option.jmin` | Error | proxies[0].amnezia-wg-option: sail does not implement this field yet |
+| `proxies[wireguard].amnezia-wg-option.keepalive-timeout` | Error | proxies[0].amnezia-wg-option: sail does not implement this field yet |
+| `proxies[wireguard].amnezia-wg-option.max-handshake-attempts` | Error | proxies[0].amnezia-wg-option: sail does not implement this field yet |
+| `proxies[wireguard].amnezia-wg-option.random-trailers` | Error | proxies[0].amnezia-wg-option: sail does not implement this field yet |
+| `proxies[wireguard].amnezia-wg-option.reject-after-time` | Error | proxies[0].amnezia-wg-option: sail does not implement this field yet |
+| `proxies[wireguard].amnezia-wg-option.rekey-after-time` | Error | proxies[0].amnezia-wg-option: sail does not implement this field yet |
+| `proxies[wireguard].amnezia-wg-option.rekey-timeout` | Error | proxies[0].amnezia-wg-option: sail does not implement this field yet |
+| `proxies[wireguard].amnezia-wg-option.s1` | Error | proxies[0].amnezia-wg-option: sail does not implement this field yet |
+| `proxies[wireguard].amnezia-wg-option.s2` | Error | proxies[0].amnezia-wg-option: sail does not implement this field yet |
+| `proxies[wireguard].amnezia-wg-option.s3` | Error | proxies[0].amnezia-wg-option: sail does not implement this field yet |
+| `proxies[wireguard].amnezia-wg-option.s4` | Error | proxies[0].amnezia-wg-option: sail does not implement this field yet |
+| `proxies[wireguard].amnezia-wg-option.version` | Error | proxies[0].amnezia-wg-option: sail does not implement this field yet |
+| `proxies[wireguard].dialer-proxy` | Supported |  |
+| `proxies[wireguard].dns` | Supported |  |
+| `proxies[wireguard].interface-name` | Supported |  |
+| `proxies[wireguard].ip` | Supported | proxies[0].ip: "x" is not an IP address |
+| `proxies[wireguard].ip-stack` | Warned | proxies[0].ip-stack: sail does not implement this field; ignored |
+| `proxies[wireguard].ip-stack.congestion-controller` | Warned | proxies[0].ip-stack: sail does not implement this field; ignored |
+| `proxies[wireguard].ip-stack.mode` | Warned | proxies[0].ip-stack: sail does not implement this field; ignored |
+| `proxies[wireguard].ip-version` | Supported | proxies[0].ip-version: "1" is none of dual, ipv4, ipv6, ipv4-prefer and ipv6-prefer |
+| `proxies[wireguard].ipv6` | Supported | proxies[0].ipv6: "x" is not an IP address |
+| `proxies[wireguard].mptcp` | Warned | proxies[0].mptcp: sail does not implement this field; ignored |
+| `proxies[wireguard].mtu` | Supported |  |
+| `proxies[wireguard].name` | Supported |  |
+| `proxies[wireguard].peers` | Supported | proxies[0].peers[0]: a map, not a string |
+| `proxies[wireguard].peers[].allowed-ips` | Supported | proxies[0].peers[0].server: missing |
+| `proxies[wireguard].peers[].port` | Supported | proxies[0].peers[0].server: missing |
+| `proxies[wireguard].peers[].pre-shared-key` | Supported | proxies[0].peers[0].server: missing |
+| `proxies[wireguard].peers[].public-key` | Supported | proxies[0].peers[0].server: missing |
+| `proxies[wireguard].peers[].reserved` | Supported | proxies[0].peers[0].server: missing |
+| `proxies[wireguard].peers[].server` | Supported | proxies[0].peers[0].port: missing |
+| `proxies[wireguard].persistent-keepalive` | Supported |  |
+| `proxies[wireguard].port` | Supported |  |
+| `proxies[wireguard].pre-shared-key` | Supported | proxies[0].pre-shared-key: not base64 |
+| `proxies[wireguard].private-key` | Supported | proxies[0].private-key: not base64 |
+| `proxies[wireguard].public-key` | Supported | proxies[0].public-key: not base64 |
+| `proxies[wireguard].refresh-server-ip-interval` | Warned | proxies[0].refresh-server-ip-interval: sail does not implement this field; ignored |
+| `proxies[wireguard].remote-dns-resolve` | Supported |  |
+| `proxies[wireguard].reserved` | Supported | proxies[0].reserved: not a list of bytes |
+| `proxies[wireguard].routing-mark` | Supported |  |
+| `proxies[wireguard].server` | Supported |  |
+| `proxies[wireguard].tfo` | Warned | proxies[0].tfo: sail does not implement this field; ignored |
+| `proxies[wireguard].udp` | Supported |  |
+| `proxies[wireguard].workers` | Supported |  |
 
 ## `proxies[zerotier]`
 

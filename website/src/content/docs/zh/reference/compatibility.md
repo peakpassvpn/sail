@@ -91,7 +91,7 @@ sail 直接读取 sing-box、Clash / Mihomo 与 Surge 的配置。每种格式�
 | `proxies[tuic]` | 41 | 26 | 12 | 3 |
 | `proxies[vless]` | 137 | 45 | 2 | 90 |
 | `proxies[vmess]` | 128 | 46 | 2 | 80 |
-| `proxies[wireguard]` | 64 | 0 | 0 | 64 |
+| `proxies[wireguard]` | 64 | 27 | 6 | 31 |
 | `proxies[zerotier]` | 30 | 0 | 0 | 30 |
 | `proxy-groups` | 23 | 18 | 5 | 0 |
 | `proxy-providers` | 39 | 28 | 8 | 3 |
@@ -100,7 +100,7 @@ sail 直接读取 sing-box、Clash / Mihomo 与 Surge 的配置。每种格式�
 | `tls` | 7 | 0 | 7 | 0 |
 | `tuic-server` | 13 | 0 | 0 | 13 |
 | `tun` | 50 | 33 | 10 | 7 |
-| **All** | **2077** | **460** | **137** | **1480** |
+| **All** | **2077** | **487** | **143** | **1447** |
 
 ## Surge
 

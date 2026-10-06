@@ -71,7 +71,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `proxies[tuic]` | 41 | 26 | 12 | 3 |
 | `proxies[vless]` | 137 | 45 | 2 | 90 |
 | `proxies[vmess]` | 128 | 46 | 2 | 80 |
-| `proxies[wireguard]` | 64 | 0 | 0 | 64 |
+| `proxies[wireguard]` | 64 | 27 | 6 | 31 |
 | `proxies[zerotier]` | 30 | 0 | 0 | 30 |
 | `proxy-groups` | 23 | 18 | 5 | 0 |
 | `proxy-providers` | 39 | 28 | 8 | 3 |
@@ -80,7 +80,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `tls` | 7 | 0 | 7 | 0 |
 | `tuic-server` | 13 | 0 | 0 | 13 |
 | `tun` | 50 | 33 | 10 | 7 |
-| **All** | **2077** | **460** | **137** | **1480** |
+| **All** | **2077** | **487** | **143** | **1447** |
 
 
 ## `general`
@@ -1302,7 +1302,70 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 
 | 字段 | sail | sail 的说明 |
 |---|---|---|
-| `proxies[wireguard]` | 报错 | proxies[0].type: sail does not implement "wireguard" yet |
+| `proxies[wireguard].allowed-ips` | 支持 |  |
+| `proxies[wireguard].amnezia-wg-option` | 报错 | proxies[0].amnezia-wg-option: sail does not implement this field yet |
+| `proxies[wireguard].amnezia-wg-option.content-padding-addition` | 报错 | proxies[0].amnezia-wg-option: sail does not implement this field yet |
+| `proxies[wireguard].amnezia-wg-option.disable-cookies` | 报错 | proxies[0].amnezia-wg-option: sail does not implement this field yet |
+| `proxies[wireguard].amnezia-wg-option.h1` | 报错 | proxies[0].amnezia-wg-option: sail does not implement this field yet |
+| `proxies[wireguard].amnezia-wg-option.h2` | 报错 | proxies[0].amnezia-wg-option: sail does not implement this field yet |
+| `proxies[wireguard].amnezia-wg-option.h3` | 报错 | proxies[0].amnezia-wg-option: sail does not implement this field yet |
+| `proxies[wireguard].amnezia-wg-option.h4` | 报错 | proxies[0].amnezia-wg-option: sail does not implement this field yet |
+| `proxies[wireguard].amnezia-wg-option.header-protection-key` | 报错 | proxies[0].amnezia-wg-option: sail does not implement this field yet |
+| `proxies[wireguard].amnezia-wg-option.i1` | 报错 | proxies[0].amnezia-wg-option: sail does not implement this field yet |
+| `proxies[wireguard].amnezia-wg-option.i2` | 报错 | proxies[0].amnezia-wg-option: sail does not implement this field yet |
+| `proxies[wireguard].amnezia-wg-option.i3` | 报错 | proxies[0].amnezia-wg-option: sail does not implement this field yet |
+| `proxies[wireguard].amnezia-wg-option.i4` | 报错 | proxies[0].amnezia-wg-option: sail does not implement this field yet |
+| `proxies[wireguard].amnezia-wg-option.i5` | 报错 | proxies[0].amnezia-wg-option: sail does not implement this field yet |
+| `proxies[wireguard].amnezia-wg-option.itime` | 报错 | proxies[0].amnezia-wg-option: sail does not implement this field yet |
+| `proxies[wireguard].amnezia-wg-option.j1` | 报错 | proxies[0].amnezia-wg-option: sail does not implement this field yet |
+| `proxies[wireguard].amnezia-wg-option.j2` | 报错 | proxies[0].amnezia-wg-option: sail does not implement this field yet |
+| `proxies[wireguard].amnezia-wg-option.j3` | 报错 | proxies[0].amnezia-wg-option: sail does not implement this field yet |
+| `proxies[wireguard].amnezia-wg-option.jc` | 报错 | proxies[0].amnezia-wg-option: sail does not implement this field yet |
+| `proxies[wireguard].amnezia-wg-option.jmax` | 报错 | proxies[0].amnezia-wg-option: sail does not implement this field yet |
+| `proxies[wireguard].amnezia-wg-option.jmin` | 报错 | proxies[0].amnezia-wg-option: sail does not implement this field yet |
+| `proxies[wireguard].amnezia-wg-option.keepalive-timeout` | 报错 | proxies[0].amnezia-wg-option: sail does not implement this field yet |
+| `proxies[wireguard].amnezia-wg-option.max-handshake-attempts` | 报错 | proxies[0].amnezia-wg-option: sail does not implement this field yet |
+| `proxies[wireguard].amnezia-wg-option.random-trailers` | 报错 | proxies[0].amnezia-wg-option: sail does not implement this field yet |
+| `proxies[wireguard].amnezia-wg-option.reject-after-time` | 报错 | proxies[0].amnezia-wg-option: sail does not implement this field yet |
+| `proxies[wireguard].amnezia-wg-option.rekey-after-time` | 报错 | proxies[0].amnezia-wg-option: sail does not implement this field yet |
+| `proxies[wireguard].amnezia-wg-option.rekey-timeout` | 报错 | proxies[0].amnezia-wg-option: sail does not implement this field yet |
+| `proxies[wireguard].amnezia-wg-option.s1` | 报错 | proxies[0].amnezia-wg-option: sail does not implement this field yet |
+| `proxies[wireguard].amnezia-wg-option.s2` | 报错 | proxies[0].amnezia-wg-option: sail does not implement this field yet |
+| `proxies[wireguard].amnezia-wg-option.s3` | 报错 | proxies[0].amnezia-wg-option: sail does not implement this field yet |
+| `proxies[wireguard].amnezia-wg-option.s4` | 报错 | proxies[0].amnezia-wg-option: sail does not implement this field yet |
+| `proxies[wireguard].amnezia-wg-option.version` | 报错 | proxies[0].amnezia-wg-option: sail does not implement this field yet |
+| `proxies[wireguard].dialer-proxy` | 支持 |  |
+| `proxies[wireguard].dns` | 支持 |  |
+| `proxies[wireguard].interface-name` | 支持 |  |
+| `proxies[wireguard].ip` | 支持 | proxies[0].ip: "x" is not an IP address |
+| `proxies[wireguard].ip-stack` | 警告 | proxies[0].ip-stack: sail does not implement this field; ignored |
+| `proxies[wireguard].ip-stack.congestion-controller` | 警告 | proxies[0].ip-stack: sail does not implement this field; ignored |
+| `proxies[wireguard].ip-stack.mode` | 警告 | proxies[0].ip-stack: sail does not implement this field; ignored |
+| `proxies[wireguard].ip-version` | 支持 | proxies[0].ip-version: "1" is none of dual, ipv4, ipv6, ipv4-prefer and ipv6-prefer |
+| `proxies[wireguard].ipv6` | 支持 | proxies[0].ipv6: "x" is not an IP address |
+| `proxies[wireguard].mptcp` | 警告 | proxies[0].mptcp: sail does not implement this field; ignored |
+| `proxies[wireguard].mtu` | 支持 |  |
+| `proxies[wireguard].name` | 支持 |  |
+| `proxies[wireguard].peers` | 支持 | proxies[0].peers[0]: a map, not a string |
+| `proxies[wireguard].peers[].allowed-ips` | 支持 | proxies[0].peers[0].server: missing |
+| `proxies[wireguard].peers[].port` | 支持 | proxies[0].peers[0].server: missing |
+| `proxies[wireguard].peers[].pre-shared-key` | 支持 | proxies[0].peers[0].server: missing |
+| `proxies[wireguard].peers[].public-key` | 支持 | proxies[0].peers[0].server: missing |
+| `proxies[wireguard].peers[].reserved` | 支持 | proxies[0].peers[0].server: missing |
+| `proxies[wireguard].peers[].server` | 支持 | proxies[0].peers[0].port: missing |
+| `proxies[wireguard].persistent-keepalive` | 支持 |  |
+| `proxies[wireguard].port` | 支持 |  |
+| `proxies[wireguard].pre-shared-key` | 支持 | proxies[0].pre-shared-key: not base64 |
+| `proxies[wireguard].private-key` | 支持 | proxies[0].private-key: not base64 |
+| `proxies[wireguard].public-key` | 支持 | proxies[0].public-key: not base64 |
+| `proxies[wireguard].refresh-server-ip-interval` | 警告 | proxies[0].refresh-server-ip-interval: sail does not implement this field; ignored |
+| `proxies[wireguard].remote-dns-resolve` | 支持 |  |
+| `proxies[wireguard].reserved` | 支持 | proxies[0].reserved: not a list of bytes |
+| `proxies[wireguard].routing-mark` | 支持 |  |
+| `proxies[wireguard].server` | 支持 |  |
+| `proxies[wireguard].tfo` | 警告 | proxies[0].tfo: sail does not implement this field; ignored |
+| `proxies[wireguard].udp` | 支持 |  |
+| `proxies[wireguard].workers` | 支持 |  |
 
 ## `proxies[zerotier]`
 

@@ -1,0 +1,19 @@
+mixed-port: 7890
+allow-lan: false
+mode: rule
+log-level: info
+proxies:
+  - { name: wg, type: wireguard, server: s1.example.net, port: 51820, ip: 172.16.0.2, ipv6: fd01::2, private-key: AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=, public-key: AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI=, pre-shared-key: AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM=, reserved: [1, 2, 3], mtu: 1280, persistent-keepalive: 25, udp: true }
+  - name: wg-peers
+    type: wireguard
+    ip: 172.16.0.3
+    private-key: AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=
+    udp: true
+    peers:
+      - { server: s2.example.net, port: 51820, public-key: AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI=, allowed-ips: [0.0.0.0/0] }
+proxy-groups:
+  - name: PROXY
+    type: select
+    proxies: [wg, wg-peers, DIRECT]
+rules:
+  - MATCH,PROXY

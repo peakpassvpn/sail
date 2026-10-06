@@ -772,6 +772,9 @@
     "clash/own-proxies-vmess-ws.yaml": {
       "ok": true
     },
+    "clash/own-proxies-wireguard.yaml": {
+      "ok": true
+    },
     "clash/own-rules.yaml": {
       "ok": true
     },

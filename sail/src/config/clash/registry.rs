@@ -92,6 +92,11 @@ fn proxy(kind: &str) -> Value {
         "trojan" | "hysteria2" | "anytls" => json!({ "password": "p" }),
         "tuic" => json!({ "uuid": "b831381d-6324-4d53-ad4f-8cda48b30811", "password": "p" }),
         "direct" | "dns" | "reject" => json!({ "server": null, "port": null }),
+        "wireguard" => json!({
+            "ip": "172.16.0.2",
+            "private-key": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=",
+            "public-key": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=",
+        }),
         _ => json!({}),
     };
     merge(&mut p, extra);

@@ -278,7 +278,7 @@
     "error": "[Proxy 1] outbound: tls.reality.public_key: neither hex nor base64url"
   },
   "clash/0059.yaml": {
-    "error": "proxies[0].type: sail does not implement \"wireguard\" yet"
+    "error": "[Proxy 2] outbound: tls.reality.public_key: must be 32 bytes"
   },
   "clash/0060.yaml": {
     "check": "ok",
@@ -522,7 +522,7 @@
     "warnings": 1
   },
   "clash/0112.yaml": {
-    "error": "proxies[1].type: sail does not implement \"wireguard\" yet"
+    "error": "proxy-groups[0].type: sail does not implement \"relay\" groups yet"
   },
   "clash/0113.yaml": {
     "check": "ok",
@@ -994,6 +994,11 @@
     "warnings": 0
   },
   "clash/own-proxies-vmess-ws.yaml": {
+    "check": "ok",
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/own-proxies-wireguard.yaml": {
     "check": "ok",
     "ok": true,
     "warnings": 0

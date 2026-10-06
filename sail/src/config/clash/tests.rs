@@ -1,4 +1,5 @@
 use super::*;
+use serde_json::json;
 
 fn load(yaml: &str) -> Config {
     parse(yaml).unwrap()
@@ -332,6 +333,128 @@ fn a_reject_proxy_is_a_block() {
     let config = load("proxies: [{ name: 拒绝, type: reject }, { name: 直连, type: direct }]\nrules: [\"MATCH,拒绝\"]\n");
     assert_eq!(outbound(&config, "拒绝").protocol, "block");
     assert_eq!(outbound(&config, "直连").protocol, "direct");
+}
+
+const KEY: &str = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=";
+
+#[test]
+fn a_wireguard_proxy_is_an_endpoint() {
+    let yaml = format!(
+        r#"
+proxies:
+  - name: wg
+    type: wireguard
+    server: wg.example.com
+    port: 51820
+    ip: 172.16.0.2
+    ipv6: fd01::2/64
+    private-key: {KEY}
+    public-key: {KEY}
+    pre-shared-key: {KEY}
+    reserved: [1, 2, 3]
+    mtu: 1280
+    persistent-keepalive: 25
+    udp: true
+    dialer-proxy: other
+  - {{ name: other, type: ss, server: s.example.com, port: 1, cipher: aes-128-gcm, password: p }}
+rules: ["MATCH,wg"]
+"#
+    );
+    let config = load(&yaml);
+    assert!(config.outbounds.iter().all(|o| o.tag != "wg"));
+    let endpoint = serde_json::to_value(&config.endpoints[0]).unwrap();
+    assert_eq!(endpoint["type"], "wireguard");
+    assert_eq!(endpoint["tag"], "wg");
+    assert_eq!(endpoint["address"], json!(["172.16.0.2/32", "fd01::2/64"]));
+    assert_eq!(endpoint["private_key"], KEY);
+    assert_eq!(endpoint["mtu"], 1280);
+    assert_eq!(endpoint["detour"], "other");
+    assert_eq!(
+        endpoint["peers"],
+        json!([{
+            "address": "wg.example.com",
+            "port": 51820,
+            "public_key": KEY,
+            "pre_shared_key": KEY,
+            "reserved": [1, 2, 3],
+            "allowed_ips": ["0.0.0.0/0", "::/0"],
+            "persistent_keepalive_interval": 25,
+        }])
+    );
+    assert!(config.warnings.is_empty(), "{:?}", config.warnings);
+}
+
+#[test]
+fn a_wireguard_proxy_s_peers_list_its_peers() {
+    let yaml = format!(
+        r#"
+proxies:
+  - name: wg
+    type: wireguard
+    ip: 172.16.0.2
+    private-key: {KEY}
+    server: ignored.example.com
+    reserved: AQID
+    peers:
+      - {{ server: a.example.com, port: 1, public-key: {KEY}, allowed-ips: [10.0.0.0/8] }}
+      - {{ server: b.example.com, port: 2, public-key: {KEY}, reserved: AQID }}
+rules: ["MATCH,wg"]
+"#
+    );
+    let config = load(&yaml);
+    let endpoint = serde_json::to_value(&config.endpoints[0]).unwrap();
+    let peers = endpoint["peers"].as_array().unwrap();
+    assert_eq!(peers[0]["address"], "a.example.com");
+    assert_eq!(peers[0]["allowed_ips"], json!(["10.0.0.0/8"]));
+    assert_eq!(peers[1]["allowed_ips"], json!(["0.0.0.0/0"]));
+    assert_eq!(peers[1]["reserved"], json!([1, 2, 3]));
+    let warnings = config.warnings.join("\n");
+    assert!(
+        warnings.contains("proxies[0].server: peers lists the peers"),
+        "{}",
+        warnings
+    );
+    assert!(
+        warnings.contains("proxies[0].reserved: peers lists the peers"),
+        "{}",
+        warnings
+    );
+}
+
+#[test]
+fn wireguard_mistakes_name_the_field() {
+    let wg = |extra: &str| {
+        format!(
+            "proxies:\n  - {{ name: wg, type: wireguard, server: s.example, port: 1, \
+             public-key: {KEY}, {extra} }}\nrules: [\"MATCH,wg\"]\n"
+        )
+    };
+    for (extra, expected) in [
+        (
+            format!("private-key: {KEY}"),
+            "proxies[0].ip: missing, and so is ipv6",
+        ),
+        ("ip: 1.2.3.4".to_string(), "proxies[0].private-key: missing"),
+        (
+            format!("ip: x, private-key: {KEY}"),
+            "proxies[0].ip: \"x\" is not an IP address",
+        ),
+        (
+            "ip: 1.2.3.4, private-key: AQID".to_string(),
+            "proxies[0].private-key: 3 bytes",
+        ),
+        (
+            format!("ip: 1.2.3.4, private-key: {KEY}, reserved: [1, 2]"),
+            "proxies[0].reserved: 2 bytes",
+        ),
+        (
+            format!("ip: 1.2.3.4, private-key: {KEY}, amnezia-wg-option: {{ jc: 1 }}"),
+            "proxies[0].amnezia-wg-option: sail does not implement",
+        ),
+    ] {
+        let e = error(&wg(&extra));
+        assert!(e.contains(expected), "{}: {}", extra, e);
+    }
 }
 
 #[test]
