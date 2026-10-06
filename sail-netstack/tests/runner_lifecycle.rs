@@ -783,8 +783,9 @@ fn critical_pressure_rejects_new_tcp_and_udp_flows_before_admission() {
     assert_eq!(snapshot.used[ResourceKind::UdpFlows as usize], 0);
 }
 
-#[test]
-fn entering_critical_pressure_reclaims_syn_received_and_cancels_its_timer() {
+/// One half-open flow, and Critical pressure entered at `entered_ms`:
+/// the runner's stats and pending timers after that step.
+fn critical_pressure_on_a_handshake(entered_ms: u64) -> (StackStats, usize) {
     let source = SocketAddr::from((Ipv4Addr::new(10, 7, 7, 2), 40_101));
     let destination = SocketAddr::from((Ipv4Addr::new(10, 7, 7, 1), 443));
     let (mut io, _) = MockIo::new(1);
@@ -806,20 +807,60 @@ fn entering_critical_pressure_reclaims_syn_received_and_cancels_its_timer() {
         )
         .unwrap();
 
-    block_on(runner.step(2)).unwrap();
-    assert_eq!(runner.pending_tcp_timers(), 0);
-    let stats = runner.stats_snapshot();
-    assert_eq!(stats.tcp_active_flows, 0);
-    assert_eq!(stats.tcp_syn_received, 0);
-    assert_eq!(stats.tcp_peak_active_flows, 1);
-    assert_eq!(stats.tcp_peak_syn_received, 1);
-    assert_eq!(stats.tcp_pressure_reclaimed_syns, 1);
-    assert_eq!(ledger.snapshot().used(ResourceKind::TcpFlows), 0);
-    assert_eq!(ledger.snapshot().used(ResourceKind::SynReceived), 0);
-
+    block_on(runner.step(entered_ms)).unwrap();
+    let outcome = (runner.stats_snapshot(), runner.pending_tcp_timers());
     drop(pressure_lease);
     runner.abort();
     assert_eq!(ledger.snapshot().total_bytes, 0);
+    outcome
+}
+
+/// A client that has its SYN-ACK keeps its half-open flow when pressure
+/// turns Critical: its ACK finds it, instead of a reset.
+#[test]
+fn entering_critical_pressure_keeps_a_young_syn_received() {
+    let (stats, timers) = critical_pressure_on_a_handshake(2);
+    assert_eq!(stats.tcp_syn_received, 1);
+    assert_eq!(stats.tcp_pressure_reclaimed_syns, 0);
+    assert_eq!(timers, 1);
+}
+
+/// One that waited past 3 s for its ACK is reclaimed, and its timer
+/// cancelled.
+#[test]
+fn entering_critical_pressure_reclaims_a_stale_syn_received_and_cancels_its_timer() {
+    let (stats, timers) = critical_pressure_on_a_handshake(3_500);
+    assert_eq!(stats.tcp_active_flows, 0);
+    assert_eq!(stats.tcp_syn_received, 0);
+    assert_eq!(stats.tcp_peak_syn_received, 1);
+    assert_eq!(stats.tcp_pressure_reclaimed_syns, 1);
+    assert_eq!(timers, 0);
+}
+
+/// A SYN's reply is a control packet: what is set aside for it is a
+/// header's room, not a whole MTU, so a burst of handshakes leaves the
+/// control pool room.
+#[test]
+fn a_handshake_reply_takes_a_header_sized_control_buffer() {
+    let source = SocketAddr::from((Ipv4Addr::new(10, 7, 7, 2), 40_102));
+    let destination = SocketAddr::from((Ipv4Addr::new(10, 7, 7, 1), 443));
+    let (mut io, _) = MockIo::new(1);
+    let sent = io.sent_payloads();
+    io.push_recv(vec![tcp_packet(source, destination, 100, 0, TcpFlags::SYN)]);
+    let ledger = ResourceLedger::new(BudgetProfile::Mobile.budget()).unwrap();
+    let config = deterministic_runner_config();
+    let mtu = config.mtu;
+    let mut runner = SingleShardRunner::new(io, Arc::clone(&ledger), config).unwrap();
+
+    block_on(runner.step(1)).unwrap();
+    block_on(runner.step(2)).unwrap();
+    assert_eq!(sent.lock().unwrap().len(), 1, "the SYN-ACK");
+    let peak = ledger.snapshot().peak(ResourceKind::ControlPacketBytes);
+    assert!(
+        peak > 0 && peak < mtu / 2,
+        "{peak} bytes, of an MTU of {mtu}"
+    );
+    runner.abort();
 }
 
 #[test]

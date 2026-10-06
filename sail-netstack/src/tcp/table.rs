@@ -430,7 +430,9 @@ pub struct TcpTable {
     time_wait: HashMap<TcpFlowKey, TimeWaitEntry>,
     time_wait_order: BTreeMap<u64, TcpFlowKey>,
     by_id: HashMap<FlowId, TcpFlowKey>,
-    syn_received_order: BTreeMap<u64, TcpFlowKey>,
+    /// Flows in `SYN_RECEIVED` by id, which is their creation order, with
+    /// when each was created.
+    syn_received_order: BTreeMap<u64, (TcpFlowKey, u64)>,
     stats: TcpTableStats,
     syn_limiter: ControlRateLimiter,
     defensive_ack_limiter: ControlRateLimiter,
@@ -1070,7 +1072,7 @@ impl TcpTable {
             },
         );
         self.by_id.insert(id, key);
-        self.syn_received_order.insert(id.get(), key);
+        self.syn_received_order.insert(id.get(), (key, self.now_ms));
         if options.window_scale_clamped {
             increment_counter(&mut self.stats.window_scale_clamps);
         }
@@ -1367,11 +1369,20 @@ impl TcpTable {
         })
     }
 
-    /// Reclaims the oldest incomplete passive handshake without allocating a
-    /// temporary candidate list. The peer may retry with a fresh SYN.
+    /// Reclaims the oldest incomplete passive handshake, if at `now_ms` it
+    /// began at least `older_than_ms` ago, without allocating a temporary
+    /// candidate list. The peer may retry with a fresh SYN.
     #[must_use]
-    pub fn reclaim_oldest_syn_received(&mut self) -> Option<TcpFlowToken> {
-        let (id, key) = self.syn_received_order.pop_first()?;
+    pub fn reclaim_stale_syn_received(
+        &mut self,
+        now_ms: u64,
+        older_than_ms: u64,
+    ) -> Option<TcpFlowToken> {
+        let (_, (_, created_ms)) = self.syn_received_order.first_key_value()?;
+        if now_ms.saturating_sub(*created_ms) < older_than_ms {
+            return None;
+        }
+        let (id, (key, _)) = self.syn_received_order.pop_first()?;
         let token = TcpFlowToken::new_on_shard(FlowId::new(id), self.generation, self.shard);
         self.remove(key);
         self.stats.pressure_reclaimed_syns = self.stats.pressure_reclaimed_syns.saturating_add(1);

@@ -1413,7 +1413,7 @@ fn handshake_reserves_credit_before_advertising_and_bounds_accept_queue() {
         table.ingest(&ack2).unwrap().events.as_slice(),
         [TcpEvent::Accepted(_)]
     ));
-    assert_eq!(table.reclaim_oldest_syn_received(), None);
+    assert_eq!(table.reclaim_stale_syn_received(0, 0), None);
     let snapshot = ledger.snapshot();
     assert_eq!(snapshot.used[ResourceKind::TcpFlows as usize], 2);
     assert_eq!(snapshot.used[ResourceKind::TcpPayloadBytes as usize], 2_048);
@@ -2347,13 +2347,47 @@ fn pressure_reclaims_syn_received_in_creation_order_without_leaks() {
     let first_token = first.timers[0].token;
     let second_token = second.timers[0].token;
 
-    assert_eq!(table.reclaim_oldest_syn_received(), Some(first_token));
-    assert_eq!(table.reclaim_oldest_syn_received(), Some(second_token));
-    assert_eq!(table.reclaim_oldest_syn_received(), None);
+    assert_eq!(table.reclaim_stale_syn_received(0, 0), Some(first_token));
+    assert_eq!(table.reclaim_stale_syn_received(0, 0), Some(second_token));
+    assert_eq!(table.reclaim_stale_syn_received(0, 0), None);
     assert_eq!(table.stats().pressure_reclaimed_syns, 2);
     assert_eq!(table.stats().active_flows, 0);
     assert_eq!(table.stats().syn_received, 0);
     assert_eq!(ledger.snapshot().total_bytes, 0);
+}
+
+/// Under pressure only handshakes gone stale are reclaimed: a client whose
+/// SYN-ACK went out lately keeps its half-open flow and can still finish.
+#[test]
+fn pressure_reclaims_only_stale_syn_received() {
+    let ledger = ResourceLedger::new(BudgetProfile::Router.budget()).unwrap();
+    let mut table = TcpTable::new(
+        Arc::clone(&ledger),
+        NetworkGeneration::new(1),
+        TcpTableConfig::default(),
+    );
+    let (destination_first, destination) = endpoints(40);
+    let (young_source, _) = endpoints(41);
+    let (newest_source, _) = endpoints(42);
+    let syn = |source, seq| packet(source, destination, seq, 0, TcpFlags::SYN, &[]);
+    let old = table
+        .ingest_with_policy_at(&syn(destination_first, 100), true, 1_000)
+        .unwrap();
+    table
+        .ingest_with_policy_at(&syn(young_source, 200), true, 3_500)
+        .unwrap();
+    table
+        .ingest_with_policy_at(&syn(newest_source, 300), true, 4_000)
+        .unwrap();
+
+    // At 4 s, the first has waited 3 s for its ACK; the others not yet.
+    assert_eq!(
+        table.reclaim_stale_syn_received(4_000, 3_000),
+        Some(old.timers[0].token)
+    );
+    assert_eq!(table.reclaim_stale_syn_received(4_000, 3_000), None);
+    assert_eq!(table.stats().syn_received, 2);
+    assert_eq!(table.stats().pressure_reclaimed_syns, 1);
 }
 
 #[test]
