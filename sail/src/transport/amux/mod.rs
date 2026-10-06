@@ -286,10 +286,10 @@ impl MuxConnector {
         self.session_id
     }
 
-    /// Whether the session is spent: it takes no more streams, and has
-    /// none left.
+    /// Whether the session is spent: closed or retired, its streams going
+    /// on without it here, or it takes no more streams and has none left.
     pub fn is_done(&self) -> bool {
-        self.session.is_closed() || (!self.takes_more() && self.session.num_streams() == 0)
+        !self.session.is_reusable() || (!self.takes_more() && self.session.num_streams() == 0)
     }
 
     /// Whether the limits let the session take another stream, some time.
@@ -300,7 +300,7 @@ impl MuxConnector {
     }
 
     pub async fn new_stream(&mut self) -> Option<MuxStream> {
-        if self.session.is_closed()
+        if !self.session.is_reusable()
             || !self.takes_more()
             || self.session.num_streams() >= self.concurrency
         {

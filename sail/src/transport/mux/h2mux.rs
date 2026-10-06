@@ -4,7 +4,9 @@
 //! HTTP/2 flow control bounds what waits unread: `Tuning::h2_stream_window`
 //! a stream, eight times that a connection. A stream whose data nothing
 //! reads for the stall timeout is reset, alone (`muxcore::stall`), and
-//! gives its connection its window back.
+//! gives its connection its window back. A client's connection takes no
+//! new streams once one ended while the server may still be sending it,
+//! as a muxcore session does.
 
 use std::io;
 use std::pin::Pin;
@@ -57,6 +59,9 @@ pub struct H2Client {
     tuning: Tuning,
     label: Arc<str>,
     closed: Arc<AtomicBool>,
+    /// A stream ended before the server finished it: what it was sent is
+    /// still on its way, ahead of what a new stream would get.
+    retired: Arc<AtomicBool>,
     active: Arc<AtomicUsize>,
     task: AbortHandle,
 }
@@ -90,6 +95,7 @@ impl H2Client {
             tuning,
             label: label.into(),
             closed,
+            retired: Arc::new(AtomicBool::new(false)),
             active: Arc::new(AtomicUsize::new(0)),
             task,
         })
@@ -109,6 +115,8 @@ impl H2Client {
             send: stream,
             received: Bytes::new(),
             ended: false,
+            peer_done: false,
+            retire: Some(self.retired.clone()),
             _active: Active::new(&self.active),
         };
         Ok(guard(stream, &self.tuning, self.label.clone()))
@@ -120,6 +128,12 @@ impl H2Client {
 
     pub fn is_closed(&self) -> bool {
         self.closed.load(Ordering::Relaxed)
+    }
+
+    /// Whether a new stream may go on the connection: it is not closed,
+    /// and no stream ended before the server finished it.
+    pub fn is_reusable(&self) -> bool {
+        !self.is_closed() && !self.retired.load(Ordering::Relaxed)
     }
 
     /// Whether the server takes another stream now.
@@ -203,6 +217,8 @@ where
                 send,
                 received: Bytes::new(),
                 ended: false,
+                peer_done: false,
+                retire: None,
                 _active: Active::new(&active),
             };
             let stream = guard(stream, &tuning, label.clone());
@@ -231,7 +247,25 @@ pub struct H2Inner {
     /// Received and not yet read.
     received: Bytes,
     ended: bool,
+    /// The peer is done sending: it ended or reset the stream.
+    peer_done: bool,
+    /// On a client: marks the connection retired if the stream is dropped
+    /// before the peer is done.
+    retire: Option<Arc<AtomicBool>>,
     _active: Active,
+}
+
+impl Drop for H2Inner {
+    fn drop(&mut self) {
+        if let Some(retired) = self.retire.as_ref().filter(|_| !self.peer_done) {
+            if !retired.swap(true, Ordering::Relaxed) {
+                debug!(
+                    "h2mux connection retired: stream {} ended before the server finished",
+                    u32::from(self.send.stream_id())
+                );
+            }
+        }
+    }
 }
 
 impl Stallable for H2Inner {
@@ -273,9 +307,17 @@ impl AsyncRead for H2Inner {
                 return Poll::Ready(Ok(()));
             }
             if let Some(response) = me.response.as_mut() {
-                let response = ready!(response.poll_unpin(cx)).map_err(h2_error)?;
+                let response = match ready!(response.poll_unpin(cx)) {
+                    Ok(response) => response,
+                    Err(e) => {
+                        me.peer_done |= e.is_remote();
+                        return Poll::Ready(Err(h2_error(e)));
+                    }
+                };
                 me.response = None;
                 if response.status() != StatusCode::OK {
+                    // Sent with the end of the stream.
+                    me.peer_done = true;
                     return Poll::Ready(Err(io::Error::other(format!(
                         "h2mux: unexpected status {}",
                         response.status()
@@ -292,10 +334,17 @@ impl AsyncRead for H2Inner {
                     me.received = data;
                 }
                 Some(Err(e)) if e.reason() == Some(h2::Reason::NO_ERROR) => {
-                    return Poll::Ready(Ok(()))
+                    me.peer_done = true;
+                    return Poll::Ready(Ok(()));
                 }
-                Some(Err(e)) => return Poll::Ready(Err(h2_error(e))),
-                None => return Poll::Ready(Ok(())),
+                Some(Err(e)) => {
+                    me.peer_done |= e.is_remote();
+                    return Poll::Ready(Err(h2_error(e)));
+                }
+                None => {
+                    me.peer_done = true;
+                    return Poll::Ready(Ok(()));
+                }
             }
         }
     }
