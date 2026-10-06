@@ -218,7 +218,9 @@ impl DialSpec {
             return Err(anyhow!("bind_address_no_port: only supported on Linux"));
         }
         if fields.protect_path.is_some() && !cfg!(unix) {
-            return Err(anyhow!("protect_path: only supported on Unix"));
+            return Err(anyhow!(
+                "protect_path: only supported on Unix, where a socket is handed over a Unix socket"
+            ));
         }
         if fields.tcp_fast_open {
             super::sockopt::supports_tcp_fast_open()
@@ -600,7 +602,14 @@ mod tests {
         if cfg!(unix) {
             protect.unwrap();
         } else {
-            assert_eq!(protect, Err("protect_path: only supported on Unix".into()));
+            assert_eq!(
+                protect,
+                Err(
+                    "protect_path: only supported on Unix, where a socket is handed over a Unix \
+                     socket"
+                        .into()
+                )
+            );
         }
         let fast_open = check(serde_json::json!({ "tcp_fast_open": true }));
         if cfg!(any(
@@ -611,10 +620,9 @@ mod tests {
         )) {
             fast_open.unwrap();
         } else if cfg!(windows) {
-            assert_eq!(
-                fast_open,
-                Err("tcp_fast_open: not supported on Windows yet".into())
-            );
+            assert!(fast_open.unwrap_err().starts_with(
+                "tcp_fast_open: not supported on Windows, which sends Fast Open data"
+            ));
         } else {
             assert_eq!(
                 fast_open,

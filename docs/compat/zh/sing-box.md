@@ -16,6 +16,8 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 
 在默认拨号器绑定套接字时（占用默认路由的 TUN 即如此），`local` 服务器自己询问系统的 DNS 服务器：按顺序询问，每个服务器平分查询剩余的时间，最多三个，每个至少一秒；sing-box 给每个服务器 resolv.conf 的超时（5 秒），因此在 10 秒的查询里它的第三个服务器永远不会被询问。没有可发送的接口时立即失败，而不去询问不属于任何网络的系统服务器（sing-box 此时回退到 127.0.0.1 和 ::1）。在 macOS 上 sing-box 把名字交给系统解析器，sail 则询问其拨号器所走接口的服务器：手动设置的优先，否则用网络告知的。sail 会遵循系统的分离 DNS，sing-box 自己询问服务器的 local 服务器和 Mihomo 的 `system` 都不会：名字落在只负责部分域名的解析器的域名下（macOS 上带 `SupplementalMatchDomains` 的解析器，或 /etc/resolver 下的文件；Linux 上 systemd-resolved 某条链路的路由域名或搜索域名；Windows 上带 DNS 服务器的 NRPT 规则）时，询问该解析器的服务器，并从系统询问它所用的接口发出（NRPT 不指定接口，则从系统路由到该服务器的接口发出），最长的域名优先。位于 sail 自己 TUN 上、或服务器全在其网络内的解析器会被跳过；带 `detour` 或自己设了 `bind_interface` 的服务器不遵循分离 DNS。
 
+Windows 无法实现的拨号字段在 Windows 上报错。已知缺口是 `tcp_fast_open`：Windows 只在连接调用本身（`ConnectEx`）里随 SYN 发送 Fast Open 数据，而 sail 在首次写入之前就已连接；Linux 和 macOS 则由内核把 SYN 留到首次写入。sing-box 的 tfo-go 返回自己的连接类型，在首次写入时才连接。`routing_mark` 与 `route.default_mark` 只在 Linux 上支持（Windows 没有 socket 标记，出口由 `bind_interface` 选择），`protect_path` 只在 Unix 上支持，`bind_address_no_port` 只在 Linux 上支持：Windows 接受 `SO_REUSE_UNICASTPORT`，但设了它的 socket 仍在 bind 时分到端口，读回该选项也是未设置，无法证明它起作用。
+
 ## 汇总
 
 | 部分 | 字段数 | 支持 | 警告 | 报错 |

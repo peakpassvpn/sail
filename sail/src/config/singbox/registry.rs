@@ -1521,7 +1521,16 @@ Windows an NRPT rule with DNS servers) is asked of that resolver's servers, thro
 asks it on (for NRPT, which names none, the one the system routes \
 its server through), the longest domain first. A resolver on sail's own TUN, or whose servers are all on \
 its network, is passed over; a server with a `detour` or a `bind_interface` of its own follows \
-none.",
+none.
+
+The dial fields Windows cannot take are refused there. A known gap is `tcp_fast_open`: Windows \
+sends Fast Open data only with the connect itself (`ConnectEx`), and sail connects before the \
+first write, where Linux and macOS hold the SYN for it; sing-box's tfo-go returns a connection \
+of its own that connects at the first write. `routing_mark` and `route.default_mark` are \
+Linux's only (Windows has no socket mark; `bind_interface` chooses the way out), \
+`protect_path` Unix's only, and `bind_address_no_port` Linux's only: Windows' \
+`SO_REUSE_UNICASTPORT` is taken, but a socket bound with it still gets its port at the bind, \
+and the option reads back unset, so that what it does could not be shown.",
     summary: "## Summary",
     area: "Section",
     total: "Fields",
@@ -1558,7 +1567,9 @@ const ZH: Words = Words {
 
 与 sing-box 一致，`resolve` 路由动作把目标域名解析出的地址交给连接所走的任一出站：代理服务器收到的是由本地 DNS 决定的地址，而不是域名，它不会自己再解析。
 
-在默认拨号器绑定套接字时（占用默认路由的 TUN 即如此），`local` 服务器自己询问系统的 DNS 服务器：按顺序询问，每个服务器平分查询剩余的时间，最多三个，每个至少一秒；sing-box 给每个服务器 resolv.conf 的超时（5 秒），因此在 10 秒的查询里它的第三个服务器永远不会被询问。没有可发送的接口时立即失败，而不去询问不属于任何网络的系统服务器（sing-box 此时回退到 127.0.0.1 和 ::1）。在 macOS 上 sing-box 把名字交给系统解析器，sail 则询问其拨号器所走接口的服务器：手动设置的优先，否则用网络告知的。sail 会遵循系统的分离 DNS，sing-box 自己询问服务器的 local 服务器和 Mihomo 的 `system` 都不会：名字落在只负责部分域名的解析器的域名下（macOS 上带 `SupplementalMatchDomains` 的解析器，或 /etc/resolver 下的文件；Linux 上 systemd-resolved 某条链路的路由域名或搜索域名；Windows 上带 DNS 服务器的 NRPT 规则）时，询问该解析器的服务器，并从系统询问它所用的接口发出（NRPT 不指定接口，则从系统路由到该服务器的接口发出），最长的域名优先。位于 sail 自己 TUN 上、或服务器全在其网络内的解析器会被跳过；带 `detour` 或自己设了 `bind_interface` 的服务器不遵循分离 DNS。",
+在默认拨号器绑定套接字时（占用默认路由的 TUN 即如此），`local` 服务器自己询问系统的 DNS 服务器：按顺序询问，每个服务器平分查询剩余的时间，最多三个，每个至少一秒；sing-box 给每个服务器 resolv.conf 的超时（5 秒），因此在 10 秒的查询里它的第三个服务器永远不会被询问。没有可发送的接口时立即失败，而不去询问不属于任何网络的系统服务器（sing-box 此时回退到 127.0.0.1 和 ::1）。在 macOS 上 sing-box 把名字交给系统解析器，sail 则询问其拨号器所走接口的服务器：手动设置的优先，否则用网络告知的。sail 会遵循系统的分离 DNS，sing-box 自己询问服务器的 local 服务器和 Mihomo 的 `system` 都不会：名字落在只负责部分域名的解析器的域名下（macOS 上带 `SupplementalMatchDomains` 的解析器，或 /etc/resolver 下的文件；Linux 上 systemd-resolved 某条链路的路由域名或搜索域名；Windows 上带 DNS 服务器的 NRPT 规则）时，询问该解析器的服务器，并从系统询问它所用的接口发出（NRPT 不指定接口，则从系统路由到该服务器的接口发出），最长的域名优先。位于 sail 自己 TUN 上、或服务器全在其网络内的解析器会被跳过；带 `detour` 或自己设了 `bind_interface` 的服务器不遵循分离 DNS。
+
+Windows 无法实现的拨号字段在 Windows 上报错。已知缺口是 `tcp_fast_open`：Windows 只在连接调用本身（`ConnectEx`）里随 SYN 发送 Fast Open 数据，而 sail 在首次写入之前就已连接；Linux 和 macOS 则由内核把 SYN 留到首次写入。sing-box 的 tfo-go 返回自己的连接类型，在首次写入时才连接。`routing_mark` 与 `route.default_mark` 只在 Linux 上支持（Windows 没有 socket 标记，出口由 `bind_interface` 选择），`protect_path` 只在 Unix 上支持，`bind_address_no_port` 只在 Linux 上支持：Windows 接受 `SO_REUSE_UNICASTPORT`，但设了它的 socket 仍在 bind 时分到端口，读回该选项也是未设置，无法证明它起作用。",
     summary: "## 汇总",
     area: "部分",
     total: "字段数",

@@ -22,7 +22,12 @@ pub fn supports_tcp_fast_open() -> Result<(), &'static str> {
     )) {
         Ok(())
     } else if cfg!(windows) {
-        Err("not supported on Windows yet")
+        // tfo-go, sing-box's, returns a connection of its own that
+        // connects at the first write; sail's TCP dial returns the stream.
+        Err(
+            "not supported on Windows, which sends Fast Open data only with the connect \
+             (ConnectEx), and sail connects before the first write",
+        )
     } else {
         Err("not supported on this platform")
     }
