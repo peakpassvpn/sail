@@ -426,12 +426,14 @@ impl RuntimeOptions {
                     offload: false,
                     command_channel_size: 256,
                     udp_uplink_channel_size: 128,
-                    // Measured over a Linux TUN, one upload stream: windows fixed at 16 KiB
-                    // carried 414 Mbit/s, growing from 4 KiB to 64 KiB 1056 and to 256 KiB
-                    // 1124 (medians of 3). Starting at 4 KiB, 2000 connections reserve 8 MiB
-                    // of the budget's 12; at 16 KiB only 653 of 2000 opened.
+                    // Measured over a Linux TUN, Trojan, four upload streams against
+                    // sing-box on the same cores: growing from 4 KiB to 64 KiB carried 0.91
+                    // of sing-box's upload, to 128 KiB 0.98 and to 256 KiB 0.98 (medians of
+                    // 3; download 0.97 at all three). Starting at 4 KiB, 2000 connections
+                    // reserve 8 MiB of the budget's 12 whatever the ceiling (7.4 to 7.8
+                    // MiB used at 64, 128 and 256); at 16 KiB only 653 of 2000 opened.
                     receive_window: 4,
-                    receive_window_max: 64,
+                    receive_window_max: 128,
                 },
                 inbound: Inbound {
                     multiplex_accept_concurrency: 64,
