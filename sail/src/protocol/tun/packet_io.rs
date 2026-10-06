@@ -294,27 +294,97 @@ impl PacketIo for WintunPacketIo {
     }
 }
 
+/// The virtio-net header of one packet, not a GSO frame: its checksums
+/// valid (sail computed them), and the length of its IP and TCP or UDP
+/// headers, which the kernel then puts in the skb's linear part. With 0
+/// there, the default, the kernel puts the whole packet in page fragments
+/// and every layer after pulls the headers out of them again, which cost a
+/// TUN's download about a fifth (measured: zero-window advertisements went
+/// up eightfold).
+#[cfg(target_os = "linux")]
+fn plain_header(packet: &[u8]) -> [u8; tun_rs::VIRTIO_NET_HDR_LEN] {
+    const DATA_VALID: u8 = 2;
+    let headers = parse_ip_packet(packet, false).ok().map_or(0, |ip| {
+        let ip_header = packet.len() - ip.payload.len();
+        let transport = match ip.next_header {
+            6 => ip
+                .payload
+                .get(12)
+                .map_or(0, |offset| usize::from(offset >> 4) * 4),
+            17 => 8,
+            _ => 0,
+        };
+        (ip_header + transport).min(packet.len())
+    });
+    let mut header = [0; tun_rs::VIRTIO_NET_HDR_LEN];
+    let _ = tun_rs::VirtioNetHdr {
+        flags: DATA_VALID,
+        // VIRTIO_NET_HDR_GSO_NONE, which tun_rs does not export.
+        gso_type: 0,
+        hdr_len: u16::try_from(headers).unwrap_or(0),
+        gso_size: 0,
+        csum_start: 0,
+        csum_offset: 0,
+    }
+    .encode(&mut header);
+    header
+}
+
+/// A TCP segment with a payload: its flow, by addresses and ports. The
+/// stack made it, so its checksums are not checked again.
+#[cfg(target_os = "linux")]
+fn tcp_flow(packet: &[u8]) -> Option<(std::net::SocketAddr, std::net::SocketAddr)> {
+    let segment = parse_tcp_segment(parse_ip_packet(packet, false).ok()?, false).ok()?;
+    (!segment.payload.is_empty()).then_some((segment.source, segment.destination))
+}
+
+/// A batch's packets as they go out: each flow's TCP segments together, at
+/// its first segment's place, to be coalesced into one frame; anything
+/// else alone. A batch of several flows coalesces flow by flow, as
+/// wireguard-go's does, where one frame for all of it never can.
+#[cfg(target_os = "linux")]
+fn flow_groups(payloads: &[&[u8]]) -> Vec<Vec<usize>> {
+    let mut groups: Vec<Vec<usize>> = Vec::new();
+    let mut flows: Vec<((std::net::SocketAddr, std::net::SocketAddr), usize)> = Vec::new();
+    for (index, payload) in payloads.iter().enumerate() {
+        let Some(flow) = tcp_flow(payload) else {
+            groups.push(vec![index]);
+            continue;
+        };
+        // A batch holds a few flows: a scan beats a map.
+        match flows.iter().find(|(f, _)| *f == flow) {
+            Some(&(_, group)) => groups[group].push(index),
+            None => {
+                flows.push((flow, groups.len()));
+                groups.push(vec![index]);
+            }
+        }
+    }
+    groups
+}
+
+/// Coalesces `payloads`, segments of one flow, into one GSO frame in
+/// `buffers`: its index, or none if they do not make exactly one.
 #[cfg(target_os = "linux")]
 fn prepare_coalesced_tcp_batch(
     gro_table: &mut tun_rs::GROTable,
     buffers: &mut [Vec<u8>],
-    packets: &PacketBatch,
+    payloads: &[&[u8]],
 ) -> Option<usize> {
-    let count = packets.len();
+    let count = payloads.len();
     if count < 2 || count > buffers.len() {
         return None;
     }
     let mut original_payload_bytes = 0_usize;
-    for (buffer, packet) in buffers.iter_mut().zip(packets.iter()).take(count) {
-        let segment =
-            parse_tcp_segment(parse_ip_packet(packet.payload(), true).ok()?, true).ok()?;
+    for (buffer, payload) in buffers.iter_mut().zip(payloads).take(count) {
+        let segment = parse_tcp_segment(parse_ip_packet(payload, false).ok()?, false).ok()?;
         if segment.payload.is_empty() {
             return None;
         }
         original_payload_bytes = original_payload_bytes.checked_add(segment.payload.len())?;
         buffer.clear();
         buffer.resize(tun_rs::VIRTIO_NET_HDR_LEN, 0);
-        buffer.extend_from_slice(packet.payload());
+        buffer.extend_from_slice(payload);
     }
     gro_table
         .apply_gro(&mut buffers[..count], tun_rs::VIRTIO_NET_HDR_LEN, false)
@@ -415,6 +485,84 @@ impl TunRsPacketIo {
             pending_send_error: None,
             recv_backoff: AcceptBackoff::new("tun: read"),
         })
+    }
+
+    /// Sends `packets` with offload: each flow's TCP segments as one GSO
+    /// frame where they make one, anything else a packet a write. Only the
+    /// first write waits; a later one that would block ends the send, and
+    /// the count is of the batch's packets written from its start. The
+    /// frames go out flow by flow, so a send ended early may have written
+    /// segments past that count too, which the retry sends again: the
+    /// receiver takes them as TCP retransmissions. A TUN's write blocks
+    /// only when the kernel is out of buffers.
+    async fn send_coalesced(&mut self, packets: &PacketBatch) -> io::Result<usize> {
+        let payloads: Vec<&[u8]> = packets.iter().map(Packet::payload).collect();
+        let mut written = vec![false; payloads.len()];
+        let mut first = true;
+        'groups: for group in flow_groups(&payloads) {
+            let segments: Vec<&[u8]> = group.iter().map(|&index| payloads[index]).collect();
+            let frame = prepare_coalesced_tcp_batch(
+                &mut self.gro_table,
+                &mut self.offload_send_packets,
+                &segments,
+            );
+            // One frame for the group (the buffer it is in), or each of
+            // its packets alone (none: copied into the first buffer).
+            let parts: Vec<(Option<usize>, &[usize])> = match frame {
+                Some(index) => vec![(Some(index), &group[..])],
+                None => group
+                    .iter()
+                    .map(|index| (None, std::slice::from_ref(index)))
+                    .collect(),
+            };
+            for (coalesced, covers) in parts {
+                // A frame coalesced in its buffer, or a packet alone behind
+                // its own header, gathered by the write.
+                let header;
+                let frame: [&[u8]; 2] = match coalesced {
+                    Some(index) => [&self.offload_send_packets[index], &[]],
+                    None => {
+                        header = plain_header(payloads[covers[0]]);
+                        [&header, payloads[covers[0]]]
+                    }
+                };
+                let length = frame[0].len() + frame[1].len();
+                let slices = [io::IoSlice::new(frame[0]), io::IoSlice::new(frame[1])];
+                let result = if first {
+                    self.device.send_vectored(&slices).await
+                } else {
+                    self.device.try_send_vectored(&slices)
+                };
+                match result {
+                    Ok(n) if n == length => {
+                        first = false;
+                        for &index in covers {
+                            written[index] = true;
+                        }
+                    }
+                    Ok(_) if first => {
+                        return Err(io::Error::new(
+                            io::ErrorKind::WriteZero,
+                            "TUN device accepted a partial frame",
+                        ))
+                    }
+                    Ok(_) => {
+                        self.pending_send_error = Some(io::Error::new(
+                            io::ErrorKind::WriteZero,
+                            "TUN device accepted a partial frame",
+                        ));
+                        break 'groups;
+                    }
+                    Err(error) if first => return Err(error),
+                    Err(error) if error.kind() == io::ErrorKind::WouldBlock => break 'groups,
+                    Err(error) => {
+                        self.pending_send_error = Some(error);
+                        break 'groups;
+                    }
+                }
+            }
+        }
+        Ok(written.iter().take_while(|&&w| w).count())
     }
 
     fn push_received(&mut self, out: &mut PacketBatch, count: usize) -> io::Result<()> {
@@ -535,22 +683,8 @@ impl PacketIo for TunRsPacketIo {
         if let Some(error) = self.pending_send_error.take() {
             return Err(error);
         }
-        if self.offload {
-            if let Some(index) = prepare_coalesced_tcp_batch(
-                &mut self.gro_table,
-                &mut self.offload_send_packets,
-                packets,
-            ) {
-                let frame = &self.offload_send_packets[index];
-                return match self.device.send(frame).await {
-                    Ok(written) if written == frame.len() => Ok(packets.len()),
-                    Ok(_) => Err(io::Error::new(
-                        io::ErrorKind::WriteZero,
-                        "TUN device accepted a partial GSO frame",
-                    )),
-                    Err(error) => Err(error),
-                };
-            }
+        if self.offload && packets.len() >= 2 {
+            return self.send_coalesced(packets).await;
         }
         let mut sent = 0;
         for packet in packets.iter() {
@@ -561,15 +695,18 @@ impl PacketIo for TunRsPacketIo {
             };
             // PacketIo cancellation: await only before the first packet is
             // accepted; later packets use a non-blocking send.
+            // With offload, the packet behind its own header, gathered by
+            // the write rather than copied behind it.
+            let header = plain_header(packet.payload());
+            let parts = [
+                io::IoSlice::new(&header),
+                io::IoSlice::new(packet.payload()),
+            ];
             let result = if self.offload {
-                let buffer = &mut self.offload_send_packets[0];
-                buffer.clear();
-                buffer.resize(tun_rs::VIRTIO_NET_HDR_LEN, 0);
-                buffer.extend_from_slice(packet.payload());
                 if sent == 0 {
-                    self.device.send(buffer).await
+                    self.device.send_vectored(&parts).await
                 } else {
-                    self.device.try_send(buffer)
+                    self.device.try_send_vectored(&parts)
                 }
             } else if sent == 0 {
                 self.device.send(packet.payload()).await
@@ -1039,7 +1176,8 @@ mod tests {
         }
         let mut table = tun_rs::GROTable::default();
         let mut buffers = gso_test_buffers(payloads.len());
-        let index = prepare_coalesced_tcp_batch(&mut table, &mut buffers, &batch).unwrap();
+        let segments: Vec<&[u8]> = batch.iter().map(Packet::payload).collect();
+        let index = prepare_coalesced_tcp_batch(&mut table, &mut buffers, &segments).unwrap();
         let header = tun_rs::VirtioNetHdr::decode(&buffers[index]).unwrap();
         assert_eq!(header.gso_type & 0x7f, tun_rs::VIRTIO_NET_HDR_GSO_TCPV4);
         assert_eq!(usize::from(header.gso_size), payloads[0].len());
@@ -1053,6 +1191,52 @@ mod tests {
         for (index, expected) in payloads.iter().enumerate() {
             let ip = parse_ip_packet(&split[index][..sizes[index]], true).unwrap();
             assert_eq!(parse_tcp_segment(ip, true).unwrap().payload, expected);
+        }
+    }
+
+    /// Two flows' segments interleaved, and a bare ACK between them: a
+    /// group a flow, at its first segment's place, each coalescing into
+    /// one frame; the ACK alone.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_offload_coalesces_a_mixed_batch_flow_by_flow() {
+        let server = SocketAddr::from((Ipv4Addr::new(10, 22, 0, 1), 443));
+        let one = SocketAddr::from((Ipv4Addr::new(10, 22, 0, 2), 50_000));
+        let two = SocketAddr::from((Ipv4Addr::new(10, 22, 0, 2), 50_001));
+        let mut wires = Vec::new();
+        for i in 0..3_u32 {
+            wires.push(tcp_packet(
+                server,
+                one,
+                1_000 + i * 512,
+                77,
+                TcpFlags::ACK,
+                &[1; 512],
+            ));
+            if i == 1 {
+                wires.push(tcp_packet(server, one, 2_536, 77, TcpFlags::ACK, &[]));
+            }
+            wires.push(tcp_packet(
+                server,
+                two,
+                9_000 + i * 512,
+                77,
+                TcpFlags::ACK,
+                &[2; 512],
+            ));
+        }
+        let payloads: Vec<&[u8]> = wires.iter().map(Vec::as_slice).collect();
+        let groups = flow_groups(&payloads);
+        assert_eq!(groups, vec![vec![0, 2, 5], vec![1, 4, 6], vec![3]]);
+        let mut table = tun_rs::GROTable::default();
+        for group in &groups[..2] {
+            let mut buffers = gso_test_buffers(group.len());
+            let segments: Vec<&[u8]> = group.iter().map(|&i| payloads[i]).collect();
+            let index = prepare_coalesced_tcp_batch(&mut table, &mut buffers, &segments)
+                .expect("a flow's segments make one frame");
+            let header = tun_rs::VirtioNetHdr::decode(&buffers[index]).unwrap();
+            assert_eq!(header.gso_type & 0x7f, tun_rs::VIRTIO_NET_HDR_GSO_TCPV4);
+            assert_eq!(usize::from(header.gso_size), 512);
         }
     }
 
@@ -1077,7 +1261,8 @@ mod tests {
         }
         let mut table = tun_rs::GROTable::default();
         let mut buffers = gso_test_buffers(wires.len());
-        assert!(prepare_coalesced_tcp_batch(&mut table, &mut buffers, &batch).is_none());
+        let segments: Vec<&[u8]> = batch.iter().map(Packet::payload).collect();
+        assert!(prepare_coalesced_tcp_batch(&mut table, &mut buffers, &segments).is_none());
     }
 
     #[cfg(target_os = "linux")]
