@@ -14,6 +14,12 @@
 //! and with it their connections; the others are retired, and their tasks
 //! stop once nothing holds them any more. A download that fails, or that
 //! holds no outbound sail can use, leaves the members as they are.
+//!
+//! A member may be an endpoint (a WireGuard one): its tasks are the
+//! provider's, contained, so that one that ends or panics fails that
+//! member alone, never the instance. Its running side starts once the
+//! instance can run it (`Providers::start_members`), and stops as soon as
+//! the member is retired.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, Weak};
@@ -22,18 +28,102 @@ use std::time::{Duration, SystemTime};
 use anyhow::{Context, Result};
 use futures::future::AbortHandle;
 
+use crate::adapter::registry::{AnyEndpointServer, MemberRun};
 use crate::adapter::AnyOutboundHandler;
 use crate::app::dispatcher::Dispatcher;
 use crate::app::http::HttpClients;
+use crate::app::nat_manager::NatManager;
 use crate::app::SyncDnsClient;
 use crate::config::model::OutboundProvider;
 use crate::net::DialDefaults;
 use crate::protocol::group::members::Members;
+use crate::runtime::scope::TaskScope;
 use crate::runtime::RuntimeEnv;
 
 mod one;
 
 pub(crate) use one::Provider;
+
+/// What starts a member that is an endpoint, with the instance's
+/// dispatcher, NAT and task scope, which there are once it starts. Held
+/// as a function: the dispatcher reaches the providers, and a type that
+/// held it here would be one the compiler cannot prove `Send`. It holds
+/// them weakly, as the providers are the instance's: held strongly, the
+/// instance would hold itself, and never go.
+#[derive(Clone)]
+pub(crate) struct StartContext(Arc<StartMember>);
+
+/// Starts a member's running side.
+type StartMember = dyn Fn(&AnyEndpointServer) -> Result<MemberRun> + Send + Sync;
+
+impl StartContext {
+    pub(crate) fn new(
+        dispatcher: &Arc<Dispatcher>,
+        nat: &Arc<NatManager>,
+        scope: TaskScope,
+    ) -> Self {
+        let (dispatcher, nat) = (Arc::downgrade(dispatcher), Arc::downgrade(nat));
+        StartContext(Arc::new(move |server| {
+            let (Some(dispatcher), Some(nat)) = (dispatcher.upgrade(), nat.upgrade()) else {
+                anyhow::bail!("the instance has stopped");
+            };
+            crate::adapter::registry::start_member(server, dispatcher, nat, &scope)
+        }))
+    }
+}
+
+/// The start context, once there is one: the providers', and those of the
+/// providers a reload makes.
+#[derive(Default)]
+pub(crate) struct Starter(Mutex<Option<StartContext>>);
+
+impl Starter {
+    fn get(&self) -> Option<StartContext> {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+}
+
+/// A member that is an endpoint: its running side, which runs from when
+/// the instance can run it until the member is retired.
+pub(crate) struct EndpointMember {
+    tag: String,
+    server: AnyEndpointServer,
+    run: Mutex<Option<MemberRun>>,
+}
+
+impl EndpointMember {
+    fn new(tag: String, server: AnyEndpointServer) -> Self {
+        EndpointMember {
+            tag,
+            server,
+            run: Mutex::new(None),
+        }
+    }
+
+    fn running(&self) -> std::sync::MutexGuard<'_, Option<MemberRun>> {
+        self.run.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Starts it, unless it runs. One that does not start fails its dials,
+    /// as one that stopped does.
+    fn start(&self, start: &StartContext) {
+        let mut run = self.running();
+        if run.is_some() {
+            return;
+        }
+        match (start.0)(&self.server) {
+            Ok(started) => *run = Some(started),
+            Err(e) => tracing::warn!("[{}] endpoint: not started: {:#}", self.tag, e),
+        }
+    }
+
+    /// Stops it: its socket and its stack go at once, and its dials fail.
+    fn stop(&self) {
+        if let Some(run) = self.running().take() {
+            run.stop();
+        }
+    }
+}
 
 /// How often members retired are checked on, to stop their tasks once
 /// nothing holds them.
@@ -44,6 +134,7 @@ const RETIRED_CHECK: Duration = Duration::from_secs(60);
 pub(crate) struct Providers {
     providers: Vec<Arc<Provider>>,
     retired: Arc<Retired>,
+    starter: Arc<Starter>,
 }
 
 impl Providers {
@@ -59,6 +150,8 @@ impl Providers {
         previous: Option<&Providers>,
     ) -> Result<Self> {
         let retired = Arc::new(Retired::default());
+        // The instance runs on: what starts members is the same.
+        let starter = previous.map(|p| p.starter.clone()).unwrap_or_default();
         let mut providers = Vec::new();
         for (i, config) in configs.iter().enumerate() {
             let previous = previous
@@ -71,6 +164,7 @@ impl Providers {
                 env,
                 previous,
                 retired.clone(),
+                starter.clone(),
             )
             .with_context(|| format!("outbound_providers[{}]: [{}]", i, config.tag))?;
             providers.push(Arc::new(provider));
@@ -84,7 +178,20 @@ impl Providers {
             }
             retired.take_over(&previous.retired);
         }
-        Ok(Self { providers, retired })
+        Ok(Self {
+            providers,
+            retired,
+            starter,
+        })
+    }
+
+    /// Starts the members that are endpoints, as the instance starts: with
+    /// `start`, from here on, each built later starts as it is built.
+    pub(crate) fn start_members(&self, start: StartContext) {
+        *self.starter.0.lock().unwrap_or_else(|e| e.into_inner()) = Some(start.clone());
+        for provider in &self.providers {
+            provider.start_endpoints(&start);
+        }
     }
 
     /// Each provider, in the configuration's order.

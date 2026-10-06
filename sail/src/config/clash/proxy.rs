@@ -85,16 +85,12 @@ pub fn lower(doc: &mut Fields, out: &mut Lowered, warnings: &mut Vec<String>) ->
     Ok(proxies)
 }
 
-/// A proxy of a provider, as an outbound tagged with its name. A `dns` one
-/// is left out, as sail does not implement it in a provider.
+/// A proxy of a provider, as an outbound tagged with its name, or the
+/// endpoint a `wireguard` one is. A `dns` one is left out, as sail does
+/// not implement it in a provider.
 #[cfg(feature = "outbound-provider")]
 pub(super) fn lower_one(f: Fields, warnings: &mut Vec<String>) -> Result<Value> {
     let proxy = Proxy::read(f, warnings)?;
-    if proxy.endpoint {
-        return Err(anyhow!(
-            "a wireguard proxy: sail does not run WireGuard in a provider yet"
-        ));
-    }
     if !proxy.derived.is_empty() {
         return Err(anyhow!(
             "the shadow-tls plugin: sail does not implement it in a provider yet"

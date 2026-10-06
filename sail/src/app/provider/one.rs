@@ -13,7 +13,7 @@ use serde_derive::{Deserialize, Serialize};
 use serde_json::Value;
 use tracing::{debug, info, warn};
 
-use super::Retired;
+use super::{EndpointMember, Retired, StartContext, Starter};
 use crate::adapter::registry::{self, OutboundBuildState};
 use crate::adapter::AnyOutboundHandler;
 use crate::app::dispatcher::Dispatcher;
@@ -21,10 +21,11 @@ use crate::app::http::{self, HttpClients};
 use crate::app::http::{file_name, write_atomically};
 use crate::app::SyncDnsClient;
 use crate::config::clash::subscription::{self, Selection};
-use crate::config::model::{Outbound, OutboundProvider, OutboundProviderKind};
+use crate::config::model::{Endpoint, Outbound, OutboundProvider, OutboundProviderKind};
 use crate::net::DialDefaults;
 use crate::protocol::group::members::{Member, MemberKey, Members};
 use crate::protocol::group::merge::{mihomo_type, Sources};
+use crate::runtime::scope::TaskClass;
 use crate::runtime::RuntimeEnv;
 
 /// How often a remote provider is downloaded again by default: Mihomo's
@@ -47,6 +48,7 @@ pub(crate) struct Provider {
     /// One update at a time.
     updating: tokio::sync::Mutex<()>,
     retired: Arc<Retired>,
+    starter: Arc<Starter>,
 }
 
 enum Source {
@@ -103,6 +105,19 @@ struct Built {
     outbound: Value,
     handler: AnyOutboundHandler,
     tasks: Vec<AbortHandle>,
+    /// Its running side, when it is an endpoint.
+    endpoint: Option<Arc<EndpointMember>>,
+}
+
+impl Built {
+    /// Retires it onto `retired`: an endpoint stops at once, the tasks of
+    /// the rest once nothing holds it.
+    fn retire(self, retired: &Retired) {
+        if let Some(endpoint) = &self.endpoint {
+            endpoint.stop();
+        }
+        retired.add(self.handler, self.tasks);
+    }
 }
 
 impl Provider {
@@ -114,6 +129,7 @@ impl Provider {
         env: &RuntimeEnv,
         previous: Option<&Provider>,
         retired: Arc<Retired>,
+        starter: Arc<Starter>,
     ) -> Result<Self> {
         let source = match config.kind {
             OutboundProviderKind::Remote => Source::Remote {
@@ -158,6 +174,7 @@ impl Provider {
             state: Mutex::new(State::default()),
             updating: tokio::sync::Mutex::new(()),
             retired,
+            starter,
         };
         for warning in warnings {
             warn!("outbound provider [{}]: {}", provider.tag, warning);
@@ -452,14 +469,15 @@ impl Provider {
                     built.push(kept);
                     continue;
                 }
-                self.retired.add(kept.handler, kept.tasks);
+                kept.retire(&self.retired);
             }
             match self.build_one(name, outbound, &mut handlers, dns_client, env) {
-                Ok((handler, tasks)) => built.push(Built {
+                Ok((handler, tasks, endpoint)) => built.push(Built {
                     name: name.as_str().into(),
                     outbound: outbound.clone(),
                     handler,
                     tasks,
+                    endpoint,
                 }),
                 Err(e) if self.config.kind == OutboundProviderKind::Inline => {
                     return Err(anyhow!("outbound_providers: [{}]: {:#}", self.tag, e));
@@ -468,7 +486,13 @@ impl Provider {
             }
         }
         for gone in before.into_values() {
-            self.retired.add(gone.handler, gone.tasks);
+            gone.retire(&self.retired);
+        }
+        // Once the instance can run them; until then, as it starts.
+        if let Some(start) = self.starter.get() {
+            for endpoint in built.iter().filter_map(|b| b.endpoint.as_ref()) {
+                endpoint.start(&start);
+            }
         }
         if !failed.is_empty() {
             warn!(
@@ -502,7 +526,10 @@ impl Provider {
 
     /// Builds the member `name` of `outbound` onto `handlers`, under a tag
     /// of its own, and takes it out again: members do not dial through
-    /// each other.
+    /// each other. Its tasks are contained: one that ends or panics fails
+    /// the member alone. An endpoint (a WireGuard one) comes with its
+    /// running side, to start.
+    #[allow(clippy::type_complexity)]
     fn build_one(
         &self,
         name: &str,
@@ -510,29 +537,48 @@ impl Provider {
         handlers: &mut HashMap<String, AnyOutboundHandler>,
         dns_client: &SyncDnsClient,
         env: &RuntimeEnv,
-    ) -> Result<(AnyOutboundHandler, Vec<AbortHandle>)> {
-        let mut outbound: Outbound = serde_json::from_value(outbound.clone())?;
-        // A plugin's library would be unloaded with what builds it here.
-        if crate::config::model::GROUP_PROTOCOLS.contains(&outbound.protocol.as_str())
-            || outbound.protocol == "plugin"
-            || outbound.protocol == "pass"
-        {
-            return Err(anyhow!(
-                "a group, a plugin or a pass outbound is not a provider's outbound"
-            ));
-        }
+    ) -> Result<(
+        AnyOutboundHandler,
+        Vec<AbortHandle>,
+        Option<Arc<EndpointMember>>,
+    )> {
         let tag = format!("{}/{}", self.tag, name);
-        outbound.tag = tag.clone();
+        let protocol = outbound
+            .get("type")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let (outbounds, endpoints) = match crate::include::ENDPOINTS.get(protocol) {
+            Some(_) => {
+                let mut endpoint: Endpoint = serde_json::from_value(outbound.clone())?;
+                endpoint.tag = tag.clone();
+                (Vec::new(), vec![endpoint])
+            }
+            None => {
+                let mut outbound: Outbound = serde_json::from_value(outbound.clone())?;
+                // A plugin's library would be unloaded with what builds it here.
+                if crate::config::model::GROUP_PROTOCOLS.contains(&outbound.protocol.as_str())
+                    || outbound.protocol == "plugin"
+                    || outbound.protocol == "pass"
+                {
+                    return Err(anyhow!(
+                        "a group, a plugin or a pass outbound is not a provider's outbound"
+                    ));
+                }
+                outbound.tag = tag.clone();
+                (vec![outbound], Vec::new())
+            }
+        };
         let mut abort_handles = HashMap::new();
         #[cfg(feature = "outbound-select")]
         let mut selectors = Default::default();
         #[cfg(feature = "plugin")]
         let mut external_handlers = crate::app::outbound::plugin::ExternalHandlers::new();
-        registry::build_outbounds(
+        let built = registry::build_outbounds_as(
+            TaskClass::Contained,
             &crate::include::OUTBOUNDS,
             &crate::include::ENDPOINTS,
-            std::slice::from_ref(&outbound),
-            &[],
+            &outbounds,
+            &endpoints,
             OutboundBuildState {
                 dns_client,
                 dial_defaults: &self.dial_defaults,
@@ -557,13 +603,34 @@ impl Provider {
         let handler = handlers
             .remove(&tag)
             .ok_or_else(|| anyhow!("[{}] outbound: not built", tag))?;
-        Ok((handler, abort_handles.remove(&tag).unwrap_or_default()))
+        let endpoint = built
+            .servers
+            .into_iter()
+            .find(|(built, _)| *built == tag)
+            .map(|(tag, server)| Arc::new(EndpointMember::new(tag, server)));
+        Ok((
+            handler,
+            abort_handles.remove(&tag).unwrap_or_default(),
+            endpoint,
+        ))
+    }
+
+    /// Starts its members that are endpoints, those that do not run.
+    pub(super) fn start_endpoints(&self, start: &StartContext) {
+        for endpoint in self
+            .state()
+            .built
+            .iter()
+            .filter_map(|b| b.endpoint.as_ref())
+        {
+            endpoint.start(start);
+        }
     }
 
     /// Retires all its members, as it is gone.
     pub(super) fn retire_all(&self, retired: &Retired) {
         for built in self.state().built.iter() {
-            retired.add(built.handler.clone(), built.tasks.clone());
+            built.clone().retire(retired);
         }
     }
 }
@@ -642,6 +709,7 @@ mod tests {
             Arc::new(DialDefaults::default()),
             env,
             previous,
+            Default::default(),
             Default::default(),
         )
         .unwrap()
@@ -846,6 +914,7 @@ mod tests {
             Arc::new(DialDefaults::default()),
             &RuntimeEnv::default(),
             None,
+            Default::default(),
             Default::default(),
         )
         .err()

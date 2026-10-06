@@ -371,3 +371,94 @@ struct libc_rusage {
 extern "C" {
     fn getrusage(who: i32, usage: *mut libc_rusage) -> i32;
 }
+
+/// A server that answers every request with `body`, on its own thread;
+/// its port.
+#[cfg(all(feature = "outbound-provider", feature = "config-clash"))]
+fn serve(body: String) -> u16 {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        for mut stream in listener.incoming().flatten() {
+            let mut request = [0u8; 4096];
+            let _ = stream.read(&mut request);
+            let _ = write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+        }
+    });
+    port
+}
+
+/// A WireGuard proxy of a Clash subscription, a provider's member: it is
+/// an endpoint the provider runs, and carries the group's connections.
+#[cfg(all(feature = "outbound-provider", feature = "config-clash"))]
+#[test]
+fn test_wireguard_endpoint_as_a_provider_member() -> anyhow::Result<()> {
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+    let (tcp_addr, tcp_fut) = rt.block_on(common::run_tcp_echo_server("127.0.0.1:0"))?;
+    let (udp_addr, udp_fut) = rt.block_on(common::run_udp_echo_server("127.0.0.1:0"))?;
+    let echo_tcp = rt.spawn(tcp_fut);
+    let echo_udp = rt.spawn(udp_fut);
+    let (client_keys, server_keys) = (Keys::new(), Keys::new());
+    let result = common::retry_port_clash(|| {
+        let [socks_port, server_port] = common::free_ports();
+        let subscription = format!(
+            "proxies:\n  - {{ name: wg, type: wireguard, server: 127.0.0.1, port: {}, \
+             ip: 10.77.0.2, ipv6: fd77::2, private-key: {}, public-key: {}, \
+             persistent-keepalive: 25, udp: true }}\n",
+            server_port, client_keys.private, server_keys.public
+        );
+        let web = serve(subscription);
+        let client = json!({
+            "inbounds": [{ "type": "socks", "listen": "127.0.0.1", "listen_port": socks_port }],
+            "outbounds": [
+                { "type": "selector", "tag": "proxy", "providers": "sub" },
+                { "type": "direct", "tag": "direct" },
+            ],
+            "outbound_providers": [{
+                "type": "remote", "tag": "sub",
+                "url": format!("http://127.0.0.1:{}/sub", web),
+                "download_detour": "direct",
+            }],
+            "route": { "final": "proxy" },
+        });
+        let configs = vec![
+            server(
+                &server_keys,
+                &client_keys,
+                server_port,
+                tcp_addr.port(),
+                udp_addr.port(),
+            ),
+            client.to_string(),
+        ];
+        let ids = common::run_sail_instances(&rt, configs)?;
+        let result = rt.block_on(async {
+            // The provider is downloaded once the instance runs.
+            let deadline = Instant::now() + Duration::from_secs(10);
+            loop {
+                match tcp_echo(socks_port, TARGET_V4, b"through a member").await {
+                    Ok(()) => break,
+                    Err(_) if Instant::now() < deadline => {
+                        tokio::time::sleep(Duration::from_millis(200)).await
+                    }
+                    Err(e) => return Err(e),
+                }
+            }
+            tcp_echo(socks_port, TARGET_V6, b"and over IPv6").await?;
+            udp_echo(socks_port, TARGET_V4).await
+        });
+        common::shutdown_instances(&rt, ids);
+        result
+    });
+    echo_tcp.abort();
+    echo_udp.abort();
+    result
+}

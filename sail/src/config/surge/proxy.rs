@@ -244,9 +244,8 @@ pub fn external(body: &str, warnings: &mut Vec<String>) -> Result<Option<Vec<Ext
             Err(e) => Err(e),
             // `DIRECT`, which names Surge's own.
             Ok(()) if proxies.names.is_empty() => continue,
-            Ok(()) if !out.endpoints.is_empty() => Err(anyhow!(
-                "sail does not implement WireGuard policies of a policy-path yet"
-            )),
+            // A `wireguard` one: the provider runs it as an endpoint.
+            Ok(()) if !out.endpoints.is_empty() => Ok(out.endpoints.remove(0)),
             Ok(()) if out.outbounds.len() > 1 => Err(anyhow!(
                 "sail does not implement Shadow TLS in a policy-path yet"
             )),

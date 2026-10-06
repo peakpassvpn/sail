@@ -1207,6 +1207,29 @@ fn a_policy_path_has_a_keystore_of_its_own() {
     );
 }
 
+/// A policy-path's `wireguard` policy is the endpoint of its own
+/// `[WireGuard <name>]` section, which the provider runs.
+#[cfg(feature = "outbound-provider")]
+#[test]
+fn a_policy_path_s_wireguard_policy_is_an_endpoint() {
+    let body = "[Proxy]\nW = wireguard, section-name=Home\n\
+                [WireGuard Home]\n\
+                private-key = yAnz5TF+lXXJte14tji3zlMNq+hd2rYUIgJBgB3fBmk=\n\
+                self-ip = 10.0.0.2\n\
+                peer = (public-key = xTIBA5rboUvnH4htodjb6e697QjLERt1NAB4mZqp8Dg=, \
+                allowed-ips = 0.0.0.0/0, endpoint = wg.example.com:51820)\n";
+    let policies = crate::config::surge::external(body, &mut Vec::new())
+        .unwrap()
+        .unwrap();
+    assert_eq!(policies[0].name, "W");
+    let w = policies[0].outbound.as_ref().unwrap();
+    assert_eq!(w["type"], "wireguard");
+    assert_eq!(w["tag"], "W");
+    assert_eq!(w["address"], json!(["10.0.0.2/32"]));
+    assert_eq!(w["peers"][0]["address"], "wg.example.com");
+    assert_eq!(w["peers"][0]["port"], 51820);
+}
+
 /// An alias of a built-in policy takes the common parameters, as Surge's
 /// manual has it; a REJECT alias dials nothing, and its dial parameters
 /// are passed over without a word.

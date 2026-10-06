@@ -224,6 +224,21 @@ impl Instance {
                 .map_err(|e| anyhow::anyhow!("[{}] endpoint: {}", tag, e))?;
             runners.push(runner);
         }
+        // A provider's members that are endpoints run contained, in the
+        // instance's scope, from here; those built later as they are.
+        #[cfg(feature = "outbound-provider")]
+        match crate::runtime::scope::TaskScope::current() {
+            Some(scope) => self.outbound_manager.load().providers().start_members(
+                crate::app::provider::StartContext::new(
+                    &self.dispatcher,
+                    &self.nat_manager,
+                    scope,
+                ),
+            ),
+            None => tracing::warn!(
+                "outbound providers: started outside the instance's scope; their endpoints do not run"
+            ),
+        }
 
         #[cfg(feature = "inbound-tun")]
         if let Some(tun) = inbounds.get_tun_runner() {
