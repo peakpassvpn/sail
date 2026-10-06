@@ -26,6 +26,11 @@
 //!   once, only past `MAX_STREAMS`.
 //! - A stream holds its session: dropping the session's handle takes no
 //!   new streams and closes it once the last stream is done.
+//! - So does a client's session once one of its streams ended while the
+//!   peer may still be sending it: dropped before the peer's FIN or reset,
+//!   reset for stalling, or, without half-close, with data still coming
+//!   after its FIN. What the peer sent is on its way, ahead of anything a
+//!   new stream would get: on a slow link, long enough for it to fail.
 //!
 //! How many sessions and streams there are, and how many were reset for
 //! stalling, is counted per protocol (`stats`).

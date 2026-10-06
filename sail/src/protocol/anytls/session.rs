@@ -18,7 +18,7 @@ use portable_atomic::AtomicU64;
 use std::collections::VecDeque;
 use std::io;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::task::{Context, Poll};
 use std::time::Duration;
@@ -62,6 +62,9 @@ struct Proto {
     /// Bumped by every `SYNACK`, so that a pending timeout can tell whether
     /// one has come since it was armed.
     synack_generation: AtomicU64,
+    /// The stream whose `SYNACK` did not come in time, which closed the
+    /// session: 0 for none.
+    synack_missed: AtomicU32,
     /// The client's settings, sent with its first stream.
     settings: Mutex<Option<BytesMut>>,
 }
@@ -418,6 +421,7 @@ impl Session {
             role,
             peer_version: AtomicU8::new(0),
             synack_generation: AtomicU64::new(0),
+            synack_missed: AtomicU32::new(0),
             settings: Mutex::new(settings),
         });
         let (core, accept) =
@@ -427,6 +431,12 @@ impl Session {
 
     pub fn is_closed(&self) -> bool {
         self.core.is_closed()
+    }
+
+    /// Whether a new stream may go on the session: it is not closed, and
+    /// no stream on it ended while the server was still sending it.
+    pub fn is_reusable(&self) -> bool {
+        self.core.is_reusable()
     }
 
     pub fn close(&self) {
@@ -447,14 +457,15 @@ impl Session {
     pub async fn open_stream(self: &Arc<Self>, first: &[u8]) -> io::Result<Stream> {
         let inner = self.core.open_with(first)?;
         if inner.id() >= 2 && self.proto.peer_version.load(Ordering::Relaxed) >= 2 {
-            self.watch_synack();
+            self.watch_synack(inner.id());
         }
         Ok(self.stream(inner))
     }
 
     /// Closes the session unless a `SYNACK` arrives in time: a reused
-    /// session that has gone quiet is taken to be stuck.
-    fn watch_synack(self: &Arc<Self>) {
+    /// session that has gone quiet is taken to be stuck. Stream `id`, which
+    /// waits for it, hears that it was why (`Stream::synack_missed`).
+    fn watch_synack(self: &Arc<Self>, id: u32) {
         let generation = self
             .proto
             .synack_generation
@@ -467,6 +478,7 @@ impl Session {
                 let current = session.proto.synack_generation.load(Ordering::Relaxed);
                 if current == generation && !session.is_closed() {
                     debug!("anytls session got no SYNACK in time, closing it");
+                    session.proto.synack_missed.store(id, Ordering::Relaxed);
                     session.close();
                 }
             }
@@ -500,6 +512,12 @@ impl Stream {
 
     pub fn set_on_drop(&mut self, on_drop: Box<dyn FnOnce() + Send + Sync>) {
         self.on_drop = OnDrop(Some(on_drop));
+    }
+
+    /// Whether the session was closed because this stream's `SYNACK` did
+    /// not come in time.
+    pub fn synack_missed(&self) -> bool {
+        self.session.proto.synack_missed.load(Ordering::Relaxed) == self.id()
     }
 
     /// Tells a version 2 client whether the stream opened: `None` for

@@ -19,7 +19,9 @@
 //! A stream holds its connection. A client that goes away, as an outbound
 //! a reload or a provider's refresh removes does, closes the connections
 //! without streams and makes no more; those with streams end when their
-//! last stream does.
+//! last stream does. So does a connection retired because one of its
+//! streams ended before the server finished it: it takes no new streams,
+//! whose data would wait behind what that stream was still sent.
 
 use std::io;
 use std::pin::Pin;
@@ -31,7 +33,7 @@ use async_trait::async_trait;
 use bytes::BytesMut;
 use futures::future::{abortable, AbortHandle, BoxFuture};
 use futures::FutureExt;
-use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, ReadBuf};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
 use tracing::{debug, Instrument};
 
 use crate::adapter::*;
@@ -55,6 +57,9 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const CHECK_INTERVAL: Duration = Duration::from_secs(30);
 /// How long a connection without streams is kept.
 const IDLE_TIMEOUT: Duration = Duration::from_secs(60);
+/// How long the TCP Brutal exchange waits for the server to end its
+/// stream: a judgment call, the end coming with the answer.
+const EXCHANGE_END: Duration = Duration::from_secs(1);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClientOptions {
@@ -148,6 +153,15 @@ impl Conn {
         }
     }
 
+    /// Whether a new stream may go on the connection: not closed, nor
+    /// retired.
+    fn is_reusable(&self) -> bool {
+        match self {
+            Conn::Frames(session) => session.is_reusable(),
+            Conn::H2(client) => client.is_reusable(),
+        }
+    }
+
     fn can_take_new_request(&self) -> bool {
         match self {
             Conn::Frames(session) => session.num_streams() < muxcore::MAX_STREAMS,
@@ -222,7 +236,7 @@ impl Client {
         };
         let now = Instant::now();
         conns.retain_mut(|entry| {
-            if entry.conn.is_closed() {
+            if !entry.conn.is_reusable() {
                 return false;
             }
             if entry.conn.num_streams() > 0 {
@@ -299,7 +313,8 @@ impl Client {
                 entry.conn.close();
                 return false;
             }
-            true
+            // Retired: its streams hold it, and it ends with the last.
+            entry.conn.is_reusable()
         });
         if self.options.brutal.is_some() {
             if let Some(entry) = conns.first() {
@@ -402,7 +417,9 @@ async fn brutal_exchange(
     stream.write_all(&buf).await?;
     read_status(&mut stream).await?;
     let server_receive_bps = brutal::read_response(&mut stream).await?;
-    let _ = stream.shutdown().await;
+    // The server ends the stream after its answer: dropped before that,
+    // it would retire the connection. One that never ends it only does.
+    let _ = tokio::time::timeout(EXCHANGE_END, stream.read_to_end(&mut Vec::new())).await;
     let send_bps = brutal.send_bps.min(server_receive_bps);
     match brutal::set(socket, send_bps) {
         Ok(()) => debug!("mux: TCP Brutal, sending at {} B/s", send_bps),
@@ -728,16 +745,23 @@ mod tests {
         assert!(counted(2).await, "no new connection after the change");
     }
 
-    /// A mux server on a new port whose TCP streams echo: its port, and
-    /// how many of its connections have ended.
-    async fn echo_server() -> (u16, Arc<std::sync::atomic::AtomicUsize>) {
+    /// A mux server on a new port whose TCP streams echo: its port, how
+    /// many of its connections have ended, and how many it took.
+    async fn echo_server() -> (
+        u16,
+        Arc<std::sync::atomic::AtomicUsize>,
+        Arc<std::sync::atomic::AtomicUsize>,
+    ) {
         use std::sync::atomic::{AtomicUsize, Ordering};
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
         let ended = Arc::new(AtomicUsize::new(0));
+        let accepted = Arc::new(AtomicUsize::new(0));
         let counted = ended.clone();
+        let taken = accepted.clone();
         tokio::spawn(async move {
             while let Ok((tcp, _)) = listener.accept().await {
+                taken.fetch_add(1, Ordering::SeqCst);
                 let counted = counted.clone();
                 tokio::spawn(async move {
                     if let Ok(mut server) = super::super::server::Server::start(
@@ -764,7 +788,7 @@ mod tests {
                 });
             }
         });
-        (port, ended)
+        (port, ended, accepted)
     }
 
     /// A mux outbound of `protocol` to the server on `port`.
@@ -810,7 +834,6 @@ mod tests {
     }
 
     async fn round_trip<S: AsyncRead + AsyncWrite + Unpin>(s: &mut S, what: &[u8]) {
-        use tokio::io::AsyncReadExt;
         s.write_all(what).await.unwrap();
         let mut back = vec![0u8; what.len()];
         tokio::time::timeout(Duration::from_secs(5), s.read_exact(&mut back))
@@ -827,7 +850,7 @@ mod tests {
     /// never hears the user is done, and holds the session.
     async fn replaced_client_closes_with_its_last_stream(protocol: Protocol) {
         use std::sync::atomic::Ordering;
-        let (port, ended) = echo_server().await;
+        let (port, ended, _) = echo_server().await;
         let mux = mux_to(port, protocol);
         let mut rhs = mux
             .stream()
@@ -881,7 +904,7 @@ mod tests {
     /// A client that goes away closes its sessions without streams at once.
     async fn a_client_gone_closes_its_idle_sessions(protocol: Protocol) {
         use std::sync::atomic::Ordering;
-        let (port, ended) = echo_server().await;
+        let (port, ended, _) = echo_server().await;
         let mux = mux_to(port, protocol);
         let mut stream = mux
             .stream()
@@ -890,6 +913,10 @@ mod tests {
             .await
             .unwrap();
         round_trip(&mut stream, b"once").await;
+        // Ended, and the end of the server's side read: dropped before
+        // that, it would retire its session.
+        stream.shutdown().await.unwrap();
+        stream.read_to_end(&mut Vec::new()).await.unwrap();
         drop(stream);
         tokio::time::sleep(Duration::from_millis(200)).await;
         assert_eq!(
@@ -912,6 +939,47 @@ mod tests {
     #[tokio::test]
     async fn a_h2mux_client_gone_closes_its_idle_sessions() {
         a_client_gone_closes_its_idle_sessions(Protocol::H2Mux).await;
+    }
+
+    /// A stream dropped before the server finished it retires its
+    /// connection: the next stream goes on a new one, the streams still on
+    /// it go on, and it ends with the last.
+    async fn an_abandoned_stream_retires_its_connection(protocol: Protocol) {
+        use std::sync::atomic::Ordering;
+        let (port, ended, accepted) = echo_server().await;
+        let mux = mux_to(port, protocol);
+        let handler = mux.stream().unwrap();
+        let mut kept = handler.handle(&echo_session(), None, None).await.unwrap();
+        round_trip(&mut kept, b"kept").await;
+        let mut cut = handler.handle(&echo_session(), None, None).await.unwrap();
+        round_trip(&mut cut, b"cut").await;
+        assert_eq!(accepted.load(Ordering::SeqCst), 1);
+        // The server echoes until the client is done: not yet.
+        drop(cut);
+        let mut next = handler.handle(&echo_session(), None, None).await.unwrap();
+        round_trip(&mut next, b"next").await;
+        assert_eq!(
+            accepted.load(Ordering::SeqCst),
+            2,
+            "the next stream went on the retired connection"
+        );
+        round_trip(&mut kept, b"still").await;
+        assert_eq!(ended.load(Ordering::SeqCst), 0, "cut with a stream open");
+        drop(kept);
+        assert!(
+            ended_by(&ended, 1, Duration::from_secs(5)).await,
+            "the retired connection outlived its last stream"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_abandoned_smux_stream_retires_its_connection() {
+        an_abandoned_stream_retires_its_connection(Protocol::Smux).await;
+    }
+
+    #[tokio::test]
+    async fn an_abandoned_h2mux_stream_retires_its_connection() {
+        an_abandoned_stream_retires_its_connection(Protocol::H2Mux).await;
     }
 
     #[test]

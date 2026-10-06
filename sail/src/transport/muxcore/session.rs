@@ -71,6 +71,8 @@ struct Slot {
     stalled: bool,
     /// The peer failed to open the stream, and said why.
     refused: Option<String>,
+    /// Without half-close: the peer still sent data after this end's FIN.
+    sent_past_fin: bool,
     /// Since when what is in the inbox has waited unread: when data came
     /// into an empty inbox, or when the stream last read.
     progress: Instant,
@@ -106,6 +108,7 @@ impl Slot {
             reset: false,
             stalled: false,
             refused: None,
+            sent_past_fin: false,
             progress: now,
             send_window: window,
             recv_window: window,
@@ -159,8 +162,9 @@ struct State {
     error: Option<String>,
     /// The peer asked for no more streams.
     going_away: bool,
-    /// The handle is gone: no new streams, and the session ends with its
-    /// last one.
+    /// No new streams, and the session ends with its last one: the handle
+    /// is gone, or a stream of this end's ended abruptly (`Drop for
+    /// Stream`).
     retired: bool,
     /// The id of the next stream this end opens.
     next_id: u32,
@@ -358,6 +362,17 @@ impl Shared {
     /// stream is gone.
     fn deliver(&self, state: &mut State, id: u32, data: Bytes) -> io::Result<()> {
         let Some(slot) = state.streams.get_mut(&id) else {
+            // For a stream this end dropped: the peer was still sending it.
+            if !self.server {
+                self.retire_abrupt(state, id);
+                if state.retired && state.streams.is_empty() && state.error.is_none() {
+                    let reason = "retired, and its last stream is done";
+                    debug!("{} session closed: {}", self.codec.name(), reason);
+                    state.error = Some(reason.to_string());
+                    self.counters.session_closed();
+                    self.writer.notify_one();
+                }
+            }
             return Ok(());
         };
         if self.flow == Flow::Window {
@@ -371,6 +386,7 @@ impl Shared {
         }
         state.received += data.len() as u64;
         if slot.deaf(self.closing) {
+            slot.sent_past_fin |= slot.local_fin && !slot.remote_fin;
             return Ok(());
         }
         if slot.recv.is_empty() {
@@ -386,6 +402,23 @@ impl Shared {
             w.wake();
         }
         Ok(())
+    }
+
+    /// Takes no new streams on a client session one of whose streams, `id`,
+    /// ended while the peer was still sending it: what the peer sent is on
+    /// its way, ahead of anything a new stream would get. The session ends
+    /// with its last stream.
+    fn retire_abrupt(&self, state: &mut State, id: u32) {
+        if state.retired || state.error.is_some() {
+            return;
+        }
+        debug!(
+            "{} {} session retired: stream {} ended before the peer finished",
+            self.codec.name(),
+            self.label,
+            id
+        );
+        state.retired = true;
     }
 
     /// Resets the streams whose data has waited unread for too long.
@@ -606,9 +639,18 @@ impl Session {
         self.shared.lock().received
     }
 
+    /// Whether the session has ended, or the peer takes no new streams.
     pub fn is_closed(&self) -> bool {
         let state = self.shared.lock();
-        state.error.is_some() || state.going_away || state.retired
+        state.error.is_some() || state.going_away
+    }
+
+    /// Whether a new stream may go on the session: it is not closed, and
+    /// not retired, as it is once one of its streams ended abruptly. A
+    /// retired session's streams go on, and it ends with the last.
+    pub fn is_reusable(&self) -> bool {
+        let state = self.shared.lock();
+        state.error.is_none() && !state.going_away && !state.retired
     }
 
     /// Ends the session and every stream on it, at once.
@@ -1052,6 +1094,19 @@ impl Drop for Stream {
             shared.reader.notify_one();
         }
         state.grown -= u64::from(slot.window.saturating_sub(INITIAL_WINDOW));
+        // Dropped while the peer may still be sending -- before its FIN,
+        // unless it reset the stream -- or reset here for stalling: the
+        // session takes no new streams (`retire_abrupt`). A server's peer
+        // opens the streams, and decides for itself. Without half-close
+        // the peer never answers this end's FIN: a stream shut down here
+        // is taken to be finished unless data came after the FIN, or comes
+        // once it is gone (`deliver`).
+        let finished = slot.remote_fin
+            || slot.reset
+            || (shared.closing == Closing::Whole && slot.local_fin && !slot.sent_past_fin);
+        if !shared.server && slot.refused.is_none() && (slot.stalled || !finished) {
+            shared.retire_abrupt(state, self.id);
+        }
         let last = state.retired && state.streams.is_empty();
         if state.error.is_none() && !slot.stalled && slot.refused.is_none() {
             let codec = &shared.codec;
