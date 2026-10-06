@@ -287,7 +287,9 @@ fn a_dashboard_controls_the_instance_through_the_clash_api() -> anyhow::Result<(
                 "{}",
                 listed
             );
-            assert_eq!(listed["rule"], "final");
+            // No rule matched: Mihomo's Match.
+            assert_eq!(listed["rule"], "Match");
+            assert_eq!(listed["rulePayload"], "");
             assert_eq!(listed["metadata"]["network"], "tcp");
             assert_eq!(listed["metadata"]["type"], "socks/in");
             assert_eq!(listed["metadata"]["destinationIP"], "127.0.0.1");
@@ -312,15 +314,17 @@ fn a_dashboard_controls_the_instance_through_the_clash_api() -> anyhow::Result<(
                 .cloned()
                 .unwrap_or_else(|| panic!("{}", all));
             assert_eq!(ruled_listed["chains"], serde_json::json!(["a"]));
-            assert_eq!(ruled_listed["rule"], "clash_mode=Global => route(a)");
+            // Mihomo has no type for clash_mode: sing-box's field name.
+            assert_eq!(ruled_listed["rule"], "clash_mode");
+            assert_eq!(ruled_listed["rulePayload"], "Global");
             assert!(all["uploadTotal"].as_u64().is_some());
 
-            // The rules, as sing-box tells them.
+            // The rules, as Mihomo lists its own.
             let (_, _, body) = call(port, "GET", "/rules", s, &[], "").await?;
             assert_eq!(
                 json(&body)["rules"],
                 serde_json::json!([
-                    { "type": "default", "payload": "clash_mode=Global", "proxy": "route(a)" }
+                    { "index": 0, "type": "clash_mode", "payload": "Global", "proxy": "a", "size": -1 }
                 ])
             );
 

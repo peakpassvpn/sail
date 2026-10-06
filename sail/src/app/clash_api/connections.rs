@@ -1,5 +1,6 @@
 //! `/connections` and `/rules`: the connections open now, as Mihomo lists
-//! them, closing them, and the routing rules, as sing-box tells them.
+//! them, closing them, and the routing rules, as Mihomo lists its own:
+//! a type, a payload and a proxy (describe.rs).
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -52,18 +53,42 @@ pub(super) async fn list(
     send(Some(ws), frames)
 }
 
+/// Each rule's Mihomo type and payload, by the words a connection it
+/// decided carries.
+type Told = HashMap<String, (String, String)>;
+
 async fn snapshot(rm: &RuntimeManager) -> Value {
     let traffic = rm.traffic().await;
     let connections = rm.connections().await;
+    let router = rm.router();
+    let told: Told = router
+        .rules()
+        .map(|about| {
+            (
+                about.matched.to_string(),
+                (about.clash_type.clone(), about.clash_payload.clone()),
+            )
+        })
+        .collect();
     json!({
         "downloadTotal": traffic.down_total,
         "uploadTotal": traffic.up_total,
-        "connections": connections.iter().map(connection).collect::<Vec<_>>(),
+        "connections": connections.iter().map(|c| connection(c, &told)).collect::<Vec<_>>(),
         "memory": crate::control::resident_memory(),
     })
 }
 
-fn connection(c: &ConnectionInfo) -> Value {
+/// A connection as Mihomo lists one. Its rule is the one it matched, as
+/// Mihomo types it, with its payload; none matched is Mihomo's `Match`;
+/// one of a configuration since replaced goes by sail's words for it.
+fn connection(c: &ConnectionInfo, told: &Told) -> Value {
+    let (rule, payload) = match c.rule.as_deref() {
+        None => ("Match", ""),
+        Some(matched) => match told.get(matched) {
+            Some((kind, payload)) => (kind.as_str(), payload.as_str()),
+            None => (matched, ""),
+        },
+    };
     let start = chrono::DateTime::from_timestamp(i64::from(c.start), 0)
         .unwrap_or_default()
         .to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
@@ -87,8 +112,8 @@ fn connection(c: &ConnectionInfo) -> Value {
         "download": c.download,
         "start": start,
         "chains": c.chains,
-        "rule": c.rule.as_deref().unwrap_or("final"),
-        "rulePayload": "",
+        "rule": rule,
+        "rulePayload": payload,
     })
 }
 
@@ -106,16 +131,35 @@ pub(super) async fn close(State(clash): State<Arc<Clash>>, Path(id): Path<String
     StatusCode::NO_CONTENT
 }
 
-/// The routing rules, in order.
+/// The routing rules, in order, as Mihomo lists its own: `size` is the
+/// number of rules of the rule-sets a `RuleSet` names, -1 for another.
 pub(super) async fn rules(State(clash): State<Arc<Clash>>) -> Json<Value> {
     let router = clash.rm.router();
+    let sizes: HashMap<String, usize> = router
+        .rule_sets()
+        .list()
+        .into_iter()
+        .map(|set| (set.tag, set.size))
+        .collect();
     let rules: Vec<Value> = router
         .rules()
-        .map(|about| {
+        .enumerate()
+        .map(|(index, about)| {
+            let size = if about.clash_type == "RuleSet" {
+                about
+                    .rule_sets
+                    .iter()
+                    .map(|tag| sizes.get(tag).copied().unwrap_or(0) as i64)
+                    .sum::<i64>()
+            } else {
+                -1
+            };
             json!({
-                "type": about.kind,
-                "payload": about.payload,
-                "proxy": about.action,
+                "index": index,
+                "type": about.clash_type,
+                "payload": about.clash_payload,
+                "proxy": about.clash_proxy,
+                "size": size,
             })
         })
         .collect();
@@ -154,7 +198,58 @@ mod tests {
             chains: Vec::new(),
             rule: None,
         };
-        assert_eq!(connection(&info(true))["metadata"]["dnsMode"], "mapping");
-        assert_eq!(connection(&info(false))["metadata"]["dnsMode"], "normal");
+        let told = Told::new();
+        assert_eq!(
+            connection(&info(true), &told)["metadata"]["dnsMode"],
+            "mapping"
+        );
+        assert_eq!(
+            connection(&info(false), &told)["metadata"]["dnsMode"],
+            "normal"
+        );
+    }
+
+    /// A connection's rule is the one it matched, as Mihomo types it, with
+    /// its payload; none matched is `Match`.
+    #[test]
+    fn a_connection_s_rule_is_mihomo_s() {
+        let mut c = ConnectionInfo {
+            id: 1,
+            network: crate::session::Network::Tcp,
+            inbound_type: "tun".into(),
+            inbound_tag: "tun".into(),
+            source: "127.0.0.1:1".parse().unwrap(),
+            destination: crate::session::SocksAddr::from((
+                "192.0.2.1".parse::<std::net::IpAddr>().unwrap(),
+                443,
+            )),
+            host: None,
+            sniff_host: None,
+            dial_domain_source: None,
+            reverse_mapped: false,
+            process: None,
+            user: None,
+            uid: None,
+            packages: Vec::new(),
+            upload: 0,
+            download: 0,
+            start: 0,
+            chains: Vec::new(),
+            rule: None,
+        };
+        let mut told = Told::new();
+        told.insert(
+            "domain_suffix=a.com => route(proxy)".into(),
+            ("DomainSuffix".into(), "a.com".into()),
+        );
+        let rule = |c: &ConnectionInfo| {
+            let v = connection(c, &told);
+            (v["rule"].clone(), v["rulePayload"].clone())
+        };
+        assert_eq!(rule(&c), (json!("Match"), json!("")));
+        c.rule = Some("domain_suffix=a.com => route(proxy)".into());
+        assert_eq!(rule(&c), (json!("DomainSuffix"), json!("a.com")));
+        c.rule = Some("port=1 => route(gone)".into());
+        assert_eq!(rule(&c), (json!("port=1 => route(gone)"), json!("")));
     }
 }
