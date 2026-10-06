@@ -595,6 +595,12 @@ impl<C: TlsConnection, S: AsyncRead + AsyncWrite + Unpin> AsyncWrite for TlsStre
         if this.write_raw {
             return Pin::new(&mut this.stream).poll_shutdown(cx);
         }
+        // A half-close is the close_notify alone, as Go's CloseWrite (and so
+        // sing-box) sends it: the transport keeps its write side, and the
+        // peer, which reads the alert as the end, closes the TCP first and
+        // keeps its TIME_WAIT. The transport closes when the stream drops.
+        // A peer that ignores close_notify waits for that, at most until the
+        // relay's idle timeout after a half-close.
         // No-op after the first call.
         this.conn.send_close_notify();
         if !this.pump_write(Side::Write, cx)? {
@@ -605,7 +611,7 @@ impl<C: TlsConnection, S: AsyncRead + AsyncWrite + Unpin> AsyncWrite for TlsStre
             &mut this.stream,
             Side::Write,
             cx,
-            |s, cx| s.as_mut().poll_shutdown(cx),
+            |s, cx| s.as_mut().poll_flush(cx),
         )
     }
 }
