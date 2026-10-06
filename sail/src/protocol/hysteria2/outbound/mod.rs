@@ -162,7 +162,7 @@ impl OutboundStreamHandler for StreamHandler {
         _stream: Option<AnyStream>,
     ) -> io::Result<AnyStream> {
         let payload = peek_tcp_one_off(lhs).await;
-        let stream = self.0.open_stream(&sess.destination, &payload).await?;
+        let stream = self.0.open_stream(sess, &payload).await?;
         Ok(Box::new(stream))
     }
 
@@ -185,11 +185,12 @@ impl OutboundDatagramHandler for DatagramHandler {
 
     async fn handle<'a>(
         &'a self,
-        _sess: &'a Session,
+        sess: &'a Session,
         _transport: Option<AnyOutboundTransport>,
     ) -> io::Result<AnyOutboundDatagram> {
         let conn = self.0.connection().await?;
         let (session, rx) = conn.open_session()?;
+        conn.bound.onto(sess);
         Ok(Box::new(Datagram {
             session: Arc::new(session),
             rx,
@@ -337,17 +338,29 @@ mod tests {
         (client, incoming)
     }
 
+    fn session() -> Session {
+        Session {
+            destination: SocksAddr::Domain("example.com".into(), 80),
+            ..Default::default()
+        }
+    }
+
     /// A stream through the client, and the server's end of it.
     async fn stream(
         client: &Arc<Client>,
         incoming: &mut AnyIncomingTransport,
     ) -> (AnyStream, AnyStream) {
-        let sess = Session {
-            destination: SocksAddr::Domain("example.com".into(), 80),
-            ..Default::default()
-        };
+        stream_for(client, incoming, &session()).await
+    }
+
+    /// A stream through the client for `sess`, and the server's end of it.
+    async fn stream_for(
+        client: &Arc<Client>,
+        incoming: &mut AnyIncomingTransport,
+        sess: &Session,
+    ) -> (AnyStream, AnyStream) {
         let stream = StreamHandler(client.clone())
-            .handle(&sess, None, None)
+            .handle(sess, None, None)
             .await
             .unwrap();
         let accepted = timeout(Duration::from_secs(5), incoming.next())
@@ -366,6 +379,31 @@ mod tests {
             reason: ChangeReason::DefaultInterface,
             old: Arc::default(),
             new: Arc::default(),
+        }
+    }
+
+    /// Every stream and UDP session on the connection, which none of them
+    /// dialled, goes out where it does.
+    #[tokio::test]
+    async fn what_the_connection_carries_goes_out_where_it_does() {
+        use crate::net::dial::{BoundInterface, Egress};
+        let (client, mut incoming) = fixture().await;
+        let (first, second) = (session(), session());
+        let _first = stream_for(&client, &mut incoming, &first).await;
+        let _second = stream_for(&client, &mut incoming, &second).await;
+        let udp = Session {
+            network: crate::session::Network::Udp,
+            ..session()
+        };
+        let _udp = DatagramHandler(client.clone())
+            .handle(&udp, None)
+            .await
+            .unwrap();
+        for sess in [&first, &second, &udp] {
+            assert_eq!(
+                sess.state.get::<BoundInterface>().get(),
+                Some(Egress::DefaultRoute)
+            );
         }
     }
 

@@ -259,6 +259,42 @@ async fn udp_over_stream_is_a_uot_stream() {
     assert_eq!((&buf[..n], from), (&b"answer"[..], target));
 }
 
+/// Every stream and UDP association on the connection, which none of them
+/// dialled, goes out where it does.
+#[tokio::test]
+async fn what_the_connection_carries_goes_out_where_it_does() {
+    use crate::net::dial::{BoundInterface, Egress};
+    let f = fixture(false, false).await;
+    let tcp = || Session {
+        destination: SocksAddr::Domain("example.com".into(), 80),
+        ..Default::default()
+    };
+    let (first, second) = (tcp(), tcp());
+    let _first = StreamHandler(f.client.clone())
+        .handle(&first, None, None)
+        .await
+        .unwrap();
+    let _second = StreamHandler(f.client.clone())
+        .handle(&second, None, None)
+        .await
+        .unwrap();
+    let udp = Session {
+        network: crate::session::Network::Udp,
+        destination: SocksAddr::from((std::net::Ipv4Addr::new(1, 2, 3, 4), 53)),
+        ..Default::default()
+    };
+    let _udp = DatagramHandler(f.client.clone())
+        .handle(&udp, None)
+        .await
+        .unwrap();
+    for sess in [&first, &second, &udp] {
+        assert_eq!(
+            sess.state.get::<BoundInterface>().get(),
+            Some(Egress::DefaultRoute)
+        );
+    }
+}
+
 /// A network change closes the connection, with the streams and UDP
 /// associations on it, and the next stream dials anew.
 #[tokio::test]

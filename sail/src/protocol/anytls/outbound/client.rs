@@ -30,6 +30,7 @@ use sha2::{Digest, Sha256};
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, ReadBuf};
 use tracing::{debug, Instrument};
 
+use crate::net::dial::BoundInterface;
 use crate::session::{Network, Session as ProxySession, SocksAddr};
 use crate::transport::layers::Connector;
 use crate::transport::muxcore::Tuning;
@@ -59,6 +60,14 @@ struct Idle<S> {
     since: Instant,
 }
 
+/// A session, and what its dial recorded, which the streams on it after
+/// the first are given: they go out where it does.
+#[derive(Clone)]
+struct Pooled {
+    session: Arc<Session>,
+    bound: Arc<BoundInterface>,
+}
+
 pub struct Client {
     server: String,
     port: u16,
@@ -68,7 +77,7 @@ pub struct Client {
     connector: Connector,
     options: ClientOptions,
     /// Idle sessions by their sequence number, newest last.
-    idle: Mutex<BTreeMap<u64, Idle<Arc<Session>>>>,
+    idle: Mutex<BTreeMap<u64, Idle<Pooled>>>,
     next_seq: AtomicU64,
     /// The check, until the first session starts it: building an outbound
     /// happens outside a runtime.
@@ -121,18 +130,19 @@ impl Client {
         if let Some(check) = self.cleanup.lock().ok().and_then(|mut c| c.take()) {
             crate::runtime::scope::spawn_essential("anytls idle check", check);
         }
-        while let Some((seq, session)) = self.take_idle() {
-            match session.open_stream(first).await {
+        while let Some((seq, pooled)) = self.take_idle() {
+            match pooled.session.open_stream(first).await {
                 Ok(stream) => {
+                    pooled.bound.onto(sess);
                     return Ok(ClientStream {
-                        state: State::Open(self.lease(seq, session, stream)),
+                        state: State::Open(self.lease(seq, pooled, stream)),
                         retry: Some(Retry {
                             client: Arc::downgrade(self),
                             sess: sess.clone(),
                             first: Bytes::copy_from_slice(first),
                             written: BytesMut::new(),
                         }),
-                    })
+                    });
                 }
                 Err(e) => debug!("anytls idle session {} failed: {}", seq, e),
             }
@@ -151,38 +161,38 @@ impl Client {
         first: &[u8],
     ) -> io::Result<Stream> {
         let seq = self.next_seq.fetch_add(1, Ordering::Relaxed) + 1;
-        let session = self
+        let pooled = self
             .new_session(sess)
             .instrument(tracing::Span::current())
             .await?;
         debug!("anytls session {} to {}:{}", seq, self.server, self.port);
-        let stream = session.open_stream(first).await?;
-        Ok(self.lease(seq, session, stream))
+        let stream = pooled.session.open_stream(first).await?;
+        Ok(self.lease(seq, pooled, stream))
     }
 
     /// Hands `stream` out, to put its session back when it is dropped.
-    fn lease(self: &Arc<Self>, seq: u64, session: Arc<Session>, mut stream: Stream) -> Stream {
+    fn lease(self: &Arc<Self>, seq: u64, pooled: Pooled, mut stream: Stream) -> Stream {
         let client: Weak<Client> = Arc::downgrade(self);
         stream.set_on_drop(Box::new(move || {
             if let Some(client) = client.upgrade() {
-                client.put_idle(seq, session);
+                client.put_idle(seq, pooled);
             }
         }));
         stream
     }
 
-    fn take_idle(&self) -> Option<(u64, Arc<Session>)> {
+    fn take_idle(&self) -> Option<(u64, Pooled)> {
         let mut idle = self.idle.lock().ok()?;
         while let Some((seq, entry)) = idle.pop_last() {
-            if entry.session.is_reusable() {
+            if entry.session.session.is_reusable() {
                 return Some((seq, entry.session));
             }
         }
         None
     }
 
-    fn put_idle(&self, seq: u64, session: Arc<Session>) {
-        if !session.is_reusable() {
+    fn put_idle(&self, seq: u64, pooled: Pooled) {
+        if !pooled.session.is_reusable() {
             return;
         }
         let Ok(mut idle) = self.idle.lock() else {
@@ -195,7 +205,7 @@ impl Client {
         idle.insert(
             seq,
             Idle {
-                session,
+                session: pooled,
                 since: Instant::now(),
             },
         );
@@ -208,17 +218,19 @@ impl Client {
                 Instant::now(),
                 self.options.idle_timeout,
                 self.options.min_idle,
-                |s| !s.is_reusable(),
+                |s| !s.session.is_reusable(),
             ),
             Err(_) => return,
         };
         // Closed outside the lock.
-        for session in expired {
-            session.close();
+        for pooled in expired {
+            pooled.session.close();
         }
     }
 
-    async fn new_session(&self, sess: &ProxySession) -> io::Result<Arc<Session>> {
+    /// A new session, dialled in a copy of `sess`, and what the dial
+    /// recorded on it.
+    async fn new_session(&self, sess: &ProxySession) -> io::Result<Pooled> {
         let mut sess = sess.clone();
         sess.network = Network::Tcp;
         sess.destination = SocksAddr::try_from((&self.server, self.port))?;
@@ -231,12 +243,15 @@ impl Client {
             .unwrap_or_default();
         conn.write_all(&auth(&self.password_hash, padding)).await?;
         conn.flush().await?;
-        Ok(Session::client(
-            conn,
-            self.padding.clone(),
-            self.options.tuning,
-            &self.options.label,
-        ))
+        Ok(Pooled {
+            session: Session::client(
+                conn,
+                self.padding.clone(),
+                self.options.tuning,
+                &self.options.label,
+            ),
+            bound: Arc::new(BoundInterface::of(&sess)),
+        })
     }
 }
 
@@ -485,6 +500,11 @@ mod tests {
     }
 
     fn client(port: u16) -> Arc<Client> {
+        client_over(port, Arc::new(Direct(port)))
+    }
+
+    /// A client of the server on `port`, whose sessions `dial` hands over.
+    fn client_over(port: u16, dial: Arc<dyn OutboundStreamHandler>) -> Arc<Client> {
         let dns = crate::app::dns::DnsClient::new(
             &Default::default(),
             Default::default(),
@@ -494,7 +514,7 @@ mod tests {
         .into_shared();
         let direct = crate::adapter::outbound::HandlerBuilder::default()
             .tag("test".to_owned())
-            .stream_handler(Arc::new(Direct(port)))
+            .stream_handler(dial)
             .build();
         let options = ClientOptions {
             check_interval: Duration::from_secs(30),
@@ -607,6 +627,40 @@ mod tests {
             .unwrap();
         read.expect("the caller saw the stuck session");
         assert_eq!(got, b"answer");
+    }
+
+    /// A stream on a session another made goes out where the session
+    /// does, from and to its addresses: a change of network the session
+    /// survives, the default route moving while its interface stays,
+    /// closes the stream no more than the session.
+    #[tokio::test]
+    async fn a_stream_on_a_reused_session_goes_out_where_it_does() {
+        use crate::net::dial::testing::{default_route_moved, en9, BoundDirect};
+        let (port, mut streams) = server().await;
+        let client = client_over(port, Arc::new(BoundDirect(port)));
+        let (first, second) = (ProxySession::default(), ProxySession::default());
+        let mut once = client.open_stream(&first, b"D").await.unwrap();
+        let (_, mut served) = accept(&mut streams, b"D").await;
+        served.write_all(b"a").await.unwrap();
+        served.shutdown().await.unwrap();
+        read_end(&mut once, b"a").await;
+        drop(once);
+        let _reused = client.open_stream(&second, b"D").await.unwrap();
+        let (conn, _served) = accept(&mut streams, b"D").await;
+        assert_eq!(conn, 1, "the session was not reused");
+        let (made, given) = (
+            first.state.get::<BoundInterface>(),
+            second.state.get::<BoundInterface>(),
+        );
+        let change = default_route_moved();
+        let closes =
+            |b: &BoundInterface| change.closes(b.get().as_ref(), b.local().map(|a| a.ip()));
+        assert!(!closes(&made));
+        assert!(!closes(&given), "closed by a move its session survives");
+        assert_eq!(made.get(), Some(en9()));
+        assert_eq!(given.get(), Some(en9()));
+        assert_eq!(given.local(), made.local());
+        assert_eq!(given.peer().map(|a| a.port()), Some(port));
     }
 
     fn pool(ages: &[(u64, u64)], now: Instant) -> BTreeMap<u64, Idle<u64>> {

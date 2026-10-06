@@ -586,28 +586,38 @@ impl Dialer {
 
     /// What quinn sends and receives through to reach `to`, an address of
     /// `targets`, and the address quinn is to connect to: a UDP socket of
-    /// its own, or its detour's datagrams, a name standing for itself.
+    /// its own, or its detour's datagrams, a name standing for itself. And
+    /// where it went out, as a session's dial records it, for the QUIC
+    /// connection to keep for the streams it carries: what the detour
+    /// recorded on the session it was dialled in.
     #[cfg(feature = "quic")]
     pub async fn quic_socket(
         &self,
         dns: &SyncDnsClient,
-        sess: Option<&Session>,
         to: &SocksAddr,
-    ) -> io::Result<(Arc<dyn quinn::AsyncUdpSocket>, SocketAddr)> {
+    ) -> io::Result<(Arc<dyn quinn::AsyncUdpSocket>, SocketAddr, BoundInterface)> {
         match (&*self.0, to) {
             (Kind::Socket(_), SocksAddr::Ip(addr)) => {
-                let socket = crate::transport::quic::bind(addr.ip(), self).await?;
-                Ok((crate::transport::quic::wrap_socket(socket)?, *addr))
+                let unspecified = match addr.ip() {
+                    IpAddr::V4(_) => SocketAddr::new(std::net::Ipv4Addr::UNSPECIFIED.into(), 0),
+                    IpAddr::V6(_) => SocketAddr::new(std::net::Ipv6Addr::UNSPECIFIED.into(), 0),
+                };
+                let (socket, egress) = self.udp_out(&unspecified).await?;
+                let bound = BoundInterface::default();
+                bound.set(egress);
+                let socket = crate::transport::quic::wrap_socket(socket.into_std()?)?;
+                Ok((socket, *addr, bound))
             }
             (Kind::Socket(_), SocksAddr::Domain(..)) => Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 format!("{}: not an address", to),
             )),
             (Kind::Detour(detour), _) => {
-                let datagram = detour.datagram(dns, sess, to).await?;
+                let sess = detour.session(None, crate::session::Network::Udp, to.clone());
+                let datagram = detour.datagram(dns, Some(&sess), to).await?;
                 let socket = crate::transport::quic::DetourSocket::new(datagram, to.clone());
                 let peer = socket.peer();
-                Ok((Arc::new(socket), peer))
+                Ok((Arc::new(socket), peer, BoundInterface::of(&sess)))
             }
         }
     }
@@ -619,6 +629,21 @@ impl Dialer {
         self.tcp_out(dns, host, port)
             .await
             .map(|(stream, _)| stream)
+    }
+
+    /// `tcp`, where it went out and its addresses recorded on `sess` as
+    /// the connection's.
+    pub async fn tcp_for(
+        &self,
+        dns: &SyncDnsClient,
+        sess: &Session,
+        host: &str,
+        port: u16,
+    ) -> io::Result<TcpStream> {
+        let (stream, egress) = self.tcp_out(dns, host, port).await?;
+        record(Some(sess), egress);
+        record_peer(Some(sess), &stream);
+        Ok(stream)
     }
 
     /// `tcp`, and where the connection went out.

@@ -37,6 +37,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
 use tracing::{debug, Instrument};
 
 use crate::adapter::*;
+use crate::net::dial::BoundInterface;
 use crate::session::{Network, Session, SocksAddr};
 use crate::transport::layers::Connector;
 use crate::transport::muxcore::{self, Session as FrameSession, Tuning};
@@ -179,8 +180,18 @@ impl Conn {
 
 struct Entry {
     conn: Arc<Conn>,
+    /// What its dial recorded, which the streams on it after the first
+    /// are given: they go out where it does.
+    bound: Arc<BoundInterface>,
     /// Since when it has carried no streams, as last checked.
     idle_since: Option<Instant>,
+}
+
+impl Entry {
+    /// The connection, for a stream that did not make it.
+    fn offered(&self) -> (Arc<Conn>, Option<Arc<BoundInterface>>) {
+        (self.conn.clone(), Some(self.bound.clone()))
+    }
 }
 
 pub struct Client {
@@ -287,15 +298,20 @@ impl Client {
         }
         let mut last = io::Error::other("mux: no connection");
         for _ in 0..2 {
-            let conn = match self.offer(sess).await {
-                Ok(conn) => conn,
+            let (conn, bound) = match self.offer(sess).await {
+                Ok(offered) => offered,
                 Err(e) => {
                     last = e;
                     continue;
                 }
             };
             match conn.open().await {
-                Ok(stream) => return Ok(stream),
+                Ok(stream) => {
+                    if let Some(bound) = bound {
+                        bound.onto(sess);
+                    }
+                    return Ok(stream);
+                }
                 Err(e) => {
                     debug!("mux open stream: {}", e);
                     last = e;
@@ -305,8 +321,9 @@ impl Client {
         Err(last)
     }
 
-    /// The connection a new stream goes on, made if need be.
-    async fn offer(&self, sess: &Session) -> io::Result<Arc<Conn>> {
+    /// The connection a new stream goes on, made if need be, and what its
+    /// dial recorded, unless `sess` made it: it holds that already.
+    async fn offer(&self, sess: &Session) -> io::Result<(Arc<Conn>, Option<Arc<BoundInterface>>)> {
         let mut conns = self.conns.lock().await;
         conns.retain(|entry| {
             if entry.conn.is_closed() {
@@ -318,33 +335,37 @@ impl Client {
         });
         if self.options.brutal.is_some() {
             if let Some(entry) = conns.first() {
-                return Ok(entry.conn.clone());
+                return Ok(entry.offered());
             }
         }
         let least = conns
             .iter()
             .filter(|e| e.conn.can_take_new_request())
-            .min_by_key(|e| e.conn.num_streams())
-            .map(|e| e.conn.clone());
-        if let Some(conn) = &least {
-            if reuse(&self.options, conn.num_streams(), conns.len()) {
-                return Ok(conn.clone());
+            .min_by_key(|e| e.conn.num_streams());
+        if let Some(entry) = least {
+            if reuse(&self.options, entry.conn.num_streams(), conns.len()) {
+                return Ok(entry.offered());
             }
         }
         if conns.len() >= MAX_CONNECTIONS {
-            return least.ok_or_else(|| io::Error::other("mux: every connection is full"));
+            return least
+                .map(Entry::offered)
+                .ok_or_else(|| io::Error::other("mux: every connection is full"));
         }
-        let conn = tokio::time::timeout(CONNECT_TIMEOUT, self.connect(sess))
+        let (conn, bound) = tokio::time::timeout(CONNECT_TIMEOUT, self.connect(sess))
             .await
             .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "mux: connect timed out"))??;
         conns.push(Entry {
             conn: conn.clone(),
+            bound: Arc::new(bound),
             idle_since: None,
         });
-        Ok(conn)
+        Ok((conn, None))
     }
 
-    async fn connect(&self, sess: &Session) -> io::Result<Arc<Conn>> {
+    /// A new connection, dialled in a copy of `sess`, and what the dial
+    /// recorded on it.
+    async fn connect(&self, sess: &Session) -> io::Result<(Arc<Conn>, BoundInterface)> {
         let mut sess = sess.clone();
         sess.network = Network::Tcp;
         sess.destination = SocksAddr::Domain(MAGIC_DOMAIN.to_string(), MAGIC_PORT);
@@ -388,7 +409,7 @@ impl Client {
                 ));
             }
         }
-        Ok(conn)
+        Ok((conn, BoundInterface::of(&sess)))
     }
 
     /// Opens a stream and sends `request` on it.
@@ -793,6 +814,11 @@ mod tests {
 
     /// A mux outbound of `protocol` to the server on `port`.
     fn mux_to(port: u16, protocol: Protocol) -> AnyOutboundHandler {
+        mux_over(Arc::new(Direct(port)), protocol)
+    }
+
+    /// A mux outbound of `protocol` whose connections `dial` hands over.
+    fn mux_over(dial: Arc<dyn OutboundStreamHandler>, protocol: Protocol) -> AnyOutboundHandler {
         let dns = crate::app::dns::DnsClient::new(
             &Default::default(),
             Default::default(),
@@ -802,7 +828,7 @@ mod tests {
         .into_shared();
         let whole = crate::adapter::outbound::HandlerBuilder::default()
             .tag("test".to_owned())
-            .stream_handler(Arc::new(Direct(port)))
+            .stream_handler(dial)
             .build();
         outbound(
             "test",
@@ -980,6 +1006,81 @@ mod tests {
     #[tokio::test]
     async fn an_abandoned_h2mux_stream_retires_its_connection() {
         an_abandoned_stream_retires_its_connection(Protocol::H2Mux).await;
+    }
+
+    /// A stream on a connection another session made goes out where the
+    /// connection does, from and to its addresses: a change of network the
+    /// connection survives, the default route moving while its interface
+    /// stays, closes the stream no more than the connection.
+    async fn a_later_stream_goes_out_where_its_connection_does(protocol: Protocol) {
+        use crate::net::dial::testing::{default_route_moved, en9, BoundDirect};
+        use std::sync::atomic::Ordering;
+        let (port, _, accepted) = echo_server().await;
+        let mux = mux_over(Arc::new(BoundDirect(port)), protocol);
+        let handler = mux.stream().unwrap();
+        let (first, second) = (echo_session(), echo_session());
+        let mut made = handler.handle(&first, None, None).await.unwrap();
+        round_trip(&mut made, b"first").await;
+        let mut given = handler.handle(&second, None, None).await.unwrap();
+        round_trip(&mut given, b"second").await;
+        assert_eq!(accepted.load(Ordering::SeqCst), 1, "not on one connection");
+        let (made, given) = (
+            first.state.get::<BoundInterface>(),
+            second.state.get::<BoundInterface>(),
+        );
+        let change = default_route_moved();
+        let closes =
+            |b: &BoundInterface| change.closes(b.get().as_ref(), b.local().map(|a| a.ip()));
+        assert!(!closes(&made));
+        assert!(!closes(&given), "closed by a move its connection survives");
+        assert_eq!(made.get(), Some(en9()));
+        assert_eq!(given.get(), Some(en9()));
+        assert_eq!(given.local(), made.local());
+        assert_eq!(given.peer().map(|a| a.port()), Some(port));
+    }
+
+    #[tokio::test]
+    async fn a_later_smux_stream_goes_out_where_its_connection_does() {
+        a_later_stream_goes_out_where_its_connection_does(Protocol::Smux).await;
+    }
+
+    #[tokio::test]
+    async fn a_later_yamux_stream_goes_out_where_its_connection_does() {
+        a_later_stream_goes_out_where_its_connection_does(Protocol::Yamux).await;
+    }
+
+    #[tokio::test]
+    async fn a_later_h2mux_stream_goes_out_where_its_connection_does() {
+        a_later_stream_goes_out_where_its_connection_does(Protocol::H2Mux).await;
+    }
+
+    /// A connection made on its own socket, for TCP Brutal, records where
+    /// it went out and its addresses on its session, as any does: what the
+    /// streams on it are given.
+    #[tokio::test]
+    async fn a_connection_for_brutal_is_recorded_on_its_session() {
+        use crate::net::dial::testing::{en9, BoundDirect};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let server = listener.local_addr().unwrap();
+        let dns = crate::app::dns::DnsClient::new(
+            &Default::default(),
+            Default::default(),
+            &Default::default(),
+        )
+        .unwrap()
+        .into_shared();
+        let whole = crate::adapter::outbound::HandlerBuilder::default()
+            .tag("test".to_owned())
+            .stream_handler(Arc::new(BoundDirect(server.port())))
+            .build();
+        let sess = Session::default();
+        let _made = Connector::around(whole, dns)
+            .connect_on_socket(&sess)
+            .await
+            .unwrap();
+        let bound = sess.state.get::<BoundInterface>();
+        assert_eq!(bound.get(), Some(en9()));
+        assert_eq!(bound.peer(), Some(server));
     }
 
     #[test]

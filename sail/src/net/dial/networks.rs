@@ -108,7 +108,7 @@ impl Egress {
 #[derive(Debug, Default)]
 pub struct BoundInterface(Mutex<Bound>);
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 struct Bound {
     egress: Option<Egress>,
     peer: Option<std::net::SocketAddr>,
@@ -142,6 +142,39 @@ impl BoundInterface {
         let mut bound = self.bound();
         bound.local = Some(local);
         bound.peer = Some(peer);
+    }
+
+    /// What the dial of `sess` recorded on it, kept apart from it: what a
+    /// carrier keeps, a connection that carries the streams of many
+    /// sessions, for those it carries later.
+    #[cfg_attr(
+        not(any(
+            feature = "mux",
+            feature = "outbound-anytls",
+            feature = "outbound-amux",
+            feature = "quic"
+        )),
+        allow(dead_code)
+    )]
+    pub(crate) fn of(sess: &crate::session::Session) -> BoundInterface {
+        let bound = sess.state.get::<BoundInterface>().bound().clone();
+        BoundInterface(Mutex::new(bound))
+    }
+
+    /// Records on `sess` all this holds: a stream over a carrier went out
+    /// where the carrier did, from and to its addresses.
+    #[cfg_attr(
+        not(any(
+            feature = "mux",
+            feature = "outbound-anytls",
+            feature = "outbound-amux",
+            feature = "quic"
+        )),
+        allow(dead_code)
+    )]
+    pub(crate) fn onto(&self, sess: &crate::session::Session) {
+        let bound = self.bound().clone();
+        *sess.state.get::<BoundInterface>().bound() = bound;
     }
 }
 
@@ -483,6 +516,75 @@ where
         }
     }
     Err(Failed::of(errors, "listen"))
+}
+
+/// For the tests of carriers: a dial that records an interface of its
+/// own, and a change of network the carrier survives.
+#[cfg(all(test, any(feature = "mux", feature = "outbound-anytls")))]
+pub(crate) mod testing {
+    use std::io;
+    use std::sync::Arc;
+
+    use super::*;
+    use crate::adapter::{AnyStream, OutboundConnect, OutboundStreamHandler};
+    use crate::net::network::{ChangeReason, NetworkChange};
+    use crate::session::{Network, Session};
+
+    /// The interface the carriers of these tests are bound to.
+    pub(crate) fn en9() -> Egress {
+        Egress::Interface {
+            name: "en9".into(),
+            index: None,
+        }
+    }
+
+    /// Hands over a TCP connection to `port`, as one bound to `en9`:
+    /// where it went out is recorded as `en9`.
+    pub(crate) struct BoundDirect(pub u16);
+
+    #[async_trait::async_trait]
+    impl OutboundStreamHandler for BoundDirect {
+        fn connect_addr(&self) -> OutboundConnect {
+            OutboundConnect::Proxy(
+                Network::Tcp,
+                "127.0.0.1".to_string(),
+                self.0,
+                crate::net::Dialer::system(),
+            )
+        }
+
+        async fn handle<'a>(
+            &'a self,
+            sess: &'a Session,
+            _lhs: Option<&mut AnyStream>,
+            stream: Option<AnyStream>,
+        ) -> io::Result<AnyStream> {
+            sess.state.get::<BoundInterface>().set(en9());
+            stream.ok_or_else(|| io::Error::other("nothing dialled"))
+        }
+    }
+
+    /// The default route moving from `eth0` to `wlan0`, `en9` still there
+    /// with 127.0.0.1: what a connection on the default route does not
+    /// survive, and one bound to `en9` from that address does.
+    pub(crate) fn default_route_moved() -> NetworkChange {
+        let state = |default: &str, kind: &str, address: &str| {
+            let json = serde_json::json!({
+                "interface": default, "type": kind, "addresses": [address],
+                "interfaces": [
+                    { "name": default, "type": kind, "addresses": [address] },
+                    { "name": "en9", "type": "other", "addresses": ["127.0.0.1/8"] },
+                ],
+            });
+            Arc::new(NetworkState::from_json(&json.to_string()).unwrap())
+        };
+        NetworkChange {
+            generation: 1,
+            reason: ChangeReason::DefaultInterface,
+            old: state("eth0", "ethernet", "192.168.1.2/24"),
+            new: state("wlan0", "wifi", "10.0.0.2/24"),
+        }
+    }
 }
 
 #[cfg(test)]

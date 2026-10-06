@@ -16,6 +16,7 @@ use tracing::{debug, Instrument};
 use crate::{
     adapter::*,
     app::SyncDnsClient,
+    net::dial::BoundInterface,
     net::*,
     session::{Session, SocksAddr},
     transport::muxcore::Tuning,
@@ -24,6 +25,13 @@ use crate::{
 use super::MuxConnector;
 use super::MuxSession;
 use super::MuxStream;
+
+/// A session, and what its dial recorded, which the streams on it after
+/// the first are given: they go out where it does.
+pub struct Pooled {
+    connector: MuxConnector,
+    bound: BoundInterface,
+}
 
 pub struct MuxManager {
     pub address: String,
@@ -40,7 +48,7 @@ pub struct MuxManager {
     pub label: String,
     /// Sessions that may take more streams. One dropped, by the monitor or
     /// with the manager on a reload, ends once its streams are done.
-    pub connectors: Arc<Mutex<Vec<MuxConnector>>>,
+    pub connectors: Arc<Mutex<Vec<Pooled>>>,
     pub monitor_task: Mutex<Option<BoxFuture<'static, ()>>>,
 }
 
@@ -60,12 +68,12 @@ impl MuxManager {
         label: String,
     ) -> (Self, Vec<AbortHandle>) {
         let mut abort_handles = Vec::new();
-        let connectors: Arc<Mutex<Vec<MuxConnector>>> = Arc::new(Mutex::new(Vec::new()));
+        let connectors: Arc<Mutex<Vec<Pooled>>> = Arc::new(Mutex::new(Vec::new()));
         let connectors2 = connectors.clone();
         // A task to monitor and remove completed connectors.
         let fut = async move {
             loop {
-                connectors2.lock().await.retain(|c| !c.is_done());
+                connectors2.lock().await.retain(|c| !c.connector.is_done());
                 tokio::time::sleep(Duration::from_secs(5)).await;
             }
         };
@@ -105,7 +113,13 @@ impl MuxManager {
             let mut conns = self.connectors.lock().await;
             conns.shuffle(&mut StdRng::from_entropy());
             for c in conns.iter_mut() {
-                if let Some(s) = c.new_stream().instrument(tracing::Span::current()).await {
+                if let Some(s) = c
+                    .connector
+                    .new_stream()
+                    .instrument(tracing::Span::current())
+                    .await
+                {
+                    c.bound.onto(sess);
                     return Ok(s);
                 }
             }
@@ -157,7 +171,10 @@ impl MuxManager {
             None => return Err(io::Error::other("new stream failed")),
         };
         let mut conns = self.connectors.lock().await;
-        conns.push(connector);
+        conns.push(Pooled {
+            connector,
+            bound: BoundInterface::of(&sess),
+        });
         debug!("created new amux conn, total: {}", conns.len());
         Ok(s)
     }
@@ -218,5 +235,63 @@ impl OutboundStreamHandler for Handler {
                 .instrument(tracing::Span::current())
                 .await?,
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use futures::StreamExt;
+    use tokio::net::TcpListener;
+
+    use super::*;
+    use crate::net::dial::Egress;
+
+    /// A stream on a session another stream made goes out where the
+    /// session does, from and to its addresses.
+    #[tokio::test]
+    async fn a_stream_on_a_session_another_made_goes_out_where_it_does() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let server = listener.local_addr().unwrap();
+        // Takes one session's streams, and keeps them.
+        tokio::spawn(async move {
+            let (conn, _) = listener.accept().await.unwrap();
+            let mut acceptor = MuxSession::acceptor(conn, Tuning::default(), "test");
+            let mut kept = Vec::new();
+            while let Some(stream) = acceptor.next().await {
+                kept.push(stream);
+            }
+        });
+        let dns = crate::app::dns::DnsClient::new(
+            &Default::default(),
+            Default::default(),
+            &Default::default(),
+        )
+        .unwrap()
+        .into_shared();
+        let (manager, _) = MuxManager::new(
+            server.ip().to_string(),
+            server.port(),
+            Vec::new(),
+            128,
+            16,
+            0,
+            0,
+            dns,
+            Dialer::system(),
+            Tuning::default(),
+            "test".into(),
+        );
+        let (first, second) = (Session::default(), Session::default());
+        let _made = manager.new_stream(&first).await.unwrap();
+        let _given = manager.new_stream(&second).await.unwrap();
+        assert_eq!(manager.connectors.lock().await.len(), 1);
+        let (made, given) = (
+            first.state.get::<BoundInterface>(),
+            second.state.get::<BoundInterface>(),
+        );
+        assert_eq!(made.peer(), Some(server));
+        assert_eq!(given.get(), Some(Egress::DefaultRoute));
+        assert_eq!(given.local(), made.local());
+        assert_eq!(given.peer(), Some(server));
     }
 }

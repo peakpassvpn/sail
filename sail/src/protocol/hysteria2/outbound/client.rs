@@ -17,8 +17,9 @@ use tokio::time::timeout;
 use tracing::{debug, trace};
 
 use crate::app::SyncDnsClient;
+use crate::net::dial::BoundInterface;
 use crate::net::Dialer;
-use crate::session::SocksAddr;
+use crate::session::{Session, SocksAddr};
 use crate::transport::quic::{endpoint_on, QuicStream, Side};
 
 use super::super::congestion::CongestionHandle;
@@ -151,13 +152,10 @@ impl Client {
         }
     }
 
-    /// Opens a proxied TCP stream to `destination`, with `payload` sent
-    /// along with the request.
-    pub async fn open_stream(
-        &self,
-        destination: &SocksAddr,
-        payload: &[u8],
-    ) -> io::Result<QuicStream> {
+    /// Opens a proxied TCP stream to where `sess` goes, with `payload` sent
+    /// along with the request; where the connection went out recorded on
+    /// `sess`.
+    pub async fn open_stream(&self, sess: &Session, payload: &[u8]) -> io::Result<QuicStream> {
         let conn = self.connection().await?;
         let (mut send, mut recv) = match conn.conn.open_bi().await {
             Ok(s) => s,
@@ -166,7 +164,7 @@ impl Client {
                 return Err(io::Error::other(e));
             }
         };
-        send.write_all(&proto::tcp_request(destination, payload))
+        send.write_all(&proto::tcp_request(&sess.destination, payload))
             .await
             .map_err(io::Error::other)?;
         timeout(
@@ -175,6 +173,7 @@ impl Client {
         )
         .await
         .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "hysteria2 TCP response"))??;
+        conn.bound.onto(sess);
         Ok(QuicStream::new(send, recv))
     }
 
@@ -198,7 +197,8 @@ impl Client {
 
     async fn connect_to(&self, to: &SocksAddr) -> Result<Connection> {
         let o = &self.options;
-        let (socket, peer) = new_socket(&o.dialer, &o.dns_client, to, o.obfs.as_ref()).await?;
+        let (socket, peer, bound) =
+            new_socket(&o.dialer, &o.dns_client, to, o.obfs.as_ref()).await?;
         let (socket, remote, hop): (Arc<dyn quinn::AsyncUdpSocket>, _, _) = if o.ports.len() > 1 {
             let hop = Arc::new(HopSocket::new(peer.ip(), o.ports.clone(), socket));
             let remote = hop.virtual_addr();
@@ -255,6 +255,7 @@ impl Client {
         }
         Ok(Connection {
             conn,
+            bound,
             _endpoint: endpoint,
             _control: control,
             udp: auth.udp,
@@ -351,6 +352,9 @@ impl Sessions {
 
 pub struct Connection {
     pub conn: quinn::Connection,
+    /// Where it went out, which every stream and UDP session on it is
+    /// given.
+    pub bound: BoundInterface,
     _endpoint: quinn::Endpoint,
     /// Our HTTP/3 control stream, open while the connection is.
     _control: quinn::SendStream,
@@ -457,15 +461,16 @@ async fn receive_datagrams(conn: quinn::Connection, sessions: Arc<Sessions>) {
 
 /// What quinn talks to `to`, an address of the dialer's `targets`, over:
 /// a socket of the dialer's or its detour's datagrams, obfuscated if
-/// `obfs` is set; and the address quinn is to connect to.
+/// `obfs` is set; the address quinn is to connect to; and where it went
+/// out.
 async fn new_socket(
     dialer: &Dialer,
     dns_client: &SyncDnsClient,
     to: &SocksAddr,
     obfs: Option<&Salamander>,
-) -> io::Result<(Arc<dyn quinn::AsyncUdpSocket>, SocketAddr)> {
-    let (socket, peer) = dialer.quic_socket(dns_client, None, to).await?;
-    Ok((quic::obfuscate(socket, obfs), peer))
+) -> io::Result<(Arc<dyn quinn::AsyncUdpSocket>, SocketAddr, BoundInterface)> {
+    let (socket, peer, bound) = dialer.quic_socket(dns_client, to).await?;
+    Ok((quic::obfuscate(socket, obfs), peer, bound))
 }
 
 /// Moves to another port every `interval`, until the connection closes.
@@ -483,7 +488,7 @@ async fn hop_ports(
             return;
         }
         match new_socket(&dialer, &dns_client, &to, obfs.as_ref()).await {
-            Ok((socket, _)) => {
+            Ok((socket, ..)) => {
                 hop.hop(socket);
                 trace!("hysteria2: hopped ports");
             }

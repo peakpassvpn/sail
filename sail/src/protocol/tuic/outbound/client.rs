@@ -15,6 +15,7 @@ use tracing::{debug, trace};
 
 use crate::adapter::*;
 use crate::app::SyncDnsClient;
+use crate::net::dial::BoundInterface;
 use crate::net::{peek_tcp_one_off, Dialer};
 use crate::session::{Session, SocksAddr};
 use crate::transport::quic::{endpoint_on, ClientTls, QuicStream, Side};
@@ -184,7 +185,7 @@ impl Client {
     /// A connection to `to`, an address of the dialer's `targets`: over a
     /// socket of the dialer's, or its detour's datagrams.
     async fn connect_to(&self, to: &SocksAddr) -> io::Result<Arc<ClientConn>> {
-        let (socket, server) = self.dialer.quic_socket(&self.dns_client, None, to).await?;
+        let (socket, server, bound) = self.dialer.quic_socket(&self.dns_client, to).await?;
         let endpoint = endpoint_on(socket, None)?;
         let connecting = endpoint
             .connect_with(self.client_config.clone(), server, &self.server_name)
@@ -252,6 +253,7 @@ impl Client {
         );
         Ok(Arc::new(ClientConn {
             conn,
+            bound,
             associations,
             activity,
             zero_rtt,
@@ -288,6 +290,9 @@ struct Associations {
 /// closes, and its tasks stop with it.
 struct ClientConn {
     conn: quinn::Connection,
+    /// Where it went out, which every stream and association on it is
+    /// given.
+    bound: BoundInterface,
     associations: Arc<Mutex<Associations>>,
     activity: Activity,
     /// Whether the server took the 0-RTT data, once the handshake says so;
@@ -416,6 +421,7 @@ impl OutboundStreamHandler for StreamHandler {
         let payload = peek_tcp_one_off(lhs).await;
         send.write_all(&encode_connect(&sess.destination, &payload)?)
             .await?;
+        conn.bound.onto(sess);
         let active = conn.activity.start();
         Ok(Box::new(QuicStream::guarded(send, recv, (active, conn))))
     }
@@ -446,6 +452,7 @@ impl OutboundDatagramHandler for DatagramHandler {
     ) -> io::Result<AnyOutboundDatagram> {
         let conn = self.0.connection().await?;
         let (assoc_id, packets) = conn.associate()?;
+        conn.bound.onto(sess);
         trace!("tuic association {} for {}", assoc_id, sess.destination);
         let association = Arc::new(AssociationGuard {
             active: conn.activity.start(),

@@ -7,6 +7,7 @@ use tokio::sync::RwLock;
 use tokio::time::timeout;
 use tracing::{debug, trace, Instrument};
 
+use crate::net::dial::BoundInterface;
 use crate::runtime::RuntimeEnv;
 use crate::transport::layers::OutboundTls;
 use crate::{adapter::*, app::SyncDnsClient, net::*, session::Session};
@@ -20,15 +21,23 @@ struct Manager {
     dns_client: SyncDnsClient,
     dialer: Dialer,
     client_config: quinn::ClientConfig,
-    connections: Arc<RwLock<Vec<quinn::Connection>>>,
+    connections: Arc<RwLock<Vec<Pooled>>>,
+}
+
+/// A connection, and where it went out, which every stream on it is given.
+struct Pooled {
+    conn: quinn::Connection,
+    bound: BoundInterface,
 }
 
 impl Manager {
-    pub async fn new_stream(&self) -> Result<QuicStream> {
+    /// A stream for `sess`, on which where its connection went out is
+    /// recorded.
+    pub async fn new_stream(&self, sess: &Session) -> Result<QuicStream> {
         let dial_timeout = self.dialer.connect_timeout();
         let start = std::time::Instant::now();
         loop {
-            let conn = {
+            let pooled = {
                 let mut conns = self.connections.write().await;
                 if conns.is_empty() {
                     None
@@ -37,15 +46,16 @@ impl Manager {
                 }
             };
 
-            let Some(conn) = conn else {
+            let Some(pooled) = pooled else {
                 break;
             };
 
-            match timeout(dial_timeout, conn.open_bi()).await {
+            match timeout(dial_timeout, pooled.conn.open_bi()).await {
                 Ok(Ok((send, recv))) => {
-                    let rtt = conn.rtt();
+                    let rtt = pooled.conn.rtt();
+                    pooled.bound.onto(sess);
                     let mut conns = self.connections.write().await;
-                    conns.insert(0, conn);
+                    conns.insert(0, pooled);
                     trace!(
                         "opened stream on existing connection (rtt {} ms) in {} ms",
                         rtt.as_millis(),
@@ -71,9 +81,9 @@ impl Manager {
         for to in targets {
             // A socket of its own for each address, or the detour's
             // datagrams.
-            let (socket, remote) = match self
+            let (socket, remote, bound) = match self
                 .dialer
-                .quic_socket(&self.dns_client, None, &to)
+                .quic_socket(&self.dns_client, &to)
                 .instrument(tracing::Span::current())
                 .await
             {
@@ -115,11 +125,12 @@ impl Manager {
                 }
             };
 
+            bound.onto(sess);
             let mut conns = self.connections.write().await;
             if conns.len() >= 4 {
                 conns.swap_remove(0);
             }
-            conns.push(conn);
+            conns.push(Pooled { conn, bound });
 
             trace!("opened quic stream on new connection",);
 
@@ -165,9 +176,9 @@ impl Handler {
         })
     }
 
-    pub async fn new_stream(&self) -> io::Result<QuicStream> {
+    pub async fn new_stream(&self, sess: &Session) -> io::Result<QuicStream> {
         self.manager
-            .new_stream()
+            .new_stream(sess)
             .await
             .map_err(|e| io::Error::other(format!("new quic stream failed: {}", e)))
     }
@@ -182,9 +193,9 @@ impl OutboundStreamHandler for Handler {
     /// Its connections close, as sing-box closes its transport when the
     /// network changes; the next stream dials anew.
     fn network_changed(&self, _change: &crate::net::network::NetworkChange) {
-        fn close(connections: &mut Vec<quinn::Connection>) {
-            for conn in connections.drain(..) {
-                conn.close(0u32.into(), b"network changed");
+        fn close(connections: &mut Vec<Pooled>) {
+            for pooled in connections.drain(..) {
+                pooled.conn.close(0u32.into(), b"network changed");
             }
         }
         match self.manager.connections.try_write() {
@@ -203,15 +214,82 @@ impl OutboundStreamHandler for Handler {
 
     async fn handle<'a>(
         &'a self,
-        _sess: &'a Session,
+        sess: &'a Session,
         _lhs: Option<&mut AnyStream>,
         _stream: Option<AnyStream>,
     ) -> io::Result<AnyStream> {
         tracing::trace!("handling outbound stream");
         Ok(Box::new(
-            self.new_stream()
+            self.new_stream(sess)
                 .instrument(tracing::Span::current())
                 .await?,
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::net::dial::Egress;
+    use crate::transport::quic::{
+        alpn_protocols, client_crypto, endpoint, server_config, server_crypto,
+    };
+
+    /// Every stream on a connection, which none of them dialled, goes out
+    /// where it does.
+    #[tokio::test]
+    async fn the_streams_on_a_connection_go_out_where_it_does() {
+        let rcgen::CertifiedKey { cert, key_pair } =
+            rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
+        let alpns = alpn_protocols(None, &["test"]);
+        let crypto = server_crypto(&cert.pem(), &key_pair.serialize_pem(), &alpns).unwrap();
+        let server = endpoint(
+            std::net::UdpSocket::bind("127.0.0.1:0").unwrap(),
+            Some(server_config(crypto).unwrap()),
+        )
+        .unwrap();
+        let port = server.local_addr().unwrap().port();
+        // Takes the connections, and keeps them.
+        tokio::spawn(async move {
+            let mut kept = Vec::new();
+            while let Some(incoming) = server.accept().await {
+                if let Ok(conn) = incoming.await {
+                    kept.push(conn);
+                }
+            }
+        });
+        let crypto = client_crypto(
+            Some(&cert.pem()),
+            false,
+            &alpns,
+            &crate::transport::tls::tests::test_roots(),
+        )
+        .unwrap();
+        let dns = crate::app::dns::DnsClient::new(
+            &Default::default(),
+            Default::default(),
+            &Default::default(),
+        )
+        .unwrap()
+        .into_shared();
+        let manager = Manager {
+            address: "127.0.0.1".into(),
+            port,
+            server_name: "localhost".into(),
+            dns_client: dns,
+            dialer: Dialer::system(),
+            client_config: quinn::ClientConfig::new(Arc::new(crypto)),
+            connections: Arc::default(),
+        };
+        let (first, second) = (Session::default(), Session::default());
+        let _first = manager.new_stream(&first).await.unwrap();
+        let _second = manager.new_stream(&second).await.unwrap();
+        assert_eq!(manager.connections.read().await.len(), 1);
+        for sess in [&first, &second] {
+            assert_eq!(
+                sess.state.get::<BoundInterface>().get(),
+                Some(Egress::DefaultRoute)
+            );
+        }
     }
 }

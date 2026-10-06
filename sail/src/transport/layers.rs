@@ -1050,7 +1050,7 @@ impl Connector {
         if dialer.detour().is_some() {
             return Ok((self.connect(sess).await?, None));
         }
-        let tcp = dialer.tcp(&self.dns_client, &addr, port).await?;
+        let tcp = dialer.tcp_for(&self.dns_client, sess, &addr, port).await?;
         let socket = crate::transport::mux::brutal::Socket::of(&socket2::SockRef::from(&tcp)).ok();
         let stream = self
             .layers

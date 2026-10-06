@@ -92,7 +92,12 @@ impl DetourDialer {
 
     /// The session the detour carries a connection to `to` in: the
     /// caller's, going somewhere else, or one of its own.
-    fn session(&self, sess: Option<&Session>, network: Network, to: SocksAddr) -> Session {
+    pub(super) fn session(
+        &self,
+        sess: Option<&Session>,
+        network: Network,
+        to: SocksAddr,
+    ) -> Session {
         let mut sess = match sess {
             Some(sess) => sess.clone(),
             None => Session {

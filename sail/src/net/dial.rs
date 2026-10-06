@@ -20,6 +20,8 @@ mod spec;
 pub use detour::Outbounds;
 pub use dialer::{DialDefaults, DialEnv, Dialer, InboundDialer, InstanceDial, SharedDialDefaults};
 pub use fields::DialFields;
+#[cfg(all(test, any(feature = "mux", feature = "outbound-anytls")))]
+pub(crate) use networks::testing;
 pub use networks::{BoundInterface, Egress, NetworkStrategy, Networks};
 pub use spec::{DialSpec, ResolveSpec, RouteDefaults};
 
