@@ -879,11 +879,11 @@ fn record(sess: Option<&Session>, egress: Egress) {
     }
 }
 
-/// Records on `sess`, if there is one, the address its TCP connection out
-/// was made to.
+/// Records on `sess`, if there is one, the addresses its TCP connection
+/// out was made from and to.
 fn record_peer(sess: Option<&Session>, stream: &TcpStream) {
-    if let (Some(sess), Ok(peer)) = (sess, stream.peer_addr()) {
-        sess.state.get::<BoundInterface>().set_peer(peer);
+    if let (Some(sess), Ok(local), Ok(peer)) = (sess, stream.local_addr(), stream.peer_addr()) {
+        sess.state.get::<BoundInterface>().set_ends(local, peer);
     }
 }
 

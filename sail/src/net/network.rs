@@ -12,6 +12,8 @@ use anyhow::{anyhow, Result};
 use serde_derive::{Deserialize, Serialize};
 use tokio::sync::{broadcast, watch};
 
+use crate::net::dial::Egress;
+
 /// The kind of network, as sing-box names them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -93,17 +95,73 @@ pub struct NetworkInterface {
 }
 
 impl NetworkState {
-    /// Whether the connections made on `self` do not survive going to
-    /// `other`: the default interface, its gateway, its kind or its
-    /// addresses (IPv6 by /64, as sing-box compares them) differ. A new
-    /// SSID or access point on the same interface and addresses (a roam)
-    /// is not. Losing the default interface, and getting one back, are.
+    /// Whether going to `other` is a move, which some connections may not
+    /// survive: the default interface, its index, gateway or kind differ,
+    /// or one of its addresses' networks (IPv6 by /64, as sing-box
+    /// compares them) is gone. An address added (a new /64, SLAAC) is not:
+    /// the state rules see changes, and no connection is closed. Nor is a
+    /// new SSID or access point on the same interface and addresses (a
+    /// roam). Losing the default interface, and getting one back, are.
+    /// Which connections a move closes is `NetworkChange::closes`.
     pub fn moved_to(&self, other: &NetworkState) -> bool {
         self.interface != other.interface
             || self.index != other.index
             || self.gateway != other.gateway
             || self.kind != other.kind
-            || networks(&self.addresses) != networks(&other.addresses)
+            || gone(&self.addresses, &other.addresses)
+    }
+
+    /// Whether `ip` is an address of this network: of the default
+    /// interface or of one listed.
+    fn has_address(&self, ip: IpAddr) -> bool {
+        self.addresses
+            .iter()
+            .chain(self.interfaces.iter().flat_map(|i| &i.addresses))
+            .any(|inet| inet.address() == ip)
+    }
+
+    /// The index and addresses of the interface named `name`: listed, or
+    /// the default one.
+    fn interface_named(&self, name: &str) -> Option<(Option<u32>, &[cidr::IpInet])> {
+        if let Some(interface) = self.interfaces.iter().find(|i| i.name == name) {
+            return Some((interface.index, &interface.addresses));
+        }
+        (self.interface.as_deref() == Some(name)).then_some((self.index, &self.addresses[..]))
+    }
+
+    /// What of `moved_to`'s fields differ going to `other`, each `name
+    /// old→new`, for the log: what made a change one the connections do
+    /// not survive.
+    pub fn differences(&self, other: &NetworkState) -> Vec<String> {
+        let mut differ = Vec::new();
+        let mut field = |name: &str, old: String, new: String| {
+            if old != new {
+                differ.push(format!("{}={}→{}", name, old, new));
+            }
+        };
+        let opt = |v: &Option<String>| v.clone().unwrap_or_else(|| "none".into());
+        field("interface", opt(&self.interface), opt(&other.interface));
+        field(
+            "index",
+            format!("{:?}", self.index),
+            format!("{:?}", other.index),
+        );
+        field(
+            "gateway",
+            format!("{:?}", self.gateway),
+            format!("{:?}", other.gateway),
+        );
+        field(
+            "type",
+            format!("{:?}", self.kind),
+            format!("{:?}", other.kind),
+        );
+        let list = |a: &[cidr::IpInet]| {
+            let networks: Vec<String> = networks(a).iter().map(IpAddr::to_string).collect();
+            format!("[{}]", networks.join(" "))
+        };
+        field("networks", list(&self.addresses), list(&other.addresses));
+        differ
     }
 
     /// Reads a state as a host writes it (JSON), the BSSID normalized.
@@ -221,6 +279,12 @@ pub fn normalize_bssid(bssid: &str) -> Option<String> {
 
 /// The addresses as far as a change of network goes: IPv4 whole, IPv6 by
 /// its /64, sorted.
+/// Whether a network of `old`'s is not one of `new`'s.
+fn gone(old: &[cidr::IpInet], new: &[cidr::IpInet]) -> bool {
+    let new = networks(new);
+    networks(old).iter().any(|n| !new.contains(n))
+}
+
 fn networks(addresses: &[cidr::IpInet]) -> Vec<IpAddr> {
     let mut networks: Vec<IpAddr> = addresses
         .iter()
@@ -269,6 +333,62 @@ pub struct NetworkChange {
     pub new: Arc<NetworkState>,
 }
 
+impl NetworkChange {
+    /// Whether a connection that went out `egress` from `local` (each as
+    /// its dialer recorded it, if it did) does not survive this change:
+    /// - one bound to an interface, when that interface is gone or has
+    ///   another index, or no longer has its address;
+    /// - one on the default route (or not known to be bound), when the
+    ///   default interface, its index, gateway or kind changed, or its
+    ///   address is on no interface now.
+    ///
+    /// Without its address (UDP, a connection not yet made), an address
+    /// gone counts as its own. A change with nothing different, a wake or the host's word with
+    /// nothing pushed before it, is one sail cannot see into: every
+    /// connection goes.
+    pub fn closes(&self, egress: Option<&Egress>, local: Option<IpAddr>) -> bool {
+        let (old, new) = (&*self.old, &*self.new);
+        if old.differences(new).is_empty() {
+            return true;
+        }
+        match egress {
+            Some(Egress::Interface { name, index }) => {
+                let Some((index_now, addresses)) = new.interface_named(name) else {
+                    return true;
+                };
+                if index.is_some() && index_now.is_some() && index_now != *index {
+                    return true;
+                }
+                match local {
+                    Some(ip) => !addresses.iter().any(|inet| inet.address() == ip),
+                    None => old
+                        .interface_named(name)
+                        .is_none_or(|(_, before)| gone(before, addresses)),
+                }
+            }
+            Some(Egress::DefaultRoute) | None => {
+                if old.interface != new.interface
+                    || old.index != new.index
+                    || old.gateway != new.gateway
+                    || old.kind != new.kind
+                {
+                    return true;
+                }
+                match local {
+                    Some(ip) => !new.has_address(ip),
+                    None => gone(&old.addresses, &new.addresses),
+                }
+            }
+        }
+    }
+}
+
+/// How soon after a pushed state the host's word that the network changed
+/// is taken as about it (judgment: hosts say both in one callback, as the
+/// emulator's test host does within a millisecond; a word later than this
+/// is a change of its own).
+const FOLDED_WITHIN: std::time::Duration = std::time::Duration::from_secs(2);
+
 /// The state now, and the generation of the last change it came after, 0
 /// before any: taken together, so that one does not run ahead of the other.
 #[derive(Clone, Debug, Default)]
@@ -298,6 +418,9 @@ pub struct Network {
     known: Arc<AtomicBool>,
     /// Whether the host pushes the state, which detection then leaves.
     pushed: Arc<AtomicBool>,
+    /// When the host last pushed a state, until its word that the network
+    /// changed comes: that word is about this state, handled already.
+    pushed_at: Arc<Mutex<Option<std::time::Instant>>>,
     /// The interfaces sail makes itself (its TUNs'), never listed as ones
     /// to go out of.
     own: Arc<std::sync::RwLock<Vec<String>>>,
@@ -312,6 +435,7 @@ impl Default for Network {
             telling: Arc::default(),
             known: Arc::default(),
             pushed: Arc::default(),
+            pushed_at: Arc::default(),
             own: Arc::default(),
         }
     }
@@ -383,6 +507,21 @@ impl Network {
     /// changed, or the system woke.
     pub fn announce(&self, reason: ChangeReason) {
         let _telling = self.telling.lock().unwrap_or_else(|e| e.into_inner());
+        // The host's word right after the state it pushed is about that
+        // state, which sail handled as it came: folded into it.
+        let pushed_at = self
+            .pushed_at
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take();
+        if reason == ChangeReason::HostPush
+            && pushed_at.is_some_and(|at| at.elapsed() < FOLDED_WITHIN)
+        {
+            tracing::debug!(
+                "network changed: the host's word, after the state it pushed; folded into it"
+            );
+            return;
+        }
         let mut change = None;
         self.state.send_modify(|current| {
             current.generation += 1;
@@ -423,6 +562,7 @@ impl Network {
     pub fn push(&self, state: NetworkState) {
         self.pushed.store(true, Ordering::Relaxed);
         self.set(state, ChangeReason::HostPush);
+        *self.pushed_at.lock().unwrap_or_else(|e| e.into_inner()) = Some(std::time::Instant::now());
     }
 
     /// Settles the state sail starts on, before the instance runs: `state`
@@ -728,6 +868,21 @@ mod tests {
     }
 
     #[test]
+    fn what_made_a_move_is_told() {
+        let state = |json: &str| NetworkState::from_json(json).unwrap();
+        let old = state(r#"{"type": "wifi", "interface": "wlan0", "addresses": ["10.0.2.16/24"]}"#);
+        let new = state(
+            r#"{"type": "wifi", "interface": "wlan0",
+                "addresses": ["10.0.2.16/24", "fec0::5054:ff:fe12:3456/64"]}"#,
+        );
+        assert_eq!(
+            old.differences(&new),
+            ["networks=[10.0.2.16]→[10.0.2.16 fec0::]"]
+        );
+        assert!(old.differences(&old).is_empty());
+    }
+
+    #[test]
     fn what_connections_do_not_survive_is_a_move() {
         let home = on("en0", &["192.168.1.2/24", "2001:db8:1:2::5/64"]);
         // Another interface, a new lease, another /64, another router.
@@ -747,6 +902,101 @@ mod tests {
         // Losing the default interface is, and getting it back.
         assert!(home.moved_to(&NetworkState::default()));
         assert!(NetworkState::default().moved_to(&home));
+    }
+
+    #[test]
+    fn an_address_added_is_no_move_and_one_gone_is() {
+        let home = on("wlan0", &["10.0.2.16/24", "fe80::1/64"]);
+        // The emulator's: a /64 comes after the Wi-Fi does.
+        let more = on("wlan0", &["10.0.2.16/24", "fe80::1/64", "fec0::5/64"]);
+        assert!(!home.moved_to(&more));
+        assert!(more.moved_to(&home));
+    }
+
+    #[test]
+    fn a_move_closes_the_connections_it_takes_the_way_or_address_of() {
+        let change = |old: NetworkState, new: NetworkState| NetworkChange {
+            generation: 2,
+            reason: ChangeReason::HostPush,
+            old: Arc::new(old),
+            new: Arc::new(new),
+        };
+        let ip = |s: &str| Some(s.parse::<IpAddr>().unwrap());
+        let wlan0 = Egress::Interface {
+            name: "wlan0".into(),
+            index: None,
+        };
+        let mut home = on("wlan0", &["192.168.1.2/24", "2001:db8:1:2::5/64"]);
+        home.interfaces = vec![NetworkInterface {
+            addresses: home.addresses.clone(),
+            ..interface("wlan0", NetworkType::Wifi)
+        }];
+        // Its IPv6 /64 gone, on the same interface and router: only what
+        // was made from it goes.
+        let mut v4_only = on("wlan0", &["192.168.1.2/24"]);
+        v4_only.interfaces = vec![NetworkInterface {
+            addresses: v4_only.addresses.clone(),
+            ..interface("wlan0", NetworkType::Wifi)
+        }];
+        let lost = change(home.clone(), v4_only);
+        let default = Some(&Egress::DefaultRoute);
+        assert!(!lost.closes(default, ip("192.168.1.2")));
+        assert!(lost.closes(default, ip("2001:db8:1:2::5")));
+        assert!(!lost.closes(Some(&wlan0), ip("192.168.1.2")));
+        assert!(lost.closes(Some(&wlan0), ip("2001:db8:1:2::5")));
+        // Without its address, an address gone may be its own.
+        assert!(lost.closes(default, None));
+        // Another default interface: what took the default route goes;
+        // what is bound to wlan0, still there with its address, stays.
+        let mut cellular = on("rmnet0", &["10.64.0.9/32"]);
+        cellular.interfaces = home.interfaces.clone();
+        cellular
+            .interfaces
+            .push(interface("rmnet0", NetworkType::Cellular));
+        let moved = change(home.clone(), cellular);
+        assert!(moved.closes(default, ip("192.168.1.2")));
+        assert!(moved.closes(None, None));
+        assert!(!moved.closes(Some(&wlan0), ip("192.168.1.2")));
+        // wlan0 gone: what is bound to it goes too.
+        let gone = change(home.clone(), on("rmnet0", &["10.64.0.9/32"]));
+        assert!(gone.closes(Some(&wlan0), ip("192.168.1.2")));
+        // Another kind of network on no named interface (a host that
+        // tells only that): what took the default route goes.
+        let wifi = NetworkState {
+            kind: Some(NetworkType::Wifi),
+            ..Default::default()
+        };
+        let cell = NetworkState {
+            kind: Some(NetworkType::Cellular),
+            ..Default::default()
+        };
+        assert!(change(wifi, cell).closes(default, None));
+        // A change with nothing to see into (a wake): everything else goes.
+        let wake = change(home.clone(), home);
+        assert!(wake.closes(Some(&wlan0), ip("192.168.1.2")));
+    }
+
+    #[test]
+    fn the_hosts_word_after_its_pushed_state_is_folded_into_it() {
+        let network = Network::default();
+        let mut changes = network.changes();
+        network.push(on("wlan0", &["10.0.2.16/24"]));
+        network.push(on("eth0", &["10.0.2.15/24"]));
+        assert_eq!(changes.borrow_and_update().as_ref().unwrap().generation, 1);
+        // The host says both in one callback: one move.
+        network.announce(ChangeReason::HostPush);
+        assert!(!changes.has_changed().unwrap());
+        // Its word again, with nothing pushed before it, is a move of its own.
+        network.announce(ChangeReason::HostPush);
+        assert_eq!(changes.borrow_and_update().as_ref().unwrap().generation, 2);
+        // A wake always is.
+        network.push(on("wlan0", &["10.0.2.16/24"]));
+        changes.borrow_and_update();
+        network.announce(ChangeReason::Wake);
+        assert_eq!(
+            changes.borrow_and_update().as_ref().unwrap().reason,
+            ChangeReason::Wake
+        );
     }
 
     #[test]

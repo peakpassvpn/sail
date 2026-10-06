@@ -341,4 +341,33 @@ class VpnTest {
             assertTrue("the host was asked: $listed", listed.packages.isEmpty())
         }
     }
+
+    /**
+     * When the network a connection went out of goes (Wi-Fi off), the
+     * connection ends, and with it the app's socket, within a second of
+     * sail listing it no more: a reset or a FIN, not a read that waits out
+     * its timeout.
+     */
+    @Test
+    fun aConnectionWhoseNetworkGoesEndsAtTheApp() {
+        start(config())
+        Socket().use { socket ->
+            socket.connect(InetSocketAddress(echoHost, tcpPort), 5000)
+            waitFor("sail to list the TCP connection") { sailCarries(tcpPort) }
+            val old = vpn().sail!!.connections().first { it.destination.endsWith(":$tcpPort") }.id
+            shell("svc wifi disable")
+            waitFor("sail to close the connection", seconds = 30) {
+                vpn().sail!!.connections().none { it.id == old }
+            }
+            socket.soTimeout = 1000
+            val ended = try {
+                socket.getInputStream().read() == -1
+            } catch (_: java.net.SocketTimeoutException) {
+                false
+            } catch (_: java.io.IOException) {
+                true
+            }
+            assertTrue("sail ended the connection, and the app's socket did not end within 1 s", ended)
+        }
+    }
 }

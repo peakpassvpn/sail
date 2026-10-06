@@ -382,8 +382,19 @@ impl RuntimeManager {
         let started = std::time::Instant::now();
         let _update = self.update.lock().await;
         self.dns_client.load().network_changed().await;
-        // Every connection, until each tells the interface it is bound to.
-        let closed = self.stat_manager.close_all();
+        // The connections that do not survive it, by where each went out
+        // and from which address; all of them on a change sail cannot see
+        // into (a wake, the host's word alone).
+        let every = change.old.differences(&change.new).is_empty();
+        let mut closed = 0;
+        for counter in self.stat_manager.connections() {
+            let bound = counter.sess.state.get::<net::dial::BoundInterface>();
+            let local = bound.local().map(|a| a.ip());
+            if every || change.closes(bound.get().as_ref(), local) {
+                counter.closer.close();
+                closed += 1;
+            }
+        }
         // What the outbounds keep of the network before: every outbound,
         // endpoint and provider member hears of it once.
         let outbounds = self.outbound_manager.load_full();
@@ -396,8 +407,10 @@ impl RuntimeManager {
                 member.handler.network_changed(change);
             }
         }
+        // The TUN's flows end with their connections; all of them only
+        // with every connection.
         #[cfg(feature = "inbound-tun")]
-        if self.tun_control.is_some() {
+        if every && self.tun_control.is_some() {
             if let Err(e) = self.reset_tun_flows().await {
                 warn!("network changed: resetting the tun's flows: {}", e);
             }
@@ -416,6 +429,11 @@ impl RuntimeManager {
             name(&change.new),
             closed,
             started.elapsed().as_millis()
+        );
+        info!(
+            "network changed: generation {}: {}",
+            change.generation,
+            change.old.differences(&change.new).join(", ")
         );
     }
 

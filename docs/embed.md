@@ -378,17 +378,40 @@ same rule: subscribe first, then read `outbounds()` and the rest.
 index; none when offline), its kind, gateway and addresses, and whether
 it is metered, constrained or behind a captive portal, with a
 `generation`. `instance.events(Kinds::NETWORK)` gives each change of it
-that connections do not survive, as `Event::Network`:
+that some connections may not survive (a move), as `Event::Network`:
 
 | `change` | when |
 |---|---|
 | `InterfaceChanged` | another default interface: its name or index differs |
-| `Moved` | the same interface on another network: its gateway, kind or addresses (IPv6 by /64) differ; or the host, or a wake, says the network changed |
+| `Moved` | the same interface on another network: its gateway or kind differs, or one of its addresses (IPv6 by /64) is gone; or the host, or a wake, says the network changed |
 | `Offline` | the default interface is gone |
 | `Restored` | a default interface is back after none |
 
 - **Roams.** A roam to another access point with the same addresses is no
   change, and no event.
+- **Addresses added.** An address added to the default interface (a new
+  IPv6 /64, SLAAC) is no move either: `network()` shows it, the rules
+  see it, and no connection is closed.
+- **Which connections close.** A move closes only the connections it
+  takes the way or the address of, each by where its dialer sent it and
+  from which address:
+  - one bound to an interface (`network_strategy`, `bind_interface`):
+    when that interface is gone, or no longer has the connection's
+    address;
+  - one on the default route: when the default interface, its index,
+    gateway or kind changed, or the connection's address is on no
+    interface now.
+  A connection whose address is not known (UDP, one not yet made) counts
+  an address gone as its own. A change
+  sail cannot see into (a wake, or the host's `network_changed` alone)
+  closes every connection, and ends every TUN flow. A closed connection's
+  TUN flow ends at the app with a reset. The log line `network changed:
+  generation N, …, closed=K` counts them, and the next line names what
+  differed.
+- **The host's word, folded.** `network_changed` (`sail_network_changed`)
+  within 2 s after a `set_network_state` is about that state, which sail
+  handled as it came: it is folded into it, no second move. A host that
+  never pushes a state still moves with it.
 - **Settled.** Every change is settled before it is told: sail's detection
   waits until the system has been quiet for 100 ms (1 s at most) before it
   looks. A state the host pushes (`set_network_state`) is taken as given.

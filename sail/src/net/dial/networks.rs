@@ -103,26 +103,45 @@ impl Egress {
 
 /// On a connection's shared state (`Session::state`): where the socket
 /// its dialer opened went out, once it is open.
-/// And, of a TCP connection, the address it was made to.
+/// And, of a TCP connection, the address it was made to and the one it
+/// was made from: which a change of network closes it by.
 #[derive(Debug, Default)]
-pub struct BoundInterface(Mutex<(Option<Egress>, Option<std::net::SocketAddr>)>);
+pub struct BoundInterface(Mutex<Bound>);
+
+#[derive(Debug, Default)]
+struct Bound {
+    egress: Option<Egress>,
+    peer: Option<std::net::SocketAddr>,
+    local: Option<std::net::SocketAddr>,
+}
 
 impl BoundInterface {
+    fn bound(&self) -> std::sync::MutexGuard<'_, Bound> {
+        self.0.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     pub fn get(&self) -> Option<Egress> {
-        self.0.lock().unwrap_or_else(|e| e.into_inner()).0.clone()
+        self.bound().egress.clone()
     }
 
     /// The address the connection's TCP connection out was made to.
     pub fn peer(&self) -> Option<std::net::SocketAddr> {
-        self.0.lock().unwrap_or_else(|e| e.into_inner()).1
+        self.bound().peer
+    }
+
+    /// The address the connection's TCP connection out was made from.
+    pub fn local(&self) -> Option<std::net::SocketAddr> {
+        self.bound().local
     }
 
     pub(crate) fn set(&self, egress: Egress) {
-        self.0.lock().unwrap_or_else(|e| e.into_inner()).0 = Some(egress);
+        self.bound().egress = Some(egress);
     }
 
-    pub(crate) fn set_peer(&self, peer: std::net::SocketAddr) {
-        self.0.lock().unwrap_or_else(|e| e.into_inner()).1 = Some(peer);
+    pub(crate) fn set_ends(&self, local: std::net::SocketAddr, peer: std::net::SocketAddr) {
+        let mut bound = self.bound();
+        bound.local = Some(local);
+        bound.peer = Some(peer);
     }
 }
 
