@@ -731,12 +731,15 @@ impl std::fmt::Display for TunNameTaken {
 impl std::error::Error for TunNameTaken {}
 
 /// How many names a chosen TUN tries before its start fails.
+// Windows opens its adapter by name with wintun, never chosen.
+#[cfg(any(not(target_os = "windows"), test))]
 const CHOOSE_ATTEMPTS: u32 = 3;
 
 /// Opens the TUN named `first`. A name sail chose that another program has
 /// taken since (EBUSY) is given up for the next free one, logged, up to
 /// CHOOSE_ATTEMPTS names; a configured one fails at once. Returns the
 /// device and the name it got.
+#[cfg(any(not(target_os = "windows"), test))]
 fn open_named<T>(
     tag: &str,
     first: &str,

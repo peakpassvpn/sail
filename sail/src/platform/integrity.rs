@@ -68,10 +68,10 @@ fn probe((address, len): (IpAddr, u8)) -> IpAddr {
     }
 }
 
-// Windows asks the system (GetBestRoute2).
-#[cfg_attr(target_os = "windows", allow(dead_code))]
 /// The route of `table` that an unbound packet to `address` takes: the
 /// longest unscoped one that holds it, the first of equals.
+// Windows asks the system (GetBestRoute2).
+#[cfg_attr(target_os = "windows", allow(dead_code))]
 pub(crate) fn longest_match(table: &[Route], address: IpAddr) -> Option<Route> {
     let mut best: Option<Route> = None;
     for route in table
