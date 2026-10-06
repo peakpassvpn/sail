@@ -102,6 +102,8 @@ jobs:
   # when they do. On master and when dispatched, everything.
   # - bindings: the bindings, the C ABI, sail::embed, the JSON snapshot the
   #   models are checked against, the Swift package's manifest;
+  # - android-emulator: the Kotlin binding and its emulator test app, the C
+  #   ABI, sail::embed and the TUN;
   # - tun-macos: the TUN, platform and teardown code, and the macOS scripts;
   # - netns-linux: the same on Linux, the netstack, the runtime, WireGuard
   #   and the netns scripts and tests;
@@ -121,6 +123,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       bindings: ${{ steps.paths.outputs.bindings }}
+      android_emulator: ${{ steps.paths.outputs.android_emulator }}
       tun_macos: ${{ steps.paths.outputs.tun_macos }}
       netns_linux: ${{ steps.paths.outputs.netns_linux }}
       fuzz: ${{ steps.paths.outputs.fuzz }}
@@ -141,6 +144,7 @@ jobs:
           # Everything on master.
           declare -A filters=(
             [bindings]='^(bindings/|sail-ffi/|sail/src/embed|sail/src/control/json_snapshot\.json$|Package\.swift$)'
+            [android_emulator]='^(bindings/kotlin/|sail-ffi/|sail/src/embed|sail/src/protocol/tun/)'
             [tun_macos]='^(sail/src/protocol/tun/|sail/src/platform/|sail/src/runtime/teardown\.rs|sail/src/fault\.rs|sail/tests/test_teardown\.rs|sail/tests/test_tun_integrity_macos\.rs|sail/tests/test_split_dns_macos\.rs|sail/src/app/dns/client/system|sail/tests/test_tun_replaced_macos\.rs|sail/tests/scripts/macos_)'
             [netns_linux]='^(sail/src/protocol/tun/|sail/src/net/netstack/|sail/src/platform/|sail/src/runtime/|sail/src/fault\.rs|sail/src/protocol/wireguard/|sail/tests/test_wireguard_(interop|kernel)\.rs|sail/tests/scripts/[a-z_]+_netns\.sh|sail/tests/test_[a-z_]+_linux\.rs|sail/tests/test_teardown\.rs)'
             [fuzz]='^(fuzz/|sail-netstack/fuzz/|fuzz-config/|scripts/prebuilt-boringssl\.sh$|tools/fuzz-check\.sh$)|(^|/)Cargo\.(toml|lock)$'
@@ -940,6 +944,93 @@ jobs:
       - name: test
         working-directory: bindings/kotlin
         run: gradle --no-daemon test
+
+  # L3: sail in an Android app's VpnService, on an emulator (KVM): DNS, TCP
+  # and UDP through it to echo servers on the runner, the apps it takes by
+  # package, and a stop and a start (bindings/kotlin/android-test). The
+  # library for x86_64 is built unoptimized: the test is of behaviour. On
+  # master, by hand, and on branches the `changes` job says reach it.
+  android-emulator:
+    needs: changes
+    if: needs.changes.outputs.android_emulator == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      SAIL_AGP: 9.4.1
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: install rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+
+      - name: cache cross toolchain
+        uses: actions/cache@v4
+        with:
+          path: ~/.sail-cross
+          key: sail-cross-android-${{ hashFiles('scripts/install_cross_toolchain.sh') }}
+
+      - name: install the NDK
+        run: scripts/install_cross_toolchain.sh x86_64-linux-android
+
+      # The fork's BoringSSL, as the header says.
+      - name: prebuilt BoringSSL
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/prebuilt-boringssl.sh x86_64-linux-android
+
+      - name: cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: android-emulator
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+
+      - name: sail-ffi for x86_64 Android
+        run: |
+          scripts/cross.sh x86_64-linux-android build --locked -p sail-ffi
+          mkdir -p "$RUNNER_TEMP/libs/x86_64"
+          cp target/x86_64-linux-android/debug/libsail.a "$RUNNER_TEMP/libs/x86_64/"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 9.8.0
+          cache-read-only: ${{ github.ref != 'refs/heads/master' }}
+
+      - name: enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: emulator tests
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          script: NDK_PATH=$(echo "$HOME"/.sail-cross/android-ndk-*) bindings/kotlin/android-test/run.sh "$RUNNER_TEMP/libs"
+
+      - name: reports
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-emulator-reports
+          path: |
+            bindings/kotlin/android-test/build/reports/
+            bindings/kotlin/android-test/build/outputs/androidTest-results/
+            bindings/kotlin/android-test/build/logcat.txt
 
   # L3: the Swift binding's tests, on a standard macOS runner, against
   # sail-ffi's static library (bindings/swift/test.sh). As bindings-kotlin.

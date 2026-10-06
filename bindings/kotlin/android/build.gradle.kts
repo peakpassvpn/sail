@@ -37,7 +37,11 @@ android {
         minSdk = 24
         consumerProguardFiles("consumer-rules.pro")
         ndk {
-            abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86")
+            // All four for the release; -Psail.abis=x86_64 for a build of
+            // one, as the emulator test's (bindings/kotlin/android-test).
+            abiFilters += providers.gradleProperty("sail.abis").orNull
+                ?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() }
+                ?: listOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86")
         }
         externalNativeBuild {
             cmake {
