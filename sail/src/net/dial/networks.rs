@@ -81,11 +81,21 @@ impl std::fmt::Display for Via {
 }
 
 /// Where a connection went out: the interface it was bound to, or none,
-/// following the default route. What the connections table shows.
+/// following the default route, or a tunnel endpoint's own stack. What the
+/// connections table shows.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Egress {
     DefaultRoute,
-    Interface { name: String, index: Option<u32> },
+    Interface {
+        name: String,
+        index: Option<u32>,
+    },
+    /// Through the stack of the endpoint tagged `endpoint` (WireGuard's):
+    /// the endpoint's own socket is what goes out, and it binds anew on a
+    /// change of network.
+    Tunnel {
+        endpoint: Arc<str>,
+    },
 }
 
 impl Egress {

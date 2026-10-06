@@ -234,16 +234,16 @@ fn relay(path: Path, relay_port: u16) -> Option<(String, serde_json::Value)> {
 }
 
 /// Runs a client and a server with echo servers behind, and `f` against
-/// the client's SOCKS port.
+/// the client's SOCKS port and the client.
 fn with_tunnel(
-    f: impl Fn(&tokio::runtime::Runtime, u16) -> anyhow::Result<()>,
+    f: impl Fn(&tokio::runtime::Runtime, u16, sail::RuntimeId) -> anyhow::Result<()>,
 ) -> anyhow::Result<()> {
     with_tunnel_over(Path::Direct, f)
 }
 
 fn with_tunnel_over(
     path: Path,
-    f: impl Fn(&tokio::runtime::Runtime, u16) -> anyhow::Result<()>,
+    f: impl Fn(&tokio::runtime::Runtime, u16, sail::RuntimeId) -> anyhow::Result<()>,
 ) -> anyhow::Result<()> {
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -270,7 +270,7 @@ fn with_tunnel_over(
         }
         configs.push(client.to_string());
         let ids = common::run_sail_instances(&rt, configs)?;
-        let result = f(&rt, socks_port);
+        let result = f(&rt, socks_port, *ids.last().unwrap());
         common::shutdown_instances(&rt, ids);
         result
     });
@@ -281,7 +281,7 @@ fn with_tunnel_over(
 
 #[test]
 fn test_wireguard_endpoint_sail_to_sail() -> anyhow::Result<()> {
-    with_tunnel(|rt, socks_port| {
+    with_tunnel(|rt, socks_port, _| {
         rt.block_on(async {
             for target in [TARGET_V4, TARGET_V6] {
                 tcp_echo(socks_port, target, b"hello through the tunnel").await?;
@@ -301,11 +301,49 @@ fn test_wireguard_endpoint_sail_to_sail() -> anyhow::Result<()> {
     })
 }
 
+/// A TCP connection through the endpoint survives a change of network
+/// the client's connections on the default route do not: the endpoint
+/// binds anew, and goes on.
+#[test]
+fn test_wireguard_endpoint_connection_survives_a_move() -> anyhow::Result<()> {
+    with_tunnel(|rt, socks_port, client| {
+        rt.block_on(async {
+            let network = |interface: &str| {
+                json!({
+                    "interface": interface, "type": "wifi",
+                    "gateway": "192.168.1.1", "addresses": ["192.168.1.2/24"],
+                })
+                .to_string()
+            };
+            sail::set_network_state(client, &network("en0"))?;
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            let sess = Session {
+                destination: SocksAddr::Ip(TARGET_V4.parse()?),
+                ..Default::default()
+            };
+            let mut conn =
+                common::new_socks_stream("127.0.0.1", socks_port, &sess, None, None).await?;
+            let mut buf = [0u8; 6];
+            conn.write_all(b"before").await?;
+            timeout(Duration::from_secs(30), conn.read_exact(&mut buf)).await??;
+            assert_eq!(&buf, b"before");
+            // A move: another default interface.
+            sail::set_network_state(client, &network("en1"))?;
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            conn.write_all(b"after!").await?;
+            let read = timeout(Duration::from_secs(10), conn.read_exact(&mut buf)).await?;
+            assert!(read.is_ok(), "the connection was closed: {:?}", read);
+            assert_eq!(&buf, b"after!");
+            anyhow::Ok(())
+        })
+    })
+}
+
 /// WireGuard's own datagrams through another outbound.
 #[test]
 fn test_wireguard_endpoint_detour() -> anyhow::Result<()> {
     for path in [Path::Socks, Path::Hysteria2] {
-        with_tunnel_over(path, |rt, socks_port| {
+        with_tunnel_over(path, |rt, socks_port, _| {
             rt.block_on(async {
                 tcp_echo(socks_port, TARGET_V4, &pattern(1 << 20, 1)).await?;
                 udp_echo(socks_port, TARGET_V6).await
@@ -322,7 +360,7 @@ fn test_wireguard_endpoint_detour() -> anyhow::Result<()> {
 #[test]
 #[ignore]
 fn test_wireguard_endpoint_throughput() -> anyhow::Result<()> {
-    with_tunnel(|rt, socks_port| {
+    with_tunnel(|rt, socks_port, _| {
         rt.block_on(async {
             tcp_echo(socks_port, TARGET_V4, b"warm up").await?;
             let size = 256usize << 20;

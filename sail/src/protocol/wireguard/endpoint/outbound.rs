@@ -13,6 +13,7 @@ use crate::adapter::{
     OutboundDatagram, OutboundDatagramHandler, OutboundDatagramRecvHalf, OutboundDatagramSendHalf,
     OutboundStreamHandler,
 };
+use crate::net::dial::{BoundInterface, Egress};
 use crate::net::network::NetworkChange;
 use crate::session::{Session, SocksAddr};
 
@@ -58,6 +59,14 @@ impl Shared {
         }
         Ok(usable)
     }
+
+    /// Records on `sess` that its connection goes through this endpoint's
+    /// stack: a change of network leaves it be, as the endpoint binds anew.
+    fn record(&self, sess: &Session) {
+        sess.state.get::<BoundInterface>().set(Egress::Tunnel {
+            endpoint: self.tag.as_str().into(),
+        });
+    }
 }
 
 pub(super) struct StreamHandler(pub(super) Arc<Shared>);
@@ -88,7 +97,10 @@ impl OutboundStreamHandler for StreamHandler {
             )
             .await
             {
-                Ok(Ok(conn)) => return Ok(Box::new(conn.stream)),
+                Ok(Ok(conn)) => {
+                    self.0.record(sess);
+                    return Ok(Box::new(conn.stream));
+                }
                 Ok(Err(e)) => last = Some(e),
                 Err(_) => {
                     last = Some(io::Error::new(
@@ -119,10 +131,11 @@ impl OutboundDatagramHandler for DatagramHandler {
 
     async fn handle<'a>(
         &'a self,
-        _sess: &'a Session,
+        sess: &'a Session,
         _transport: Option<AnyOutboundTransport>,
     ) -> io::Result<AnyOutboundDatagram> {
         let running = self.0.running().await?;
+        self.0.record(sess);
         let (tx, rx) = mpsc::channel(FLOW_QUEUE);
         Ok(Box::new(Datagram {
             send: SendHalf {

@@ -1043,6 +1043,57 @@ mod tests {
         assert!(server.start(dispatcher, nat).is_err(), "started once");
     }
 
+    /// A UDP session through the endpoint is recorded as going out through
+    /// its stack, which a change of network leaves be; a TCP dial that
+    /// fails records nothing. (`test_wireguard_endpoint` has a TCP
+    /// connection through it survive a move.)
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_session_through_it_is_recorded_as_through_its_stack() {
+        use crate::net::dial::{BoundInterface, Egress};
+
+        let shared = shared_on(
+            TaskClass::Contained,
+            serde_json::json!({}),
+            Arc::new(Counting::default()),
+        );
+        let outbound = shared.outbound();
+        let server: AnyEndpointServer = Arc::new(Server(shared.clone()));
+        let (_instance, dispatcher, nat) = routing();
+        let scope = TaskScope::default();
+        let run = start_member(&server, dispatcher, nat, &scope).unwrap();
+        until(&shared, |s| matches!(s, State::Running(_))).await;
+
+        let sess = Session {
+            destination: SocksAddr::Ip("10.0.0.9:53".parse().unwrap()),
+            ..Default::default()
+        };
+        let _datagram = outbound
+            .datagram()
+            .unwrap()
+            .handle(&sess, None)
+            .await
+            .unwrap();
+        assert_eq!(
+            sess.state.get::<BoundInterface>().get(),
+            Some(Egress::Tunnel {
+                endpoint: "wg".into()
+            })
+        );
+        // No peer answers: the dial fails, and is not recorded as one.
+        let failed = Session {
+            destination: SocksAddr::Ip("10.0.0.9:80".parse().unwrap()),
+            ..Default::default()
+        };
+        assert!(outbound
+            .stream()
+            .unwrap()
+            .handle(&failed, None, None)
+            .await
+            .is_err());
+        assert_eq!(failed.state.get::<BoundInterface>().get(), None);
+        run.stop();
+    }
+
     /// A member started from a task outside every scope, as a host's
     /// reload is, runs in the scope it is given: the scope's stop ends it.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

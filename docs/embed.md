@@ -400,7 +400,21 @@ that some connections may not survive (a move), as `Event::Network`:
     address;
   - one on the default route: when the default interface, its index,
     gateway or kind changed, or the connection's address is on no
-    interface now.
+    interface now;
+  - one through a WireGuard endpoint: never. The endpoint binds its
+    socket anew and its peer learns the new address from the next packet,
+    as over the kernel's WireGuard; the endpoint's stop ends the
+    connection. A peer gone quiet, as on a network it cannot be reached
+    from (a v6-only peer on a v4-only network), does not, as nothing in
+    the tunnel closes it: WireGuard retries the handshake every 5 s
+    (`REKEY_TIMEOUT`) for 90 s (`REKEY_ATTEMPT_TIME`), then drops what
+    it held, and starts again on the next packet out; the keys stop at
+    180 s (`REJECT_AFTER_TIME`) and are wiped 540 s after the last
+    handshake. The connection lasts until the endpoint's TCP stack gives
+    up on it (12 retransmission timeouts, from 1 s doubling to 60 s,
+    about 8 minutes, for one with data unacknowledged; 2 h idle and 9
+    keepalive probes 75 s apart for an idle one), or until the app's own
+    timeouts end it.
   A connection whose address is not known (UDP, one not yet made) counts
   an address gone as its own. A change
   sail cannot see into (a wake, or the host's `network_changed` alone)

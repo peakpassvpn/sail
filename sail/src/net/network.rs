@@ -340,7 +340,10 @@ impl NetworkChange {
     ///   another index, or no longer has its address;
     /// - one on the default route (or not known to be bound), when the
     ///   default interface, its index, gateway or kind changed, or its
-    ///   address is on no interface now.
+    ///   address is on no interface now;
+    /// - one through a tunnel endpoint's stack, never: the endpoint binds
+    ///   anew and its peer learns the new address from the next packet,
+    ///   as over the kernel's WireGuard.
     ///
     /// Without its address (UDP, a connection not yet made), an address
     /// gone counts as its own. A change with nothing different, a wake or the host's word with
@@ -366,6 +369,7 @@ impl NetworkChange {
                         .is_none_or(|(_, before)| gone(before, addresses)),
                 }
             }
+            Some(Egress::Tunnel { .. }) => false,
             Some(Egress::DefaultRoute) | None => {
                 if old.interface != new.interface
                     || old.index != new.index
@@ -974,6 +978,38 @@ mod tests {
         // A change with nothing to see into (a wake): everything else goes.
         let wake = change(home.clone(), home);
         assert!(wake.closes(Some(&wlan0), ip("192.168.1.2")));
+    }
+
+    #[test]
+    fn a_move_closes_no_connection_through_a_tunnel_endpoint_and_a_wake_does() {
+        let change = |old: NetworkState, new: NetworkState| NetworkChange {
+            generation: 2,
+            reason: ChangeReason::HostPush,
+            old: Arc::new(old),
+            new: Arc::new(new),
+        };
+        let ip = |s: &str| Some(s.parse::<IpAddr>().unwrap());
+        let tunnel = Egress::Tunnel {
+            endpoint: "wg".into(),
+        };
+        let home = on("wlan0", &["192.168.1.2/24", "2001:db8:1:2::5/64"]);
+        // Another default interface, an address gone, the network gone.
+        let moves = [
+            on("rmnet0", &["10.64.0.9/32"]),
+            on("wlan0", &["192.168.1.2/24"]),
+            NetworkState::default(),
+        ];
+        for new in moves {
+            let moved = change(home.clone(), new);
+            assert!(moved.closes(None, None), "{:?}", moved.new);
+            for local in [None, ip("10.77.0.2"), ip("2001:db8:1:2::5")] {
+                assert!(!moved.closes(Some(&tunnel), local), "{:?}", moved.new);
+            }
+        }
+        // A change with nothing to see into (a wake): it goes too.
+        let wake = change(home.clone(), home);
+        assert!(wake.closes(Some(&tunnel), ip("10.77.0.2")));
+        assert!(wake.closes(Some(&tunnel), None));
     }
 
     #[test]
