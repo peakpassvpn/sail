@@ -1583,6 +1583,26 @@ impl TcpTable {
         self.apply_app_event(token, crate::AppEvent::Abort)
     }
 
+    /// Aborts every flow but those in `TIME_WAIT` (another map), each as
+    /// [`TcpTable::abort`] does one, and returns the resets they rendered:
+    /// from the flow's remote side to the app, at `SND.NXT`, acknowledging
+    /// `RCV.NXT`. Like `abort`, these do not pass the stateless-reset limiter:
+    /// one each, for flows of our own. A network reset or a closing runner
+    /// sends them, so that an app reading a flow learns that it ended. The
+    /// aborts' events and cancelled timers are dropped: the flows go with
+    /// what calls this, and a timer of one resolves to a stale token.
+    pub fn abort_all(&mut self) -> Vec<Vec<u8>> {
+        let ids: Vec<FlowId> = self.by_key.values().map(|flow| flow.id).collect();
+        let mut wires = Vec::new();
+        for id in ids {
+            let token = TcpFlowToken::new_on_shard(id, self.generation, self.shard);
+            if let Ok(mut output) = self.abort(token) {
+                wires.append(&mut output.outgoing);
+            }
+        }
+        wires
+    }
+
     fn apply_app_event(
         &mut self,
         token: TcpFlowToken,

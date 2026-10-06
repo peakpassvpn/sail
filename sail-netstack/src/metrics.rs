@@ -53,6 +53,9 @@ pub struct StackStats {
     pub shutdowns: u64,
     pub aborts: u64,
     pub network_resets: u64,
+    /// Resets of flows a network reset or a closing runner had to drop,
+    /// past the queue of resets still to send.
+    pub reset_rsts_dropped: u64,
     pub mtu_changes: u64,
     pub scheduler_rounds: u64,
     pub scheduler_packets: u64,
@@ -189,6 +192,7 @@ impl StackStats {
             shutdowns,
             aborts,
             network_resets,
+            reset_rsts_dropped,
             mtu_changes,
             scheduler_rounds,
             scheduler_packets,
