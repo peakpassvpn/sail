@@ -164,6 +164,114 @@ async fn test_round_trip_and_close() {
     echo.await.unwrap();
 }
 
+/// A transport that tells whether its write side was shut down: whether a
+/// FIN would have gone out.
+struct Shutdowns {
+    inner: DuplexStream,
+    shut: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl tokio::io::AsyncRead for Shutdowns {
+    fn poll_read(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.inner).poll_read(cx, buf)
+    }
+}
+
+impl tokio::io::AsyncWrite for Shutdowns {
+    fn poll_write(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        std::pin::Pin::new(&mut self.inner).poll_write(cx, buf)
+    }
+    fn poll_flush(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.inner).poll_flush(cx)
+    }
+    fn poll_shutdown(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        self.shut.store(true, std::sync::atomic::Ordering::SeqCst);
+        std::pin::Pin::new(&mut self.inner).poll_shutdown(cx)
+    }
+}
+
+/// A client whose transport tells of its shutdown, and the server's stream.
+async fn watched_pair() -> (
+    TlsStream<BoringConnection, Shutdowns>,
+    TlsStream<BoringConnection, DuplexStream>,
+    std::sync::Arc<std::sync::atomic::AtomicBool>,
+) {
+    let server = server();
+    let client = TlsClient::new(&[], Some(&server.cert_pem), false, None, &test_roots()).unwrap();
+    let (c, s) = tokio::io::duplex(64 * 1024);
+    let shut = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let c = Shutdowns {
+        inner: c,
+        shut: std::sync::Arc::clone(&shut),
+    };
+    let (c, s) = tokio::join!(
+        client.connect("localhost", c, None, None),
+        server.accept(s, None)
+    );
+    (c.unwrap(), s.unwrap(), shut)
+}
+
+/// A half-close is the close_notify alone, as Go's CloseWrite: the peer reads
+/// its end, and the transport's write side stays open (no FIN) until the
+/// stream drops, so that the peer closes the TCP first.
+#[tokio::test]
+async fn a_half_close_sends_close_notify_and_no_fin() {
+    let (mut c, mut s, shut) = watched_pair().await;
+    c.shutdown().await.unwrap();
+    let mut buf = [0; 16];
+    assert_eq!(
+        s.read(&mut buf).await.unwrap(),
+        0,
+        "the close_notify ends it"
+    );
+    assert!(!shut.load(std::sync::atomic::Ordering::SeqCst), "no FIN");
+}
+
+/// Dropped as soon as its half-close returns, a stream has still sent its
+/// close_notify: the peer sees a clean end, not a truncation.
+#[tokio::test]
+async fn a_stream_dropped_after_its_half_close_has_sent_close_notify() {
+    let (mut c, mut s, _) = watched_pair().await;
+    c.shutdown().await.unwrap();
+    drop(c);
+    let mut buf = [0; 16];
+    assert_eq!(s.read(&mut buf).await.unwrap(), 0);
+}
+
+/// After our close_notify, the peer may go on writing: we read all it sends
+/// until its own end.
+#[tokio::test]
+async fn after_a_half_close_the_peer_is_read_to_its_end() {
+    let (mut c, mut s, _) = watched_pair().await;
+    c.shutdown().await.unwrap();
+    let data: Vec<u8> = (0..200_000u32).map(|i| (i * 13) as u8).collect();
+    let sent = data.clone();
+    let peer = tokio::spawn(async move {
+        let mut buf = [0; 16];
+        assert_eq!(s.read(&mut buf).await.unwrap(), 0);
+        s.write_all(&sent).await.unwrap();
+        s.shutdown().await.unwrap();
+    });
+    let mut got = vec![];
+    c.read_to_end(&mut got).await.unwrap();
+    assert!(got == data);
+    peer.await.unwrap();
+}
+
 #[tokio::test]
 async fn test_certificate_verification() {
     let server = server();
