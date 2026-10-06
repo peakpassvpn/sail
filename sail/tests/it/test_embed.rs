@@ -1039,15 +1039,20 @@ async fn a_host_service_asked_during_the_start_dials_back_and_reads_the_network(
                         .await
                         .map_err(|_| ErrorKind::Timeout)?
                         .map_err(|_| ErrorKind::Io)?;
-                        let _ = service.send_to(&answer[..n], from).await;
-                        Ok(())
+                        Ok(answer[..n].to_vec())
                     };
-                    let dialled = answered.await;
+                    let answer: Result<Vec<u8>, ErrorKind> = answered.await;
+                    // Recorded before the answer goes: the start it lets
+                    // finish is followed at once by the checks of what
+                    // was asked.
                     asked.lock().unwrap().push(Asked {
                         starting,
                         interface,
-                        dialled,
+                        dialled: answer.as_ref().map(|_| ()).map_err(|e| *e),
                     });
+                    if let Ok(answer) = answer {
+                        let _ = service.send_to(&answer, from).await;
+                    }
                 });
             }
         }
