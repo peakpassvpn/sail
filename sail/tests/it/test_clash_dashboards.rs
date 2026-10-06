@@ -226,6 +226,8 @@ fn the_dashboards_requests_get_what_they_read() -> anyhow::Result<()> {
                 ("mixed-port", Num),
                 ("allow-lan", Bool),
                 ("tun/enable", Bool),
+                ("interface-name", Str),
+                ("sniffing", Bool),
             ],
         ),
         (
@@ -234,7 +236,12 @@ fn the_dashboards_requests_get_what_they_read() -> anyhow::Result<()> {
             "/configs".into(),
             "",
             200,
-            vec![("mode-list", Arr)],
+            vec![
+                ("mode-list", Arr),
+                ("unified-delay", Bool),
+                ("tun/stack", Str),
+                ("tun/device", Str),
+            ],
         ),
         (
             "all",
@@ -369,7 +376,18 @@ fn the_dashboards_requests_get_what_they_read() -> anyhow::Result<()> {
                 ("rules/*/proxy", Str),
                 ("rules/*/size", Num),
                 ("rules/*/index", Num),
+                ("rules/*/extra/disabled", Bool),
+                ("rules/*/extra/hitCount", Num),
+                ("rules/*/extra/hitAt", Str),
             ],
+        ),
+        (
+            "meta",
+            "PATCH",
+            "/rules/disable".into(),
+            r#"{"2": true}"#,
+            204,
+            vec![],
         ),
         (
             "metacubexd",
@@ -451,7 +469,47 @@ fn the_dashboards_requests_get_what_they_read() -> anyhow::Result<()> {
                 ("connections/*/metadata/processPath", Str),
                 ("connections/*/metadata/inboundName", Str),
                 ("connections/*/metadata/dnsMode", Str),
+                ("connections/*/metadata/process", Str),
+                ("connections/*/metadata/inboundIP", Str),
+                ("connections/*/metadata/inboundPort", Str),
+                ("connections/*/metadata/inboundUser", Str),
+                ("connections/*/metadata/dscp", Num),
+                ("connections/*/metadata/specialProxy", Str),
+                ("connections/*/metadata/specialRules", Str),
+                ("connections/*/metadata/remoteDestination", Str),
             ];
+            // The inbound the connection came in by, as Mihomo tells it.
+            let first = &listed["connections"][0]["metadata"];
+            if first["inboundIP"] != "127.0.0.1"
+                || first["inboundPort"]
+                    .as_str()
+                    .and_then(|p| p.parse::<u16>().ok())
+                    != Some(socks)
+            {
+                failed.push(format!("all GET /connections: inbound {}", first));
+            }
+
+            // The switch the rules page shows: the rule turned off by the
+            // PATCH above is off, and a connection it would have matched
+            // goes on to the next; on again, it matches.
+            let (_, _, body) = call(port, "GET", "/rules", s, &[], "").await?;
+            let rules = json(&body);
+            if rules["rules"][2]["extra"]["disabled"] != true {
+                failed.push(format!("meta PATCH /rules/disable: not off: {}", rules));
+            }
+            let (status, ..) =
+                call(port, "PATCH", "/rules/disable", s, &[], r#"{"2": false}"#).await?;
+            let (_, _, body) = call(port, "GET", "/rules", s, &[], "").await?;
+            if status != 204 || json(&body)["rules"][2]["extra"]["disabled"] != false {
+                failed.push(format!("meta PATCH /rules/disable: not on again: {}", body));
+            }
+            let (status, ..) = call(port, "PATCH", "/rules/disable", s, &[], "not json").await?;
+            if status != 400 {
+                failed.push(format!(
+                    "meta PATCH /rules/disable with a bad body: {}",
+                    status
+                ));
+            }
             for (at, read) in connection_reads {
                 if let Err(e) = check(&listed, at, read) {
                     failed.push(format!("all GET /connections: {}", e));

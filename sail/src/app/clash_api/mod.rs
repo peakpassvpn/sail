@@ -224,6 +224,10 @@ fn router(clash: Arc<Clash>) -> Router {
         )
         .route("/connections/:id", delete(connections::close))
         .route("/rules", get(connections::rules))
+        .route(
+            "/rules/disable",
+            axum::routing::patch(connections::disable_rules),
+        )
         .route("/traffic", get(streams::traffic))
         .route("/memory", get(streams::memory))
         .route("/logs", get(streams::logs))

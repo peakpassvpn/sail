@@ -353,19 +353,21 @@ sail's own `override_destination` route option differs: it dials a proxy by the 
 the rules match the address.\n\n\
 ## Clash API\n\n\
 The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the type they read \
-it as, from the requests they make: `sail/tests/it/test_clash_dashboards.rs` makes them. What \
-sail does not give:\n\
-- `GET /configs`: `interface-name`, `sniffing`, `tun.stack`, `tun.device`, `unified-delay` \
-  and `dns`. `PATCH /configs` sets `mode` and `log-level`; the ports, `allow-lan`, `tun`, \
-  `sniffing` and `interface-name` stay as the configuration has them, as in sing-box.\n\
-- `/rules`: no `extra` (hit counts, disabling) and no `PATCH /rules/disable`, so the \
-  dashboards show no switch. `size` is a rule-set's rule count, -1 for the others; Mihomo \
-  counts GeoIP and GeoSite too. A condition Mihomo has no type for goes by sing-box's field \
-  name (`clash_mode`).\n\
+it as, from the requests they make: `sail/tests/it/test_clash_dashboards.rs` makes them. Where \
+sail has no value of its own: `unified-delay` is false (a delay includes the connect and the \
+TLS handshake, as sing-box's); `tun.stack` is `gVisor`, the name the dashboards have for a \
+user-space stack such as sail's one; a connection's `dscp` is 0, and its `specialProxy`, \
+`specialRules` and `remoteDestination` are empty. A rule switched off with \
+`PATCH /rules/disable` stays off until the next reload, as in Mihomo. What sail does not give:\n\
+- `GET /configs`: `dns`. `PATCH /configs` sets `mode` and `log-level`; the ports, \
+  `allow-lan`, `tun`, `sniffing` and `interface-name` stay as the configuration has them, as \
+  in sing-box.\n\
+- `/rules`: `extra`'s `missCount` and `missAt` (only hits are counted). `size` is a \
+  rule-set's rule count, -1 for the others; Mihomo counts GeoIP and GeoSite too. A condition \
+  Mihomo has no type for goes by sing-box's field name (`clash_mode`).\n\
 - `/connections`: no `providerChains`, nor the metadata's `sourceGeoIP`, \
-  `destinationGeoIP`, `sourceIPASN`, `destinationIPASN`, `inboundIP`, `inboundPort`, \
-  `inboundUser`, `uid`, `process`, `specialProxy`, `specialRules`, `remoteDestination` and \
-  `dscp`: the dashboards show those columns empty.\n\
+  `destinationGeoIP`, `sourceIPASN` and `destinationIPASN`; `uid` only where the system tells \
+  it.\n\
 - `/memory`: `oslimit` is 0.\n\
 - `POST /restart`, `/upgrade`, `/upgrade/geo` and `/configs/geo` are not served: sail's host \
   restarts and updates it.",
@@ -397,16 +399,16 @@ const ZH: Words = Words {
 sail 自己的 `override_destination` 路由选项不同：规则匹配原地址，只在连接代理时使用域名。\n\n\
 ## Clash API\n\n\
 面板（yacd、Yacd-meta、metacubexd）实际发出的请求，sail 都给出它们读取的全部字段，类型也一致：\
-`sail/tests/it/test_clash_dashboards.rs` 按面板的方式逐个发出这些请求。sail 不提供的有：\n\
-- `GET /configs`：`interface-name`、`sniffing`、`tun.stack`、`tun.device`、`unified-delay` 和 `dns`。\
-`PATCH /configs` 只设置 `mode` 和 `log-level`；端口、`allow-lan`、`tun`、`sniffing` 与 `interface-name` \
-保持配置中的值，与 sing-box 一致。\n\
-- `/rules`：没有 `extra`（命中计数、停用），也没有 `PATCH /rules/disable`，面板因此不显示开关。\
-`size` 是规则集的规则数，其他规则为 -1；Mihomo 对 GeoIP 和 GeoSite 也计数。Mihomo 没有对应类型的条件\
-用 sing-box 的字段名（`clash_mode`）。\n\
-- `/connections`：没有 `providerChains`，元数据里也没有 `sourceGeoIP`、`destinationGeoIP`、`sourceIPASN`、\
-`destinationIPASN`、`inboundIP`、`inboundPort`、`inboundUser`、`uid`、`process`、`specialProxy`、\
-`specialRules`、`remoteDestination` 和 `dscp`：面板中这些列为空。\n\
+`sail/tests/it/test_clash_dashboards.rs` 按面板的方式逐个发出这些请求。sail 自身没有对应值的：\
+`unified-delay` 为 false（延迟包括建连与 TLS 握手，与 sing-box 一致）；`tun.stack` 为 `gVisor`，即面板对 sail \
+这类用户态协议栈的叫法；连接的 `dscp` 为 0，`specialProxy`、`specialRules` 与 `remoteDestination` 为空。\
+用 `PATCH /rules/disable` 停用的规则在下次重载前保持停用，与 Mihomo 一致。sail 不提供的有：\n\
+- `GET /configs`：`dns`。`PATCH /configs` 只设置 `mode` 和 `log-level`；端口、`allow-lan`、`tun`、\
+`sniffing` 与 `interface-name` 保持配置中的值，与 sing-box 一致。\n\
+- `/rules`：`extra` 里的 `missCount` 和 `missAt`（只统计命中）。`size` 是规则集的规则数，其他规则为 -1；\
+Mihomo 对 GeoIP 和 GeoSite 也计数。Mihomo 没有对应类型的条件用 sing-box 的字段名（`clash_mode`）。\n\
+- `/connections`：没有 `providerChains`，元数据里也没有 `sourceGeoIP`、`destinationGeoIP`、`sourceIPASN` \
+和 `destinationIPASN`；`uid` 只在系统告知时提供。\n\
 - `/memory`：`oslimit` 为 0。\n\
 - 不提供 `POST /restart`、`/upgrade`、`/upgrade/geo` 和 `/configs/geo`：sail 由宿主重启和更新。",
     summary: "| 部分 | 字段 | 支持 | 警告 | 报错 |",

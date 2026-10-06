@@ -61,6 +61,7 @@ async fn snapshot(rm: &RuntimeManager) -> Value {
     let traffic = rm.traffic().await;
     let connections = rm.connections().await;
     let router = rm.router();
+    let view = rm.clash_view();
     let told: Told = router
         .rules()
         .map(|about| {
@@ -73,7 +74,10 @@ async fn snapshot(rm: &RuntimeManager) -> Value {
     json!({
         "downloadTotal": traffic.down_total,
         "uploadTotal": traffic.up_total,
-        "connections": connections.iter().map(|c| connection(c, &told)).collect::<Vec<_>>(),
+        "connections": connections
+            .iter()
+            .map(|c| connection(c, &told, &view.inbounds))
+            .collect::<Vec<_>>(),
         "memory": crate::control::resident_memory(),
     })
 }
@@ -81,7 +85,8 @@ async fn snapshot(rm: &RuntimeManager) -> Value {
 /// A connection as Mihomo lists one. Its rule is the one it matched, as
 /// Mihomo types it, with its payload; none matched is Mihomo's `Match`;
 /// one of a configuration since replaced goes by sail's words for it.
-fn connection(c: &ConnectionInfo, told: &Told) -> Value {
+fn connection(c: &ConnectionInfo, told: &Told, inbounds: &HashMap<String, (String, u16)>) -> Value {
+    let inbound = inbounds.get(&c.inbound_tag);
     let (rule, payload) = match c.rule.as_deref() {
         None => ("Match", ""),
         Some(matched) => match told.get(matched) {
@@ -92,7 +97,7 @@ fn connection(c: &ConnectionInfo, told: &Told) -> Value {
     let start = chrono::DateTime::from_timestamp(i64::from(c.start), 0)
         .unwrap_or_default()
         .to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
-    json!({
+    let mut value = json!({
         "id": c.id.to_string(),
         "metadata": {
             "network": c.network.to_string(),
@@ -106,7 +111,17 @@ fn connection(c: &ConnectionInfo, told: &Told) -> Value {
             "dialDomainSource": c.dial_domain_source.unwrap_or_default(),
             "dnsMode": if c.reverse_mapped { "mapping" } else { "normal" },
             "processPath": c.process.clone().unwrap_or_default(),
+            // The process's name, its path's last part, as Mihomo's.
+            "process": c.process.as_deref().map(process_name).unwrap_or_default(),
             "inboundName": c.inbound_tag,
+            "inboundIP": inbound.map(|(ip, _)| ip.as_str()).unwrap_or_default(),
+            "inboundPort": inbound.map(|(_, port)| port.to_string()).unwrap_or_default(),
+            "inboundUser": c.user.clone().unwrap_or_default(),
+            // sail reads no DSCP, and keeps no special proxy or rules.
+            "dscp": 0,
+            "specialProxy": "",
+            "specialRules": "",
+            "remoteDestination": "",
         },
         "upload": c.upload,
         "download": c.download,
@@ -114,7 +129,49 @@ fn connection(c: &ConnectionInfo, told: &Told) -> Value {
         "chains": c.chains,
         "rule": rule,
         "rulePayload": payload,
-    })
+    });
+    // The user the process runs as, where it is known (Android, Linux).
+    if let Some(uid) = c.uid {
+        value["metadata"]["uid"] = json!(uid);
+    }
+    value
+}
+
+/// A process's name, the last part of its path, Windows' or Unix's.
+fn process_name(path: &str) -> String {
+    path.rsplit(['/', '\\']).next().unwrap_or(path).to_string()
+}
+
+/// A time in milliseconds since the epoch as Mihomo writes one, RFC 3339;
+/// 0, never, as Go's zero time.
+fn time_of(millis: u64) -> String {
+    match i64::try_from(millis)
+        .ok()
+        .filter(|m| *m > 0)
+        .and_then(chrono::DateTime::from_timestamp_millis)
+    {
+        Some(at) => at.to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+        None => "0001-01-01T00:00:00Z".into(),
+    }
+}
+
+/// Turns rules off and on again, by their index among `/rules`: the body
+/// is `{"<index>": true}` to turn one off, `false` on, as Mihomo's. An
+/// index of no rule is passed over; what is set lasts until a reload.
+pub(super) async fn disable_rules(
+    State(clash): State<Arc<Clash>>,
+    body: axum::body::Bytes,
+) -> Result<StatusCode, super::ApiError> {
+    let wanted: HashMap<String, bool> =
+        serde_json::from_slice(&body).map_err(|_| super::ApiError::bad_request("Body invalid"))?;
+    let router = clash.rm.router();
+    for (index, disabled) in wanted {
+        let index: usize = index
+            .parse()
+            .map_err(|_| super::ApiError::bad_request("Body invalid"))?;
+        router.set_disabled(index, disabled);
+    }
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// Closes every connection.
@@ -142,9 +199,9 @@ pub(super) async fn rules(State(clash): State<Arc<Clash>>) -> Json<Value> {
         .map(|set| (set.tag, set.size))
         .collect();
     let rules: Vec<Value> = router
-        .rules()
+        .rules_with_stats()
         .enumerate()
-        .map(|(index, about)| {
+        .map(|(index, (about, stats))| {
             let size = if about.clash_type == "RuleSet" {
                 about
                     .rule_sets
@@ -160,6 +217,12 @@ pub(super) async fn rules(State(clash): State<Arc<Clash>>) -> Json<Value> {
                 "payload": about.clash_payload,
                 "proxy": about.clash_proxy,
                 "size": size,
+                // Mihomo's, but for the misses, which sail does not count.
+                "extra": {
+                    "disabled": stats.disabled,
+                    "hitCount": stats.hits,
+                    "hitAt": time_of(stats.hit_at),
+                },
             })
         })
         .collect();
@@ -200,11 +263,11 @@ mod tests {
         };
         let told = Told::new();
         assert_eq!(
-            connection(&info(true), &told)["metadata"]["dnsMode"],
+            connection(&info(true), &told, &HashMap::new())["metadata"]["dnsMode"],
             "mapping"
         );
         assert_eq!(
-            connection(&info(false), &told)["metadata"]["dnsMode"],
+            connection(&info(false), &told, &HashMap::new())["metadata"]["dnsMode"],
             "normal"
         );
     }
@@ -243,7 +306,7 @@ mod tests {
             ("DomainSuffix".into(), "a.com".into()),
         );
         let rule = |c: &ConnectionInfo| {
-            let v = connection(c, &told);
+            let v = connection(c, &told, &HashMap::new());
             (v["rule"].clone(), v["rulePayload"].clone())
         };
         assert_eq!(rule(&c), (json!("Match"), json!("")));
@@ -251,5 +314,14 @@ mod tests {
         assert_eq!(rule(&c), (json!("DomainSuffix"), json!("a.com")));
         c.rule = Some("port=1 => route(gone)".into());
         assert_eq!(rule(&c), (json!("port=1 => route(gone)"), json!("")));
+    }
+
+    #[test]
+    fn a_process_is_named_by_its_path_s_last_part() {
+        assert_eq!(process_name("/usr/bin/curl"), "curl");
+        assert_eq!(process_name("C:\\Program Files\\a.exe"), "a.exe");
+        assert_eq!(process_name("curl"), "curl");
+        assert_eq!(time_of(0), "0001-01-01T00:00:00Z");
+        assert_eq!(time_of(1_000), "1970-01-01T00:00:01.000Z");
     }
 }

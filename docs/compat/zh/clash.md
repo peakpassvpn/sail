@@ -17,10 +17,10 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 
 ## Clash API
 
-面板（yacd、Yacd-meta、metacubexd）实际发出的请求，sail 都给出它们读取的全部字段，类型也一致：`sail/tests/it/test_clash_dashboards.rs` 按面板的方式逐个发出这些请求。sail 不提供的有：
-- `GET /configs`：`interface-name`、`sniffing`、`tun.stack`、`tun.device`、`unified-delay` 和 `dns`。`PATCH /configs` 只设置 `mode` 和 `log-level`；端口、`allow-lan`、`tun`、`sniffing` 与 `interface-name` 保持配置中的值，与 sing-box 一致。
-- `/rules`：没有 `extra`（命中计数、停用），也没有 `PATCH /rules/disable`，面板因此不显示开关。`size` 是规则集的规则数，其他规则为 -1；Mihomo 对 GeoIP 和 GeoSite 也计数。Mihomo 没有对应类型的条件用 sing-box 的字段名（`clash_mode`）。
-- `/connections`：没有 `providerChains`，元数据里也没有 `sourceGeoIP`、`destinationGeoIP`、`sourceIPASN`、`destinationIPASN`、`inboundIP`、`inboundPort`、`inboundUser`、`uid`、`process`、`specialProxy`、`specialRules`、`remoteDestination` 和 `dscp`：面板中这些列为空。
+面板（yacd、Yacd-meta、metacubexd）实际发出的请求，sail 都给出它们读取的全部字段，类型也一致：`sail/tests/it/test_clash_dashboards.rs` 按面板的方式逐个发出这些请求。sail 自身没有对应值的：`unified-delay` 为 false（延迟包括建连与 TLS 握手，与 sing-box 一致）；`tun.stack` 为 `gVisor`，即面板对 sail 这类用户态协议栈的叫法；连接的 `dscp` 为 0，`specialProxy`、`specialRules` 与 `remoteDestination` 为空。用 `PATCH /rules/disable` 停用的规则在下次重载前保持停用，与 Mihomo 一致。sail 不提供的有：
+- `GET /configs`：`dns`。`PATCH /configs` 只设置 `mode` 和 `log-level`；端口、`allow-lan`、`tun`、`sniffing` 与 `interface-name` 保持配置中的值，与 sing-box 一致。
+- `/rules`：`extra` 里的 `missCount` 和 `missAt`（只统计命中）。`size` 是规则集的规则数，其他规则为 -1；Mihomo 对 GeoIP 和 GeoSite 也计数。Mihomo 没有对应类型的条件用 sing-box 的字段名（`clash_mode`）。
+- `/connections`：没有 `providerChains`，元数据里也没有 `sourceGeoIP`、`destinationGeoIP`、`sourceIPASN` 和 `destinationIPASN`；`uid` 只在系统告知时提供。
 - `/memory`：`oslimit` 为 0。
 - 不提供 `POST /restart`、`/upgrade`、`/upgrade/geo` 和 `/configs/geo`：sail 由宿主重启和更新。
 

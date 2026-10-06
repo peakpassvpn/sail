@@ -321,8 +321,15 @@ fn a_dashboard_controls_the_instance_through_the_clash_api() -> anyhow::Result<(
 
             // The rules, as Mihomo lists its own.
             let (_, _, body) = call(port, "GET", "/rules", s, &[], "").await?;
+            let mut rules = json(&body)["rules"].clone();
+            // The connection in Global mode matched it once.
+            let extra = rules[0]["extra"].take();
+            assert_eq!(extra["disabled"], false);
+            assert_eq!(extra["hitCount"], 1, "{}", extra);
+            assert_ne!(extra["hitAt"], "0001-01-01T00:00:00Z");
+            rules[0].as_object_mut().unwrap().remove("extra");
             assert_eq!(
-                json(&body)["rules"],
+                rules,
                 serde_json::json!([
                     { "index": 0, "type": "clash_mode", "payload": "Global", "proxy": "a", "size": -1 }
                 ])

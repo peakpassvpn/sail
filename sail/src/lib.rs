@@ -419,6 +419,16 @@ impl RuntimeManager {
         );
     }
 
+    /// The interface sail sends through now, as `auto_detect_interface`
+    /// follows it; none without it, or with no interface to send through.
+    #[cfg(feature = "clash-api")]
+    pub(crate) fn auto_interface_now(&self) -> Option<String> {
+        self.env
+            .auto_interface
+            .get()
+            .and_then(|auto| auto.current())
+    }
+
     /// What the Clash API tells of the configuration.
     #[cfg(feature = "clash-api")]
     pub(crate) fn clash_view(&self) -> app::clash_api::ConfigView {

@@ -31,6 +31,15 @@ pub(crate) struct ConfigView {
     /// Whether names resolve to IPv6 addresses.
     pub ipv6: bool,
     pub log_level: &'static str,
+    /// `route.default_interface`.
+    pub default_interface: Option<String>,
+    /// `route.auto_detect_interface`.
+    pub auto_detect_interface: bool,
+    /// Whether a rule sniffs: Mihomo's `sniffing`, its sniffer on.
+    pub sniffing: bool,
+    /// Each inbound's listen address and port, by tag, for the
+    /// connections it takes.
+    pub inbounds: std::collections::HashMap<String, (String, u16)>,
 }
 
 impl ConfigView {
@@ -47,10 +56,22 @@ impl ConfigView {
                     LogLevel::Error | LogLevel::Fatal | LogLevel::Panic => "error",
                 }
             },
+            default_interface: config.route.default_interface.clone(),
+            auto_detect_interface: config.route.auto_detect_interface,
+            sniffing: config
+                .route
+                .rules
+                .iter()
+                .any(|rule| rule.action() == crate::config::model::RuleAction::Sniff),
             ..Default::default()
         };
         for inbound in &config.inbounds {
             let port = inbound.listen_port.unwrap_or(0);
+            if let Some(listen_port) = inbound.listen_port {
+                let listen = inbound.listen.clone().unwrap_or_else(|| "127.0.0.1".into());
+                view.inbounds
+                    .insert(inbound.tag.clone(), (listen, listen_port));
+            }
             let slot = match inbound.protocol.as_str() {
                 "http" => &mut view.port,
                 "socks" => &mut view.socks_port,
@@ -93,6 +114,21 @@ pub(super) async fn get_configs(State(clash): State<Arc<Clash>>) -> Json<Value> 
         Some(mode) => (mode.current, mode.modes),
         None => ("Rule".to_string(), Vec::new()),
     };
+    // The interface sail sends through: the one configured, or the one
+    // auto_detect_interface follows now.
+    let interface = view.default_interface.clone().or_else(|| {
+        view.auto_detect_interface
+            .then(|| clash.rm.auto_interface_now())
+            .flatten()
+    });
+    // The TUN Mihomo has one of: the first, by its name now.
+    let device = clash
+        .rm
+        .tun_names()
+        .into_values()
+        .next()
+        .map(|name| name.name)
+        .unwrap_or_default();
     Json(json!({
         "port": view.port,
         "socks-port": view.socks_port,
@@ -105,7 +141,18 @@ pub(super) async fn get_configs(State(clash): State<Arc<Clash>>) -> Json<Value> 
         "mode-list": modes,
         "log-level": view.log_level,
         "ipv6": view.ipv6,
-        "tun": { "enable": view.tun },
+        "interface-name": interface.unwrap_or_default(),
+        "sniffing": view.sniffing,
+        // A delay is measured from the connect, the TLS handshake in it,
+        // as sing-box's: not Mihomo's unified delay.
+        "unified-delay": false,
+        // sail's one stack is a user-space TCP/IP stack, which Mihomo's
+        // dashboards know as gVisor.
+        "tun": {
+            "enable": view.tun,
+            "stack": if view.tun { "gVisor" } else { "" },
+            "device": device,
+        },
     }))
 }
 

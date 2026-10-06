@@ -416,6 +416,41 @@ struct Rule {
     /// The inline lines merged into it, each told and numbered as the rule
     /// it was; empty for any other rule.
     lines: Box<[Told]>,
+    /// Turned off through the Clash API (`PATCH /rules/disable`), and how
+    /// often and when it last matched: for this router only, so that a
+    /// reload starts them anew, as in Mihomo.
+    state: RuleState,
+}
+
+/// What the Clash API sets and reads of a rule while the router lives.
+#[derive(Default)]
+#[cfg_attr(not(feature = "clash-api"), allow(dead_code))]
+struct RuleState {
+    disabled: std::sync::atomic::AtomicBool,
+    hits: portable_atomic::AtomicU64,
+    /// Milliseconds since the epoch; 0 for never.
+    hit_at: portable_atomic::AtomicU64,
+}
+
+impl RuleState {
+    /// It matched a connection, now.
+    fn hit(&self) {
+        use std::sync::atomic::Ordering::Relaxed;
+        self.hits.fetch_add(1, Relaxed);
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_millis() as u64);
+        self.hit_at.store(now, Relaxed);
+    }
+}
+
+/// A rule's state as the Clash API lists it.
+#[cfg(feature = "clash-api")]
+pub(crate) struct RuleStats {
+    pub disabled: bool,
+    pub hits: u64,
+    /// Milliseconds since the epoch; 0 for never.
+    pub hit_at: u64,
 }
 
 /// An inline line merged into a rule (`config::inline`), as the rule it
@@ -646,6 +681,7 @@ impl Rule {
             about: describe::About::of(rule),
             index: rule.index.unwrap_or(0),
             lines,
+            state: RuleState::default(),
         })
     }
 }
@@ -804,6 +840,37 @@ impl Router {
     #[cfg(feature = "clash-api")]
     pub(crate) fn rules(&self) -> impl Iterator<Item = &describe::About> {
         self.rules.iter().map(|rule| &rule.about)
+    }
+
+    /// The rules, told, in order, with what the Clash API sets and reads
+    /// of them.
+    #[cfg(feature = "clash-api")]
+    pub(crate) fn rules_with_stats(&self) -> impl Iterator<Item = (&describe::About, RuleStats)> {
+        use std::sync::atomic::Ordering::Relaxed;
+        self.rules.iter().map(|rule| {
+            let stats = RuleStats {
+                disabled: rule.state.disabled.load(Relaxed),
+                hits: rule.state.hits.load(Relaxed),
+                hit_at: rule.state.hit_at.load(Relaxed),
+            };
+            (&rule.about, stats)
+        })
+    }
+
+    /// Turns the rule at `index` (its place among `rules`) off, or on
+    /// again: a rule off is passed over as if it matched nothing. False
+    /// for no such rule.
+    #[cfg(feature = "clash-api")]
+    pub(crate) fn set_disabled(&self, index: usize, disabled: bool) -> bool {
+        match self.rules.get(index) {
+            Some(rule) => {
+                rule.state
+                    .disabled
+                    .store(disabled, std::sync::atomic::Ordering::Relaxed);
+                true
+            }
+            None => false,
+        }
     }
 
     /// The index, in the configuration's `route.rules`, of the rule whose
@@ -985,8 +1052,16 @@ impl Router {
                     }
                 }
             }
-            if !rule.matcher.matches(&facts) {
+            if rule
+                .state
+                .disabled
+                .load(std::sync::atomic::Ordering::Relaxed)
+                || !rule.matcher.matches(&facts)
+            {
                 continue;
+            }
+            if !pre_match {
+                rule.state.hit();
             }
             match &rule.action {
                 // Pre-match's bypass leaves the connection to the kernel,
@@ -1752,6 +1827,37 @@ mod tests {
             .pick_route(sess, &mut NoSniffer, &NoPass)
             .await
             .unwrap()
+    }
+
+    /// A rule turned off is passed over as if it matched nothing, until
+    /// it is turned on again; each match is counted, with its time.
+    #[cfg(feature = "clash-api")]
+    #[tokio::test]
+    async fn a_rule_turned_off_is_passed_over() {
+        let router = router(serde_json::json!([
+            { "port": [443], "outbound": "a" },
+            { "port": [443], "outbound": "b" },
+        ]));
+        let to_443 = || Session {
+            destination: SocksAddr::from(("1.2.3.4".parse::<IpAddr>().unwrap(), 443)),
+            ..Default::default()
+        };
+        assert!(router.set_disabled(0, true));
+        assert!(!router.set_disabled(9, true));
+        assert_eq!(
+            pick(&router, &mut to_443()).await,
+            Decision::Route(Some("b".into()))
+        );
+        assert!(router.set_disabled(0, false));
+        assert_eq!(
+            pick(&router, &mut to_443()).await,
+            Decision::Route(Some("a".into()))
+        );
+        let stats: Vec<(bool, u64, bool)> = router
+            .rules_with_stats()
+            .map(|(_, s)| (s.disabled, s.hits, s.hit_at > 0))
+            .collect();
+        assert_eq!(stats, [(false, 1, true), (false, 1, true)]);
     }
 
     /// A rule's index is its place in `route.rules` as written: a logical
