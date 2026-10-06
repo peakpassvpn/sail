@@ -1018,6 +1018,12 @@ jobs:
       - name: utun, names and routes
         run: SAIL=target/aarch64-apple-darwin/debug/sail sail/tests/scripts/macos_utun.sh
 
+      # Real traffic through a utun: DNS to the TUN's servers of both
+      # families, and TCP and UDP echoes over IPv4 and IPv6, to local
+      # servers a route rule points test addresses at.
+      - name: traffic through the utun
+        run: SAIL=target/aarch64-apple-darwin/debug/sail sail/tests/scripts/macos_utun_traffic.sh
+
       # sail in the test's own process, failed by faults it arms (feature
       # fault-injection): nothing of it is left in the routing table, and
       # it starts again. As root, the test binary alone.

@@ -73,8 +73,10 @@ or a platform that only its own runner has:
 - Linux, making their own namespaces: `test_tun_linux`,
   `test_wireguard_kernel`, and the ignored tests under `platform::` in
   sail's library (netlink, nf_tables, nfnetlink_queue);
-- macOS, as root on a runner: `sail/tests/scripts/macos_utun*.sh`,
-  `test_teardown`, `platform::route_socket`;
+- macOS, as root on a runner: `sail/tests/scripts/macos_utun*.sh` (the
+  utun's names and routes, and real DNS, TCP and UDP traffic through it
+  over IPv4 and IPv6), `test_teardown`, `test_tun_integrity_macos`,
+  `test_tun_replaced_macos`, `platform::route_socket`;
 - Windows, as administrator with wintun.dll: `test_teardown`;
 - the bindings: the Kotlin binding on a desktop JVM, the Swift binding on
   macOS.
