@@ -589,11 +589,15 @@ fn a_sweep_leaves_another_live_instance_alone() -> Result<()> {
         "the second instance did not route"
     );
     // auto_route sets a TUN's DNS through systemd-resolved, which a
-    // namespace's TUN must leave alone, saying why.
-    ensure!(
-        std::fs::read_to_string(&log_two)?
+    // namespace's TUN must leave alone, saying why: after the rules, so
+    // the line may not be written yet.
+    let says_why = || -> Result<bool> {
+        Ok(std::fs::read_to_string(&log_two)?
             .lines()
-            .any(|line| line.contains("DNS is not set through systemd-resolved")),
+            .any(|line| line.contains("DNS is not set through systemd-resolved")))
+    };
+    ensure!(
+        eventually(Duration::from_secs(5), says_why)?,
         "sail in a namespace says why it left the system's DNS alone"
     );
     ensure!(
