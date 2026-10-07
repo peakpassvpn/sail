@@ -2,6 +2,7 @@
 
 pub mod client;
 mod conn;
+#[cfg(any(feature = "outbound-tls", feature = "quic"))]
 pub(crate) mod ech;
 pub mod fingerprint;
 #[cfg(test)]

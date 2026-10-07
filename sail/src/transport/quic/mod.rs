@@ -16,6 +16,12 @@ pub mod outbound;
 /// its handshake idle timeout: a client that sends an Initial and falls
 /// silent is dropped then, rather than held until the idle timeout. The
 /// connection's state goes with the dropped `connecting`.
+#[cfg(any(
+    feature = "inbound-quic",
+    feature = "inbound-hysteria2",
+    feature = "inbound-tuic",
+    test
+))]
 pub(crate) async fn server_handshake(
     connecting: quinn::Connecting,
     limit: std::time::Duration,

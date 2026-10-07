@@ -377,6 +377,8 @@ jobs:
             inbound-trojan,inbound-tls,outbound-trojan,outbound-tls \
             inbound-vless,inbound-tls,inbound-reality,outbound-vless,outbound-tls,outbound-reality \
             inbound-hysteria2,outbound-hysteria2 \
+            outbound-hysteria2 \
+            outbound-vless,outbound-grpc \
             inbound-tuic,outbound-tuic \
             inbound-mptp,outbound-direct \
             outbound-mptp,inbound-socks \
