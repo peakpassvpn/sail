@@ -130,6 +130,15 @@ pub struct Netstack {
     /// fast as it arrives, in KiB, each step reserved when granted; equal to
     /// `receive_window`, windows do not grow.
     pub receive_window_max: usize,
+    /// What a read of a connection takes from the stack beyond what the
+    /// reader has room for, in KiB, kept for its next reads: one exchange
+    /// with the stack's task brings this much rather than one relay
+    /// buffer. The bytes held are charged to the budget's TCP bytes, as the
+    /// stack's own are, and a read the budget has no room for takes only
+    /// what the reader asked; on a busy mobile stack that is often the case,
+    /// as intended (not a reason to grow the budget). Zero reads no more
+    /// than asked. Measured on the router profile; a judgement on others.
+    pub read_ahead: usize,
 }
 
 /// A budget preset of the TUN inbound's stack.
@@ -367,6 +376,7 @@ impl RuntimeOptions {
                 // 2000 connections opened with it (measured).
                 receive_window: 16,
                 receive_window_max: 256,
+                read_ahead: 64,
             },
             inbound: Inbound {
                 handshake_timeout: Duration::from_secs(60),
@@ -434,6 +444,7 @@ impl RuntimeOptions {
                     // MiB used at 64, 128 and 256); at 16 KiB only 653 of 2000 opened.
                     receive_window: 4,
                     receive_window_max: 128,
+                    read_ahead: 32,
                 },
                 inbound: Inbound {
                     multiplex_accept_concurrency: 64,
@@ -477,6 +488,11 @@ impl RuntimeOptions {
                     // its reservations (medians of 3).
                     receive_window: 4,
                     receive_window_max: 64,
+                    // Trojan over TUN, 1 GiB, 3 interleaved rounds: upload
+                    // 3766 Mbit/s without, 4807 at 32 KiB, 4962 at 64 KiB
+                    // (3.65, 3.20, 3.06 CPU s a GiB); download unchanged
+                    // (measured).
+                    read_ahead: 64,
                 },
                 inbound: Inbound {
                     multiplex_accept_concurrency: 32,
@@ -543,6 +559,7 @@ impl RuntimeOptions {
                     // Mbit/s; growing to 256 KiB, 1811; to 1024 KiB, 1693.
                     receive_window: 16,
                     receive_window_max: 256,
+                    read_ahead: 64,
                 },
                 inbound: Inbound {
                     multiplex_accept_concurrency: 1024,

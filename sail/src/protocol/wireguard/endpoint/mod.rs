@@ -424,14 +424,16 @@ impl Shared {
         let profile = budget_profile(self.netstack.budget);
         let ledger = ResourceLedger::new(profile.budget())?;
         let flow_capacity = profile.budget().max_udp_flows;
-        let (runtime, mut accepted, datagrams, udp_reply, mut control) = NativeRuntimeGroup::new(
-            vec![io],
-            ledger,
-            self.runner_config(),
-            self.netstack.command_channel_size,
-            self.netstack.command_channel_size,
-            self.netstack.udp_uplink_channel_size,
-        )?;
+        let (mut runtime, mut accepted, datagrams, udp_reply, mut control) =
+            NativeRuntimeGroup::new(
+                vec![io],
+                ledger,
+                self.runner_config(),
+                self.netstack.command_channel_size,
+                self.netstack.command_channel_size,
+                self.netstack.udp_uplink_channel_size,
+            )?;
+        runtime.set_read_ahead(self.netstack.read_ahead << 10);
 
         let running = Arc::new(Running {
             control: control.clone(),

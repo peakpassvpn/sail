@@ -425,7 +425,13 @@ impl BudgetLease {
         self.amount
     }
 
-    pub(crate) fn shrink_to(&mut self, amount: usize) {
+    /// Shrinks the charge to `amount` bytes or units, giving the rest
+    /// back to the ledger; never grows it.
+    ///
+    /// # Panics
+    ///
+    /// When `amount` is more than the lease holds.
+    pub fn shrink_to(&mut self, amount: usize) {
         assert!(
             amount <= self.amount,
             "a budget lease cannot grow by shrinking"

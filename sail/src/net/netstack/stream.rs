@@ -8,17 +8,21 @@ use std::task::{ready, Context, Poll};
 
 use futures::channel::{mpsc, oneshot};
 use futures::{Sink, Stream};
-use sail_netstack::{NetworkGeneration, StackStats, TcpFlowToken, UdpFlowToken};
+use sail_netstack::{BudgetLease, NetworkGeneration, StackStats, TcpFlowToken, UdpFlowToken};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::{mpsc as tokio_mpsc, Notify};
 
 use super::runtime::NativeConnection;
 
+/// What a read brings: the bytes, and the budget's charge for those beyond
+/// what was asked for, held while the stream keeps them.
+pub(super) type ReadReply = io::Result<(Vec<u8>, Option<BudgetLease>)>;
+
 pub(super) enum TcpCommand {
     Read {
         token: TcpFlowToken,
         max_bytes: usize,
-        response: oneshot::Sender<io::Result<Vec<u8>>>,
+        response: oneshot::Sender<ReadReply>,
     },
     ReserveWrite {
         token: TcpFlowToken,
@@ -82,7 +86,10 @@ pub(crate) struct NativeTcpStream {
     /// a queue in between copied every byte once more.
     read_buffer: Vec<u8>,
     read_offset: usize,
-    pending_read: Option<oneshot::Receiver<io::Result<Vec<u8>>>>,
+    /// The budget's charge for the bytes read ahead, no more than are left
+    /// in `read_buffer`.
+    read_ahead: Option<BudgetLease>,
+    pending_read: Option<oneshot::Receiver<ReadReply>>,
     pending_write_reservation: Option<oneshot::Receiver<io::Result<usize>>>,
     write_reservation: Option<usize>,
     pending_write_completion: Option<oneshot::Receiver<io::Result<usize>>>,
@@ -107,6 +114,7 @@ impl NativeTcpStream {
             cleanup_active,
             read_buffer: Vec::new(),
             read_offset: 0,
+            read_ahead: None,
             pending_read: None,
             pending_write_reservation: None,
             write_reservation: None,
@@ -134,9 +142,16 @@ impl NativeTcpStream {
         let amount = buffer.remaining().min(rest.len());
         buffer.put_slice(&rest[..amount]);
         self.read_offset += amount;
-        if self.read_offset == self.read_buffer.len() {
+        let left = self.read_buffer.len() - self.read_offset;
+        if let Some(lease) = &mut self.read_ahead {
+            if lease.amount() > left {
+                lease.shrink_to(left);
+            }
+        }
+        if left == 0 {
             self.read_buffer = Vec::new();
             self.read_offset = 0;
+            self.read_ahead = None;
         }
     }
 
@@ -174,7 +189,7 @@ impl AsyncRead for NativeTcpStream {
             return Poll::Ready(Ok(()));
         }
         if let Some(response) = &mut self.pending_read {
-            let bytes =
+            let (bytes, lease) =
                 ready!(Pin::new(response).poll(context)).map_err(|_| Self::cancelled())??;
             self.pending_read = None;
             if bytes.is_empty() {
@@ -183,6 +198,7 @@ impl AsyncRead for NativeTcpStream {
             }
             self.read_buffer = bytes;
             self.read_offset = 0;
+            self.read_ahead = lease;
             self.copy_read_buffer(buffer);
             return Poll::Ready(Ok(()));
         }
@@ -359,7 +375,7 @@ mod tests {
                 ..
             } => {
                 assert_eq!(max_bytes, 8);
-                response.send(Ok(b"hello".to_vec())).unwrap();
+                response.send(Ok((b"hello".to_vec(), None))).unwrap();
             }
             _ => panic!("expected read command"),
         }
@@ -466,6 +482,46 @@ mod tests {
             _ => panic!("expected write commit command"),
         }
         application.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn bytes_read_ahead_stay_charged_only_while_the_stream_holds_them() {
+        use sail_netstack::{BudgetProfile, ResourceKind, ResourceLedger};
+        let ledger = ResourceLedger::new(BudgetProfile::Mobile.budget()).unwrap();
+        let held = || ledger.snapshot().used(ResourceKind::TcpPayloadBytes);
+        let (mut stream, mut commands) = pair();
+        let mut read = [0_u8; 4];
+        let reading = tokio::spawn(async move {
+            let count = stream.read(&mut read).await.unwrap();
+            (stream, read, count)
+        });
+        match next_command(&mut commands).await.unwrap() {
+            TcpCommand::Read {
+                max_bytes,
+                response,
+                ..
+            } => {
+                assert_eq!(max_bytes, 4);
+                // Ten bytes for a reader of four: six read ahead, charged.
+                let lease = ledger
+                    .try_acquire(ResourceKind::TcpPayloadBytes, 6)
+                    .unwrap();
+                response
+                    .send(Ok((b"0123456789".to_vec(), Some(lease))))
+                    .unwrap();
+            }
+            _ => panic!("expected read command"),
+        }
+        let (mut stream, read, count) = reading.await.unwrap();
+        assert_eq!(&read[..count], b"0123");
+        assert_eq!(held(), 6);
+        let mut next = [0_u8; 3];
+        assert_eq!(stream.read(&mut next).await.unwrap(), 3);
+        assert_eq!(&next, b"456");
+        assert_eq!(held(), 3);
+        // Dropped with bytes still held: the charge goes with them.
+        drop(stream);
+        assert_eq!(held(), 0);
     }
 
     #[test]

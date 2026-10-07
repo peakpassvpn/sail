@@ -227,7 +227,7 @@ fn run<I: sail_netstack::PacketIo + 'static>(
     config.tcp.keepalive_idle_ms = Some(2 * 60 * 60 * 1_000);
     config.packets_per_step = PACKETS_PER_STEP;
     set_receive_window(&mut config.tcp, netstack);
-    let (runtime, mut accepted, datagrams, udp_reply, mut control) = NativeRuntimeGroup::new(
+    let (mut runtime, mut accepted, datagrams, udp_reply, mut control) = NativeRuntimeGroup::new(
         queues,
         ledger,
         config,
@@ -235,6 +235,7 @@ fn run<I: sail_netstack::PacketIo + 'static>(
         netstack.command_channel_size,
         netstack.udp_uplink_channel_size,
     )?;
+    runtime.set_read_ahead(netstack.read_ahead << 10);
 
     let runtime_control = control.clone();
     let runner = Box::pin(async move {

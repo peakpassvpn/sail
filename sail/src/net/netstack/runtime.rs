@@ -8,14 +8,14 @@ use std::time::{Duration, Instant};
 use futures::channel::{mpsc, oneshot};
 use futures::SinkExt;
 use sail_netstack::{
-    IpEndpoint, NetworkGeneration, PacketIo, ResourceLedger, RunnerConfig, RunnerError,
-    ShardRouterStats, ShardedPacketIo, ShardedPacketIoControl, SingleShardRunner, SlabChain,
-    StackStats, StepOutcome, TcpConnection, TcpError, TcpEvent, TcpFlowToken, TcpTableError,
-    TransportProtocol, UdpError, UdpFlowToken,
+    IpEndpoint, NetworkGeneration, PacketIo, ResourceKind, ResourceLedger, RunnerConfig,
+    RunnerError, ShardRouterStats, ShardedPacketIo, ShardedPacketIoControl, SingleShardRunner,
+    SlabChain, StackStats, StepOutcome, TcpConnection, TcpError, TcpEvent, TcpFlowToken,
+    TcpTableError, TransportProtocol, UdpError, UdpFlowToken,
 };
 use tokio::sync::{mpsc as tokio_mpsc, watch, Notify};
 
-use super::stream::{command_channel, next_command, NativeTcpStream, TcpCommand};
+use super::stream::{command_channel, next_command, NativeTcpStream, ReadReply, TcpCommand};
 
 const TIMER_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
@@ -266,7 +266,7 @@ struct FlowBridge {
     cleanup_active: Arc<CleanupActive>,
     readable_bytes: usize,
     peer_eof: bool,
-    pending_read: Option<(usize, oneshot::Sender<io::Result<Vec<u8>>>)>,
+    pending_read: Option<(usize, oneshot::Sender<ReadReply>)>,
     pending_write_reservation: Option<(usize, oneshot::Sender<io::Result<usize>>)>,
     reserved_write_bytes: usize,
     pending_write: Option<(Vec<u8>, oneshot::Sender<io::Result<usize>>)>,
@@ -309,6 +309,11 @@ impl FlowBridge {
 
 pub(crate) struct NativeRuntime<I> {
     runner: SingleShardRunner<I>,
+    /// The stack's budget, which bytes read ahead are charged to.
+    ledger: Arc<ResourceLedger>,
+    /// What a read takes beyond what was asked, in bytes: see
+    /// `netstack.read_ahead`.
+    read_ahead: usize,
     commands_tx: mpsc::Sender<TcpCommand>,
     commands_rx: mpsc::Receiver<TcpCommand>,
     cleanup_tx: tokio_mpsc::Sender<TcpFlowToken>,
@@ -371,13 +376,15 @@ impl<I: PacketIo> NativeRuntime<I> {
             "native command capacity must be non-zero"
         );
         let cleanup_capacity = ledger.budget().max_tcp_flows;
-        let runner = SingleShardRunner::new(io, ledger, config)?;
+        let runner = SingleShardRunner::new(io, Arc::clone(&ledger), config)?;
         let (commands_tx, commands_rx) = command_channel(command_capacity);
         let (cleanup_tx, cleanup_rx) = tokio_mpsc::channel(cleanup_capacity);
         let cleanup_overflow = Arc::new(Notify::new());
         Ok((
             Self {
                 runner,
+                ledger,
+                read_ahead: 0,
                 commands_tx: commands_tx.clone(),
                 commands_rx,
                 cleanup_tx,
@@ -391,6 +398,11 @@ impl<I: PacketIo> NativeRuntime<I> {
             },
             commands_tx,
         ))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_read_ahead(&mut self, bytes: usize) {
+        self.read_ahead = bytes;
     }
 
     pub(crate) async fn run(mut self) -> Result<(), RunnerError> {
@@ -452,7 +464,7 @@ impl<I: PacketIo> NativeRuntime<I> {
                 response,
             } => {
                 let Some(flow) = self.flows.get_mut(&token) else {
-                    let _ = response.send(Ok(Vec::new()));
+                    let _ = response.send(Ok((Vec::new(), None)));
                     return false;
                 };
                 if flow.pending_read.is_some() {
@@ -652,14 +664,30 @@ impl<I: PacketIo> NativeRuntime<I> {
         }
         let (max_bytes, response) = flow.pending_read.take().expect("checked above");
         if flow.readable_bytes == 0 {
-            let _ = response.send(Ok(Vec::new()));
+            let _ = response.send(Ok((Vec::new(), None)));
             return;
         }
-        let amount = max_bytes.min(flow.readable_bytes);
+        let asked = max_bytes.min(flow.readable_bytes);
+        // Bytes beyond what the reader asked for, kept by its stream for its
+        // next reads, are charged as the stack's own were: once read they
+        // open the window, and would otherwise be memory nothing sees. With
+        // no room in the budget the read takes only what was asked.
+        let extra = (flow.readable_bytes - asked).min(self.read_ahead.saturating_sub(asked));
+        let mut lease = (extra > 0)
+            .then(|| {
+                self.ledger
+                    .try_acquire(ResourceKind::TcpPayloadBytes, extra)
+                    .ok()
+            })
+            .flatten();
+        let amount = asked + lease.as_ref().map_or(0, |l| l.amount());
         match self.runner.read_tcp(token, amount) {
             Ok(bytes) => {
                 flow.readable_bytes = flow.readable_bytes.saturating_sub(bytes.len());
-                if response.send(Ok(bytes)).is_err() {
+                if let Some(l) = &mut lease {
+                    l.shrink_to(l.amount().min(bytes.len().saturating_sub(asked)));
+                }
+                if response.send(Ok((bytes, lease))).is_err() {
                     self.abort_flow(token);
                 }
             }
@@ -902,7 +930,7 @@ impl<I: PacketIo> NativeRuntime<I> {
     fn finish_flow(&mut self, token: TcpFlowToken) {
         if let Some(mut flow) = self.flows.remove(&token) {
             if let Some((_, response)) = flow.pending_read.take() {
-                let _ = response.send(Ok(Vec::new()));
+                let _ = response.send(Ok((Vec::new(), None)));
             }
             flow.fail("TCP flow closed");
         }
@@ -997,6 +1025,14 @@ impl<I: PacketIo> NativeRuntimeGroup<I> {
                 next_shard: Arc::new(AtomicUsize::new(0)),
             },
         ))
+    }
+
+    /// What a read of its connections takes beyond what was asked, in
+    /// bytes.
+    pub(crate) fn set_read_ahead(&mut self, bytes: usize) {
+        for runtime in &mut self.runtimes {
+            runtime.read_ahead = bytes;
+        }
     }
 
     #[cfg(all(test, target_os = "linux"))]
@@ -1278,6 +1314,98 @@ mod tests {
         assert_eq!(&buf[..n], b"hello");
 
         runtime_task.abort();
+    }
+
+    /// Reads four of ten bytes a client sent, with a read-ahead of 64,
+    /// then stops the runtime and reads again: what the stream read ahead
+    /// it still has, and nothing else. With `exhausted`, the budget's TCP
+    /// bytes have no room for a read-ahead.
+    async fn read_then_stop_the_runtime(exhausted: bool) -> (Vec<u8>, io::Result<Vec<u8>>) {
+        let (inbound_tx, inbound_rx) = tokio_mpsc::channel(4);
+        let (outbound_tx, mut outbound_rx) = tokio_mpsc::channel(16);
+        let io = ChannelPacketIo::new(inbound_rx, outbound_tx, 1);
+        let ledger = ResourceLedger::new(BudgetProfile::Mobile.budget()).unwrap();
+        let (mut runtime, mut accepted, _datagrams, _udp_reply) =
+            NativeRuntime::new(io, Arc::clone(&ledger), RunnerConfig::default(), 4, 4, 4).unwrap();
+        runtime.set_read_ahead(64);
+        let runtime_task = tokio::spawn(runtime.run());
+        let source = SocketAddr::from((Ipv4Addr::new(10, 8, 6, 2), 40_000));
+        let destination = SocketAddr::from((Ipv4Addr::new(10, 8, 6, 1), 443));
+        inbound_tx
+            .send(tcp_packet(source, destination, 100, 0, TcpFlags::SYN, &[]))
+            .await
+            .unwrap();
+        let syn_ack = timeout(Duration::from_secs(1), outbound_rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        let syn_ack = parse_tcp_segment(parse_ip_packet(&syn_ack, true).unwrap(), true).unwrap();
+        let server_next = syn_ack.meta.sequence.wrapping_add(1).get();
+        inbound_tx
+            .send(tcp_packet(
+                source,
+                destination,
+                101,
+                server_next,
+                TcpFlags::ACK,
+                &[],
+            ))
+            .await
+            .unwrap();
+        let mut accepted = timeout(Duration::from_secs(1), accepted.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        inbound_tx
+            .send(tcp_packet(
+                source,
+                destination,
+                101,
+                server_next,
+                TcpFlags::ACK,
+                b"0123456789",
+            ))
+            .await
+            .unwrap();
+        // The stack has the bytes once it acknowledges them.
+        let _ = timeout(Duration::from_millis(500), outbound_rx.recv()).await;
+        let mut held = Vec::new();
+        if exhausted {
+            let mut chunk = 1 << 24;
+            while chunk > 0 {
+                match ledger.try_acquire(ResourceKind::TcpPayloadBytes, chunk) {
+                    Ok(lease) => held.push(lease),
+                    Err(_) => chunk /= 2,
+                }
+            }
+        }
+        let mut first = [0_u8; 4];
+        let n = timeout(Duration::from_secs(1), accepted.stream.read(&mut first))
+            .await
+            .unwrap()
+            .unwrap();
+        runtime_task.abort();
+        let _ = runtime_task.await;
+        let mut rest = [0_u8; 16];
+        let second = timeout(Duration::from_secs(1), accepted.stream.read(&mut rest))
+            .await
+            .unwrap()
+            .map(|m| rest[..m].to_vec());
+        (first[..n].to_vec(), second)
+    }
+
+    #[tokio::test]
+    async fn a_read_takes_what_follows_ahead_when_the_budget_has_room() {
+        let (first, second) = read_then_stop_the_runtime(false).await;
+        assert_eq!(first, b"0123");
+        assert_eq!(second.unwrap(), b"456789");
+    }
+
+    #[tokio::test]
+    async fn a_read_the_budget_has_no_room_ahead_for_takes_only_what_was_asked() {
+        let (first, second) = read_then_stop_the_runtime(true).await;
+        assert_eq!(first, b"0123");
+        assert!(second.is_err(), "nothing was read ahead: {second:?}");
     }
 
     #[tokio::test]
