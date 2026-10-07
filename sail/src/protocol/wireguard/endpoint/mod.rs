@@ -518,8 +518,14 @@ impl Shared {
         let mut tasks = tokio::task::JoinSet::new();
         let stack_tag = self.tag.clone();
         spawn_child_of(class, &mut tasks, "wireguard stack", async move {
-            if let Err(e) = runtime.run().await {
-                error!("wireguard [{}]: the stack failed: {}", stack_tag, e);
+            match runtime.run().await {
+                Ok(()) => {}
+                // The tunnel's side ended first, as at a stop: that end is
+                // told where it happens, not as the stack's failure.
+                Err(e) if input_closed(&e) => {
+                    debug!("wireguard [{}]: the stack's input closed", stack_tag)
+                }
+                Err(e) => error!("wireguard [{}]: the stack failed: {}", stack_tag, e),
             }
             "stack"
         });
@@ -689,8 +695,27 @@ impl EndpointServer for Server {
     }
 }
 
+/// Whether the stack ended because the packets into it stopped: the
+/// tunnel's side of the channel was dropped, not a fault of the stack.
+fn input_closed(e: &sail_netstack::RunnerError) -> bool {
+    matches!(e, sail_netstack::RunnerError::Io(error) if error.kind() == io::ErrorKind::BrokenPipe)
+}
+
 #[cfg(test)]
 mod tests {
+    /// The stack's input closing, as at a stop, is no failure of the stack;
+    /// another I/O error is.
+    #[test]
+    fn the_stack_s_input_closing_is_no_failure() {
+        let closed = sail_netstack::RunnerError::Io(io::Error::new(
+            io::ErrorKind::BrokenPipe,
+            "packet input closed",
+        ));
+        assert!(input_closed(&closed));
+        let other = sail_netstack::RunnerError::Io(io::Error::other("bad packet"));
+        assert!(!input_closed(&other));
+    }
+
     use std::sync::atomic::AtomicUsize;
 
     use async_trait::async_trait;
