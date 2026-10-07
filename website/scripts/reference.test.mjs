@@ -246,7 +246,7 @@ test('both languages get every page, the shared one and the landing page', () =>
   assert.deepEqual(Object.keys(files).sort(), [...names.map(n => `reference/${n}.md`), ...names.map(n => `zh/reference/${n}.md`)].sort());
   assert.match(files['reference/outbounds.md'], /^---\ntitle: "Outbounds and groups"\ndescription: "Field-by-field reference of sail's native format: sing-box v9\.9 JSON and sail's extensions\."\n---\n/);
   assert.match(files['zh/reference/outbounds.md'], /^---\ntitle: "出站与策略组"\n/);
-  assert.match(files['reference/compatibility.md'], /^---\ntitle: "Compatibility"\ndescription: "How sail reads sing-box, Clash \/ Mihomo and Surge configurations: the support tables\."\n---\n/);
+  assert.match(files['reference/compatibility.md'], /^---\ntitle: "Compatibility"\ndescription: "How sail reads sing-box, Clash \/ Mihomo and Surge configurations, the support tables, and how it interoperates with sing-box and Mihomo\."\n---\n/);
   assert.match(files['reference/dns.md'], /sing-box v9\.9/);
 });
 
@@ -333,7 +333,7 @@ test('descriptions are source comments, else the registry\'s note, with build ga
 test('a registered type reads its options, its blocks and its base', () => {
   const { files, unlisted } = built();
   const x = section(files['reference/outbounds.md'], '## `outbounds[x]`');
-  assert.match(x, /Rust: \[`XOptions`\]\(https:\/\/github\.com\/peakpassvpn\/sail\/blob\/dev\/sail\/src\/protocol\/x\/mod\.rs\) · Build: `feature = "outbound-x"`\n/);
+  assert.match(x, /Rust: \[`XOptions`\]\(https:\/\/github\.com\/peakpassvpn\/sail\/blob\/master\/sail\/src\/protocol\/x\/mod\.rs\) · Build: `feature = "outbound-x"`\n/);
   // Rust fields sing-box does not list are not claimed, only reported.
   assert.equal(row(x, 'port'), undefined);
   assert.ok(unlisted.includes('outbounds[x].port'));
@@ -484,10 +484,11 @@ test('every link into the reference has its anchor', () => {
 test('the landing page takes each table\'s first table, and says which are absent', () => {
   const { compat } = fixture();
   const en = compatibilityPage('en', compat, 'v9.9');
-  assert.match(en, /## sing-box\n\nFull table: \[docs\/compat\/sing-box\.md\]\(https:\/\/github\.com\/peakpassvpn\/sail\/blob\/dev\/docs\/compat\/sing-box\.md\) · Chinese: \[docs\/compat\/zh\/sing-box\.md\]/);
+  assert.match(en, /## sing-box\n\nFull table: \[docs\/compat\/sing-box\.md\]\(https:\/\/github\.com\/peakpassvpn\/sail\/blob\/master\/docs\/compat\/sing-box\.md\) · Chinese: \[docs\/compat\/zh\/sing-box\.md\]/);
   assert.match(en, /### Summary\n\n\| Section \| Fields \|\n\|---\|--:\|\n\| `log` \| 3 \|\n\n/);
   assert.match(en, /## Clash \/ Mihomo\n\nFull table: [^\n]*clash\.md\)\n\n### Summary\n\n\| Section \| Fields \|\n\|---\|--:\|\n\| `dns` \| 33 \|\n\n## Surge/);
   assert.match(en, /## Surge\n\nAbsent in this revision\.\n/);
+  assert.match(en, /## Interop with sing-box and Mihomo\n\nAbsent in this revision\.\n/);
   const zh = compatibilityPage('zh', compat, 'v9.9');
   assert.match(zh, /\| 部分 \| 字段数 \|/);
   // No Chinese table: the English one.

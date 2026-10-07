@@ -130,6 +130,7 @@ jobs:
       check_32bit: ${{ steps.paths.outputs.check_32bit }}
       dependency_security: ${{ steps.paths.outputs.dependency_security }}
       docs: ${{ steps.paths.outputs.docs }}
+      website_scripts: ${{ steps.paths.outputs.website_scripts }}
     steps:
       - name: checkout
         uses: actions/checkout@v4
@@ -147,6 +148,7 @@ jobs:
             [tun_macos]='^(sail/src/protocol/tun/|sail/src/platform/|sail/src/runtime/teardown\.rs|sail/src/fault\.rs|sail/tests/test_teardown\.rs|sail/tests/test_tun_integrity_macos\.rs|sail/tests/test_split_dns_macos\.rs|sail/tests/test_owner_macos\.rs|sail/src/app/owner|sail/src/app/dns/client/system|sail/tests/test_tun_replaced_macos\.rs|sail/tests/scripts/macos_)'
             [netns_linux]='^(sail/src/protocol/tun/|sail/src/net/netstack/|sail/src/platform/|sail/src/runtime/|sail/src/fault\.rs|sail/src/protocol/wireguard/|sail/tests/test_wireguard_(interop|kernel)\.rs|sail/tests/scripts/[a-z_]+_netns\.sh|sail/tests/test_[a-z_]+_linux\.rs|sail/tests/test_teardown\.rs)'
             [fuzz]='^(fuzz/|sail-netstack/fuzz/|fuzz-config/|scripts/prebuilt-boringssl\.sh$|tools/fuzz-check\.sh$)|(^|/)Cargo\.(toml|lock)$'
+            [website_scripts]='^website/scripts/'
             [check_32bit]='^(rust-toolchain\.toml$|scripts/(cross|install_cross_toolchain|prebuilt-boringssl)\.sh$)|(^|/)Cargo\.(toml|lock)$'
           )
           # What the change reaches, on master too.
@@ -1395,6 +1397,24 @@ jobs:
   # and deployed to GitHub Pages, on a master push that changes what it is
   # built from (the `changes` job), or a dispatch on master. One
   # deployment at a time, the newest winning.
+  # The website generator's own tests, which the docs job runs on master
+  # only (npm run build): a branch that changes the generator runs them.
+  website-scripts:
+    needs: changes
+    if: needs.changes.outputs.website_scripts == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Test the generator
+        working-directory: website
+        run: node --test scripts/reference.test.mjs
+
   docs:
     needs: changes
     if: github.ref == 'refs/heads/master' && needs.changes.outputs.docs == 'true'
