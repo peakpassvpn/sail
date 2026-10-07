@@ -525,8 +525,9 @@ fn test_grpc_wrong_service() -> anyhow::Result<()> {
     })
 }
 
-/// sing-box's HTTP/2 transport, and multiplex over gRPC, are refused when
-/// the configuration is loaded.
+/// sing-box's HTTP/2 transport, and amux over gRPC, are refused when the
+/// configuration is loaded. sing-mux over gRPC is served: see
+/// `test_grpc_mux`.
 #[test]
 fn test_unsupported_transport_configs() -> anyhow::Result<()> {
     let cert = Cert::new("unsupported")?;
@@ -564,7 +565,7 @@ fn test_unsupported_transport_configs() -> anyhow::Result<()> {
             "not supported",
         ),
         (server(false, &cert, &http, server_port), "not supported"),
-        (grpc_mux, "multiplex"),
+        (grpc_mux, "multiplex: protocol amux"),
         (grpc_alpn, "tls.alpn"),
     ] {
         let rt = tokio::runtime::Builder::new_current_thread()

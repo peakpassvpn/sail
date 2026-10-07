@@ -777,9 +777,10 @@ pub fn outbound(
     layered(core, blocks, layering, true)
 }
 
-/// `outbound`, or without the transport block when not `with_transport`:
-/// the layers beneath the transport, for a transport that dials through
-/// them itself.
+/// `outbound`, or without the transport and multiplex blocks when not
+/// `with_transport`: the layers beneath the transport, for a transport
+/// that dials through them itself. Multiplex is not among them: it runs
+/// over the protocol, which runs over the transport.
 fn layered(
     core: AnyOutboundHandler,
     blocks: &OutboundBlocks,
@@ -788,6 +789,7 @@ fn layered(
 ) -> Result<AnyOutboundHandler> {
     let tag = layering.tag;
     let transport = blocks.transport.as_ref().filter(|_| with_transport);
+    let multiplex = blocks.multiplex().filter(|_| with_transport);
 
     if let Some(OutboundTransport::Http(_)) = transport {
         return Err(anyhow!(
@@ -798,7 +800,9 @@ fn layered(
     // gRPC multiplexes its streams over connections it keeps, and so is not
     // a layer dialled anew for every stream: it holds a `Connector` over
     // the layers beneath it -- its dialer, tls -- and comes first
-    // in the chain, asking for nothing to be dialled.
+    // in the chain, asking for nothing to be dialled. sing-mux runs over
+    // the whole, as sing-box's runs over the protocol's dialer, whose
+    // connections the transport makes: a mux connection is one gun call.
     if let Some(OutboundTransport::Grpc {
         service_name,
         idle_timeout,
@@ -806,13 +810,34 @@ fn layered(
         permit_without_stream,
     }) = transport
     {
-        if blocks.multiplex().is_some() {
+        // amux dials its server through the layers it is given, and gRPC
+        // is none of them.
+        if multiplex.is_some_and(OutboundMultiplex::is_amux) {
             return Err(anyhow!(
-                "[{}] outbound: multiplex: not supported over the grpc transport",
+                "[{}] outbound: multiplex: protocol amux is not supported over the grpc transport",
                 tag
             ));
         }
-        let connector = Connector::build(blocks, layering, false)?;
+        let sing_mux = multiplex
+            .map(|mux| sing_mux_options(tag, mux))
+            .transpose()?;
+        let OutboundLayering {
+            tag,
+            options,
+            dns_client,
+            abort_handles,
+            dialer,
+            env,
+        } = layering;
+        let beneath = OutboundLayering {
+            tag,
+            options,
+            dns_client,
+            abort_handles: &mut *abort_handles,
+            dialer,
+            env,
+        };
+        let connector = Connector::build(blocks, beneath, false)?;
         let grpc = grpc_outbound(
             tag,
             service_name,
@@ -821,7 +846,15 @@ fn layered(
             *ping_timeout,
             *permit_without_stream,
         )?;
-        return chain_outbound(tag, vec![grpc, core]);
+        let whole = chain_outbound(tag, vec![grpc, core])?;
+        return sing_mux_outbound(
+            tag,
+            whole,
+            dns_client,
+            sing_mux,
+            &env.options.mux,
+            abort_handles,
+        );
     }
 
     let dialer = layering.dialer;
@@ -830,7 +863,7 @@ fn layered(
     let mut sing_mux = None;
     let quic = matches!(transport, Some(OutboundTransport::Quic {}));
     if quic {
-        if blocks.multiplex().is_some() {
+        if multiplex.is_some() {
             return Err(anyhow!(
                 "[{}] outbound: multiplex: not supported over the quic transport",
                 tag
@@ -881,7 +914,7 @@ fn layered(
         {
             under_mux.push(httpupgrade_outbound(tag, host, path, headers)?);
         }
-        match blocks.multiplex() {
+        match multiplex {
             None => actors.extend(under_mux),
             Some(mux) if !mux.is_amux() => {
                 sing_mux = Some(sing_mux_options(tag, mux)?);
@@ -910,19 +943,17 @@ fn layered(
         actors.push(core);
         chain_outbound(tag, actors)?
     };
-    match sing_mux {
-        Some(options) => sing_mux_outbound(
-            tag,
-            whole,
-            layering.dns_client,
-            options,
-            &layering.env.options.mux,
-            layering.abort_handles,
-        ),
-        None => Ok(whole),
-    }
+    sing_mux_outbound(
+        tag,
+        whole,
+        layering.dns_client,
+        sing_mux,
+        &layering.env.options.mux,
+        layering.abort_handles,
+    )
 }
 
+/// `whole` with the sing-mux client `options` configure over it, if any.
 #[allow(unused_variables)]
 // Without `mux` nothing is pushed onto the handles.
 #[cfg_attr(not(feature = "mux"), allow(clippy::ptr_arg))]
@@ -930,10 +961,13 @@ fn sing_mux_outbound(
     tag: &str,
     whole: AnyOutboundHandler,
     dns_client: &SyncDnsClient,
-    options: SingMuxOptions,
+    options: Option<SingMuxOptions>,
     tuning: &crate::runtime::options::Mux,
     abort_handles: &mut Vec<AbortHandle>,
 ) -> Result<AnyOutboundHandler> {
+    let Some(options) = options else {
+        return Ok(whole);
+    };
     #[cfg(feature = "mux")]
     return Ok(crate::transport::mux::client::outbound(
         tag,

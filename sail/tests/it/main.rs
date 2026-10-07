@@ -43,6 +43,7 @@ mod test_group_load_balance;
 mod test_group_selector;
 mod test_group_smart;
 mod test_group_urltest;
+mod test_grpc_mux;
 mod test_grpc_pool;
 mod test_harness;
 mod test_http_proxy;
