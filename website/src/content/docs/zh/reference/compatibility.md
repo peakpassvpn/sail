@@ -1,6 +1,6 @@
 ---
 title: "兼容性"
-description: "sail 对 sing-box、Clash / Mihomo 与 Surge 配置的支持表。"
+description: "sail 对 sing-box、Clash / Mihomo 与 Surge 配置的支持表，以及与 sing-box、Mihomo 的互通结果。"
 ---
 
 sail 直接读取 sing-box、Clash / Mihomo 与 Surge 的配置。每种格式都有一张由注册表测试生成的支持表（`docs/compat/`），逐字段列出 sail 实测的处理方式。原生格式（sing-box v1.14.2 JSON 与 sail 扩展）的逐字段说明见本节其他页面，从[顶层与通用](/sail/zh/reference/common/)开始。
@@ -148,4 +148,19 @@ sail 直接读取 sing-box、Clash / Mihomo 与 Surge 的配置。每种格式�
 | `Sections` | 17 | 3 | 3 | 11 | 0 |
 | `WireGuard` | 13 | 11 | 0 | 2 | 0 |
 | **All** | **874** | **318** | **178** | **128** | **250** |
+
+## Interop with sing-box and Mihomo
+
+完整表格：[docs/compat/interop.md](https://github.com/peakpassvpn/sail/blob/dev/docs/compat/interop.md) · 中文版：[docs/compat/zh/interop.md](https://github.com/peakpassvpn/sail/blob/dev/docs/compat/zh/interop.md)
+
+### 汇总
+
+| 协议族 | 行 |
+|---|---|
+| Shadowsocks | aes-128-gcm、aes-256-gcm、chacha20-ietf-poly1305、2022-blake3-aes-128-gcm、2022-blake3-chacha20-poly1305、2022 加 UDP over TCP；aes-256-gcm 与 2022-blake3-aes-128-gcm 上的 smux、yamux、h2mux |
+| VMess | tcp、ws、ws 早期数据、grpc、httpupgrade，各自明文与 TLS，各带 smux、yamux、h2mux；加密方式 chacha20-poly1305、none、zero；下表所列行除外 |
+| VLESS | 同样的传输层、TLS 与多路复用；TLS 与 REALITY 上的 Vision；tcp（各种多路复用）与 grpc 上的 REALITY；下表所列行除外 |
+| Trojan | TLS 上的 tcp、ws、grpc、httpupgrade，各带 smux、yamux、h2mux；REALITY |
+| QUIC | Hysteria2（普通与 salamander）；TUIC（UDP native、UDP over QUIC、cubic） |
+| 其他 | AnyTLS；ShadowTLS v3（配 Shadowsocks 2022 与 aes-256-gcm）；SOCKS；HTTP（明文与 TLS） |
 
