@@ -7,7 +7,7 @@ sail reads sing-box, Clash / Mihomo and Surge configurations as they are. Each f
 
 ## sing-box
 
-Full table: [docs/compat/sing-box.md](https://github.com/peakpassvpn/sail/blob/dev/docs/compat/sing-box.md) · Chinese: [docs/compat/zh/sing-box.md](https://github.com/peakpassvpn/sail/blob/dev/docs/compat/zh/sing-box.md)
+Full table: [docs/compat/sing-box.md](https://github.com/peakpassvpn/sail/blob/master/docs/compat/sing-box.md) · Chinese: [docs/compat/zh/sing-box.md](https://github.com/peakpassvpn/sail/blob/master/docs/compat/zh/sing-box.md)
 
 ### Summary
 
@@ -31,7 +31,7 @@ Full table: [docs/compat/sing-box.md](https://github.com/peakpassvpn/sail/blob/d
 
 ## Clash / Mihomo
 
-Full table: [docs/compat/clash.md](https://github.com/peakpassvpn/sail/blob/dev/docs/compat/clash.md) · Chinese: [docs/compat/zh/clash.md](https://github.com/peakpassvpn/sail/blob/dev/docs/compat/zh/clash.md)
+Full table: [docs/compat/clash.md](https://github.com/peakpassvpn/sail/blob/master/docs/compat/clash.md) · Chinese: [docs/compat/zh/clash.md](https://github.com/peakpassvpn/sail/blob/master/docs/compat/zh/clash.md)
 
 ### Summary
 
@@ -104,7 +104,7 @@ Full table: [docs/compat/clash.md](https://github.com/peakpassvpn/sail/blob/dev/
 
 ## Surge
 
-Full table: [docs/compat/surge.md](https://github.com/peakpassvpn/sail/blob/dev/docs/compat/surge.md) · Chinese: [docs/compat/zh/surge.md](https://github.com/peakpassvpn/sail/blob/dev/docs/compat/zh/surge.md)
+Full table: [docs/compat/surge.md](https://github.com/peakpassvpn/sail/blob/master/docs/compat/surge.md) · Chinese: [docs/compat/zh/surge.md](https://github.com/peakpassvpn/sail/blob/master/docs/compat/zh/surge.md)
 
 ### Summary
 
@@ -151,7 +151,7 @@ Full table: [docs/compat/surge.md](https://github.com/peakpassvpn/sail/blob/dev/
 
 ## Interop with sing-box and Mihomo
 
-Full table: [docs/compat/interop.md](https://github.com/peakpassvpn/sail/blob/dev/docs/compat/interop.md) · Chinese: [docs/compat/zh/interop.md](https://github.com/peakpassvpn/sail/blob/dev/docs/compat/zh/interop.md)
+Full table: [docs/compat/interop.md](https://github.com/peakpassvpn/sail/blob/master/docs/compat/interop.md) · Chinese: [docs/compat/zh/interop.md](https://github.com/peakpassvpn/sail/blob/master/docs/compat/zh/interop.md)
 
 ### Summary
 

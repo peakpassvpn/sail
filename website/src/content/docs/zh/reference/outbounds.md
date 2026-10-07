@@ -17,7 +17,7 @@ description: "sail 原生配置格式（sing-box v1.14.2 JSON 与 sail 扩展）
 
 ## `outbounds[]`
 
-Rust 定义：[`Outbound`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust 定义：[`Outbound`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -27,7 +27,7 @@ Rust 定义：[`Outbound`](https://github.com/peakpassvpn/sail/blob/dev/sail/src
 
 ## `outbounds[anytls]`
 
-Rust 定义：[`AnyTlsOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/anytls/outbound/mod.rs) · 构建条件：`feature = "outbound-anytls"`
+Rust 定义：[`AnyTlsOutboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/anytls/outbound/mod.rs) · 构建条件：`feature = "outbound-anytls"`
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -68,7 +68,7 @@ Rust 定义：[`AnyTlsOutboundOptions`](https://github.com/peakpassvpn/sail/blob
 
 ## `outbounds[block]`
 
-Rust 定义：[`BlockOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/drop/mod.rs) · 构建条件：`feature = "outbound-drop"`
+Rust 定义：[`BlockOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/drop/mod.rs) · 构建条件：`feature = "outbound-drop"`
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -78,7 +78,7 @@ Rust 定义：[`BlockOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail
 
 ## `outbounds[direct]`
 
-Rust 定义：[`DirectOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/direct/outbound/mod.rs) · 构建条件：`feature = "outbound-direct"`
+Rust 定义：[`DirectOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/direct/outbound/mod.rs) · 构建条件：`feature = "outbound-direct"`
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -111,7 +111,7 @@ Rust 定义：[`DirectOptions`](https://github.com/peakpassvpn/sail/blob/dev/sai
 
 ## `outbounds[fallback]`
 
-Rust 定义：[`FallbackOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/fallback/mod.rs) · 构建条件：`feature = "outbound-fallback"` · **sail 扩展**
+Rust 定义：[`FallbackOutboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/group/fallback/mod.rs) · 构建条件：`feature = "outbound-fallback"` · **sail 扩展**
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -137,7 +137,7 @@ Rust 定义：[`FallbackOutboundOptions`](https://github.com/peakpassvpn/sail/bl
 
 ### `outbounds[fallback].debounce`
 
-Rust 定义：[`DebounceOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/fallback/mod.rs) · 构建条件：`feature = "outbound-fallback"` · **sail 扩展**
+Rust 定义：[`DebounceOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/group/fallback/mod.rs) · 构建条件：`feature = "outbound-fallback"` · **sail 扩展**
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -149,7 +149,7 @@ Rust 定义：[`DebounceOptions`](https://github.com/peakpassvpn/sail/blob/dev/s
 
 ## `outbounds[http]`
 
-Rust 定义：[`HttpOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/http/outbound/mod.rs) · 构建条件：`feature = "outbound-http"`
+Rust 定义：[`HttpOutboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/http/outbound/mod.rs) · 构建条件：`feature = "outbound-http"`
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -189,7 +189,7 @@ Rust 定义：[`HttpOutboundOptions`](https://github.com/peakpassvpn/sail/blob/d
 
 ## `outbounds[hysteria2]`
 
-Rust 定义：[`Hysteria2OutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/hysteria2/outbound/mod.rs) · 构建条件：`feature = "outbound-hysteria2"`
+Rust 定义：[`Hysteria2OutboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/hysteria2/outbound/mod.rs) · 构建条件：`feature = "outbound-hysteria2"`
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -244,7 +244,7 @@ Rust 定义：[`Hysteria2OutboundOptions`](https://github.com/peakpassvpn/sail/b
 
 ### `outbounds[hysteria2].tls`
 
-Rust 定义：[`OutboundTls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust 定义：[`OutboundTls`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -282,7 +282,7 @@ Rust 定义：[`OutboundTls`](https://github.com/peakpassvpn/sail/blob/dev/sail/
 
 ### `outbounds[hysteria2].tls.utls`
 
-Rust 定义：[`OutboundUtls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust 定义：[`OutboundUtls`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -307,7 +307,7 @@ Rust 定义：[`OutboundUtls`](https://github.com/peakpassvpn/sail/blob/dev/sail
 
 ## `outbounds[load-balance]`
 
-Rust 定义：[`LoadBalanceOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/load_balance/mod.rs) · 构建条件：`feature = "outbound-load-balance"` · **sail 扩展**
+Rust 定义：[`LoadBalanceOutboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/group/load_balance/mod.rs) · 构建条件：`feature = "outbound-load-balance"` · **sail 扩展**
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -327,7 +327,7 @@ Rust 定义：[`LoadBalanceOutboundOptions`](https://github.com/peakpassvpn/sail
 
 ## `outbounds[mptp]`
 
-Rust 定义：[`MptpOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/mptp/outbound/mod.rs) · 构建条件：`feature = "outbound-mptp"` · **sail 扩展**
+Rust 定义：[`MptpOutboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/mptp/outbound/mod.rs) · 构建条件：`feature = "outbound-mptp"` · **sail 扩展**
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -340,7 +340,7 @@ Rust 定义：[`MptpOutboundOptions`](https://github.com/peakpassvpn/sail/blob/d
 
 ## `outbounds[network]`
 
-Rust 定义：[`NetworkGroupOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/network/mod.rs) · 构建条件：`feature = "outbound-network-group"` · **sail 扩展**
+Rust 定义：[`NetworkGroupOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/group/network/mod.rs) · 构建条件：`feature = "outbound-network-group"` · **sail 扩展**
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -352,7 +352,7 @@ Rust 定义：[`NetworkGroupOptions`](https://github.com/peakpassvpn/sail/blob/d
 
 ### `outbounds[network].branches[]`
 
-Rust 定义：[`Branch`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/network/mod.rs) · 构建条件：`feature = "outbound-network-group"` · **sail 扩展**
+Rust 定义：[`Branch`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/group/network/mod.rs) · 构建条件：`feature = "outbound-network-group"` · **sail 扩展**
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -371,7 +371,7 @@ Rust 定义：[`Branch`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/p
 
 ## `outbounds[pass]`
 
-Rust 定义：[`PassOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/pass/mod.rs) · 构建条件：`feature = "outbound-pass"` · **sail 扩展**
+Rust 定义：[`PassOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/pass/mod.rs) · 构建条件：`feature = "outbound-pass"` · **sail 扩展**
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -381,7 +381,7 @@ Rust 定义：[`PassOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/
 
 ## `outbounds[plugin]`
 
-Rust 定义：[`PluginOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/app/outbound/plugin.rs) · 构建条件：`feature = "outbound-select"` 且 `feature = "plugin"` · **sail 扩展**
+Rust 定义：[`PluginOutboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/app/outbound/plugin.rs) · 构建条件：`feature = "outbound-select"` 且 `feature = "plugin"` · **sail 扩展**
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -393,7 +393,7 @@ Rust 定义：[`PluginOutboundOptions`](https://github.com/peakpassvpn/sail/blob
 
 ## `outbounds[redirect]`
 
-Rust 定义：[`RedirectOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/redirect/outbound/mod.rs) · 构建条件：`feature = "outbound-redirect"` · **sail 扩展**
+Rust 定义：[`RedirectOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/redirect/outbound/mod.rs) · 构建条件：`feature = "outbound-redirect"` · **sail 扩展**
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -451,7 +451,7 @@ Rust 定义：[`RedirectOptions`](https://github.com/peakpassvpn/sail/blob/dev/s
 
 ### `outbounds[redirect].domain_resolver`
 
-Rust 定义：[`DomainResolver`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs) · **sail 扩展**
+Rust 定义：[`DomainResolver`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs) · **sail 扩展**
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -467,7 +467,7 @@ Rust 定义：[`DomainResolver`](https://github.com/peakpassvpn/sail/blob/dev/sa
 
 ## `outbounds[selector]`
 
-Rust 定义：[`SelectorOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/selector/mod.rs) · 构建条件：`feature = "outbound-select"`
+Rust 定义：[`SelectorOutboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/group/selector/mod.rs) · 构建条件：`feature = "outbound-select"`
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -485,7 +485,7 @@ Rust 定义：[`SelectorOutboundOptions`](https://github.com/peakpassvpn/sail/bl
 
 ## `outbounds[shadowsocks]`
 
-Rust 定义：[`ShadowsocksOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/shadowsocks/outbound/mod.rs) · 构建条件：`feature = "outbound-shadowsocks"`
+Rust 定义：[`ShadowsocksOutboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/shadowsocks/outbound/mod.rs) · 构建条件：`feature = "outbound-shadowsocks"`
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -528,7 +528,7 @@ Rust 定义：[`ShadowsocksOutboundOptions`](https://github.com/peakpassvpn/sail
 
 ## `outbounds[shadowtls]`
 
-Rust 定义：[`ShadowTlsOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/shadowtls/outbound.rs) · 构建条件：`feature = "outbound-shadowtls"`
+Rust 定义：[`ShadowTlsOutboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/shadowtls/outbound.rs) · 构建条件：`feature = "outbound-shadowtls"`
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -566,7 +566,7 @@ Rust 定义：[`ShadowTlsOutboundOptions`](https://github.com/peakpassvpn/sail/b
 
 ## `outbounds[smart]`
 
-Rust 定义：[`SmartOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/smart/mod.rs) · 构建条件：`feature = "outbound-smart"` · **sail 扩展**
+Rust 定义：[`SmartOutboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/group/smart/mod.rs) · 构建条件：`feature = "outbound-smart"` · **sail 扩展**
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -595,7 +595,7 @@ Rust 定义：[`SmartOutboundOptions`](https://github.com/peakpassvpn/sail/blob/
 
 ### `outbounds[smart].policy_priority[]`
 
-Rust 定义：[`PolicyPriority`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/smart/mod.rs) · 构建条件：`feature = "outbound-smart"` · **sail 扩展**
+Rust 定义：[`PolicyPriority`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/group/smart/mod.rs) · 构建条件：`feature = "outbound-smart"` · **sail 扩展**
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -606,7 +606,7 @@ Rust 定义：[`PolicyPriority`](https://github.com/peakpassvpn/sail/blob/dev/sa
 
 ## `outbounds[socks]`
 
-Rust 定义：[`SocksOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/socks/outbound/mod.rs) · 构建条件：`feature = "outbound-socks"`
+Rust 定义：[`SocksOutboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/socks/outbound/mod.rs) · 构建条件：`feature = "outbound-socks"`
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -646,7 +646,7 @@ Rust 定义：[`SocksOutboundOptions`](https://github.com/peakpassvpn/sail/blob/
 
 ## `outbounds[trojan]`
 
-Rust 定义：[`TrojanOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/trojan/outbound/mod.rs) · 构建条件：`feature = "outbound-trojan"`
+Rust 定义：[`TrojanOutboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/trojan/outbound/mod.rs) · 构建条件：`feature = "outbound-trojan"`
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -686,7 +686,7 @@ Rust 定义：[`TrojanOutboundOptions`](https://github.com/peakpassvpn/sail/blob
 
 ## `outbounds[tryall]`
 
-Rust 定义：[`TryAllOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/tryall/mod.rs) · 构建条件：`feature = "outbound-tryall"` · **sail 扩展**
+Rust 定义：[`TryAllOutboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/group/tryall/mod.rs) · 构建条件：`feature = "outbound-tryall"` · **sail 扩展**
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -698,7 +698,7 @@ Rust 定义：[`TryAllOutboundOptions`](https://github.com/peakpassvpn/sail/blob
 
 ## `outbounds[tuic]`
 
-Rust 定义：[`TuicOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/tuic/outbound/mod.rs) · 构建条件：`feature = "outbound-tuic"`
+Rust 定义：[`TuicOutboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/tuic/outbound/mod.rs) · 构建条件：`feature = "outbound-tuic"`
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -749,7 +749,7 @@ Rust 定义：[`TuicOutboundOptions`](https://github.com/peakpassvpn/sail/blob/d
 
 ### `outbounds[tuic].tls`
 
-Rust 定义：[`OutboundTls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust 定义：[`OutboundTls`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -787,7 +787,7 @@ Rust 定义：[`OutboundTls`](https://github.com/peakpassvpn/sail/blob/dev/sail/
 
 ### `outbounds[tuic].tls.utls`
 
-Rust 定义：[`OutboundUtls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust 定义：[`OutboundUtls`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -798,7 +798,7 @@ Rust 定义：[`OutboundUtls`](https://github.com/peakpassvpn/sail/blob/dev/sail
 
 ## `outbounds[urltest]`
 
-Rust 定义：[`UrlTestOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/urltest/mod.rs) · 构建条件：`feature = "outbound-urltest"`
+Rust 定义：[`UrlTestOutboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/group/urltest/mod.rs) · 构建条件：`feature = "outbound-urltest"`
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -823,7 +823,7 @@ Rust 定义：[`UrlTestOutboundOptions`](https://github.com/peakpassvpn/sail/blo
 
 ## `outbounds[vless]`
 
-Rust 定义：[`VlessOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/vless/outbound/mod.rs) · 构建条件：`feature = "outbound-vless"`
+Rust 定义：[`VlessOutboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/vless/outbound/mod.rs) · 构建条件：`feature = "outbound-vless"`
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -865,7 +865,7 @@ Rust 定义：[`VlessOutboundOptions`](https://github.com/peakpassvpn/sail/blob/
 
 ## `outbounds[vmess]`
 
-Rust 定义：[`VMessOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/vmess/outbound/mod.rs) · 构建条件：`feature = "outbound-vmess"`
+Rust 定义：[`VMessOutboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/vmess/outbound/mod.rs) · 构建条件：`feature = "outbound-vmess"`
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |

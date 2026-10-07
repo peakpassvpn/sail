@@ -17,7 +17,7 @@ Validate a configuration with `sail -c config.json -T`. Editors check and comple
 
 ## Top level
 
-Rust: [`Config`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust: [`Config`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -44,7 +44,7 @@ Rust: [`Config`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/mo
 
 ### `user_limits`
 
-Rust: [`UserLimits`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs) · **sail extension**
+Rust: [`UserLimits`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs) · **sail extension**
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -58,7 +58,7 @@ Rust: [`UserLimits`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/confi
 
 ## `log`
 
-Rust: [`Log`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust: [`Log`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -73,7 +73,7 @@ Rust: [`Log`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model
 
 ## `certificate`
 
-Rust: [`CertificateOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust: [`CertificateOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -86,7 +86,7 @@ Rust: [`CertificateOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/s
 
 ## `http_clients[]`
 
-Rust: [`HttpClient`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust: [`HttpClient`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -178,7 +178,7 @@ Rust: [`HttpClient`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/confi
 
 ## `experimental`
 
-Rust: [`Experimental`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust: [`Experimental`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -191,7 +191,7 @@ Rust: [`Experimental`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/con
 
 ### `experimental.cache_file`
 
-Rust: [`CacheFileOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust: [`CacheFileOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -207,7 +207,7 @@ Rust: [`CacheFileOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src
 
 ### `experimental.clash_api`
 
-Rust: [`ClashApi`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust: [`ClashApi`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -259,7 +259,7 @@ Rust: [`ClashApi`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/
 
 ## `api`
 
-Rust: [`Api`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs) · **sail extension**
+Rust: [`Api`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs) · **sail extension**
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -271,7 +271,7 @@ Rust: [`Api`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model
 
 ## `clash_api`
 
-Rust: [`ClashApi`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs) · **sail extension**
+Rust: [`ClashApi`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs) · **sail extension**
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -288,7 +288,7 @@ Rust: [`ClashApi`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/
 
 ## `outbound_providers[]`
 
-Rust: [`OutboundProvider`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs) · **sail extension**
+Rust: [`OutboundProvider`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs) · **sail extension**
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -311,7 +311,7 @@ Rust: [`OutboundProvider`](https://github.com/peakpassvpn/sail/blob/dev/sail/src
 
 ### `outbound_providers[].outbounds[]`
 
-Rust: [`Outbound`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs) · **sail extension**
+Rust: [`Outbound`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs) · **sail extension**
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |

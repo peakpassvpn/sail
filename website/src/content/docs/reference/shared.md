@@ -21,7 +21,7 @@ Objects that several fields take with the same fields, types and tiers, written 
 
 Used at: `inbounds[shadowsocks, trojan, vless, vmess].multiplex.brutal`, `outbounds[shadowsocks, trojan, vless, vmess].multiplex.brutal`
 
-Rust: [`MultiplexBrutal`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust: [`MultiplexBrutal`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -35,7 +35,7 @@ Rust: [`MultiplexBrutal`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/
 
 Used at: `dns.servers[h3, https, quic, tcp, tls, udp].client_subnet`, `outbounds[redirect].domain_resolver.client_subnet`
 
-Rust: [`Prefix`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs) · **sail extension**
+Rust: [`Prefix`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs) · **sail extension**
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -80,7 +80,7 @@ Used at: `inbounds[anytls].tls.reality.handshake.domain_resolver`, `route.rule_s
 
 Used at: `http_clients[].domain_resolver`, `dns.servers[h3, https, quic, tcp, tls, udp].domain_resolver`, `inbounds[http, hysteria2, trojan, tuic, vless, vmess].tls.reality.handshake.domain_resolver`, `inbounds[shadowtls].handshake.domain_resolver`, `outbounds[anytls, direct, http, hysteria2, shadowsocks, shadowtls, socks, trojan, tuic, vless, vmess].domain_resolver`, `endpoints[wireguard].domain_resolver`, `route.default_domain_resolver`
 
-Rust: [`DomainResolver`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust: [`DomainResolver`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -114,7 +114,7 @@ Used at: `inbounds[hysteria2].realm.http_client.domain_resolver`, `inbounds[hyst
 
 Used at: `dns.servers[h3, https, quic, tls].tls.ech`
 
-Rust: [`OutboundEch`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust: [`OutboundEch`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -167,7 +167,7 @@ Used at: `inbounds[hysteria2].realm.http_client.tls.ech`, `outbounds[hysteria2].
 
 Used at: `outbounds[anytls, http, hysteria2, shadowtls, trojan, tuic, vless, vmess].tls.ech`
 
-Rust: [`OutboundEch`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust: [`OutboundEch`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -183,7 +183,7 @@ Rust: [`OutboundEch`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/tran
 
 Used at: `inbounds[anytls, vless].fallback`, `inbounds[anytls, vless].fallback_for_alpn`
 
-Rust: [`FallbackServer`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/fallback.rs) · Build: `any (feature = "inbound-anytls" , feature = "inbound-trojan" , feature = "inbound-vless" , feature = "inbound-shadowtls")` · **sail extension**
+Rust: [`FallbackServer`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/fallback.rs) · Build: `any (feature = "inbound-anytls" , feature = "inbound-trojan" , feature = "inbound-vless" , feature = "inbound-shadowtls")` · **sail extension**
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -196,7 +196,7 @@ Rust: [`FallbackServer`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/p
 
 Used at: `inbounds[http, trojan, vless, vmess].tls.reality.handshake`
 
-Rust: [`RealityHandshake`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust: [`RealityHandshake`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -232,7 +232,7 @@ Rust: [`RealityHandshake`](https://github.com/peakpassvpn/sail/blob/dev/sail/src
 
 Used at: `inbounds[hysteria2, tuic].tls.reality.handshake`
 
-Rust: [`RealityHandshake`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust: [`RealityHandshake`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -310,7 +310,7 @@ Used at: `inbounds[hysteria2].realm.http_client`, `outbounds[hysteria2].realm.ht
 
 Used at: `inbounds[shadowsocks, trojan, vless, vmess].multiplex`
 
-Rust: [`InboundMultiplex`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust: [`InboundMultiplex`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -325,7 +325,7 @@ Rust: [`InboundMultiplex`](https://github.com/peakpassvpn/sail/blob/dev/sail/src
 
 Used at: `outbounds[shadowsocks, trojan, vless, vmess].multiplex`
 
-Rust: [`OutboundMultiplex`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust: [`OutboundMultiplex`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -347,7 +347,7 @@ Rust: [`OutboundMultiplex`](https://github.com/peakpassvpn/sail/blob/dev/sail/sr
 
 Used at: `inbounds[hysteria2].obfs`, `outbounds[hysteria2].obfs`
 
-Rust: [`Obfs`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/hysteria2/mod.rs) · Build: `any (feature = "inbound-hysteria2" , feature = "outbound-hysteria2")`
+Rust: [`Obfs`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/hysteria2/mod.rs) · Build: `any (feature = "inbound-hysteria2" , feature = "outbound-hysteria2")`
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -359,7 +359,7 @@ Rust: [`Obfs`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/hy
 
 Used at: `inbounds[hysteria2].obfs[gecko]`, `outbounds[hysteria2].obfs[gecko]`
 
-Rust: [`Obfs`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/hysteria2/mod.rs) · Build: `any (feature = "inbound-hysteria2" , feature = "outbound-hysteria2")`
+Rust: [`Obfs`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/hysteria2/mod.rs) · Build: `any (feature = "inbound-hysteria2" , feature = "outbound-hysteria2")`
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -373,7 +373,7 @@ Rust: [`Obfs`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/hy
 
 Used at: `inbounds[hysteria2].obfs[salamander]`, `outbounds[hysteria2].obfs[salamander]`
 
-Rust: [`Obfs`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/hysteria2/mod.rs) · Build: `any (feature = "inbound-hysteria2" , feature = "outbound-hysteria2")`
+Rust: [`Obfs`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/hysteria2/mod.rs) · Build: `any (feature = "inbound-hysteria2" , feature = "outbound-hysteria2")`
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -397,7 +397,7 @@ Used at: `inbounds[hysteria2].realm.port_mapping`, `outbounds[hysteria2].realm.p
 
 Used at: `dns.servers[h3, https, quic, tls].tls.reality`
 
-Rust: [`OutboundReality`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust: [`OutboundReality`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -423,7 +423,7 @@ Used at: `http_clients[].tls.reality`, `route.rule_set[remote].http_client.tls.r
 
 Used at: `inbounds[http, trojan, vless, vmess].tls.reality`
 
-Rust: [`InboundReality`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust: [`InboundReality`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -439,7 +439,7 @@ Rust: [`InboundReality`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/t
 
 Used at: `inbounds[hysteria2, tuic].tls.reality`
 
-Rust: [`InboundReality`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust: [`InboundReality`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -467,7 +467,7 @@ Used at: `inbounds[hysteria2].realm.http_client.tls.reality`, `outbounds[hysteri
 
 Used at: `outbounds[anytls, http, hysteria2, shadowtls, trojan, tuic, vless, vmess].tls.reality`
 
-Rust: [`OutboundReality`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust: [`OutboundReality`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -518,7 +518,7 @@ Used at: `http_clients[].tls`, `route.rule_set[remote].http_client.tls`
 
 Used at: `inbounds[http, trojan, vless, vmess].tls`
 
-Rust: [`InboundTls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust: [`InboundTls`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -552,7 +552,7 @@ Rust: [`InboundTls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/trans
 
 Used at: `inbounds[hysteria2, tuic].tls`
 
-Rust: [`InboundTls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust: [`InboundTls`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -623,7 +623,7 @@ Used at: `inbounds[hysteria2].realm.http_client.tls`, `outbounds[hysteria2].real
 
 Used at: `outbounds[anytls, http, shadowtls, trojan, vless, vmess].tls`
 
-Rust: [`OutboundTls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust: [`OutboundTls`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -663,7 +663,7 @@ Rust: [`OutboundTls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/tran
 
 Used at: `inbounds[trojan, vless, vmess].transport`
 
-Rust: [`InboundTransport`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust: [`InboundTransport`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -675,7 +675,7 @@ Rust: [`InboundTransport`](https://github.com/peakpassvpn/sail/blob/dev/sail/src
 
 Used at: `outbounds[trojan, vless, vmess].transport`
 
-Rust: [`OutboundTransport`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust: [`OutboundTransport`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -687,7 +687,7 @@ Rust: [`OutboundTransport`](https://github.com/peakpassvpn/sail/blob/dev/sail/sr
 
 Used at: `inbounds[trojan, vless, vmess].transport[grpc]`
 
-Rust: [`InboundTransport`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust: [`InboundTransport`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -702,7 +702,7 @@ Rust: [`InboundTransport`](https://github.com/peakpassvpn/sail/blob/dev/sail/src
 
 Used at: `outbounds[trojan, vless, vmess].transport[grpc]`
 
-Rust: [`OutboundTransport`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust: [`OutboundTransport`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -717,7 +717,7 @@ Rust: [`OutboundTransport`](https://github.com/peakpassvpn/sail/blob/dev/sail/sr
 
 Used at: `inbounds[trojan, vless, vmess].transport[http]`
 
-Rust: [`InboundTransport`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust: [`InboundTransport`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -734,7 +734,7 @@ Rust: [`InboundTransport`](https://github.com/peakpassvpn/sail/blob/dev/sail/src
 
 Used at: `outbounds[trojan, vless, vmess].transport[http]`
 
-Rust: [`OutboundTransport`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust: [`OutboundTransport`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -751,7 +751,7 @@ Rust: [`OutboundTransport`](https://github.com/peakpassvpn/sail/blob/dev/sail/sr
 
 Used at: `inbounds[trojan, vless, vmess].transport[httpupgrade]`
 
-Rust: [`InboundTransport`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust: [`InboundTransport`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -765,7 +765,7 @@ Rust: [`InboundTransport`](https://github.com/peakpassvpn/sail/blob/dev/sail/src
 
 Used at: `outbounds[trojan, vless, vmess].transport[httpupgrade]`
 
-Rust: [`OutboundTransport`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust: [`OutboundTransport`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -779,7 +779,7 @@ Rust: [`OutboundTransport`](https://github.com/peakpassvpn/sail/blob/dev/sail/sr
 
 Used at: `inbounds[trojan, vless, vmess].transport[ws]`
 
-Rust: [`InboundTransport`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust: [`InboundTransport`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -795,7 +795,7 @@ Rust: [`InboundTransport`](https://github.com/peakpassvpn/sail/blob/dev/sail/src
 
 Used at: `outbounds[trojan, vless, vmess].transport[ws]`
 
-Rust: [`OutboundTransport`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust: [`OutboundTransport`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -821,7 +821,7 @@ Used at: `outbounds[shadowsocks, socks].udp_over_tcp`
 
 Used at: `dns.servers[https, tls].tls.utls`, `outbounds[anytls, http, shadowtls, trojan, vless, vmess].tls.utls`
 
-Rust: [`OutboundUtls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust: [`OutboundUtls`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |

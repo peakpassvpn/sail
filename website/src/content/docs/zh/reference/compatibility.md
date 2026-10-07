@@ -7,7 +7,7 @@ sail 直接读取 sing-box、Clash / Mihomo 与 Surge 的配置。每种格式�
 
 ## sing-box
 
-完整表格：[docs/compat/sing-box.md](https://github.com/peakpassvpn/sail/blob/dev/docs/compat/sing-box.md) · 中文版：[docs/compat/zh/sing-box.md](https://github.com/peakpassvpn/sail/blob/dev/docs/compat/zh/sing-box.md)
+完整表格：[docs/compat/sing-box.md](https://github.com/peakpassvpn/sail/blob/master/docs/compat/sing-box.md) · 中文版：[docs/compat/zh/sing-box.md](https://github.com/peakpassvpn/sail/blob/master/docs/compat/zh/sing-box.md)
 
 ### 汇总
 
@@ -31,7 +31,7 @@ sail 直接读取 sing-box、Clash / Mihomo 与 Surge 的配置。每种格式�
 
 ## Clash / Mihomo
 
-完整表格：[docs/compat/clash.md](https://github.com/peakpassvpn/sail/blob/dev/docs/compat/clash.md) · 中文版：[docs/compat/zh/clash.md](https://github.com/peakpassvpn/sail/blob/dev/docs/compat/zh/clash.md)
+完整表格：[docs/compat/clash.md](https://github.com/peakpassvpn/sail/blob/master/docs/compat/clash.md) · 中文版：[docs/compat/zh/clash.md](https://github.com/peakpassvpn/sail/blob/master/docs/compat/zh/clash.md)
 
 ### 汇总
 
@@ -104,7 +104,7 @@ sail 直接读取 sing-box、Clash / Mihomo 与 Surge 的配置。每种格式�
 
 ## Surge
 
-完整表格：[docs/compat/surge.md](https://github.com/peakpassvpn/sail/blob/dev/docs/compat/surge.md) · 中文版：[docs/compat/zh/surge.md](https://github.com/peakpassvpn/sail/blob/dev/docs/compat/zh/surge.md)
+完整表格：[docs/compat/surge.md](https://github.com/peakpassvpn/sail/blob/master/docs/compat/surge.md) · 中文版：[docs/compat/zh/surge.md](https://github.com/peakpassvpn/sail/blob/master/docs/compat/zh/surge.md)
 
 ### 汇总
 
@@ -151,7 +151,7 @@ sail 直接读取 sing-box、Clash / Mihomo 与 Surge 的配置。每种格式�
 
 ## Interop with sing-box and Mihomo
 
-完整表格：[docs/compat/interop.md](https://github.com/peakpassvpn/sail/blob/dev/docs/compat/interop.md) · 中文版：[docs/compat/zh/interop.md](https://github.com/peakpassvpn/sail/blob/dev/docs/compat/zh/interop.md)
+完整表格：[docs/compat/interop.md](https://github.com/peakpassvpn/sail/blob/master/docs/compat/interop.md) · 中文版：[docs/compat/zh/interop.md](https://github.com/peakpassvpn/sail/blob/master/docs/compat/zh/interop.md)
 
 ### 汇总
 

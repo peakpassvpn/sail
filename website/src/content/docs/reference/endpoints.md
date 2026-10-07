@@ -17,7 +17,7 @@ Validate a configuration with `sail -c config.json -T`. Editors check and comple
 
 ## `endpoints[]`
 
-Rust: [`Endpoint`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust: [`Endpoint`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -27,7 +27,7 @@ Rust: [`Endpoint`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/
 
 ## `endpoints[wireguard]`
 
-Rust: [`WireGuardOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/wireguard/endpoint/options.rs) · Build: `feature = "wireguard"`
+Rust: [`WireGuardOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/wireguard/endpoint/options.rs) · Build: `feature = "wireguard"`
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -72,7 +72,7 @@ Rust: [`WireGuardOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src
 
 ### `endpoints[wireguard].peers[]`
 
-Rust: [`PeerOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/wireguard/endpoint/options.rs) · Build: `feature = "wireguard"`
+Rust: [`PeerOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/wireguard/endpoint/options.rs) · Build: `feature = "wireguard"`
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |

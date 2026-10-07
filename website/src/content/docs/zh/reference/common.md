@@ -17,7 +17,7 @@ description: "sail 原生配置格式（sing-box v1.14.2 JSON 与 sail 扩展）
 
 ## 顶层
 
-Rust 定义：[`Config`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust 定义：[`Config`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -44,7 +44,7 @@ Rust 定义：[`Config`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/c
 
 ### `user_limits`
 
-Rust 定义：[`UserLimits`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs) · **sail 扩展**
+Rust 定义：[`UserLimits`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs) · **sail 扩展**
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -58,7 +58,7 @@ Rust 定义：[`UserLimits`](https://github.com/peakpassvpn/sail/blob/dev/sail/s
 
 ## `log`
 
-Rust 定义：[`Log`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust 定义：[`Log`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -73,7 +73,7 @@ Rust 定义：[`Log`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/conf
 
 ## `certificate`
 
-Rust 定义：[`CertificateOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust 定义：[`CertificateOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -86,7 +86,7 @@ Rust 定义：[`CertificateOptions`](https://github.com/peakpassvpn/sail/blob/de
 
 ## `http_clients[]`
 
-Rust 定义：[`HttpClient`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust 定义：[`HttpClient`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -178,7 +178,7 @@ Rust 定义：[`HttpClient`](https://github.com/peakpassvpn/sail/blob/dev/sail/s
 
 ## `experimental`
 
-Rust 定义：[`Experimental`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust 定义：[`Experimental`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -191,7 +191,7 @@ Rust 定义：[`Experimental`](https://github.com/peakpassvpn/sail/blob/dev/sail
 
 ### `experimental.cache_file`
 
-Rust 定义：[`CacheFileOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust 定义：[`CacheFileOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -207,7 +207,7 @@ Rust 定义：[`CacheFileOptions`](https://github.com/peakpassvpn/sail/blob/dev/
 
 ### `experimental.clash_api`
 
-Rust 定义：[`ClashApi`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust 定义：[`ClashApi`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -259,7 +259,7 @@ Rust 定义：[`ClashApi`](https://github.com/peakpassvpn/sail/blob/dev/sail/src
 
 ## `api`
 
-Rust 定义：[`Api`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs) · **sail 扩展**
+Rust 定义：[`Api`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs) · **sail 扩展**
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -271,7 +271,7 @@ Rust 定义：[`Api`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/conf
 
 ## `clash_api`
 
-Rust 定义：[`ClashApi`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs) · **sail 扩展**
+Rust 定义：[`ClashApi`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs) · **sail 扩展**
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -288,7 +288,7 @@ Rust 定义：[`ClashApi`](https://github.com/peakpassvpn/sail/blob/dev/sail/src
 
 ## `outbound_providers[]`
 
-Rust 定义：[`OutboundProvider`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs) · **sail 扩展**
+Rust 定义：[`OutboundProvider`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs) · **sail 扩展**
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -311,7 +311,7 @@ Rust 定义：[`OutboundProvider`](https://github.com/peakpassvpn/sail/blob/dev/
 
 ### `outbound_providers[].outbounds[]`
 
-Rust 定义：[`Outbound`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs) · **sail 扩展**
+Rust 定义：[`Outbound`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs) · **sail 扩展**
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |

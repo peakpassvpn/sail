@@ -21,7 +21,7 @@ description: "多处取用的配置对象，统一列出。"
 
 所在位置：`inbounds[shadowsocks, trojan, vless, vmess].multiplex.brutal`, `outbounds[shadowsocks, trojan, vless, vmess].multiplex.brutal`
 
-Rust 定义：[`MultiplexBrutal`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust 定义：[`MultiplexBrutal`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -35,7 +35,7 @@ Rust 定义：[`MultiplexBrutal`](https://github.com/peakpassvpn/sail/blob/dev/s
 
 所在位置：`dns.servers[h3, https, quic, tcp, tls, udp].client_subnet`, `outbounds[redirect].domain_resolver.client_subnet`
 
-Rust 定义：[`Prefix`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs) · **sail 扩展**
+Rust 定义：[`Prefix`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs) · **sail 扩展**
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -80,7 +80,7 @@ Rust 定义：[`Prefix`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/c
 
 所在位置：`http_clients[].domain_resolver`, `dns.servers[h3, https, quic, tcp, tls, udp].domain_resolver`, `inbounds[http, hysteria2, trojan, tuic, vless, vmess].tls.reality.handshake.domain_resolver`, `inbounds[shadowtls].handshake.domain_resolver`, `outbounds[anytls, direct, http, hysteria2, shadowsocks, shadowtls, socks, trojan, tuic, vless, vmess].domain_resolver`, `endpoints[wireguard].domain_resolver`, `route.default_domain_resolver`
 
-Rust 定义：[`DomainResolver`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust 定义：[`DomainResolver`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -114,7 +114,7 @@ Rust 定义：[`DomainResolver`](https://github.com/peakpassvpn/sail/blob/dev/sa
 
 所在位置：`dns.servers[h3, https, quic, tls].tls.ech`
 
-Rust 定义：[`OutboundEch`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust 定义：[`OutboundEch`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -167,7 +167,7 @@ Rust 定义：[`OutboundEch`](https://github.com/peakpassvpn/sail/blob/dev/sail/
 
 所在位置：`outbounds[anytls, http, hysteria2, shadowtls, trojan, tuic, vless, vmess].tls.ech`
 
-Rust 定义：[`OutboundEch`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust 定义：[`OutboundEch`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -183,7 +183,7 @@ Rust 定义：[`OutboundEch`](https://github.com/peakpassvpn/sail/blob/dev/sail/
 
 所在位置：`inbounds[anytls, vless].fallback`, `inbounds[anytls, vless].fallback_for_alpn`
 
-Rust 定义：[`FallbackServer`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/fallback.rs) · 构建条件：`any (feature = "inbound-anytls" , feature = "inbound-trojan" , feature = "inbound-vless" , feature = "inbound-shadowtls")` · **sail 扩展**
+Rust 定义：[`FallbackServer`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/fallback.rs) · 构建条件：`any (feature = "inbound-anytls" , feature = "inbound-trojan" , feature = "inbound-vless" , feature = "inbound-shadowtls")` · **sail 扩展**
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -196,7 +196,7 @@ Rust 定义：[`FallbackServer`](https://github.com/peakpassvpn/sail/blob/dev/sa
 
 所在位置：`inbounds[http, trojan, vless, vmess].tls.reality.handshake`
 
-Rust 定义：[`RealityHandshake`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust 定义：[`RealityHandshake`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -232,7 +232,7 @@ Rust 定义：[`RealityHandshake`](https://github.com/peakpassvpn/sail/blob/dev/
 
 所在位置：`inbounds[hysteria2, tuic].tls.reality.handshake`
 
-Rust 定义：[`RealityHandshake`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust 定义：[`RealityHandshake`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -310,7 +310,7 @@ Rust 定义：[`RealityHandshake`](https://github.com/peakpassvpn/sail/blob/dev/
 
 所在位置：`inbounds[shadowsocks, trojan, vless, vmess].multiplex`
 
-Rust 定义：[`InboundMultiplex`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust 定义：[`InboundMultiplex`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -325,7 +325,7 @@ Rust 定义：[`InboundMultiplex`](https://github.com/peakpassvpn/sail/blob/dev/
 
 所在位置：`outbounds[shadowsocks, trojan, vless, vmess].multiplex`
 
-Rust 定义：[`OutboundMultiplex`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust 定义：[`OutboundMultiplex`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -347,7 +347,7 @@ Rust 定义：[`OutboundMultiplex`](https://github.com/peakpassvpn/sail/blob/dev
 
 所在位置：`inbounds[hysteria2].obfs`, `outbounds[hysteria2].obfs`
 
-Rust 定义：[`Obfs`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/hysteria2/mod.rs) · 构建条件：`any (feature = "inbound-hysteria2" , feature = "outbound-hysteria2")`
+Rust 定义：[`Obfs`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/hysteria2/mod.rs) · 构建条件：`any (feature = "inbound-hysteria2" , feature = "outbound-hysteria2")`
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -359,7 +359,7 @@ Rust 定义：[`Obfs`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/pro
 
 所在位置：`inbounds[hysteria2].obfs[gecko]`, `outbounds[hysteria2].obfs[gecko]`
 
-Rust 定义：[`Obfs`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/hysteria2/mod.rs) · 构建条件：`any (feature = "inbound-hysteria2" , feature = "outbound-hysteria2")`
+Rust 定义：[`Obfs`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/hysteria2/mod.rs) · 构建条件：`any (feature = "inbound-hysteria2" , feature = "outbound-hysteria2")`
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -373,7 +373,7 @@ Rust 定义：[`Obfs`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/pro
 
 所在位置：`inbounds[hysteria2].obfs[salamander]`, `outbounds[hysteria2].obfs[salamander]`
 
-Rust 定义：[`Obfs`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/hysteria2/mod.rs) · 构建条件：`any (feature = "inbound-hysteria2" , feature = "outbound-hysteria2")`
+Rust 定义：[`Obfs`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/hysteria2/mod.rs) · 构建条件：`any (feature = "inbound-hysteria2" , feature = "outbound-hysteria2")`
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -397,7 +397,7 @@ Rust 定义：[`Obfs`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/pro
 
 所在位置：`dns.servers[h3, https, quic, tls].tls.reality`
 
-Rust 定义：[`OutboundReality`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust 定义：[`OutboundReality`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -423,7 +423,7 @@ Rust 定义：[`OutboundReality`](https://github.com/peakpassvpn/sail/blob/dev/s
 
 所在位置：`inbounds[http, trojan, vless, vmess].tls.reality`
 
-Rust 定义：[`InboundReality`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust 定义：[`InboundReality`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -439,7 +439,7 @@ Rust 定义：[`InboundReality`](https://github.com/peakpassvpn/sail/blob/dev/sa
 
 所在位置：`inbounds[hysteria2, tuic].tls.reality`
 
-Rust 定义：[`InboundReality`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust 定义：[`InboundReality`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -467,7 +467,7 @@ Rust 定义：[`InboundReality`](https://github.com/peakpassvpn/sail/blob/dev/sa
 
 所在位置：`outbounds[anytls, http, hysteria2, shadowtls, trojan, tuic, vless, vmess].tls.reality`
 
-Rust 定义：[`OutboundReality`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust 定义：[`OutboundReality`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -518,7 +518,7 @@ Rust 定义：[`OutboundReality`](https://github.com/peakpassvpn/sail/blob/dev/s
 
 所在位置：`inbounds[http, trojan, vless, vmess].tls`
 
-Rust 定义：[`InboundTls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust 定义：[`InboundTls`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -552,7 +552,7 @@ Rust 定义：[`InboundTls`](https://github.com/peakpassvpn/sail/blob/dev/sail/s
 
 所在位置：`inbounds[hysteria2, tuic].tls`
 
-Rust 定义：[`InboundTls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust 定义：[`InboundTls`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -623,7 +623,7 @@ Rust 定义：[`InboundTls`](https://github.com/peakpassvpn/sail/blob/dev/sail/s
 
 所在位置：`outbounds[anytls, http, shadowtls, trojan, vless, vmess].tls`
 
-Rust 定义：[`OutboundTls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust 定义：[`OutboundTls`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -663,7 +663,7 @@ Rust 定义：[`OutboundTls`](https://github.com/peakpassvpn/sail/blob/dev/sail/
 
 所在位置：`inbounds[trojan, vless, vmess].transport`
 
-Rust 定义：[`InboundTransport`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust 定义：[`InboundTransport`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -675,7 +675,7 @@ Rust 定义：[`InboundTransport`](https://github.com/peakpassvpn/sail/blob/dev/
 
 所在位置：`outbounds[trojan, vless, vmess].transport`
 
-Rust 定义：[`OutboundTransport`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust 定义：[`OutboundTransport`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -687,7 +687,7 @@ Rust 定义：[`OutboundTransport`](https://github.com/peakpassvpn/sail/blob/dev
 
 所在位置：`inbounds[trojan, vless, vmess].transport[grpc]`
 
-Rust 定义：[`InboundTransport`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust 定义：[`InboundTransport`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -702,7 +702,7 @@ Rust 定义：[`InboundTransport`](https://github.com/peakpassvpn/sail/blob/dev/
 
 所在位置：`outbounds[trojan, vless, vmess].transport[grpc]`
 
-Rust 定义：[`OutboundTransport`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust 定义：[`OutboundTransport`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -717,7 +717,7 @@ Rust 定义：[`OutboundTransport`](https://github.com/peakpassvpn/sail/blob/dev
 
 所在位置：`inbounds[trojan, vless, vmess].transport[http]`
 
-Rust 定义：[`InboundTransport`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust 定义：[`InboundTransport`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -734,7 +734,7 @@ Rust 定义：[`InboundTransport`](https://github.com/peakpassvpn/sail/blob/dev/
 
 所在位置：`outbounds[trojan, vless, vmess].transport[http]`
 
-Rust 定义：[`OutboundTransport`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust 定义：[`OutboundTransport`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -751,7 +751,7 @@ Rust 定义：[`OutboundTransport`](https://github.com/peakpassvpn/sail/blob/dev
 
 所在位置：`inbounds[trojan, vless, vmess].transport[httpupgrade]`
 
-Rust 定义：[`InboundTransport`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust 定义：[`InboundTransport`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -765,7 +765,7 @@ Rust 定义：[`InboundTransport`](https://github.com/peakpassvpn/sail/blob/dev/
 
 所在位置：`outbounds[trojan, vless, vmess].transport[httpupgrade]`
 
-Rust 定义：[`OutboundTransport`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust 定义：[`OutboundTransport`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -779,7 +779,7 @@ Rust 定义：[`OutboundTransport`](https://github.com/peakpassvpn/sail/blob/dev
 
 所在位置：`inbounds[trojan, vless, vmess].transport[ws]`
 
-Rust 定义：[`InboundTransport`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust 定义：[`InboundTransport`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -795,7 +795,7 @@ Rust 定义：[`InboundTransport`](https://github.com/peakpassvpn/sail/blob/dev/
 
 所在位置：`outbounds[trojan, vless, vmess].transport[ws]`
 
-Rust 定义：[`OutboundTransport`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust 定义：[`OutboundTransport`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -821,7 +821,7 @@ Rust 定义：[`OutboundTransport`](https://github.com/peakpassvpn/sail/blob/dev
 
 所在位置：`dns.servers[https, tls].tls.utls`, `outbounds[anytls, http, shadowtls, trojan, vless, vmess].tls.utls`
 
-Rust 定义：[`OutboundUtls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust 定义：[`OutboundUtls`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |

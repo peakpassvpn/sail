@@ -17,7 +17,7 @@ Validate a configuration with `sail -c config.json -T`. Editors check and comple
 
 ## `dns`
 
-Rust: [`Dns`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust: [`Dns`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -39,7 +39,7 @@ Rust: [`Dns`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model
 
 ### `dns.optimistic`
 
-Rust: [`Optimistic`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust: [`Optimistic`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -50,7 +50,7 @@ Rust: [`Optimistic`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/confi
 
 ## `dns.servers[]`
 
-Rust: [`DnsServer`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust: [`DnsServer`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -60,7 +60,7 @@ Rust: [`DnsServer`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config
 
 ## `dns.servers[fakeip]`
 
-Rust: [`FakeIpOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/app/dns/client/server.rs)
+Rust: [`FakeIpOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/app/dns/client/server.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -72,7 +72,7 @@ Rust: [`FakeIpOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/ap
 
 ## `dns.servers[h3]`
 
-Rust: [`RemoteOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/app/dns/client/server.rs)
+Rust: [`RemoteOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/app/dns/client/server.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -112,7 +112,7 @@ Rust: [`RemoteOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/ap
 
 ### `dns.servers[h3].tls`
 
-Rust: [`OutboundTls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust: [`OutboundTls`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -150,7 +150,7 @@ Rust: [`OutboundTls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/tran
 
 ### `dns.servers[h3].tls.utls`
 
-Rust: [`OutboundUtls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust: [`OutboundUtls`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -161,7 +161,7 @@ Rust: [`OutboundUtls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/tra
 
 ## `dns.servers[hosts]`
 
-Rust: [`HostsOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/app/dns/client/server.rs)
+Rust: [`HostsOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/app/dns/client/server.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -173,7 +173,7 @@ Rust: [`HostsOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/app
 
 ## `dns.servers[https]`
 
-Rust: [`RemoteOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/app/dns/client/server.rs)
+Rust: [`RemoteOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/app/dns/client/server.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -213,7 +213,7 @@ Rust: [`RemoteOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/ap
 
 ### `dns.servers[https].tls`
 
-Rust: [`OutboundTls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust: [`OutboundTls`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -251,7 +251,7 @@ Rust: [`OutboundTls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/tran
 
 ## `dns.servers[local]`
 
-Rust: [`LocalOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/app/dns/client/server.rs)
+Rust: [`LocalOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/app/dns/client/server.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -285,7 +285,7 @@ Rust: [`LocalOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/app
 
 ### `dns.servers[local].domain_resolver`
 
-Rust: [`DomainResolver`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust: [`DomainResolver`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -301,7 +301,7 @@ Rust: [`DomainResolver`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/c
 
 ## `dns.servers[mdns]`
 
-Rust: [`MdnsOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/app/dns/client/server.rs)
+Rust: [`MdnsOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/app/dns/client/server.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -350,7 +350,7 @@ Rust: [`MdnsOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/app/
 
 ## `dns.servers[quic]`
 
-Rust: [`RemoteOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/app/dns/client/server.rs)
+Rust: [`RemoteOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/app/dns/client/server.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -387,7 +387,7 @@ Rust: [`RemoteOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/ap
 
 ### `dns.servers[quic].tls`
 
-Rust: [`OutboundTls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust: [`OutboundTls`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -425,7 +425,7 @@ Rust: [`OutboundTls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/tran
 
 ### `dns.servers[quic].tls.utls`
 
-Rust: [`OutboundUtls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust: [`OutboundUtls`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -436,7 +436,7 @@ Rust: [`OutboundUtls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/tra
 
 ## `dns.servers[race]`
 
-Rust: [`RaceOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/app/dns/client/server.rs) · **sail extension**
+Rust: [`RaceOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/app/dns/client/server.rs) · **sail extension**
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -447,7 +447,7 @@ Rust: [`RaceOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/app/
 
 ## `dns.servers[sequential]`
 
-Rust: [`SequentialOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/app/dns/client/server.rs) · **sail extension**
+Rust: [`SequentialOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/app/dns/client/server.rs) · **sail extension**
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -461,7 +461,7 @@ Rust: [`SequentialOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/sr
 
 ## `dns.servers[tcp]`
 
-Rust: [`RemoteOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/app/dns/client/server.rs)
+Rust: [`RemoteOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/app/dns/client/server.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -497,7 +497,7 @@ Rust: [`RemoteOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/ap
 
 ## `dns.servers[tls]`
 
-Rust: [`RemoteOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/app/dns/client/server.rs)
+Rust: [`RemoteOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/app/dns/client/server.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -534,7 +534,7 @@ Rust: [`RemoteOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/ap
 
 ### `dns.servers[tls].tls`
 
-Rust: [`OutboundTls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust: [`OutboundTls`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -572,7 +572,7 @@ Rust: [`OutboundTls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/tran
 
 ## `dns.servers[udp]`
 
-Rust: [`RemoteOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/app/dns/client/server.rs)
+Rust: [`RemoteOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/app/dns/client/server.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -608,7 +608,7 @@ Rust: [`RemoteOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/ap
 
 ## `dns.rules[]`
 
-Rust: [`DnsRule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust: [`DnsRule`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -677,7 +677,7 @@ Rust: [`DnsRule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/m
 
 ## `dns.rules[action=evaluate]`
 
-Rust: [`DnsRule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust: [`DnsRule`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -697,7 +697,7 @@ Rust: [`DnsRule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/m
 
 ## `dns.rules[action=predefined]`
 
-Rust: [`DnsRule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust: [`DnsRule`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -711,7 +711,7 @@ Rust: [`DnsRule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/m
 
 ## `dns.rules[action=reject]`
 
-Rust: [`DnsRule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust: [`DnsRule`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -723,7 +723,7 @@ Rust: [`DnsRule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/m
 
 ## `dns.rules[action=respond]`
 
-Rust: [`DnsRule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust: [`DnsRule`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -733,7 +733,7 @@ Rust: [`DnsRule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/m
 
 ## `dns.rules[action=route]`
 
-Rust: [`DnsRule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust: [`DnsRule`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -752,7 +752,7 @@ Rust: [`DnsRule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/m
 
 ## `dns.rules[action=route-options]`
 
-Rust: [`DnsRule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust: [`DnsRule`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -769,7 +769,7 @@ Rust: [`DnsRule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/m
 
 ## `dns.rules[logical]`
 
-Rust: [`DnsRule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust: [`DnsRule`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |

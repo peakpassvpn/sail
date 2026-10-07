@@ -17,7 +17,7 @@ Validate a configuration with `sail -c config.json -T`. Editors check and comple
 
 ## `inbounds[]`
 
-Rust: [`Inbound`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust: [`Inbound`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -27,7 +27,7 @@ Rust: [`Inbound`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/m
 
 ## `inbounds[anytls]`
 
-Rust: [`AnyTlsInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/anytls/inbound/mod.rs) · Build: `feature = "inbound-anytls"`
+Rust: [`AnyTlsInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/anytls/inbound/mod.rs) · Build: `feature = "inbound-anytls"`
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -129,7 +129,7 @@ Rust: [`AnyTlsInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail
 
 ### `inbounds[anytls].users[]`
 
-Rust: [`AnyTlsUser`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/anytls/inbound/mod.rs) · Build: `feature = "inbound-anytls"`
+Rust: [`AnyTlsUser`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/anytls/inbound/mod.rs) · Build: `feature = "inbound-anytls"`
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -140,7 +140,7 @@ Rust: [`AnyTlsUser`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/proto
 
 ## `inbounds[direct]`
 
-Rust: [`DirectInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/direct/inbound.rs) · Build: `feature = "inbound-direct"`
+Rust: [`DirectInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/direct/inbound.rs) · Build: `feature = "inbound-direct"`
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -167,7 +167,7 @@ Rust: [`DirectInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail
 
 ## `inbounds[hc]`
 
-Rust: [`HcInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/hc/inbound/mod.rs) · Build: `feature = "inbound-hc"` · **sail extension**
+Rust: [`HcInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/hc/inbound/mod.rs) · Build: `feature = "inbound-hc"` · **sail extension**
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -186,7 +186,7 @@ Rust: [`HcInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src
 
 ## `inbounds[http]`
 
-Rust: [`HttpInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/http/inbound/mod.rs) · Build: `feature = "inbound-http"`
+Rust: [`HttpInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/http/inbound/mod.rs) · Build: `feature = "inbound-http"`
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -215,7 +215,7 @@ Rust: [`HttpInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/s
 
 ### `inbounds[http].users[]`
 
-Rust: [`HttpUser`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/http/inbound/mod.rs) · Build: `feature = "inbound-http"`
+Rust: [`HttpUser`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/http/inbound/mod.rs) · Build: `feature = "inbound-http"`
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -226,7 +226,7 @@ Rust: [`HttpUser`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protoco
 
 ## `inbounds[hysteria2]`
 
-Rust: [`Hysteria2InboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/hysteria2/inbound/mod.rs) · Build: `feature = "inbound-hysteria2"`
+Rust: [`Hysteria2InboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/hysteria2/inbound/mod.rs) · Build: `feature = "inbound-hysteria2"`
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -267,7 +267,7 @@ Rust: [`Hysteria2InboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/s
 
 ### `inbounds[hysteria2].users[]`
 
-Rust: [`User`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/hysteria2/inbound/mod.rs) · Build: `feature = "inbound-hysteria2"`
+Rust: [`User`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/hysteria2/inbound/mod.rs) · Build: `feature = "inbound-hysteria2"`
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -293,7 +293,7 @@ Rust: [`User`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/hy
 
 ## `inbounds[mixed]`
 
-Rust: [`MixedInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/mixed/inbound/mod.rs) · Build: `feature = "inbound-mixed"`
+Rust: [`MixedInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/mixed/inbound/mod.rs) · Build: `feature = "inbound-mixed"`
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -322,7 +322,7 @@ Rust: [`MixedInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/
 
 ### `inbounds[mixed].users[]`
 
-Rust: [`MixedUser`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/mixed/inbound/mod.rs) · Build: `feature = "inbound-mixed"`
+Rust: [`MixedUser`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/mixed/inbound/mod.rs) · Build: `feature = "inbound-mixed"`
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -430,7 +430,7 @@ Rust: [`MixedUser`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protoc
 
 ## `inbounds[mptp]`
 
-Rust: [`MptpInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/mptp/inbound/mod.rs) · Build: `feature = "inbound-mptp"` · **sail extension**
+Rust: [`MptpInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/mptp/inbound/mod.rs) · Build: `feature = "inbound-mptp"` · **sail extension**
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -446,7 +446,7 @@ Rust: [`MptpInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/s
 
 ## `inbounds[nf]`
 
-Rust: [`NfInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/nf/inbound/mod.rs) · Build: `all (feature = "inbound-nf" , windows)` · **sail extension**
+Rust: [`NfInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/nf/inbound/mod.rs) · Build: `all (feature = "inbound-nf" , windows)` · **sail extension**
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -466,7 +466,7 @@ Rust: [`NfInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src
 
 ## `inbounds[redirect]`
 
-Rust: [`RedirectInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/redirect/inbound/mod.rs) · Build: `feature = "inbound-redirect"`
+Rust: [`RedirectInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/redirect/inbound/mod.rs) · Build: `feature = "inbound-redirect"`
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -490,7 +490,7 @@ Rust: [`RedirectInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sa
 
 ## `inbounds[shadowsocks]`
 
-Rust: [`ShadowsocksInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/shadowsocks/inbound/mod.rs) · Build: `feature = "inbound-shadowsocks"`
+Rust: [`ShadowsocksInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/shadowsocks/inbound/mod.rs) · Build: `feature = "inbound-shadowsocks"`
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -521,7 +521,7 @@ Rust: [`ShadowsocksInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev
 
 ### `inbounds[shadowsocks].users[]`
 
-Rust: [`ShadowsocksUser`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/shadowsocks/inbound/mod.rs) · Build: `feature = "inbound-shadowsocks"`
+Rust: [`ShadowsocksUser`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/shadowsocks/inbound/mod.rs) · Build: `feature = "inbound-shadowsocks"`
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -543,7 +543,7 @@ Rust: [`ShadowsocksUser`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/
 
 ## `inbounds[shadowtls]`
 
-Rust: [`ShadowTlsInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/shadowtls/inbound.rs) · Build: `feature = "inbound-shadowtls"`
+Rust: [`ShadowTlsInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/shadowtls/inbound.rs) · Build: `feature = "inbound-shadowtls"`
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -574,7 +574,7 @@ Rust: [`ShadowTlsInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/s
 
 ### `inbounds[shadowtls].users[]`
 
-Rust: [`ShadowTlsUser`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/shadowtls/inbound.rs) · Build: `feature = "inbound-shadowtls"`
+Rust: [`ShadowTlsUser`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/shadowtls/inbound.rs) · Build: `feature = "inbound-shadowtls"`
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -585,7 +585,7 @@ Rust: [`ShadowTlsUser`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/pr
 
 ### `inbounds[shadowtls].handshake`
 
-Rust: [`ShadowTlsHandshake`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/shadowtls/inbound.rs) · Build: `feature = "inbound-shadowtls"`
+Rust: [`ShadowTlsHandshake`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/shadowtls/inbound.rs) · Build: `feature = "inbound-shadowtls"`
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -619,7 +619,7 @@ Rust: [`ShadowTlsHandshake`](https://github.com/peakpassvpn/sail/blob/dev/sail/s
 
 ## `inbounds[socks]`
 
-Rust: [`SocksInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/socks/inbound/mod.rs) · Build: `feature = "inbound-socks"`
+Rust: [`SocksInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/socks/inbound/mod.rs) · Build: `feature = "inbound-socks"`
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -645,7 +645,7 @@ Rust: [`SocksInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/
 
 ### `inbounds[socks].users[]`
 
-Rust: [`SocksUser`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/socks/inbound/mod.rs) · Build: `feature = "inbound-socks"`
+Rust: [`SocksUser`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/socks/inbound/mod.rs) · Build: `feature = "inbound-socks"`
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -656,7 +656,7 @@ Rust: [`SocksUser`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protoc
 
 ## `inbounds[tproxy]`
 
-Rust: [`TproxyInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/tproxy/mod.rs) · Build: `feature = "inbound-tproxy"`
+Rust: [`TproxyInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/tproxy/mod.rs) · Build: `feature = "inbound-tproxy"`
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -684,7 +684,7 @@ Rust: [`TproxyInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail
 
 ## `inbounds[trojan]`
 
-Rust: [`TrojanInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/trojan/inbound/mod.rs) · Build: `feature = "inbound-trojan"`
+Rust: [`TrojanInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/trojan/inbound/mod.rs) · Build: `feature = "inbound-trojan"`
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -714,7 +714,7 @@ Rust: [`TrojanInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail
 
 ### `inbounds[trojan].users[]`
 
-Rust: [`TrojanUser`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/trojan/inbound/mod.rs) · Build: `feature = "inbound-trojan"`
+Rust: [`TrojanUser`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/trojan/inbound/mod.rs) · Build: `feature = "inbound-trojan"`
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -725,7 +725,7 @@ Rust: [`TrojanUser`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/proto
 
 ### `inbounds[trojan].fallback`
 
-Rust: [`FallbackServer`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/fallback.rs) · Build: `any (feature = "inbound-anytls" , feature = "inbound-trojan" , feature = "inbound-vless" , feature = "inbound-shadowtls")`
+Rust: [`FallbackServer`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/fallback.rs) · Build: `any (feature = "inbound-anytls" , feature = "inbound-trojan" , feature = "inbound-vless" , feature = "inbound-shadowtls")`
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -736,7 +736,7 @@ Rust: [`FallbackServer`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/p
 
 ## `inbounds[tuic]`
 
-Rust: [`TuicInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/tuic/inbound/mod.rs) · Build: `feature = "inbound-tuic"`
+Rust: [`TuicInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/tuic/inbound/mod.rs) · Build: `feature = "inbound-tuic"`
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -773,7 +773,7 @@ Rust: [`TuicInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/s
 
 ### `inbounds[tuic].users[]`
 
-Rust: [`TuicUser`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/tuic/inbound/mod.rs) · Build: `feature = "inbound-tuic"`
+Rust: [`TuicUser`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/tuic/inbound/mod.rs) · Build: `feature = "inbound-tuic"`
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -785,7 +785,7 @@ Rust: [`TuicUser`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protoco
 
 ## `inbounds[tun]`
 
-Rust: [`TunInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/tun/inbound.rs) · Build: `feature = "inbound-tun"`
+Rust: [`TunInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/tun/inbound.rs) · Build: `feature = "inbound-tun"`
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -855,7 +855,7 @@ Rust: [`TunInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/sr
 
 ## `inbounds[vless]`
 
-Rust: [`VlessInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/vless/inbound/mod.rs) · Build: `feature = "inbound-vless"`
+Rust: [`VlessInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/vless/inbound/mod.rs) · Build: `feature = "inbound-vless"`
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -885,7 +885,7 @@ Rust: [`VlessInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/
 
 ### `inbounds[vless].users[]`
 
-Rust: [`VlessUser`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/vless/inbound/mod.rs) · Build: `feature = "inbound-vless"`
+Rust: [`VlessUser`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/vless/inbound/mod.rs) · Build: `feature = "inbound-vless"`
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -897,7 +897,7 @@ Rust: [`VlessUser`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protoc
 
 ## `inbounds[vmess]`
 
-Rust: [`VMessInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/vmess/inbound/mod.rs) · Build: `feature = "inbound-vmess"`
+Rust: [`VMessInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/vmess/inbound/mod.rs) · Build: `feature = "inbound-vmess"`
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -925,7 +925,7 @@ Rust: [`VMessInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/
 
 ### `inbounds[vmess].users[]`
 
-Rust: [`VMessUser`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/vmess/inbound/mod.rs) · Build: `feature = "inbound-vmess"`
+Rust: [`VMessUser`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/vmess/inbound/mod.rs) · Build: `feature = "inbound-vmess"`
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |

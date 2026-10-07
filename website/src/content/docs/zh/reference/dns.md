@@ -17,7 +17,7 @@ description: "sail 原生配置格式（sing-box v1.14.2 JSON 与 sail 扩展）
 
 ## `dns`
 
-Rust 定义：[`Dns`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust 定义：[`Dns`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -39,7 +39,7 @@ Rust 定义：[`Dns`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/conf
 
 ### `dns.optimistic`
 
-Rust 定义：[`Optimistic`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust 定义：[`Optimistic`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -50,7 +50,7 @@ Rust 定义：[`Optimistic`](https://github.com/peakpassvpn/sail/blob/dev/sail/s
 
 ## `dns.servers[]`
 
-Rust 定义：[`DnsServer`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust 定义：[`DnsServer`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -60,7 +60,7 @@ Rust 定义：[`DnsServer`](https://github.com/peakpassvpn/sail/blob/dev/sail/sr
 
 ## `dns.servers[fakeip]`
 
-Rust 定义：[`FakeIpOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/app/dns/client/server.rs)
+Rust 定义：[`FakeIpOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/app/dns/client/server.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -72,7 +72,7 @@ Rust 定义：[`FakeIpOptions`](https://github.com/peakpassvpn/sail/blob/dev/sai
 
 ## `dns.servers[h3]`
 
-Rust 定义：[`RemoteOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/app/dns/client/server.rs)
+Rust 定义：[`RemoteOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/app/dns/client/server.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -112,7 +112,7 @@ Rust 定义：[`RemoteOptions`](https://github.com/peakpassvpn/sail/blob/dev/sai
 
 ### `dns.servers[h3].tls`
 
-Rust 定义：[`OutboundTls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust 定义：[`OutboundTls`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -150,7 +150,7 @@ Rust 定义：[`OutboundTls`](https://github.com/peakpassvpn/sail/blob/dev/sail/
 
 ### `dns.servers[h3].tls.utls`
 
-Rust 定义：[`OutboundUtls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust 定义：[`OutboundUtls`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -161,7 +161,7 @@ Rust 定义：[`OutboundUtls`](https://github.com/peakpassvpn/sail/blob/dev/sail
 
 ## `dns.servers[hosts]`
 
-Rust 定义：[`HostsOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/app/dns/client/server.rs)
+Rust 定义：[`HostsOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/app/dns/client/server.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -173,7 +173,7 @@ Rust 定义：[`HostsOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail
 
 ## `dns.servers[https]`
 
-Rust 定义：[`RemoteOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/app/dns/client/server.rs)
+Rust 定义：[`RemoteOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/app/dns/client/server.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -213,7 +213,7 @@ Rust 定义：[`RemoteOptions`](https://github.com/peakpassvpn/sail/blob/dev/sai
 
 ### `dns.servers[https].tls`
 
-Rust 定义：[`OutboundTls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust 定义：[`OutboundTls`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -251,7 +251,7 @@ Rust 定义：[`OutboundTls`](https://github.com/peakpassvpn/sail/blob/dev/sail/
 
 ## `dns.servers[local]`
 
-Rust 定义：[`LocalOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/app/dns/client/server.rs)
+Rust 定义：[`LocalOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/app/dns/client/server.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -285,7 +285,7 @@ Rust 定义：[`LocalOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail
 
 ### `dns.servers[local].domain_resolver`
 
-Rust 定义：[`DomainResolver`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust 定义：[`DomainResolver`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -301,7 +301,7 @@ Rust 定义：[`DomainResolver`](https://github.com/peakpassvpn/sail/blob/dev/sa
 
 ## `dns.servers[mdns]`
 
-Rust 定义：[`MdnsOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/app/dns/client/server.rs)
+Rust 定义：[`MdnsOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/app/dns/client/server.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -350,7 +350,7 @@ Rust 定义：[`MdnsOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/
 
 ## `dns.servers[quic]`
 
-Rust 定义：[`RemoteOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/app/dns/client/server.rs)
+Rust 定义：[`RemoteOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/app/dns/client/server.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -387,7 +387,7 @@ Rust 定义：[`RemoteOptions`](https://github.com/peakpassvpn/sail/blob/dev/sai
 
 ### `dns.servers[quic].tls`
 
-Rust 定义：[`OutboundTls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust 定义：[`OutboundTls`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -425,7 +425,7 @@ Rust 定义：[`OutboundTls`](https://github.com/peakpassvpn/sail/blob/dev/sail/
 
 ### `dns.servers[quic].tls.utls`
 
-Rust 定义：[`OutboundUtls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust 定义：[`OutboundUtls`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -436,7 +436,7 @@ Rust 定义：[`OutboundUtls`](https://github.com/peakpassvpn/sail/blob/dev/sail
 
 ## `dns.servers[race]`
 
-Rust 定义：[`RaceOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/app/dns/client/server.rs) · **sail 扩展**
+Rust 定义：[`RaceOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/app/dns/client/server.rs) · **sail 扩展**
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -447,7 +447,7 @@ Rust 定义：[`RaceOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/
 
 ## `dns.servers[sequential]`
 
-Rust 定义：[`SequentialOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/app/dns/client/server.rs) · **sail 扩展**
+Rust 定义：[`SequentialOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/app/dns/client/server.rs) · **sail 扩展**
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -461,7 +461,7 @@ Rust 定义：[`SequentialOptions`](https://github.com/peakpassvpn/sail/blob/dev
 
 ## `dns.servers[tcp]`
 
-Rust 定义：[`RemoteOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/app/dns/client/server.rs)
+Rust 定义：[`RemoteOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/app/dns/client/server.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -497,7 +497,7 @@ Rust 定义：[`RemoteOptions`](https://github.com/peakpassvpn/sail/blob/dev/sai
 
 ## `dns.servers[tls]`
 
-Rust 定义：[`RemoteOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/app/dns/client/server.rs)
+Rust 定义：[`RemoteOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/app/dns/client/server.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -534,7 +534,7 @@ Rust 定义：[`RemoteOptions`](https://github.com/peakpassvpn/sail/blob/dev/sai
 
 ### `dns.servers[tls].tls`
 
-Rust 定义：[`OutboundTls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust 定义：[`OutboundTls`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -572,7 +572,7 @@ Rust 定义：[`OutboundTls`](https://github.com/peakpassvpn/sail/blob/dev/sail/
 
 ## `dns.servers[udp]`
 
-Rust 定义：[`RemoteOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/app/dns/client/server.rs)
+Rust 定义：[`RemoteOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/app/dns/client/server.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -608,7 +608,7 @@ Rust 定义：[`RemoteOptions`](https://github.com/peakpassvpn/sail/blob/dev/sai
 
 ## `dns.rules[]`
 
-Rust 定义：[`DnsRule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust 定义：[`DnsRule`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -677,7 +677,7 @@ Rust 定义：[`DnsRule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/
 
 ## `dns.rules[action=evaluate]`
 
-Rust 定义：[`DnsRule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust 定义：[`DnsRule`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -697,7 +697,7 @@ Rust 定义：[`DnsRule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/
 
 ## `dns.rules[action=predefined]`
 
-Rust 定义：[`DnsRule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust 定义：[`DnsRule`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -711,7 +711,7 @@ Rust 定义：[`DnsRule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/
 
 ## `dns.rules[action=reject]`
 
-Rust 定义：[`DnsRule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust 定义：[`DnsRule`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -723,7 +723,7 @@ Rust 定义：[`DnsRule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/
 
 ## `dns.rules[action=respond]`
 
-Rust 定义：[`DnsRule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust 定义：[`DnsRule`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -733,7 +733,7 @@ Rust 定义：[`DnsRule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/
 
 ## `dns.rules[action=route]`
 
-Rust 定义：[`DnsRule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust 定义：[`DnsRule`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -752,7 +752,7 @@ Rust 定义：[`DnsRule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/
 
 ## `dns.rules[action=route-options]`
 
-Rust 定义：[`DnsRule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust 定义：[`DnsRule`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -769,7 +769,7 @@ Rust 定义：[`DnsRule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/
 
 ## `dns.rules[logical]`
 
-Rust 定义：[`DnsRule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust 定义：[`DnsRule`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |

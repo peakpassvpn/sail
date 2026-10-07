@@ -17,7 +17,7 @@ description: "sail 原生配置格式（sing-box v1.14.2 JSON 与 sail 扩展）
 
 ## `inbounds[]`
 
-Rust 定义：[`Inbound`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust 定义：[`Inbound`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -27,7 +27,7 @@ Rust 定义：[`Inbound`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/
 
 ## `inbounds[anytls]`
 
-Rust 定义：[`AnyTlsInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/anytls/inbound/mod.rs) · 构建条件：`feature = "inbound-anytls"`
+Rust 定义：[`AnyTlsInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/anytls/inbound/mod.rs) · 构建条件：`feature = "inbound-anytls"`
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -129,7 +129,7 @@ Rust 定义：[`AnyTlsInboundOptions`](https://github.com/peakpassvpn/sail/blob/
 
 ### `inbounds[anytls].users[]`
 
-Rust 定义：[`AnyTlsUser`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/anytls/inbound/mod.rs) · 构建条件：`feature = "inbound-anytls"`
+Rust 定义：[`AnyTlsUser`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/anytls/inbound/mod.rs) · 构建条件：`feature = "inbound-anytls"`
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -140,7 +140,7 @@ Rust 定义：[`AnyTlsUser`](https://github.com/peakpassvpn/sail/blob/dev/sail/s
 
 ## `inbounds[direct]`
 
-Rust 定义：[`DirectInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/direct/inbound.rs) · 构建条件：`feature = "inbound-direct"`
+Rust 定义：[`DirectInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/direct/inbound.rs) · 构建条件：`feature = "inbound-direct"`
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -167,7 +167,7 @@ Rust 定义：[`DirectInboundOptions`](https://github.com/peakpassvpn/sail/blob/
 
 ## `inbounds[hc]`
 
-Rust 定义：[`HcInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/hc/inbound/mod.rs) · 构建条件：`feature = "inbound-hc"` · **sail 扩展**
+Rust 定义：[`HcInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/hc/inbound/mod.rs) · 构建条件：`feature = "inbound-hc"` · **sail 扩展**
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -186,7 +186,7 @@ Rust 定义：[`HcInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/
 
 ## `inbounds[http]`
 
-Rust 定义：[`HttpInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/http/inbound/mod.rs) · 构建条件：`feature = "inbound-http"`
+Rust 定义：[`HttpInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/http/inbound/mod.rs) · 构建条件：`feature = "inbound-http"`
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -215,7 +215,7 @@ Rust 定义：[`HttpInboundOptions`](https://github.com/peakpassvpn/sail/blob/de
 
 ### `inbounds[http].users[]`
 
-Rust 定义：[`HttpUser`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/http/inbound/mod.rs) · 构建条件：`feature = "inbound-http"`
+Rust 定义：[`HttpUser`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/http/inbound/mod.rs) · 构建条件：`feature = "inbound-http"`
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -226,7 +226,7 @@ Rust 定义：[`HttpUser`](https://github.com/peakpassvpn/sail/blob/dev/sail/src
 
 ## `inbounds[hysteria2]`
 
-Rust 定义：[`Hysteria2InboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/hysteria2/inbound/mod.rs) · 构建条件：`feature = "inbound-hysteria2"`
+Rust 定义：[`Hysteria2InboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/hysteria2/inbound/mod.rs) · 构建条件：`feature = "inbound-hysteria2"`
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -267,7 +267,7 @@ Rust 定义：[`Hysteria2InboundOptions`](https://github.com/peakpassvpn/sail/bl
 
 ### `inbounds[hysteria2].users[]`
 
-Rust 定义：[`User`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/hysteria2/inbound/mod.rs) · 构建条件：`feature = "inbound-hysteria2"`
+Rust 定义：[`User`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/hysteria2/inbound/mod.rs) · 构建条件：`feature = "inbound-hysteria2"`
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -293,7 +293,7 @@ Rust 定义：[`User`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/pro
 
 ## `inbounds[mixed]`
 
-Rust 定义：[`MixedInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/mixed/inbound/mod.rs) · 构建条件：`feature = "inbound-mixed"`
+Rust 定义：[`MixedInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/mixed/inbound/mod.rs) · 构建条件：`feature = "inbound-mixed"`
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -322,7 +322,7 @@ Rust 定义：[`MixedInboundOptions`](https://github.com/peakpassvpn/sail/blob/d
 
 ### `inbounds[mixed].users[]`
 
-Rust 定义：[`MixedUser`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/mixed/inbound/mod.rs) · 构建条件：`feature = "inbound-mixed"`
+Rust 定义：[`MixedUser`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/mixed/inbound/mod.rs) · 构建条件：`feature = "inbound-mixed"`
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -430,7 +430,7 @@ Rust 定义：[`MixedUser`](https://github.com/peakpassvpn/sail/blob/dev/sail/sr
 
 ## `inbounds[mptp]`
 
-Rust 定义：[`MptpInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/mptp/inbound/mod.rs) · 构建条件：`feature = "inbound-mptp"` · **sail 扩展**
+Rust 定义：[`MptpInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/mptp/inbound/mod.rs) · 构建条件：`feature = "inbound-mptp"` · **sail 扩展**
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -446,7 +446,7 @@ Rust 定义：[`MptpInboundOptions`](https://github.com/peakpassvpn/sail/blob/de
 
 ## `inbounds[nf]`
 
-Rust 定义：[`NfInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/nf/inbound/mod.rs) · 构建条件：`all (feature = "inbound-nf" , windows)` · **sail 扩展**
+Rust 定义：[`NfInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/nf/inbound/mod.rs) · 构建条件：`all (feature = "inbound-nf" , windows)` · **sail 扩展**
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -466,7 +466,7 @@ Rust 定义：[`NfInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/
 
 ## `inbounds[redirect]`
 
-Rust 定义：[`RedirectInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/redirect/inbound/mod.rs) · 构建条件：`feature = "inbound-redirect"`
+Rust 定义：[`RedirectInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/redirect/inbound/mod.rs) · 构建条件：`feature = "inbound-redirect"`
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -490,7 +490,7 @@ Rust 定义：[`RedirectInboundOptions`](https://github.com/peakpassvpn/sail/blo
 
 ## `inbounds[shadowsocks]`
 
-Rust 定义：[`ShadowsocksInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/shadowsocks/inbound/mod.rs) · 构建条件：`feature = "inbound-shadowsocks"`
+Rust 定义：[`ShadowsocksInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/shadowsocks/inbound/mod.rs) · 构建条件：`feature = "inbound-shadowsocks"`
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -521,7 +521,7 @@ Rust 定义：[`ShadowsocksInboundOptions`](https://github.com/peakpassvpn/sail/
 
 ### `inbounds[shadowsocks].users[]`
 
-Rust 定义：[`ShadowsocksUser`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/shadowsocks/inbound/mod.rs) · 构建条件：`feature = "inbound-shadowsocks"`
+Rust 定义：[`ShadowsocksUser`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/shadowsocks/inbound/mod.rs) · 构建条件：`feature = "inbound-shadowsocks"`
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -543,7 +543,7 @@ Rust 定义：[`ShadowsocksUser`](https://github.com/peakpassvpn/sail/blob/dev/s
 
 ## `inbounds[shadowtls]`
 
-Rust 定义：[`ShadowTlsInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/shadowtls/inbound.rs) · 构建条件：`feature = "inbound-shadowtls"`
+Rust 定义：[`ShadowTlsInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/shadowtls/inbound.rs) · 构建条件：`feature = "inbound-shadowtls"`
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -574,7 +574,7 @@ Rust 定义：[`ShadowTlsInboundOptions`](https://github.com/peakpassvpn/sail/bl
 
 ### `inbounds[shadowtls].users[]`
 
-Rust 定义：[`ShadowTlsUser`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/shadowtls/inbound.rs) · 构建条件：`feature = "inbound-shadowtls"`
+Rust 定义：[`ShadowTlsUser`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/shadowtls/inbound.rs) · 构建条件：`feature = "inbound-shadowtls"`
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -585,7 +585,7 @@ Rust 定义：[`ShadowTlsUser`](https://github.com/peakpassvpn/sail/blob/dev/sai
 
 ### `inbounds[shadowtls].handshake`
 
-Rust 定义：[`ShadowTlsHandshake`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/shadowtls/inbound.rs) · 构建条件：`feature = "inbound-shadowtls"`
+Rust 定义：[`ShadowTlsHandshake`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/shadowtls/inbound.rs) · 构建条件：`feature = "inbound-shadowtls"`
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -619,7 +619,7 @@ Rust 定义：[`ShadowTlsHandshake`](https://github.com/peakpassvpn/sail/blob/de
 
 ## `inbounds[socks]`
 
-Rust 定义：[`SocksInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/socks/inbound/mod.rs) · 构建条件：`feature = "inbound-socks"`
+Rust 定义：[`SocksInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/socks/inbound/mod.rs) · 构建条件：`feature = "inbound-socks"`
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -645,7 +645,7 @@ Rust 定义：[`SocksInboundOptions`](https://github.com/peakpassvpn/sail/blob/d
 
 ### `inbounds[socks].users[]`
 
-Rust 定义：[`SocksUser`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/socks/inbound/mod.rs) · 构建条件：`feature = "inbound-socks"`
+Rust 定义：[`SocksUser`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/socks/inbound/mod.rs) · 构建条件：`feature = "inbound-socks"`
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -656,7 +656,7 @@ Rust 定义：[`SocksUser`](https://github.com/peakpassvpn/sail/blob/dev/sail/sr
 
 ## `inbounds[tproxy]`
 
-Rust 定义：[`TproxyInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/tproxy/mod.rs) · 构建条件：`feature = "inbound-tproxy"`
+Rust 定义：[`TproxyInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/tproxy/mod.rs) · 构建条件：`feature = "inbound-tproxy"`
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -684,7 +684,7 @@ Rust 定义：[`TproxyInboundOptions`](https://github.com/peakpassvpn/sail/blob/
 
 ## `inbounds[trojan]`
 
-Rust 定义：[`TrojanInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/trojan/inbound/mod.rs) · 构建条件：`feature = "inbound-trojan"`
+Rust 定义：[`TrojanInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/trojan/inbound/mod.rs) · 构建条件：`feature = "inbound-trojan"`
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -714,7 +714,7 @@ Rust 定义：[`TrojanInboundOptions`](https://github.com/peakpassvpn/sail/blob/
 
 ### `inbounds[trojan].users[]`
 
-Rust 定义：[`TrojanUser`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/trojan/inbound/mod.rs) · 构建条件：`feature = "inbound-trojan"`
+Rust 定义：[`TrojanUser`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/trojan/inbound/mod.rs) · 构建条件：`feature = "inbound-trojan"`
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -725,7 +725,7 @@ Rust 定义：[`TrojanUser`](https://github.com/peakpassvpn/sail/blob/dev/sail/s
 
 ### `inbounds[trojan].fallback`
 
-Rust 定义：[`FallbackServer`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/fallback.rs) · 构建条件：`any (feature = "inbound-anytls" , feature = "inbound-trojan" , feature = "inbound-vless" , feature = "inbound-shadowtls")`
+Rust 定义：[`FallbackServer`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/fallback.rs) · 构建条件：`any (feature = "inbound-anytls" , feature = "inbound-trojan" , feature = "inbound-vless" , feature = "inbound-shadowtls")`
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -736,7 +736,7 @@ Rust 定义：[`FallbackServer`](https://github.com/peakpassvpn/sail/blob/dev/sa
 
 ## `inbounds[tuic]`
 
-Rust 定义：[`TuicInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/tuic/inbound/mod.rs) · 构建条件：`feature = "inbound-tuic"`
+Rust 定义：[`TuicInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/tuic/inbound/mod.rs) · 构建条件：`feature = "inbound-tuic"`
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -773,7 +773,7 @@ Rust 定义：[`TuicInboundOptions`](https://github.com/peakpassvpn/sail/blob/de
 
 ### `inbounds[tuic].users[]`
 
-Rust 定义：[`TuicUser`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/tuic/inbound/mod.rs) · 构建条件：`feature = "inbound-tuic"`
+Rust 定义：[`TuicUser`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/tuic/inbound/mod.rs) · 构建条件：`feature = "inbound-tuic"`
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -785,7 +785,7 @@ Rust 定义：[`TuicUser`](https://github.com/peakpassvpn/sail/blob/dev/sail/src
 
 ## `inbounds[tun]`
 
-Rust 定义：[`TunInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/tun/inbound.rs) · 构建条件：`feature = "inbound-tun"`
+Rust 定义：[`TunInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/tun/inbound.rs) · 构建条件：`feature = "inbound-tun"`
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -855,7 +855,7 @@ Rust 定义：[`TunInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev
 
 ## `inbounds[vless]`
 
-Rust 定义：[`VlessInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/vless/inbound/mod.rs) · 构建条件：`feature = "inbound-vless"`
+Rust 定义：[`VlessInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/vless/inbound/mod.rs) · 构建条件：`feature = "inbound-vless"`
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -885,7 +885,7 @@ Rust 定义：[`VlessInboundOptions`](https://github.com/peakpassvpn/sail/blob/d
 
 ### `inbounds[vless].users[]`
 
-Rust 定义：[`VlessUser`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/vless/inbound/mod.rs) · 构建条件：`feature = "inbound-vless"`
+Rust 定义：[`VlessUser`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/vless/inbound/mod.rs) · 构建条件：`feature = "inbound-vless"`
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -897,7 +897,7 @@ Rust 定义：[`VlessUser`](https://github.com/peakpassvpn/sail/blob/dev/sail/sr
 
 ## `inbounds[vmess]`
 
-Rust 定义：[`VMessInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/vmess/inbound/mod.rs) · 构建条件：`feature = "inbound-vmess"`
+Rust 定义：[`VMessInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/vmess/inbound/mod.rs) · 构建条件：`feature = "inbound-vmess"`
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -925,7 +925,7 @@ Rust 定义：[`VMessInboundOptions`](https://github.com/peakpassvpn/sail/blob/d
 
 ### `inbounds[vmess].users[]`
 
-Rust 定义：[`VMessUser`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/vmess/inbound/mod.rs) · 构建条件：`feature = "inbound-vmess"`
+Rust 定义：[`VMessUser`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/vmess/inbound/mod.rs) · 构建条件：`feature = "inbound-vmess"`
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |

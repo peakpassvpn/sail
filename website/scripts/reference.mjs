@@ -11,7 +11,7 @@
 //   the registry test's list of extensions;
 // - `compat`: the support tables in docs/compat, by file name, or null.
 
-export const REPO = 'https://github.com/peakpassvpn/sail/blob/dev/';
+export const REPO = 'https://github.com/peakpassvpn/sail/blob/master/';
 
 // ---------------------------------------------------------------- paths
 

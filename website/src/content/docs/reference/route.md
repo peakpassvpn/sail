@@ -17,7 +17,7 @@ Validate a configuration with `sail -c config.json -T`. Editors check and comple
 
 ## `route`
 
-Rust: [`Route`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust: [`Route`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -44,7 +44,7 @@ Rust: [`Route`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/mod
 
 ## `route.rules[]`
 
-Rust: [`Rule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust: [`Rule`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -107,7 +107,7 @@ Rust: [`Rule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/mode
 
 ## `route.rules[action=bypass]`
 
-Rust: [`Rule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust: [`Rule`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -129,7 +129,7 @@ Rust: [`Rule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/mode
 
 ## `route.rules[action=direct]`
 
-Rust: [`Rule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust: [`Rule`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -159,7 +159,7 @@ Rust: [`Rule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/mode
 
 ### `route.rules[action=direct].domain_resolver`
 
-Rust: [`DomainResolver`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust: [`DomainResolver`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -175,7 +175,7 @@ Rust: [`DomainResolver`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/c
 
 ## `route.rules[action=reject]`
 
-Rust: [`Rule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust: [`Rule`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -186,7 +186,7 @@ Rust: [`Rule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/mode
 
 ## `route.rules[action=resolve]`
 
-Rust: [`Rule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust: [`Rule`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -204,7 +204,7 @@ Rust: [`Rule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/mode
 
 ## `route.rules[action=route]`
 
-Rust: [`Rule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust: [`Rule`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -227,7 +227,7 @@ Rust: [`Rule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/mode
 
 ## `route.rules[action=route-options]`
 
-Rust: [`Rule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust: [`Rule`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -249,7 +249,7 @@ Rust: [`Rule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/mode
 
 ## `route.rules[action=sniff]`
 
-Rust: [`Rule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust: [`Rule`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -262,7 +262,7 @@ Rust: [`Rule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/mode
 
 ## `route.rules[logical]`
 
-Rust: [`Rule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust: [`Rule`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -274,7 +274,7 @@ Rust: [`Rule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/mode
 
 ## `route.rule_set[]`
 
-Rust: [`RuleSet`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/rule_set.rs)
+Rust: [`RuleSet`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/rule_set.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -284,7 +284,7 @@ Rust: [`RuleSet`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/r
 
 ## `route.rule_set[inline]`
 
-Rust: [`RuleSet`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/rule_set.rs)
+Rust: [`RuleSet`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/rule_set.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -295,7 +295,7 @@ Rust: [`RuleSet`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/r
 
 ### `route.rule_set[inline].rules[]`
 
-Rust: [`HeadlessRule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/rule_set.rs)
+Rust: [`HeadlessRule`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/rule_set.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -335,7 +335,7 @@ Rust: [`HeadlessRule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/con
 
 ### `route.rule_set[inline].rules[logical]`
 
-Rust: [`HeadlessRule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/rule_set.rs)
+Rust: [`HeadlessRule`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/rule_set.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -347,7 +347,7 @@ Rust: [`HeadlessRule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/con
 
 ## `route.rule_set[local]`
 
-Rust: [`RuleSet`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/rule_set.rs)
+Rust: [`RuleSet`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/rule_set.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -359,7 +359,7 @@ Rust: [`RuleSet`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/r
 
 ## `route.rule_set[remote]`
 
-Rust: [`RuleSet`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/rule_set.rs)
+Rust: [`RuleSet`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/rule_set.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |

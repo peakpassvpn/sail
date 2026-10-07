@@ -17,7 +17,7 @@ description: "sail 原生配置格式（sing-box v1.14.2 JSON 与 sail 扩展）
 
 ## `endpoints[]`
 
-Rust 定义：[`Endpoint`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust 定义：[`Endpoint`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -27,7 +27,7 @@ Rust 定义：[`Endpoint`](https://github.com/peakpassvpn/sail/blob/dev/sail/src
 
 ## `endpoints[wireguard]`
 
-Rust 定义：[`WireGuardOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/wireguard/endpoint/options.rs) · 构建条件：`feature = "wireguard"`
+Rust 定义：[`WireGuardOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/wireguard/endpoint/options.rs) · 构建条件：`feature = "wireguard"`
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -72,7 +72,7 @@ Rust 定义：[`WireGuardOptions`](https://github.com/peakpassvpn/sail/blob/dev/
 
 ### `endpoints[wireguard].peers[]`
 
-Rust 定义：[`PeerOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/wireguard/endpoint/options.rs) · 构建条件：`feature = "wireguard"`
+Rust 定义：[`PeerOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/wireguard/endpoint/options.rs) · 构建条件：`feature = "wireguard"`
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |

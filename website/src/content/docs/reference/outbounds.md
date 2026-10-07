@@ -17,7 +17,7 @@ Validate a configuration with `sail -c config.json -T`. Editors check and comple
 
 ## `outbounds[]`
 
-Rust: [`Outbound`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust: [`Outbound`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -27,7 +27,7 @@ Rust: [`Outbound`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/
 
 ## `outbounds[anytls]`
 
-Rust: [`AnyTlsOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/anytls/outbound/mod.rs) · Build: `feature = "outbound-anytls"`
+Rust: [`AnyTlsOutboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/anytls/outbound/mod.rs) · Build: `feature = "outbound-anytls"`
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -68,7 +68,7 @@ Rust: [`AnyTlsOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sai
 
 ## `outbounds[block]`
 
-Rust: [`BlockOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/drop/mod.rs) · Build: `feature = "outbound-drop"`
+Rust: [`BlockOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/drop/mod.rs) · Build: `feature = "outbound-drop"`
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -78,7 +78,7 @@ Rust: [`BlockOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/pro
 
 ## `outbounds[direct]`
 
-Rust: [`DirectOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/direct/outbound/mod.rs) · Build: `feature = "outbound-direct"`
+Rust: [`DirectOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/direct/outbound/mod.rs) · Build: `feature = "outbound-direct"`
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -111,7 +111,7 @@ Rust: [`DirectOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/pr
 
 ## `outbounds[fallback]`
 
-Rust: [`FallbackOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/fallback/mod.rs) · Build: `feature = "outbound-fallback"` · **sail extension**
+Rust: [`FallbackOutboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/group/fallback/mod.rs) · Build: `feature = "outbound-fallback"` · **sail extension**
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -137,7 +137,7 @@ Rust: [`FallbackOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/s
 
 ### `outbounds[fallback].debounce`
 
-Rust: [`DebounceOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/fallback/mod.rs) · Build: `feature = "outbound-fallback"` · **sail extension**
+Rust: [`DebounceOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/group/fallback/mod.rs) · Build: `feature = "outbound-fallback"` · **sail extension**
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -149,7 +149,7 @@ Rust: [`DebounceOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/
 
 ## `outbounds[http]`
 
-Rust: [`HttpOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/http/outbound/mod.rs) · Build: `feature = "outbound-http"`
+Rust: [`HttpOutboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/http/outbound/mod.rs) · Build: `feature = "outbound-http"`
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -189,7 +189,7 @@ Rust: [`HttpOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/
 
 ## `outbounds[hysteria2]`
 
-Rust: [`Hysteria2OutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/hysteria2/outbound/mod.rs) · Build: `feature = "outbound-hysteria2"`
+Rust: [`Hysteria2OutboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/hysteria2/outbound/mod.rs) · Build: `feature = "outbound-hysteria2"`
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -244,7 +244,7 @@ Rust: [`Hysteria2OutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/
 
 ### `outbounds[hysteria2].tls`
 
-Rust: [`OutboundTls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust: [`OutboundTls`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -282,7 +282,7 @@ Rust: [`OutboundTls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/tran
 
 ### `outbounds[hysteria2].tls.utls`
 
-Rust: [`OutboundUtls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust: [`OutboundUtls`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -307,7 +307,7 @@ Rust: [`OutboundUtls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/tra
 
 ## `outbounds[load-balance]`
 
-Rust: [`LoadBalanceOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/load_balance/mod.rs) · Build: `feature = "outbound-load-balance"` · **sail extension**
+Rust: [`LoadBalanceOutboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/group/load_balance/mod.rs) · Build: `feature = "outbound-load-balance"` · **sail extension**
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -327,7 +327,7 @@ Rust: [`LoadBalanceOutboundOptions`](https://github.com/peakpassvpn/sail/blob/de
 
 ## `outbounds[mptp]`
 
-Rust: [`MptpOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/mptp/outbound/mod.rs) · Build: `feature = "outbound-mptp"` · **sail extension**
+Rust: [`MptpOutboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/mptp/outbound/mod.rs) · Build: `feature = "outbound-mptp"` · **sail extension**
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -340,7 +340,7 @@ Rust: [`MptpOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/
 
 ## `outbounds[network]`
 
-Rust: [`NetworkGroupOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/network/mod.rs) · Build: `feature = "outbound-network-group"` · **sail extension**
+Rust: [`NetworkGroupOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/group/network/mod.rs) · Build: `feature = "outbound-network-group"` · **sail extension**
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -352,7 +352,7 @@ Rust: [`NetworkGroupOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/
 
 ### `outbounds[network].branches[]`
 
-Rust: [`Branch`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/network/mod.rs) · Build: `feature = "outbound-network-group"` · **sail extension**
+Rust: [`Branch`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/group/network/mod.rs) · Build: `feature = "outbound-network-group"` · **sail extension**
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -371,7 +371,7 @@ Rust: [`Branch`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/
 
 ## `outbounds[pass]`
 
-Rust: [`PassOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/pass/mod.rs) · Build: `feature = "outbound-pass"` · **sail extension**
+Rust: [`PassOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/pass/mod.rs) · Build: `feature = "outbound-pass"` · **sail extension**
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -381,7 +381,7 @@ Rust: [`PassOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/prot
 
 ## `outbounds[plugin]`
 
-Rust: [`PluginOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/app/outbound/plugin.rs) · Build: `feature = "outbound-select"` and `feature = "plugin"` · **sail extension**
+Rust: [`PluginOutboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/app/outbound/plugin.rs) · Build: `feature = "outbound-select"` and `feature = "plugin"` · **sail extension**
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -393,7 +393,7 @@ Rust: [`PluginOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sai
 
 ## `outbounds[redirect]`
 
-Rust: [`RedirectOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/redirect/outbound/mod.rs) · Build: `feature = "outbound-redirect"` · **sail extension**
+Rust: [`RedirectOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/redirect/outbound/mod.rs) · Build: `feature = "outbound-redirect"` · **sail extension**
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -451,7 +451,7 @@ Rust: [`RedirectOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/
 
 ### `outbounds[redirect].domain_resolver`
 
-Rust: [`DomainResolver`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs) · **sail extension**
+Rust: [`DomainResolver`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs) · **sail extension**
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -467,7 +467,7 @@ Rust: [`DomainResolver`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/c
 
 ## `outbounds[selector]`
 
-Rust: [`SelectorOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/selector/mod.rs) · Build: `feature = "outbound-select"`
+Rust: [`SelectorOutboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/group/selector/mod.rs) · Build: `feature = "outbound-select"`
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -485,7 +485,7 @@ Rust: [`SelectorOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/s
 
 ## `outbounds[shadowsocks]`
 
-Rust: [`ShadowsocksOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/shadowsocks/outbound/mod.rs) · Build: `feature = "outbound-shadowsocks"`
+Rust: [`ShadowsocksOutboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/shadowsocks/outbound/mod.rs) · Build: `feature = "outbound-shadowsocks"`
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -528,7 +528,7 @@ Rust: [`ShadowsocksOutboundOptions`](https://github.com/peakpassvpn/sail/blob/de
 
 ## `outbounds[shadowtls]`
 
-Rust: [`ShadowTlsOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/shadowtls/outbound.rs) · Build: `feature = "outbound-shadowtls"`
+Rust: [`ShadowTlsOutboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/shadowtls/outbound.rs) · Build: `feature = "outbound-shadowtls"`
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -566,7 +566,7 @@ Rust: [`ShadowTlsOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/
 
 ## `outbounds[smart]`
 
-Rust: [`SmartOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/smart/mod.rs) · Build: `feature = "outbound-smart"` · **sail extension**
+Rust: [`SmartOutboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/group/smart/mod.rs) · Build: `feature = "outbound-smart"` · **sail extension**
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -595,7 +595,7 @@ Rust: [`SmartOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail
 
 ### `outbounds[smart].policy_priority[]`
 
-Rust: [`PolicyPriority`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/smart/mod.rs) · Build: `feature = "outbound-smart"` · **sail extension**
+Rust: [`PolicyPriority`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/group/smart/mod.rs) · Build: `feature = "outbound-smart"` · **sail extension**
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -606,7 +606,7 @@ Rust: [`PolicyPriority`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/p
 
 ## `outbounds[socks]`
 
-Rust: [`SocksOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/socks/outbound/mod.rs) · Build: `feature = "outbound-socks"`
+Rust: [`SocksOutboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/socks/outbound/mod.rs) · Build: `feature = "outbound-socks"`
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -646,7 +646,7 @@ Rust: [`SocksOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail
 
 ## `outbounds[trojan]`
 
-Rust: [`TrojanOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/trojan/outbound/mod.rs) · Build: `feature = "outbound-trojan"`
+Rust: [`TrojanOutboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/trojan/outbound/mod.rs) · Build: `feature = "outbound-trojan"`
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -686,7 +686,7 @@ Rust: [`TrojanOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sai
 
 ## `outbounds[tryall]`
 
-Rust: [`TryAllOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/tryall/mod.rs) · Build: `feature = "outbound-tryall"` · **sail extension**
+Rust: [`TryAllOutboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/group/tryall/mod.rs) · Build: `feature = "outbound-tryall"` · **sail extension**
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -698,7 +698,7 @@ Rust: [`TryAllOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sai
 
 ## `outbounds[tuic]`
 
-Rust: [`TuicOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/tuic/outbound/mod.rs) · Build: `feature = "outbound-tuic"`
+Rust: [`TuicOutboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/tuic/outbound/mod.rs) · Build: `feature = "outbound-tuic"`
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -749,7 +749,7 @@ Rust: [`TuicOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/
 
 ### `outbounds[tuic].tls`
 
-Rust: [`OutboundTls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust: [`OutboundTls`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -787,7 +787,7 @@ Rust: [`OutboundTls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/tran
 
 ### `outbounds[tuic].tls.utls`
 
-Rust: [`OutboundUtls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+Rust: [`OutboundUtls`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -798,7 +798,7 @@ Rust: [`OutboundUtls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/tra
 
 ## `outbounds[urltest]`
 
-Rust: [`UrlTestOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/urltest/mod.rs) · Build: `feature = "outbound-urltest"`
+Rust: [`UrlTestOutboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/group/urltest/mod.rs) · Build: `feature = "outbound-urltest"`
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -823,7 +823,7 @@ Rust: [`UrlTestOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sa
 
 ## `outbounds[vless]`
 
-Rust: [`VlessOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/vless/outbound/mod.rs) · Build: `feature = "outbound-vless"`
+Rust: [`VlessOutboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/vless/outbound/mod.rs) · Build: `feature = "outbound-vless"`
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
@@ -865,7 +865,7 @@ Rust: [`VlessOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail
 
 ## `outbounds[vmess]`
 
-Rust: [`VMessOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/vmess/outbound/mod.rs) · Build: `feature = "outbound-vmess"`
+Rust: [`VMessOutboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/vmess/outbound/mod.rs) · Build: `feature = "outbound-vmess"`
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |

@@ -17,7 +17,7 @@ description: "sail 原生配置格式（sing-box v1.14.2 JSON 与 sail 扩展）
 
 ## `route`
 
-Rust 定义：[`Route`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust 定义：[`Route`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -44,7 +44,7 @@ Rust 定义：[`Route`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/co
 
 ## `route.rules[]`
 
-Rust 定义：[`Rule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust 定义：[`Rule`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -107,7 +107,7 @@ Rust 定义：[`Rule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/con
 
 ## `route.rules[action=bypass]`
 
-Rust 定义：[`Rule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust 定义：[`Rule`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -129,7 +129,7 @@ Rust 定义：[`Rule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/con
 
 ## `route.rules[action=direct]`
 
-Rust 定义：[`Rule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust 定义：[`Rule`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -159,7 +159,7 @@ Rust 定义：[`Rule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/con
 
 ### `route.rules[action=direct].domain_resolver`
 
-Rust 定义：[`DomainResolver`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust 定义：[`DomainResolver`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -175,7 +175,7 @@ Rust 定义：[`DomainResolver`](https://github.com/peakpassvpn/sail/blob/dev/sa
 
 ## `route.rules[action=reject]`
 
-Rust 定义：[`Rule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust 定义：[`Rule`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -186,7 +186,7 @@ Rust 定义：[`Rule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/con
 
 ## `route.rules[action=resolve]`
 
-Rust 定义：[`Rule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust 定义：[`Rule`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -204,7 +204,7 @@ Rust 定义：[`Rule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/con
 
 ## `route.rules[action=route]`
 
-Rust 定义：[`Rule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust 定义：[`Rule`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -227,7 +227,7 @@ Rust 定义：[`Rule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/con
 
 ## `route.rules[action=route-options]`
 
-Rust 定义：[`Rule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust 定义：[`Rule`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -249,7 +249,7 @@ Rust 定义：[`Rule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/con
 
 ## `route.rules[action=sniff]`
 
-Rust 定义：[`Rule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust 定义：[`Rule`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -262,7 +262,7 @@ Rust 定义：[`Rule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/con
 
 ## `route.rules[logical]`
 
-Rust 定义：[`Rule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+Rust 定义：[`Rule`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -274,7 +274,7 @@ Rust 定义：[`Rule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/con
 
 ## `route.rule_set[]`
 
-Rust 定义：[`RuleSet`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/rule_set.rs)
+Rust 定义：[`RuleSet`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/rule_set.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -284,7 +284,7 @@ Rust 定义：[`RuleSet`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/
 
 ## `route.rule_set[inline]`
 
-Rust 定义：[`RuleSet`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/rule_set.rs)
+Rust 定义：[`RuleSet`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/rule_set.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -295,7 +295,7 @@ Rust 定义：[`RuleSet`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/
 
 ### `route.rule_set[inline].rules[]`
 
-Rust 定义：[`HeadlessRule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/rule_set.rs)
+Rust 定义：[`HeadlessRule`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/rule_set.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -335,7 +335,7 @@ Rust 定义：[`HeadlessRule`](https://github.com/peakpassvpn/sail/blob/dev/sail
 
 ### `route.rule_set[inline].rules[logical]`
 
-Rust 定义：[`HeadlessRule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/rule_set.rs)
+Rust 定义：[`HeadlessRule`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/rule_set.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -347,7 +347,7 @@ Rust 定义：[`HeadlessRule`](https://github.com/peakpassvpn/sail/blob/dev/sail
 
 ## `route.rule_set[local]`
 
-Rust 定义：[`RuleSet`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/rule_set.rs)
+Rust 定义：[`RuleSet`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/rule_set.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -359,7 +359,7 @@ Rust 定义：[`RuleSet`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/
 
 ## `route.rule_set[remote]`
 
-Rust 定义：[`RuleSet`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/rule_set.rs)
+Rust 定义：[`RuleSet`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/rule_set.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
