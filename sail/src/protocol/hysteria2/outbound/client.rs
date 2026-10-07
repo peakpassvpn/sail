@@ -23,7 +23,7 @@ use crate::app::SyncDnsClient;
 use crate::net::dial::BoundInterface;
 use crate::net::Dialer;
 use crate::session::{Session, SocksAddr};
-use crate::transport::quic::{endpoint_on, QuicStream, Side};
+use crate::transport::quic::{endpoint_on, ClientTls, QuicStream, Side};
 
 use super::super::congestion::CongestionHandle;
 use super::super::h3;
@@ -52,8 +52,7 @@ pub struct ClientOptions {
     /// What we can receive, bytes per second; zero if unknown.
     pub recv_bps: u64,
     pub obfs: Option<Salamander>,
-    pub server_name: String,
-    pub crypto: Arc<quinn_btls::ClientConfig>,
+    pub tls: ClientTls,
     pub tuning: crate::runtime::options::Quic,
     pub dns_client: SyncDnsClient,
     pub dialer: Dialer,
@@ -198,6 +197,7 @@ impl Client {
 
     async fn connect_to(&self, to: &SocksAddr) -> Result<Connection> {
         let o = &self.options;
+        let crypto = o.tls.connection_crypto(&o.dns_client).await?;
         let (socket, peer, bound) =
             new_socket(&o.dialer, &o.dns_client, to, o.obfs.as_ref()).await?;
         let (socket, remote, hop): (Arc<dyn quinn::AsyncUdpSocket>, _, _) = if o.ports.len() > 1 {
@@ -209,14 +209,14 @@ impl Client {
         };
         let endpoint = endpoint_on(socket, None)?;
         let congestion = CongestionHandle::default();
-        let mut config = quinn::ClientConfig::new(o.crypto.clone());
+        let mut config = quinn::ClientConfig::new(crypto);
         config.transport_config(Arc::new(quic::transport_config(
             &o.tuning,
             Side::Client,
             &congestion,
         )));
         let conn = endpoint
-            .connect_with(config, remote, &o.server_name)?
+            .connect_with(config, remote, &o.tls.server_name)?
             .await
             .with_context(|| format!("quic connect {}", remote))?;
         trace!("hysteria2 connected to {}", remote);

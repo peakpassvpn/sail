@@ -18,7 +18,7 @@ use crate::app::SyncDnsClient;
 use crate::net::dial::BoundInterface;
 use crate::net::{peek_tcp_one_off, Dialer};
 use crate::session::{Session, SocksAddr};
-use crate::transport::quic::{endpoint_on, ClientTls, QuicStream, Side};
+use crate::transport::quic::{endpoint_on, ClientConfigs, ClientTls, QuicStream, Side};
 
 use super::super::common::{
     heartbeat, send_packet, token, transport_config, ActiveGuard, Activity, CongestionControl,
@@ -51,7 +51,6 @@ pub struct ClientOptions<'a> {
 pub struct Client {
     server: String,
     port: u16,
-    server_name: String,
     uuid: [u8; 16],
     password: Vec<u8>,
     udp_relay_mode: UdpRelayMode,
@@ -59,7 +58,7 @@ pub struct Client {
     heartbeat: Duration,
     dns_client: SyncDnsClient,
     dialer: Dialer,
-    client_config: quinn::ClientConfig,
+    configs: ClientConfigs,
     /// The connection in use, and the network it was dialled on.
     conn: Mutex<Current>,
     /// Held while dialling, so that requests arriving meanwhile wait for
@@ -81,16 +80,13 @@ const NETWORK_CHANGED: &[u8] = b"network changed";
 
 impl Client {
     pub fn new(options: ClientOptions<'_>) -> Self {
-        let mut client_config = quinn::ClientConfig::new(Arc::new(options.tls.crypto));
-        client_config.transport_config(Arc::new(transport_config(
-            options.congestion,
-            options.tuning,
-            Side::Client,
-        )));
+        let configs = ClientConfigs::new(
+            options.tls,
+            transport_config(options.congestion, options.tuning, Side::Client),
+        );
         Self {
             server: options.server,
             port: options.port,
-            server_name: options.tls.server_name,
             uuid: options.uuid,
             password: options.password,
             udp_relay_mode: options.udp_relay_mode,
@@ -98,7 +94,7 @@ impl Client {
             heartbeat: options.heartbeat,
             dns_client: options.dns_client,
             dialer: options.dialer,
-            client_config,
+            configs,
             conn: Mutex::default(),
             dialing: tokio::sync::Mutex::new(()),
         }
@@ -185,10 +181,11 @@ impl Client {
     /// A connection to `to`, an address of the dialer's `targets`: over a
     /// socket of the dialer's, or its detour's datagrams.
     async fn connect_to(&self, to: &SocksAddr) -> io::Result<Arc<ClientConn>> {
+        let config = self.configs.connection(&self.dns_client).await?;
         let (socket, server, bound) = self.dialer.quic_socket(&self.dns_client, to).await?;
         let endpoint = endpoint_on(socket, None)?;
         let connecting = endpoint
-            .connect_with(self.client_config.clone(), server, &self.server_name)
+            .connect_with(config, server, self.configs.server_name())
             .map_err(io::Error::other)?;
         let connect_timeout = self.dialer.connect_timeout();
         let handshake = |connecting: quinn::Connecting| async move {

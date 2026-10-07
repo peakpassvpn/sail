@@ -1408,7 +1408,7 @@ fn quic_outbound(
     env: &RuntimeEnv,
 ) -> Result<AnyOutboundHandler> {
     // As with Hysteria2 and TUIC: the QUIC handshake is quinn-btls's own,
-    // with no uTLS ClientHello, ECH or REALITY.
+    // with no uTLS ClientHello or REALITY.
     #[cfg(feature = "outbound-quic")]
     if let Some(field) = crate::transport::quic::unsupported(tls) {
         return Err(anyhow!(

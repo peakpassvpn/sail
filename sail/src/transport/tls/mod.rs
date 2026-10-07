@@ -2,6 +2,7 @@
 
 pub mod client;
 mod conn;
+pub(crate) mod ech;
 pub mod fingerprint;
 #[cfg(test)]
 pub(crate) mod hello;

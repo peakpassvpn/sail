@@ -30,12 +30,25 @@ struct Fixture {
 /// A server with `zero_rtt` as the server has it, and a client of it with
 /// `zero_rtt` as the client has it.
 async fn fixture(server_zero_rtt: bool, client_zero_rtt: bool) -> Fixture {
+    fixture_with(server_zero_rtt, client_zero_rtt, None).await
+}
+
+/// `fixture`, with a server that decrypts ECH with `ech`, if given, and a
+/// client that offers it, from its `tls` block.
+async fn fixture_with(
+    server_zero_rtt: bool,
+    client_zero_rtt: bool,
+    ech: Option<&crate::transport::tls::tests::EchKeys>,
+) -> Fixture {
     let rcgen::CertifiedKey { cert, key_pair } =
         rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
     let alpns = alpn_protocols(None, DEFAULT_ALPN);
     let tuning = crate::runtime::options::Quic::default();
 
     let crypto = server_crypto(&cert.pem(), &key_pair.serialize_pem(), &alpns).unwrap();
+    if let Some(ech) = ech {
+        ech.serve(crypto.ctx());
+    }
     let users = HashMap::from([(
         UUID,
         User {
@@ -71,21 +84,33 @@ async fn fixture(server_zero_rtt: bool, client_zero_rtt: bool) -> Fixture {
     )
     .unwrap()
     .into_shared();
-    let crypto = client_crypto(
-        Some(&cert.pem()),
-        false,
-        &alpns,
-        &crate::transport::tls::tests::test_roots(),
-    )
-    .unwrap();
-    let tickets = crypto.get_session_cache();
+    let tls = match ech {
+        Some(ech) => {
+            let tls: crate::transport::layers::OutboundTls =
+                serde_json::from_value(serde_json::json!({
+                    "enabled": true, "server_name": "localhost", "certificate": cert.pem(),
+                    "ech": {"enabled": true, "config": ech.config},
+                }))
+                .unwrap();
+            ClientTls::new(&tls, "127.0.0.1", DEFAULT_ALPN, &Default::default()).unwrap()
+        }
+        None => ClientTls {
+            server_name: "localhost".into(),
+            crypto: client_crypto(
+                Some(&cert.pem()),
+                false,
+                &alpns,
+                &crate::transport::tls::tests::test_roots(),
+            )
+            .unwrap(),
+            ech_lookup: false,
+        },
+    };
+    let tickets = tls.crypto.get_session_cache();
     let client = Arc::new(Client::new(ClientOptions {
         server: "127.0.0.1".into(),
         port,
-        tls: ClientTls {
-            server_name: "localhost".into(),
-            crypto,
-        },
+        tls,
         uuid: UUID,
         password: PASSWORD.to_vec(),
         congestion: CongestionControl::Cubic,
@@ -386,4 +411,17 @@ async fn streams_past_the_bound_before_authentication() {
             .expect("server gone");
         held.push((stream, accepted));
     }
+}
+
+/// The client offers ECH with `tls.ech.config`: the server decrypts it,
+/// and the streams go over that connection, the one with the server name.
+#[tokio::test]
+async fn ech_is_offered_with_its_config() {
+    let ech = crate::transport::tls::tests::EchKeys::new("public.example", &[7; 32]);
+    let mut f = fixture_with(false, false, Some(&ech)).await;
+    f.round_trip(1).await;
+    let conn = f.client.current().await.expect("connected");
+    let data = conn.handshake_data().unwrap();
+    let data = data.downcast::<quinn_btls::HandshakeData>().unwrap();
+    assert!(data.ech_accepted);
 }

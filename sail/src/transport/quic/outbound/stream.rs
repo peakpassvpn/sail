@@ -12,15 +12,16 @@ use crate::runtime::RuntimeEnv;
 use crate::transport::layers::OutboundTls;
 use crate::{adapter::*, app::SyncDnsClient, net::*, session::Session};
 
-use super::super::{endpoint_on, transport_config, ClientTls, CongestionControl, QuicStream, Side};
+use super::super::{
+    endpoint_on, transport_config, ClientConfigs, ClientTls, CongestionControl, QuicStream, Side,
+};
 
 struct Manager {
     address: String,
     port: u16,
-    server_name: String,
     dns_client: SyncDnsClient,
     dialer: Dialer,
-    client_config: quinn::ClientConfig,
+    configs: ClientConfigs,
     connections: Arc<RwLock<Vec<Pooled>>>,
 }
 
@@ -77,6 +78,7 @@ impl Manager {
             .targets(&self.dns_client, &self.address, self.port)
             .instrument(tracing::Span::current())
             .await?;
+        let config = self.configs.connection(&self.dns_client).await?;
         let mut last_err: Option<anyhow::Error> = None;
         for to in targets {
             // A socket of its own for each address, or the detour's
@@ -94,8 +96,8 @@ impl Manager {
                 }
             };
             let mut endpoint = endpoint_on(socket, None)?;
-            endpoint.set_default_client_config(self.client_config.clone());
-            let connecting = match endpoint.connect(remote, &self.server_name) {
+            endpoint.set_default_client_config(config.clone());
+            let connecting = match endpoint.connect(remote, self.configs.server_name()) {
                 Ok(c) => c,
                 Err(e) => {
                     last_err = Some(e.into());
@@ -157,20 +159,21 @@ impl Handler {
         // As the tls transport: `certificate` replaces the bundled roots,
         // and no ALPN is offered unless set.
         let tls = ClientTls::new(tls, &address, &[], env)?;
-        let mut client_config = quinn::ClientConfig::new(Arc::new(tls.crypto));
-        client_config.transport_config(Arc::new(transport_config(
-            &env.options.quic,
-            Side::Client,
-            CongestionControl::Bbr.factory(),
-        )));
+        let configs = ClientConfigs::new(
+            tls,
+            transport_config(
+                &env.options.quic,
+                Side::Client,
+                CongestionControl::Bbr.factory(),
+            ),
+        );
         Ok(Self {
             manager: Manager {
                 address,
                 port,
-                server_name: tls.server_name,
                 dns_client,
                 dialer,
-                client_config,
+                configs,
                 connections: Arc::new(RwLock::new(Vec::new())),
             },
         })
@@ -275,10 +278,16 @@ mod tests {
         let manager = Manager {
             address: "127.0.0.1".into(),
             port,
-            server_name: "localhost".into(),
             dns_client: dns,
             dialer: Dialer::system(),
-            client_config: quinn::ClientConfig::new(Arc::new(crypto)),
+            configs: ClientConfigs::new(
+                ClientTls {
+                    server_name: "localhost".into(),
+                    crypto,
+                    ech_lookup: false,
+                },
+                quinn::TransportConfig::default(),
+            ),
             connections: Arc::default(),
         };
         let (first, second) = (Session::default(), Session::default());

@@ -123,7 +123,6 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
     }
 
     let client = Arc::new(Client::new(ClientOptions {
-        server_name: client_tls.server_name,
         server: options.server,
         ports,
         hop_interval,
@@ -131,7 +130,7 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         send_bps: options.up_mbps.unwrap_or(0) * MBPS_TO_BPS,
         recv_bps: options.down_mbps.unwrap_or(0) * MBPS_TO_BPS,
         obfs,
-        crypto: Arc::new(client_tls.crypto),
+        tls: client_tls,
         tuning: ctx.env.options.quic.clone(),
         dns_client: ctx.dns_client.clone(),
         dialer: ctx.dialer.clone(),
@@ -337,8 +336,11 @@ mod tests {
             send_bps: 0,
             recv_bps: 0,
             obfs: None,
-            server_name: "localhost".into(),
-            crypto: Arc::new(crypto),
+            tls: ClientTls {
+                server_name: "localhost".into(),
+                crypto,
+                ech_lookup: false,
+            },
             tuning: Default::default(),
             dns_client: dns,
             dialer: crate::net::Dialer::system(),

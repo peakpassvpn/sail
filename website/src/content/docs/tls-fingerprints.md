@@ -69,7 +69,7 @@ To send BoringSSL's own ClientHello instead, explicitly disable the profile:
 
 The profile changes the handshake shape, not the application protocol carried inside TLS. Every profile offers TLS 1.2 and 1.3, as the browsers do: with `utls` enabled, `min_version` and `max_version` are ignored with a warning. Without a `utls` block, a range set there is applied, and a warning says the ClientHello is then no longer the browser's.
 
-Over QUIC (Hysteria2, TUIC and the `quic` transport) the ClientHello is BoringSSL's own: enabling `utls`, `ech` or `reality` there is a configuration error.
+Over QUIC (Hysteria2, TUIC and the `quic` transport) the ClientHello is BoringSSL's own: enabling `utls` or `reality` there is a configuration error. ECH works there as over TCP.
 
 ## Custom trust
 
@@ -136,6 +136,8 @@ Use `alpn` when the server requires a specific application protocol. With a brow
 ```
 
 When `config` is set, it is the ECHConfigList offered, and no DNS query is made, as in sing-box. When it is omitted, Sail looks the ECHConfigList up in the server name's HTTPS record, or its SVCB record, and a connection fails if the lookup does or finds none. Set `disable_dns_lookup` to require an explicit base64 or PEM `config`: without one, the configuration is refused.
+
+ECH works the same over QUIC (Hysteria2, TUIC and the `quic` transport), where a configured `config` that BoringSSL cannot parse is refused when the configuration is read. A QUIC connection carries every session, so its lookup is made for the DNS client's own queries too. A server that rejects ECH fails the connection, over TCP and QUIC alike: there is no retry with the configs it sends, as in sing-box.
 
 ECH is TLS 1.3 only, so ECH with `min_version` or `max_version` below `1.3` is a configuration error. sing-box takes such a configuration, but every connection then fails, as Go's TLS requires a minimum of 1.3 with ECH; Sail refuses it when the configuration is read.
 

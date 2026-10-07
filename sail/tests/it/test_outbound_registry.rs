@@ -272,9 +272,9 @@ fn block_errors_name_their_path() {
     );
 }
 
-/// The quic transport's handshake takes no uTLS ClientHello, ECH or
-/// REALITY: each is refused, as Hysteria2 and TUIC refuse them, rather than
-/// dropped.
+/// The quic transport's handshake takes no uTLS ClientHello or REALITY:
+/// each is refused, as Hysteria2 and TUIC refuse them, rather than
+/// dropped. ECH it takes.
 #[test]
 fn the_quic_transport_refuses_what_its_handshake_cannot_do() {
     let trojan = |tls: serde_json::Value| {
@@ -296,10 +296,6 @@ fn the_quic_transport_refuses_what_its_handshake_cannot_do() {
             json!({ "utls": { "enabled": true, "fingerprint": "firefox" } }),
         ),
         (
-            "ech",
-            json!({ "ech": { "enabled": true, "config": "AAT+DQBB" } }),
-        ),
-        (
             "reality",
             json!({ "reality": { "enabled": true,
                 "public_key": "jNXHt1yRo0vDuchQlIP6Z0ZvjT3KtzVI-T4E7RoLJS0" } }),
@@ -317,6 +313,60 @@ fn the_quic_transport_refuses_what_its_handshake_cannot_do() {
     // Disabled, or left out, they are no obstacle.
     manager(&[trojan(json!({}))]).unwrap();
     manager(&[trojan(json!({ "utls": { "enabled": false } }))]).unwrap();
+    manager(&[trojan(
+        json!({ "ech": { "enabled": true, "config": ECH_CONFIG } }),
+    )])
+    .unwrap();
+}
+
+/// An ECHConfigList for `example.com`.
+const ECH_CONFIG: &str =
+    "AD7+DQA6AQAgACABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fIAAEAAEAAQALZXhhbXBsZS5jb20AAA==";
+
+/// TUIC and Hysteria2 offer ECH, as sing-box's clients do: with the
+/// configured ECHConfigList, or the one DNS has. A list BoringSSL cannot
+/// take is refused at start.
+#[test]
+fn quic_outbounds_take_ech() {
+    let quic = |kind: &str, ech: serde_json::Value| {
+        let mut options = json!({ "server": "1.2.3.4", "server_port": 443,
+            "tls": { "enabled": true, "server_name": "example.com", "ech": ech } });
+        let extra = match kind {
+            "tuic" => json!({ "uuid": "b8f7a0c2-3f5e-4b0a-9c7d-1e2f3a4b5c6d", "password": "p" }),
+            _ => json!({ "password": "p" }),
+        };
+        options
+            .as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
+        outbound("t", kind, options)
+    };
+    for kind in ["tuic", "hysteria2"] {
+        manager(&[quic(kind, json!({ "enabled": true, "config": ECH_CONFIG }))]).unwrap();
+        manager(&[quic(kind, json!({ "enabled": true }))]).unwrap();
+        let err = manager(&[quic(
+            kind,
+            json!({ "enabled": true, "disable_dns_lookup": true }),
+        )])
+        .err()
+        .expect(kind);
+        assert_eq!(
+            err.to_string(),
+            "[t] outbound: tls: ech.disable_dns_lookup: needs ech.config",
+            "{}",
+            kind
+        );
+        let err = manager(&[quic(kind, json!({ "enabled": true, "config": "AAT+DQBB" }))])
+            .err()
+            .expect(kind);
+        assert!(
+            err.to_string()
+                .starts_with("[t] outbound: tls: ech.config: not an ECHConfigList"),
+            "{}: {}",
+            kind,
+            err
+        );
+    }
 }
 
 /// `tls.ech.disable_dns_lookup` requires the ECHConfigList to be given: a

@@ -19,12 +19,14 @@ use serde_derive::Deserialize;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 use super::recv_backoff::RecvBackoff;
+use crate::app::SyncDnsClient;
 use crate::net::Dialer;
 use crate::runtime::options::Quic as Tuning;
 use crate::runtime::RuntimeEnv;
 use crate::transport::layers::{trusted_certificate, InboundTls, Listable, OutboundTls};
 use crate::transport::muxcore::stall::{Guarded, Stallable, STALL_TIMEOUT};
 use crate::transport::tls::client::{load_certificates, load_private_key, Identity};
+use crate::transport::tls::ech::decode_ech_config_list;
 
 /// The ALPNs of a `tls` block's `alpn`, or `default` when it lists none.
 pub fn alpn_protocols(alpn: Option<&Listable>, default: &[&str]) -> Vec<Vec<u8>> {
@@ -71,15 +73,20 @@ pub struct ClientTls {
     /// The name the server is verified by: `server_name`, or the server's
     /// address.
     pub server_name: String,
+    /// Offering ECH with `tls.ech.config`, if set.
     pub crypto: quinn_btls::ClientConfig,
+    /// Whether each connection offers ECH with the ECHConfigList DNS has
+    /// for `server_name`: `tls.ech` is on, with no `config`.
+    pub ech_lookup: bool,
 }
 
 impl ClientTls {
     /// From `tls`, for the server at `server`, offering `default_alpn`
-    /// unless `alpn` is set, presenting the client certificate if set, and
-    /// taking the server by the pinned keys if set. A version range without
-    /// TLS 1.3 is an error: QUIC is TLS 1.3 only. Whatever `unsupported`
-    /// finds is the caller's to refuse; this reads none of it.
+    /// unless `alpn` is set, presenting the client certificate if set,
+    /// taking the server by the pinned keys if set, and offering ECH if
+    /// `tls.ech` is on. A version range without TLS 1.3 is an error: QUIC
+    /// is TLS 1.3 only. Whatever `unsupported` finds is the caller's to
+    /// refuse; this reads none of it.
     pub fn new(
         tls: &OutboundTls,
         server: &str,
@@ -89,6 +96,12 @@ impl ClientTls {
         // quinn-btls sets the SNI of every name but an IP address.
         if tls.disable_sni {
             return Err(anyhow!("disable_sni: not over QUIC yet"));
+        }
+        let ech = tls.ech.as_ref().filter(|e| e.enabled);
+        // As over TCP: a configured list is the only one used, and DNS is
+        // asked only without one.
+        if ech.is_some_and(|e| e.disable_dns_lookup && e.config.is_none()) {
+            return Err(anyhow!("ech.disable_dns_lookup: needs ech.config"));
         }
         let mut crypto = client_crypto(
             trusted_certificate(tls, env).as_deref(),
@@ -100,10 +113,88 @@ impl ClientTls {
             present(&mut crypto, &identity)?;
         }
         tls.client_options()?.apply_quic(&mut crypto)?;
+        if let Some(config) = ech.and_then(|e| e.config.as_ref()) {
+            let config = config.clone().into_vec().join("\n");
+            let list = decode_ech_config_list(&config).map_err(|e| anyhow!("ech.config: {}", e))?;
+            if list.is_empty() {
+                return Err(anyhow!("ech.config: cannot be empty"));
+            }
+            crypto
+                .set_ech_config_list(Some(&list))
+                .map_err(|e| anyhow!("ech.config: not an ECHConfigList: {}", e))?;
+        }
         Ok(Self {
             server_name: tls.server_name.clone().unwrap_or_else(|| server.to_owned()),
             crypto,
+            ech_lookup: ech.is_some_and(|e| e.config.is_none()),
         })
+    }
+
+    /// The TLS configuration of a new connection: `crypto`, offering the
+    /// ECHConfigList DNS has for `server_name` with `ech_lookup`. As over
+    /// TCP and in sing-box, a lookup that fails or finds none fails the
+    /// connection, rather than making it without ECH. Unlike over TCP, it
+    /// is made for the DNS client's own queries too: the connection is
+    /// every session's.
+    ///
+    /// A server that rejects ECH fails the handshake, as over TCP and in
+    /// sing-box: there is no retry with the configs it sends.
+    pub async fn connection_crypto(
+        &self,
+        dns_client: &SyncDnsClient,
+    ) -> io::Result<Arc<quinn_btls::ClientConfig>> {
+        let mut crypto = self.crypto.clone();
+        if self.ech_lookup {
+            let name = &self.server_name;
+            let list = dns_client
+                .load_full()
+                .lookup_ech_config_list(name)
+                .await
+                .map_err(|e| io::Error::other(format!("ech fetch failed for {}: {}", name, e)))?;
+            let list = decode_ech_config_list(&list)?;
+            crypto.set_ech_config_list(Some(&list)).map_err(|e| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("invalid ech config list for {}: {}", name, e),
+                )
+            })?;
+            tracing::trace!("ech source for {}: https/svcb dns record", name);
+        }
+        Ok(Arc::new(crypto))
+    }
+}
+
+/// A client's quinn configuration, made for each connection: the TLS
+/// configuration is the connection's ([`ClientTls::connection_crypto`]),
+/// the transport configuration and the address validation tokens are
+/// shared by all of them.
+pub struct ClientConfigs {
+    tls: ClientTls,
+    transport: Arc<quinn::TransportConfig>,
+    tokens: Arc<dyn quinn::TokenStore>,
+}
+
+impl ClientConfigs {
+    pub fn new(tls: ClientTls, transport: quinn::TransportConfig) -> Self {
+        Self {
+            tls,
+            transport: Arc::new(transport),
+            tokens: Arc::new(quinn::TokenMemoryCache::default()),
+        }
+    }
+
+    /// The name the server is verified by.
+    pub fn server_name(&self) -> &str {
+        &self.tls.server_name
+    }
+
+    /// The configuration of a new connection.
+    pub async fn connection(&self, dns_client: &SyncDnsClient) -> io::Result<quinn::ClientConfig> {
+        let mut config = quinn::ClientConfig::new(self.tls.connection_crypto(dns_client).await?);
+        config
+            .transport_config(self.transport.clone())
+            .token_store(self.tokens.clone());
+        Ok(config)
     }
 }
 
@@ -124,12 +215,11 @@ pub fn present(crypto: &mut quinn_btls::ClientConfig, identity: &Identity) -> Re
     Ok(())
 }
 
-/// The first of `tls.reality`, `tls.ech` and `tls.utls` that the block
-/// enables: none of them works over QUIC.
+/// The first of `tls.reality` and `tls.utls` that the block enables:
+/// neither works over QUIC.
 pub fn unsupported(tls: &OutboundTls) -> Option<&'static str> {
     [
         ("reality", tls.reality.as_ref().is_some_and(|r| r.enabled)),
-        ("ech", tls.ech.as_ref().is_some_and(|e| e.enabled)),
         ("utls", tls.utls.as_ref().is_some_and(|u| u.enabled)),
     ]
     .into_iter()
@@ -654,26 +744,219 @@ mod tests {
         crypto: quinn_btls::ClientConfig,
         server_name: &str,
     ) -> Result<Option<String>> {
+        Ok(handshake(server, Arc::new(crypto), server_name)
+            .await?
+            .server_name)
+    }
+
+    /// Dials `server` as `server_name`: what the server saw of the
+    /// handshake, if it succeeds.
+    async fn handshake(
+        server: &quinn::Endpoint,
+        crypto: Arc<quinn_btls::ClientConfig>,
+        server_name: &str,
+    ) -> Result<quinn_btls::HandshakeData> {
         let client = endpoint(
             std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap(),
             None,
         )
         .unwrap();
-        let config = quinn::ClientConfig::new(Arc::new(crypto));
+        let config = quinn::ClientConfig::new(crypto);
         let accept = async {
             let conn = server.accept().await.unwrap().await?;
             let data = conn.handshake_data().unwrap();
             let data = data.downcast::<quinn_btls::HandshakeData>().unwrap();
-            Ok::<_, quinn::ConnectionError>(data.server_name)
+            Ok::<_, quinn::ConnectionError>(*data)
         };
         let connect = async {
             let connecting =
                 client.connect_with(config, server.local_addr().unwrap(), server_name)?;
             Ok::<_, anyhow::Error>(connecting.await?)
         };
-        let (sni, conn) = tokio::join!(accept, connect);
+        let (served, conn) = tokio::join!(accept, connect);
         conn?;
-        Ok(sni?)
+        Ok(served?)
+    }
+
+    /// A server for `sans` that decrypts ECH with `ech`.
+    fn ech_server(
+        sans: &[&str],
+        ech: &crate::transport::tls::tests::EchKeys,
+    ) -> (quinn::Endpoint, String) {
+        let cert = rcgen::generate_simple_self_signed(
+            sans.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
+        )
+        .unwrap();
+        let pem = cert.cert.pem();
+        let crypto = server_crypto(&pem, &cert.key_pair.serialize_pem(), &[]).unwrap();
+        ech.serve(crypto.ctx());
+        let server = endpoint(
+            std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap(),
+            Some(server_config(crypto).unwrap()),
+        )
+        .unwrap();
+        (server, pem)
+    }
+
+    fn ech_client(pem: &str, ech: serde_json::Value) -> Result<ClientTls> {
+        let tls: OutboundTls = serde_json::from_value(serde_json::json!({
+            "enabled": true, "server_name": "secret.example", "certificate": pem, "ech": ech,
+        }))
+        .unwrap();
+        ClientTls::new(&tls, "127.0.0.1", &[], &RuntimeEnv::default())
+    }
+
+    fn no_dns() -> SyncDnsClient {
+        crate::app::dns::DnsClient::new(
+            &Default::default(),
+            Default::default(),
+            &Default::default(),
+        )
+        .unwrap()
+        .into_shared()
+    }
+
+    /// A DNS client of a server on loopback answering every query
+    /// NXDOMAIN.
+    async fn nxdomain_dns() -> SyncDnsClient {
+        let socket = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let port = socket.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            let mut buf = [0u8; 1500];
+            while let Ok((n, peer)) = socket.recv_from(&mut buf).await {
+                let mut reply = buf[..n].to_vec();
+                reply[2] |= 0x80;
+                reply[3] = (reply[3] & 0xf0) | 3;
+                let _ = socket.send_to(&reply, peer).await;
+            }
+        });
+        let config = crate::config::Config::from_json(
+            &serde_json::json!({ "dns": { "timeout": "2s", "servers": [
+                { "type": "udp", "tag": "u", "server": "127.0.0.1", "server_port": port },
+            ] } })
+            .to_string(),
+        )
+        .unwrap();
+        crate::app::dns::DnsClient::new(&config.dns, Default::default(), &Default::default())
+            .unwrap()
+            .into_shared()
+    }
+
+    /// With `tls.ech.config`, the ClientHello the server answers is the
+    /// encrypted one, with the server name: the outer one has the
+    /// config's public name.
+    #[tokio::test]
+    async fn ech_over_quic_hides_the_server_name() {
+        let ech = crate::transport::tls::tests::EchKeys::new("public.example", &[7; 32]);
+        let (server, pem) = ech_server(&["secret.example"], &ech);
+        let tls = ech_client(
+            &pem,
+            serde_json::json!({"enabled": true, "config": ech.config}),
+        )
+        .unwrap();
+        assert!(!tls.ech_lookup);
+        let crypto = tls.connection_crypto(&no_dns()).await.unwrap();
+        let served = handshake(&server, crypto, &tls.server_name).await.unwrap();
+        assert!(served.ech_accepted);
+        assert_eq!(served.server_name.as_deref(), Some("secret.example"));
+
+        // PEM, as sing-box writes it, is taken too.
+        let pem_config = format!(
+            "-----BEGIN ECH CONFIGS-----\n{}\n-----END ECH CONFIGS-----",
+            ech.config
+        );
+        let tls = ech_client(
+            &pem,
+            serde_json::json!({"enabled": true, "config": [pem_config]}),
+        )
+        .unwrap();
+        let crypto = tls.connection_crypto(&no_dns()).await.unwrap();
+        assert!(
+            handshake(&server, crypto, &tls.server_name)
+                .await
+                .unwrap()
+                .ech_accepted
+        );
+
+        // Without it, there is none.
+        let tls = ech_client(
+            &pem,
+            serde_json::json!({"enabled": false, "config": ech.config}),
+        )
+        .unwrap();
+        let crypto = tls.connection_crypto(&no_dns()).await.unwrap();
+        assert!(
+            !handshake(&server, crypto, &tls.server_name)
+                .await
+                .unwrap()
+                .ech_accepted
+        );
+    }
+
+    /// A server that cannot decrypt the ECHConfig fails the handshake, as
+    /// over TCP and in sing-box: no retry, nor a connection without ECH.
+    #[tokio::test]
+    async fn a_rejected_ech_over_quic_fails_the_handshake() {
+        let ech = crate::transport::tls::tests::EchKeys::new("public.example", &[7; 32]);
+        let stale = crate::transport::tls::tests::EchKeys::new("public.example", &[8; 32]);
+        let (server, pem) = ech_server(&["secret.example", "public.example"], &ech);
+        let tls = ech_client(
+            &pem,
+            serde_json::json!({"enabled": true, "config": stale.config}),
+        )
+        .unwrap();
+        let crypto = tls.connection_crypto(&no_dns()).await.unwrap();
+        let err = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            handshake(&server, crypto, &tls.server_name),
+        )
+        .await
+        .expect("the handshake fails, not hangs")
+        .unwrap_err();
+        assert!(err.to_string().contains("ECH"), "{}", err);
+    }
+
+    /// Without `config`, each connection asks DNS for the server name's
+    /// ECHConfigList, and one DNS does not give fails the connection.
+    #[tokio::test]
+    async fn without_a_configured_ech_config_a_failed_lookup_fails_over_quic() {
+        let pem = crate::transport::tls::tests::self_signed_pem();
+        let tls = ech_client(&pem, serde_json::json!({"enabled": true})).unwrap();
+        assert!(tls.ech_lookup);
+        let err = tls
+            .connection_crypto(&nxdomain_dns().await)
+            .await
+            .err()
+            .expect("the lookup fails");
+        assert!(
+            err.to_string()
+                .contains("ech fetch failed for secret.example"),
+            "{}",
+            err
+        );
+    }
+
+    #[test]
+    fn ech_configs_over_quic_are_checked_at_start() {
+        let pem = crate::transport::tls::tests::self_signed_pem();
+        let err =
+            |ech: serde_json::Value| ech_client(&pem, ech).map(|_| ()).unwrap_err().to_string();
+        assert_eq!(
+            err(serde_json::json!({"enabled": true, "disable_dns_lookup": true})),
+            "ech.disable_dns_lookup: needs ech.config"
+        );
+        assert_eq!(
+            err(serde_json::json!({"enabled": true, "config": "   "})),
+            "ech.config: cannot be empty"
+        );
+        assert!(
+            err(serde_json::json!({"enabled": true, "config": "$$$"})).starts_with("ech.config: ")
+        );
+        // A list BoringSSL cannot parse: its one ECHConfig is cut short.
+        assert!(
+            err(serde_json::json!({"enabled": true, "config": "AAT+DQBB"}))
+                .starts_with("ech.config: not an ECHConfigList")
+        );
     }
 
     /// A client that sends its Initial and falls silent is dropped once the

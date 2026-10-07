@@ -1109,3 +1109,74 @@ async fn test_negotiated_alpn() {
     assert_eq!(alpn_with(None).await, Ok(None));
     assert!(alpn_with(Some(b"h3")).await.is_err());
 }
+
+/// An ECHConfig for `public_name`, as the ECHConfigList a client offers,
+/// and the keys a server decrypts what it encrypts with.
+#[cfg(feature = "quic")]
+pub(crate) struct EchKeys {
+    /// The ECHConfigList, base64, as `tls.ech.config` takes it.
+    pub config: String,
+    keys: *mut btls_sys::SSL_ECH_KEYS,
+}
+
+#[cfg(feature = "quic")]
+impl EchKeys {
+    /// From the X25519 private key `private_key`; the server sends the
+    /// config to retry with when it rejects ECH.
+    pub(crate) fn new(public_name: &str, private_key: &[u8; 32]) -> Self {
+        let name = std::ffi::CString::new(public_name).unwrap();
+        // SAFETY: each pointer is checked, used while it lives, and freed
+        // once; SSL_ECH_KEYS_add copies the key.
+        unsafe {
+            let key = btls_sys::EVP_HPKE_KEY_new();
+            assert!(!key.is_null());
+            assert_eq!(
+                btls_sys::EVP_HPKE_KEY_init(
+                    key,
+                    btls_sys::EVP_hpke_x25519_hkdf_sha256(),
+                    private_key.as_ptr(),
+                    private_key.len(),
+                ),
+                1
+            );
+            let (mut out, mut out_len) = (std::ptr::null_mut(), 0);
+            assert_eq!(
+                btls_sys::SSL_marshal_ech_config(&mut out, &mut out_len, 1, key, name.as_ptr(), 0),
+                1
+            );
+            let ech_config = std::slice::from_raw_parts(out, out_len).to_vec();
+            btls_sys::OPENSSL_free(out.cast());
+            let keys = btls_sys::SSL_ECH_KEYS_new();
+            assert!(!keys.is_null());
+            assert_eq!(
+                btls_sys::SSL_ECH_KEYS_add(keys, 1, ech_config.as_ptr(), ech_config.len(), key),
+                1
+            );
+            btls_sys::EVP_HPKE_KEY_free(key);
+            let mut list = (ech_config.len() as u16).to_be_bytes().to_vec();
+            list.extend_from_slice(&ech_config);
+            Self {
+                config: btls::base64::encode_block(&list),
+                keys,
+            }
+        }
+    }
+
+    /// Decrypts with these keys on `ctx`, a server's.
+    pub(crate) fn serve(&self, ctx: &btls::ssl::SslContextRef) {
+        use foreign_types::ForeignTypeRef;
+        // SAFETY: the context takes a reference of its own to the keys.
+        assert_eq!(
+            unsafe { btls_sys::SSL_CTX_set1_ech_keys(ctx.as_ptr(), self.keys) },
+            1
+        );
+    }
+}
+
+#[cfg(feature = "quic")]
+impl Drop for EchKeys {
+    fn drop(&mut self) {
+        // SAFETY: made by SSL_ECH_KEYS_new, freed only here.
+        unsafe { btls_sys::SSL_ECH_KEYS_free(self.keys) }
+    }
+}
