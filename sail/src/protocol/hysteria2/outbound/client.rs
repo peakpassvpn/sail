@@ -5,13 +5,16 @@
 use std::collections::HashMap;
 use std::io;
 use std::net::SocketAddr;
+use std::pin::Pin;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
+use std::task::{ready, Context, Poll};
 use std::time::Duration;
 
 use anyhow::{anyhow, Context as _, Result};
 use bytes::Bytes;
 use futures::future::{AbortHandle, Abortable};
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::mpsc;
 use tokio::time::timeout;
 use tracing::{debug, trace};
@@ -154,10 +157,11 @@ impl Client {
 
     /// Opens a proxied TCP stream to where `sess` goes, with `payload` sent
     /// along with the request; where the connection went out recorded on
-    /// `sess`.
-    pub async fn open_stream(&self, sess: &Session, payload: &[u8]) -> io::Result<QuicStream> {
+    /// `sess`. The stream is returned once the request is sent, and the
+    /// server's answer read at its first read (`ProxiedStream`).
+    pub async fn open_stream(&self, sess: &Session, payload: &[u8]) -> io::Result<ProxiedStream> {
         let conn = self.connection().await?;
-        let (mut send, mut recv) = match conn.conn.open_bi().await {
+        let (mut send, recv) = match conn.conn.open_bi().await {
             Ok(s) => s,
             Err(e) => {
                 self.discard(&conn);
@@ -167,14 +171,11 @@ impl Client {
         send.write_all(&proto::tcp_request(&sess.destination, payload))
             .await
             .map_err(io::Error::other)?;
-        timeout(
-            self.options.dialer.connect_timeout(),
-            proto::read_tcp_response(&mut recv),
-        )
-        .await
-        .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "hysteria2 TCP response"))??;
         conn.bound.onto(sess);
-        Ok(QuicStream::new(send, recv))
+        Ok(ProxiedStream {
+            inner: QuicStream::new(send, recv),
+            response: Some(Vec::new()),
+        })
     }
 
     async fn connect(&self) -> Result<Connection> {
@@ -299,6 +300,73 @@ impl Client {
             None => Some(0),
         };
         Ok(Auth { udp, rx })
+    }
+}
+
+/// A proxied TCP stream, whose TCPResponse is read at its first read, as
+/// sing-box's client reads it (sing-quic, hysteria2/client.go,
+/// `clientConn.Read`): a server need not answer before it has data to
+/// send back, and Mihomo's does not (sing-quic's service answers at the
+/// first write when HandshakeSuccess is not called). Writes go out before
+/// the answer; a refusal fails the first read, and every read after it,
+/// with the server's message.
+///
+/// A server that never answers holds the stream as one that never sends
+/// does: until either side closes it, the relay's idle timeouts once one
+/// has, or the connection's idle timeout once the server is gone.
+pub struct ProxiedStream {
+    inner: QuicStream,
+    /// The response read so far, until it is whole and OK.
+    response: Option<Vec<u8>>,
+}
+
+impl AsyncRead for ProxiedStream {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        let this = self.get_mut();
+        while let Some(response) = &mut this.response {
+            let Some(needs) = proto::tcp_response_needs(response)? else {
+                this.response = None;
+                break;
+            };
+            // Only what the response needs, so that what follows it is
+            // left for `buf`.
+            let at = response.len();
+            response.resize(at + needs, 0);
+            let mut part = ReadBuf::new(&mut response[at..]);
+            let polled = Pin::new(&mut this.inner).poll_read(cx, &mut part);
+            let read = part.filled().len();
+            response.truncate(at + read);
+            ready!(polled)?;
+            if read == 0 {
+                return Poll::Ready(Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    "hysteria2: the stream ended before its TCP response",
+                )));
+            }
+        }
+        Pin::new(&mut this.inner).poll_read(cx, buf)
+    }
+}
+
+impl AsyncWrite for ProxiedStream {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        Pin::new(&mut self.inner).poll_write(cx, buf)
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.inner).poll_flush(cx)
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.inner).poll_shutdown(cx)
     }
 }
 

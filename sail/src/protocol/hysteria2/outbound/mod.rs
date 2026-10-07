@@ -275,8 +275,10 @@ mod tests {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::time::timeout;
 
+    use super::super::h3;
     use super::super::inbound::masquerade::Masquerade;
     use super::super::inbound::server::{DatagramHandler as ServerHandler, Server};
+    use super::super::proto;
     use super::*;
     use crate::net::network::{ChangeReason, NetworkChange};
     use crate::transport::quic::{alpn_protocols, client_crypto, server_config, server_crypto};
@@ -306,7 +308,13 @@ mod tests {
         let InboundTransport::Incoming(incoming) = transport else {
             panic!("not incoming");
         };
+        (client_to(port, &cert.pem()), incoming)
+    }
 
+    /// A client of a server on `port` of 127.0.0.1 with the certificate
+    /// `cert`.
+    fn client_to(port: u16, cert: &str) -> Arc<Client> {
+        let alpns = alpn_protocols(None, quic::DEFAULT_ALPN);
         let dns = crate::app::dns::DnsClient::new(
             &crate::config::Dns::default(),
             Default::default(),
@@ -315,13 +323,13 @@ mod tests {
         .unwrap()
         .into_shared();
         let crypto = client_crypto(
-            Some(&cert.pem()),
+            Some(cert),
             false,
             &alpns,
             &crate::transport::tls::tests::test_roots(),
         )
         .unwrap();
-        let client = Arc::new(Client::new(ClientOptions {
+        Arc::new(Client::new(ClientOptions {
             server: "127.0.0.1".into(),
             ports: vec![port],
             hop_interval: None,
@@ -334,8 +342,111 @@ mod tests {
             tuning: Default::default(),
             dns_client: dns,
             dialer: crate::net::Dialer::system(),
-        }));
-        (client, incoming)
+        }))
+    }
+
+    /// A stand-in for Mihomo's server, whose sing-quic service answers a
+    /// stream's TCPRequest only along with the first data it sends back,
+    /// as HandshakeSuccess is never called: on 127.0.0.1, with its port
+    /// and certificate.
+    fn withholding_server() -> (quinn::Endpoint, u16, String) {
+        let rcgen::CertifiedKey { cert, key_pair } =
+            rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
+        let alpns = alpn_protocols(None, quic::DEFAULT_ALPN);
+        let crypto = server_crypto(&cert.pem(), &key_pair.serialize_pem(), &alpns).unwrap();
+        let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let port = socket.local_addr().unwrap().port();
+        let endpoint =
+            crate::transport::quic::endpoint(socket, Some(server_config(crypto).unwrap())).unwrap();
+        (endpoint, port, cert.pem())
+    }
+
+    /// Serves one stream on `endpoint`: authenticates the client, reads
+    /// its TCPRequest and then `ask`, and only then answers, with
+    /// `response` and `reply` together. What it returns keeps the stream.
+    async fn withhold(
+        endpoint: &quinn::Endpoint,
+        ask: &[u8],
+        response: bytes::BytesMut,
+        reply: &[u8],
+    ) -> (quinn::Connection, quinn::SendStream) {
+        let conn = endpoint.accept().await.unwrap().await.unwrap();
+        let (mut send, mut recv) = conn.accept_bi().await.unwrap();
+        h3::read_headers(&mut recv, None).await.unwrap();
+        let status = proto::STATUS_AUTH_OK.to_string();
+        h3::write_headers(&mut send, &[(":status", &status)])
+            .await
+            .unwrap();
+        send.finish().unwrap();
+
+        let (mut send, mut recv) = conn.accept_bi().await.unwrap();
+        assert_eq!(
+            proto::read_varint(&mut recv).await.unwrap(),
+            proto::FRAME_TYPE_TCP_REQUEST
+        );
+        proto::read_tcp_request(&mut recv).await.unwrap();
+        let mut got = vec![0; ask.len()];
+        recv.read_exact(&mut got).await.unwrap();
+        assert_eq!(got, ask);
+        let mut answer = response.to_vec();
+        answer.extend_from_slice(reply);
+        send.write_all(&answer).await.unwrap();
+        (conn, send)
+    }
+
+    /// Against a server that answers only along with its first data, the
+    /// stream is there at once: what the client sends first goes out
+    /// before the answer, and the answer comes ahead of the data.
+    #[tokio::test]
+    async fn an_upload_first_stream_needs_no_answer_before_its_first_read() {
+        let (endpoint, port, cert) = withholding_server();
+        let client = client_to(port, &cert);
+        let server = withhold(&endpoint, b"ping", proto::tcp_response(true, ""), b"pong");
+        let exchange = async {
+            let mut stream = StreamHandler(client.clone())
+                .handle(&session(), None, None)
+                .await
+                .expect("a stream before any answer");
+            stream.write_all(b"ping").await.unwrap();
+            let mut got = [0; 4];
+            stream.read_exact(&mut got).await.unwrap();
+            assert_eq!(&got, b"pong");
+        };
+        let (_kept, ()) = timeout(Duration::from_secs(10), async {
+            tokio::join!(server, exchange)
+        })
+        .await
+        .expect("no exchange within 10s");
+    }
+
+    /// A server's refusal fails the stream's first read, with its message.
+    #[tokio::test]
+    async fn a_refusal_fails_the_first_read() {
+        let (endpoint, port, cert) = withholding_server();
+        let client = client_to(port, &cert);
+        let server = withhold(
+            &endpoint,
+            b"ping",
+            proto::tcp_response(false, "no route"),
+            b"",
+        );
+        let exchange = async {
+            let mut stream = StreamHandler(client.clone())
+                .handle(&session(), None, None)
+                .await
+                .expect("a stream before any answer");
+            stream.write_all(b"ping").await.unwrap();
+            let mut got = [0; 4];
+            let err = stream.read(&mut got).await.unwrap_err();
+            assert!(err.to_string().contains("no route"), "{}", err);
+            // And so does every read after it.
+            assert!(stream.read(&mut got).await.is_err());
+        };
+        let (_kept, ()) = timeout(Duration::from_secs(10), async {
+            tokio::join!(server, exchange)
+        })
+        .await
+        .expect("no exchange within 10s");
     }
 
     fn session() -> Session {

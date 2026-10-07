@@ -213,17 +213,67 @@ pub fn tcp_response(ok: bool, message: &str) -> BytesMut {
     buf
 }
 
-/// Reads a TCPResponse, failing with its message if it is not OK.
-pub async fn read_tcp_response<R: AsyncRead + Unpin>(r: &mut R) -> io::Result<()> {
-    let status = r.read_u8().await?;
-    let len = read_varint(r).await?;
-    let message = read_bounded(r, len, MAX_MESSAGE_LENGTH, "message").await?;
-    skip_padding(r).await?;
+/// How much more of a TCPResponse `buf`, its start, needs: `Some(n)` for
+/// the `n` bytes that finish the part under way, none past the response,
+/// so that reading what it asks for leaves what follows on the stream;
+/// `None` once it is whole and OK. Fails with the server's message if it
+/// is not OK, or if it is invalid.
+pub fn tcp_response_needs(buf: &[u8]) -> io::Result<Option<usize>> {
+    let Some(&status) = buf.first() else {
+        return Ok(Some(1));
+    };
+    let (message, end) = match field_at(buf, 1, MAX_MESSAGE_LENGTH, "message")? {
+        Part::Whole(message, end) => (message, end),
+        Part::Needs(n) => return Ok(Some(n)),
+    };
+    if let Part::Needs(n) = field_at(buf, end, MAX_PADDING_LENGTH, "padding")? {
+        return Ok(Some(n));
+    }
     if status != 0 {
         return Err(io::Error::other(format!(
             "server refused: {}",
-            String::from_utf8_lossy(&message)
+            String::from_utf8_lossy(message)
         )));
+    }
+    Ok(None)
+}
+
+/// A varint-prefixed field of a buffer read so far.
+enum Part<'a> {
+    /// The field, and where it ends.
+    Whole(&'a [u8], usize),
+    /// How many more bytes it needs.
+    Needs(usize),
+}
+
+/// The varint-prefixed field at `at` in `buf`, of at most `max` bytes.
+fn field_at<'a>(buf: &'a [u8], at: usize, max: u64, what: &str) -> io::Result<Part<'a>> {
+    let rest = &buf[at..];
+    let Some(&first) = rest.first() else {
+        return Ok(Part::Needs(1));
+    };
+    let prefix = 1usize << (first >> 6);
+    let Some((len, _)) = get_varint(rest) else {
+        return Ok(Part::Needs(prefix - rest.len()));
+    };
+    if len > max {
+        return Err(invalid(format!("{} too long: {}", what, len)));
+    }
+    let end = at + prefix + len as usize;
+    if buf.len() < end {
+        return Ok(Part::Needs(end - buf.len()));
+    }
+    Ok(Part::Whole(&buf[at + prefix..end], end))
+}
+
+/// Reads a TCPResponse, failing with its message if it is not OK.
+#[cfg(test)]
+pub async fn read_tcp_response<R: AsyncRead + Unpin>(r: &mut R) -> io::Result<()> {
+    let mut buf = Vec::new();
+    while let Some(n) = tcp_response_needs(&buf)? {
+        let at = buf.len();
+        buf.resize(at + n, 0);
+        r.read_exact(&mut buf[at..]).await?;
     }
     Ok(())
 }
@@ -421,6 +471,37 @@ mod tests {
         let refused = tcp_response(false, "no route");
         let err = read_tcp_response(&mut &refused[..]).await.unwrap_err();
         assert!(err.to_string().contains("no route"), "{}", err);
+    }
+
+    /// Read as the client reads it, a byte at a time if need be, a
+    /// response is taken up to its last byte, and no further.
+    #[test]
+    fn a_tcp_response_needs_no_byte_past_it() {
+        for ok in [true, false] {
+            let mut wire = tcp_response(ok, if ok { "" } else { "no route" }).to_vec();
+            let len = wire.len();
+            wire.extend_from_slice(b"payload");
+            let mut buf = Vec::new();
+            let result = loop {
+                match tcp_response_needs(&buf) {
+                    Ok(Some(n)) => {
+                        assert!(buf.len() + n <= len, "asks past the response");
+                        buf.push(wire[buf.len()]);
+                    }
+                    other => break other,
+                }
+            };
+            assert_eq!(buf.len(), len);
+            match result {
+                Ok(None) => assert!(ok),
+                Err(e) => assert!(!ok && e.to_string().contains("no route"), "{}", e),
+                Ok(Some(_)) => unreachable!(),
+            }
+        }
+        let mut long = BytesMut::new();
+        long.put_u8(0);
+        put_varint(&mut long, MAX_MESSAGE_LENGTH + 1);
+        assert!(tcp_response_needs(&long).is_err());
     }
 
     #[tokio::test]
