@@ -1,10 +1,12 @@
 use std::io;
 use std::net::{Ipv4Addr, SocketAddr};
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Context, Poll};
 
 use async_trait::async_trait;
-use bytes::{BufMut, BytesMut};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use bytes::{Buf, BufMut, Bytes, BytesMut};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader, ReadBuf};
 use tracing::{debug, Instrument};
 
 use super::association::{Associations, ClientFilter};
@@ -17,6 +19,82 @@ use crate::{
 /// How long a SOCKS4 USERID or SOCKS4a host may be. Neither has a length of
 /// its own, and a client that sends more is not one to hold memory for.
 const MAX_SOCKS4_FIELD: usize = 1024;
+
+/// How much the handshake reader reads at once: a judgment value. A SOCKS5
+/// greeting with all 255 methods (257 bytes) and a request for a 255-byte
+/// domain (262) each fit in one read; only RFC 1929 credentials near their
+/// limits, or long SOCKS4 fields, take more.
+const HANDSHAKE_READ: usize = 512;
+
+/// The client's stream while its handshake is read: each field is taken from
+/// what one read brought, not read from the socket on its own.
+type Handshake = BufReader<AnyStream>;
+
+/// The client's stream once its handshake is read, yielding first what the
+/// handshake reader read past the handshake: data the client sent ahead of
+/// our reply, such as a TLS ClientHello after a CONNECT.
+fn read_on(handshake: Handshake) -> AnyStream {
+    if handshake.buffer().is_empty() {
+        return handshake.into_inner();
+    }
+    let ahead = Bytes::copy_from_slice(handshake.buffer());
+    Box::new(Prefixed {
+        prefix: ahead,
+        inner: handshake.into_inner(),
+    })
+}
+
+/// A stream that first yields bytes already read from it.
+struct Prefixed {
+    prefix: Bytes,
+    inner: AnyStream,
+}
+
+impl AsyncRead for Prefixed {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        if !self.prefix.is_empty() {
+            let n = self.prefix.len().min(buf.remaining());
+            buf.put_slice(&self.prefix[..n]);
+            self.prefix.advance(n);
+            return Poll::Ready(Ok(()));
+        }
+        Pin::new(&mut self.inner).poll_read(cx, buf)
+    }
+}
+
+impl AsyncWrite for Prefixed {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        Pin::new(&mut self.inner).poll_write(cx, buf)
+    }
+
+    fn poll_write_vectored(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        bufs: &[io::IoSlice<'_>],
+    ) -> Poll<io::Result<usize>> {
+        Pin::new(&mut self.inner).poll_write_vectored(cx, bufs)
+    }
+
+    fn is_write_vectored(&self) -> bool {
+        self.inner.is_write_vectored()
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.inner).poll_flush(cx)
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.inner).poll_shutdown(cx)
+    }
+}
 
 /// SOCKS5 reply codes (RFC 1928, section 6).
 const REP_GENERAL_FAILURE: u8 = 0x01;
@@ -64,7 +142,7 @@ fn answered_once_connected(
 }
 
 /// Reads a SOCKS4 field up to its NUL, without the NUL.
-async fn read_nul_terminated(stream: &mut AnyStream) -> io::Result<Vec<u8>> {
+async fn read_nul_terminated(stream: &mut Handshake) -> io::Result<Vec<u8>> {
     let mut field = Vec::new();
     loop {
         let b = stream.read_u8().await?;
@@ -110,12 +188,24 @@ impl Handler {
         }
     }
 
-    /// Handles a stream whose version byte, `version`, was read already:
-    /// by `handle`, or by the mixed inbound telling SOCKS from HTTP.
+    /// Handles a stream whose version byte, `version`, the mixed inbound
+    /// read already, telling SOCKS from HTTP.
+    #[cfg(feature = "inbound-mixed")]
     pub(crate) async fn handle_version(
         &self,
         sess: Session,
         stream: AnyStream,
+        version: u8,
+    ) -> io::Result<AnyInboundTransport> {
+        let stream = BufReader::with_capacity(HANDSHAKE_READ, stream);
+        self.handle_handshake(sess, stream, version).await
+    }
+
+    /// Handles a handshake whose version byte, `version`, was read already.
+    async fn handle_handshake(
+        &self,
+        sess: Session,
+        stream: Handshake,
         version: u8,
     ) -> io::Result<AnyInboundTransport> {
         let span = sess.span();
@@ -129,7 +219,7 @@ impl Handler {
     async fn handle_socks4(
         &self,
         mut sess: Session,
-        mut stream: AnyStream,
+        mut stream: Handshake,
     ) -> std::io::Result<AnyInboundTransport> {
         let mut buf = BytesMut::new();
         // CD, DSTPORT, DSTIP
@@ -185,7 +275,7 @@ impl Handler {
         sess.destination = destination;
         Ok(answered_once_connected(
             sess,
-            stream,
+            read_on(stream),
             granted.to_vec(),
             socks4_failure,
         ))
@@ -194,7 +284,7 @@ impl Handler {
     async fn handle_socks5(
         &self,
         mut sess: Session,
-        mut stream: AnyStream,
+        mut stream: Handshake,
     ) -> std::io::Result<AnyInboundTransport> {
         let mut buf = BytesMut::new();
 
@@ -303,7 +393,7 @@ impl Handler {
                 sess.destination = destination;
                 Ok(answered_once_connected(
                     sess,
-                    stream,
+                    read_on(stream),
                     buf.to_vec(),
                     socks5_failure,
                 ))
@@ -349,7 +439,7 @@ impl Handler {
                 let user = udp_sess.user.clone();
                 // The association lasts as long as the connection (RFC
                 // 1928): the relay watches it, and ends with it.
-                let relay = datagram::Relay::new(socket, slot, stream, filter, user);
+                let relay = datagram::Relay::new(socket, slot, read_on(stream), filter, user);
                 Ok(InboundTransport::Datagram(Box::new(relay), Some(udp_sess)))
             }
             _ => Err(io::Error::other("invalid cmd")),
@@ -362,12 +452,12 @@ impl InboundStreamHandler for Handler {
     async fn handle<'a>(
         &'a self,
         sess: Session,
-        mut stream: AnyStream,
+        stream: AnyStream,
     ) -> std::io::Result<AnyInboundTransport> {
         tracing::trace!("handling inbound stream");
-        let mut buf = [0u8; 1];
-        stream.read_exact(&mut buf).await?;
-        self.handle_version(sess, stream, buf[0]).await
+        let mut stream = BufReader::with_capacity(HANDSHAKE_READ, stream);
+        let version = stream.read_u8().await?;
+        self.handle_handshake(sess, stream, version).await
     }
 }
 
@@ -498,6 +588,100 @@ mod tests {
         stream.flush().await.unwrap();
         client_r.read_exact(&mut answer).await.unwrap();
         assert_eq!(answer[1], 90);
+    }
+
+    #[tokio::test]
+    async fn a_connect_takes_one_read_for_each_message() {
+        let (mut client, server) = tokio::io::duplex(4096);
+        let reads = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counted = CountReads {
+            inner: server,
+            reads: reads.clone(),
+        };
+        let client_side = async {
+            client.write_all(&[0x05, 0x01, 0x00]).await.unwrap();
+            let mut method = [0u8; 2];
+            client.read_exact(&mut method).await.unwrap();
+            // CONNECT 127.0.0.1:80
+            client
+                .write_all(&[0x05, 0x01, 0x00, 0x01, 127, 0, 0, 1, 0, 80])
+                .await
+                .unwrap();
+        };
+        let handler = open_handler();
+        let (result, ()) = tokio::join!(
+            handler.handle(Session::default(), Box::new(counted)),
+            client_side
+        );
+        assert!(matches!(result, Ok(InboundTransport::Stream(..))));
+        // The greeting, then the request.
+        assert_eq!(reads.load(std::sync::atomic::Ordering::Relaxed), 2);
+    }
+
+    #[tokio::test]
+    async fn data_sent_ahead_of_the_reply_is_relayed_first() {
+        let (client, server) = tokio::io::duplex(4096);
+        let (mut client_r, mut client_w) = tokio::io::split(client);
+        // Greeting, CONNECT and early data in one write, as a client that
+        // does not wait for the reply sends them.
+        let mut request = socks5_no_auth(&[0x05, 0x01, 0x00, 0x01, 127, 0, 0, 1, 0, 80]);
+        request.extend_from_slice(b"early data");
+        client_w.write_all(&request).await.unwrap();
+        let Ok(InboundTransport::Stream(mut stream, sess)) = open_handler()
+            .handle(Session::default(), Box::new(server))
+            .await
+        else {
+            panic!("no stream");
+        };
+        sess.reply.expect("answered once connected").succeeded();
+        client_w.write_all(b", then more").await.unwrap();
+        client_w.shutdown().await.unwrap();
+        let mut relayed = Vec::new();
+        stream.read_to_end(&mut relayed).await.unwrap();
+        assert_eq!(relayed, b"early data, then more");
+        let mut answer = [0u8; 4];
+        client_r.read_exact(&mut answer).await.unwrap();
+        assert_eq!(answer, [0x05, 0x00, 0x05, 0x00]);
+    }
+
+    /// A stream that counts the reads of it that brought data.
+    struct CountReads<S> {
+        inner: S,
+        reads: Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    impl<S: AsyncRead + Unpin> AsyncRead for CountReads<S> {
+        fn poll_read(
+            mut self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+            buf: &mut ReadBuf<'_>,
+        ) -> Poll<io::Result<()>> {
+            let before = buf.filled().len();
+            let polled = Pin::new(&mut self.inner).poll_read(cx, buf);
+            if matches!(polled, Poll::Ready(Ok(()))) && buf.filled().len() > before {
+                self.reads
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            }
+            polled
+        }
+    }
+
+    impl<S: AsyncWrite + Unpin> AsyncWrite for CountReads<S> {
+        fn poll_write(
+            mut self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+            buf: &[u8],
+        ) -> Poll<io::Result<usize>> {
+            Pin::new(&mut self.inner).poll_write(cx, buf)
+        }
+
+        fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+            Pin::new(&mut self.inner).poll_flush(cx)
+        }
+
+        fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+            Pin::new(&mut self.inner).poll_shutdown(cx)
+        }
     }
 
     #[tokio::test]
