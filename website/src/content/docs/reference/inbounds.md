@@ -825,11 +825,11 @@ Rust: [`TunInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail
 | `exclude_mac_address` | listable-string | — | Error: Filtering LAN clients by MAC address | — |
 | `udp_timeout` | number\|duration | unset | Supported | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
 | `udp_mapping` | string, one of `endpoint_independent`, `address_dependent`, `address_and_port_dependent` | — | Warned: How UDP mappings are made and how many are kept: the same traffic | — |
-| `udp_filtering` | string, one of `endpoint_independent`, `address_dependent`, `address_and_port_dependent` | — | Error: Which remote addresses may answer through a UDP mapping: others would | — |
+| `udp_filtering` | string, one of `endpoint_independent`, `address_dependent`, `address_and_port_dependent` | unset | Supported | sing-box 1.14's: which remote addresses reach an app through the port it sent from. `endpoint_independent`: any (full cone, as P2P and some games need). `address_and_port_dependent`, the default: only an address and port the app sent to. `address_dependent` is not implemented, and is an error. An app's port is one mapping in every case. |
 | `udp_nat_max` | number | — | Warned: How UDP mappings are made and how many are kept: the same traffic | — |
 | `stack` | string, one of `system`, `gvisor`, `mixed` | — | Warned: One stack serves every `stack`; the platform proxy is the host's to set | — |
 | `platform` | object → [object](#inbounds-tun-platform) | — | Warned: One stack serves every `stack`; the platform proxy is the host's to set | — |
-| `endpoint_independent_nat` | bool | — | Warned: One stack serves every `stack`; the platform proxy is the host's to set (deprecated in sing-box) | — |
+| `endpoint_independent_nat` | bool | unset | Supported (deprecated in sing-box) | sing-box's older name for `udp_filtering: endpoint_independent`, deprecated there; the two may not disagree. |
 
 <a id="inbounds-tun-platform"></a>
 

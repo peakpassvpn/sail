@@ -464,7 +464,6 @@ pub const GROUPS: &[Group] = &[
         Ignored,
         &[
             "inbounds.*.stack",
-            "inbounds.*.endpoint_independent_nat",
             "inbounds.*.platform",
         ],
     ),
@@ -483,10 +482,17 @@ pub const GROUPS: &[Group] = &[
         ],
     ),
     // UDP NAT, of the TUN, tproxy and WireGuard.
+    // The TUN's is its own to read (protocol/tun/inbound.rs).
     g(
         "Which remote addresses may answer through a UDP mapping: others would",
         Unsupported,
-        &["inbounds.*.udp_filtering", "endpoints.*.udp_filtering"],
+        &["endpoints.*.udp_filtering"],
+    ),
+    t(
+        "Which remote addresses may answer through a UDP mapping: others would",
+        Unsupported,
+        &["tproxy"],
+        &["inbounds.*.udp_filtering"],
     ),
     g(
         "How UDP mappings are made and how many are kept: the same traffic",

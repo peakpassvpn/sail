@@ -31,12 +31,12 @@ The dial fields Windows cannot take are refused there. A known gap is `tcp_fast_
 | `http_clients` | 80 | 30 | 11 | 39 |
 | `network_namespaces` | 6 | 0 | 0 | 6 |
 | `endpoints` | 433 | 48 | 13 | 372 |
-| `inbounds` | 1367 | 593 | 151 | 623 |
+| `inbounds` | 1367 | 595 | 150 | 622 |
 | `outbounds` | 1228 | 680 | 75 | 473 |
 | `route` | 268 | 174 | 41 | 53 |
 | `services` | 751 | 1 | 166 | 584 |
 | `experimental` | 34 | 16 | 17 | 1 |
-| **All** | **5003** | **1920** | **576** | **2507** |
+| **All** | **5003** | **1922** | **575** | **2506** |
 
 ## `$schema`
 
@@ -1588,11 +1588,11 @@ The dial fields Windows cannot take are refused there. A known gap is `tcp_fast_
 | `exclude_mac_address` | Error | Filtering LAN clients by MAC address |
 | `udp_timeout` | Supported |  |
 | `udp_mapping` | Warned | How UDP mappings are made and how many are kept: the same traffic |
-| `udp_filtering` | Error | Which remote addresses may answer through a UDP mapping: others would |
+| `udp_filtering` | Supported |  |
 | `udp_nat_max` | Warned | How UDP mappings are made and how many are kept: the same traffic |
 | `stack` | Warned | One stack serves every `stack`; the platform proxy is the host's to set |
 | `platform` | Warned | One stack serves every `stack`; the platform proxy is the host's to set (and the 6 fields in it) |
-| `endpoint_independent_nat` (deprecated) | Warned | One stack serves every `stack`; the platform proxy is the host's to set |
+| `endpoint_independent_nat` (deprecated) | Supported |  |
 
 ### `inbounds[vless]`
 

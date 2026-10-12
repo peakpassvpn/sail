@@ -31,12 +31,12 @@ Windows 无法实现的拨号字段在 Windows 上报错。已知缺口是 `tcp_
 | `http_clients` | 80 | 30 | 11 | 39 |
 | `network_namespaces` | 6 | 0 | 0 | 6 |
 | `endpoints` | 433 | 48 | 13 | 372 |
-| `inbounds` | 1367 | 593 | 151 | 623 |
+| `inbounds` | 1367 | 595 | 150 | 622 |
 | `outbounds` | 1228 | 680 | 75 | 473 |
 | `route` | 268 | 174 | 41 | 53 |
 | `services` | 751 | 1 | 166 | 584 |
 | `experimental` | 34 | 16 | 17 | 1 |
-| **全部** | **5003** | **1920** | **576** | **2507** |
+| **全部** | **5003** | **1922** | **575** | **2506** |
 
 ## `$schema`
 
@@ -1588,11 +1588,11 @@ Windows 无法实现的拨号字段在 Windows 上报错。已知缺口是 `tcp_
 | `exclude_mac_address` | 报错 | Filtering LAN clients by MAC address |
 | `udp_timeout` | 支持 |  |
 | `udp_mapping` | 警告 | How UDP mappings are made and how many are kept: the same traffic |
-| `udp_filtering` | 报错 | Which remote addresses may answer through a UDP mapping: others would |
+| `udp_filtering` | 支持 |  |
 | `udp_nat_max` | 警告 | How UDP mappings are made and how many are kept: the same traffic |
 | `stack` | 警告 | One stack serves every `stack`; the platform proxy is the host's to set |
 | `platform` | 警告 | One stack serves every `stack`; the platform proxy is the host's to set (含其下 6 个字段) |
-| `endpoint_independent_nat` (已弃用) | 警告 | One stack serves every `stack`; the platform proxy is the host's to set |
+| `endpoint_independent_nat` (已弃用) | 支持 |  |
 
 ### `inbounds[vless]`
 

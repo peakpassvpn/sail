@@ -904,6 +904,8 @@
   "inbounds[tun].include_package",
   "inbounds[tun].exclude_package",
   "inbounds[tun].udp_timeout",
+  "inbounds[tun].udp_filtering",
+  "inbounds[tun].endpoint_independent_nat",
   "inbounds[vless].tag",
   "inbounds[vless].listen",
   "inbounds[vless].listen_port",
@@ -2312,8 +2314,7 @@
    "inbounds[tun].platform.http_proxy.server",
    "inbounds[tun].platform.http_proxy.server_port",
    "inbounds[tun].platform.http_proxy.bypass_domain",
-   "inbounds[tun].platform.http_proxy.match_domain",
-   "inbounds[tun].endpoint_independent_nat"
+   "inbounds[tun].platform.http_proxy.match_domain"
   ],
   "The TLS stack: sail has one": [
    "outbounds[anytls].tls.engine",
@@ -4017,8 +4018,7 @@
    "endpoints[openvpn-client].udp_filtering",
    "endpoints[openvpn-server].udp_filtering",
    "endpoints[wireguard].udp_filtering",
-   "inbounds[tproxy].udp_filtering",
-   "inbounds[tun].udp_filtering"
+   "inbounds[tproxy].udp_filtering"
   ],
   "Names a system interface, which sail does not create": [
    "endpoints[wireguard].name"

@@ -115,6 +115,46 @@ async fn handle_stream(
     dispatcher.dispatch_stream(sess, stream).await;
 }
 
+/// The stack's UDP flows a reply goes back on. A reply names the client
+/// and where it comes from; the stack wants a flow's token, and gives the
+/// datagram whatever source it is told (`UdpTable::emit_reply`).
+struct ReplyFlows {
+    /// By client and the remote address the client sent to.
+    by_remote: LruCache<(SocketAddr, SocketAddr), UdpFlowToken>,
+    /// With `endpoint_independent_nat`: by client alone, the flow it sent
+    /// on last, for a datagram from an address it never sent to. As many
+    /// at most as there are flows.
+    by_client: Option<LruCache<SocketAddr, UdpFlowToken>>,
+}
+
+impl ReplyFlows {
+    fn new(capacity: usize, endpoint_independent: bool) -> Self {
+        let capacity = NonZeroUsize::new(capacity).unwrap_or(NonZeroUsize::MIN);
+        Self {
+            by_remote: LruCache::new(capacity),
+            by_client: endpoint_independent.then(|| LruCache::new(capacity)),
+        }
+    }
+
+    /// The client sent a datagram to `remote` on the flow `token`.
+    fn sent(&mut self, client: SocketAddr, remote: SocketAddr, token: UdpFlowToken) {
+        self.by_remote.put((client, remote), token);
+        if let Some(by_client) = &mut self.by_client {
+            by_client.put(client, token);
+        }
+    }
+
+    /// The flow a datagram from `source` reaches `client` on: the one the
+    /// client sent to `source` on, or, endpoint-independent, the one it
+    /// sent on last; none if the client is not to hear from `source`.
+    fn for_reply(&mut self, client: SocketAddr, source: SocketAddr) -> Option<UdpFlowToken> {
+        if let Some(token) = self.by_remote.get(&(client, source)) {
+            return Some(*token);
+        }
+        self.by_client.as_mut()?.get(&client).copied()
+    }
+}
+
 async fn handle_datagrams(
     mut uplink: TokioReceiver<NativeUdpDatagram>,
     mut reply: NativeUdpReplyHandle,
@@ -122,13 +162,11 @@ async fn handle_datagrams(
     nat_manager: Arc<NatManager>,
     dispatcher: Arc<Dispatcher>,
     flow_capacity: usize,
+    endpoint_independent_nat: bool,
 ) {
     let (downlink_tx, mut downlink_rx): (TokioSender<UdpPacket>, TokioReceiver<UdpPacket>) =
         tokio_channel(nat_manager.env().options.udp.downlink_channel_size);
-    // Replies name a client and a source; the stack wants the flow token.
-    let mut flows = LruCache::<(SocketAddr, SocketAddr), UdpFlowToken>::new(
-        NonZeroUsize::new(flow_capacity).unwrap_or(NonZeroUsize::MIN),
-    );
+    let mut flows = ReplyFlows::new(flow_capacity, endpoint_independent_nat);
 
     loop {
         tokio::select! {
@@ -136,7 +174,7 @@ async fn handle_datagrams(
                 let Some(datagram) = datagram else {
                     return;
                 };
-                flows.put((datagram.source, datagram.destination), datagram.token);
+                flows.sent(datagram.source, datagram.destination, datagram.token);
                 let payload = datagram.payload.to_vec();
 
                 // A fake IP destination becomes its domain in the NAT, on
@@ -174,7 +212,7 @@ async fn handle_datagrams(
                         SocketAddr::new(ip, port)
                     }
                 };
-                let Some(token) = flows.get(&(client, source)).copied() else {
+                let Some(token) = flows.for_reply(client, source) else {
                     debug!("No netstack UDP flow for client {} and source {}.", client, source);
                     continue;
                 };
@@ -209,6 +247,7 @@ fn run<I: sail_netstack::PacketIo + 'static>(
     queues: Vec<I>,
     mtu: usize,
     netstack: &Netstack,
+    endpoint_independent_nat: bool,
 ) -> Result<TunRunner> {
     let profile = budget_profile(netstack.budget);
     let ledger = ResourceLedger::new(profile.budget())?;
@@ -263,6 +302,7 @@ fn run<I: sail_netstack::PacketIo + 'static>(
             nat_manager,
             datagram_dispatcher,
             udp_flow_capacity,
+            endpoint_independent_nat,
         );
         let mut runtime = Box::pin(runtime.run());
         info!("start tun inbound");
@@ -366,6 +406,18 @@ fn linux_queues(settings: &TunSettings, netstack: &Netstack) -> Result<Vec<TunRs
 #[derive(Deserialize, Debug)]
 #[serde(deny_unknown_fields)]
 struct TunInboundOptions {
+    /// sing-box 1.14's: which remote addresses reach an app through the
+    /// port it sent from. `endpoint_independent`: any (full cone, as P2P and
+    /// some games need). `address_and_port_dependent`, the default: only an
+    /// address and port the app sent to. `address_dependent` is not
+    /// implemented, and is an error. An app's port is one mapping in every
+    /// case.
+    #[serde(default)]
+    udp_filtering: Option<String>,
+    /// sing-box's older name for `udp_filtering: endpoint_independent`,
+    /// deprecated there; the two may not disagree.
+    #[serde(default)]
+    endpoint_independent_nat: Option<bool>,
     /// The device's name, used as it is: a start fails if it is taken.
     /// Without it, on macOS one past the highest utunN is chosen at start,
     /// as sing-box chooses, and kept across reloads (a host reads it back);
@@ -492,6 +544,8 @@ struct TunInboundOptions {
 #[derive(Debug, Clone)]
 pub(crate) struct TunSettings {
     pub name: String,
+    /// Whether a datagram from an address the app never sent to reaches it.
+    pub endpoint_independent_nat: bool,
     pub ipv4: Option<Ipv4Inet>,
     pub ipv6: Option<Ipv6Inet>,
     pub mtu: u16,
@@ -932,7 +986,34 @@ pub(crate) fn options(inbound: &Inbound, host: &crate::runtime::Host) -> Result<
     let auto_redirect = auto_redirect(&options).map_err(error)?;
     let route = route_selection(&options).map_err(error)?;
     let ignored = ignored_here(&options);
+    let endpoint_independent_nat = match (
+        options.udp_filtering.as_deref(),
+        options.endpoint_independent_nat,
+    ) {
+        (None | Some(""), older) => older.unwrap_or(false),
+        (Some("endpoint_independent"), None | Some(true)) => true,
+        (Some("address_and_port_dependent"), None | Some(false)) => false,
+        (Some("endpoint_independent" | "address_and_port_dependent"), Some(older)) => {
+            return Err(error(format!(
+                "udp_filtering and endpoint_independent_nat: {older} disagree"
+            )));
+        }
+        (Some("address_dependent"), _) => {
+            return Err(error(
+                "udp_filtering: address_dependent is not implemented; sail filters by \
+                 address and port, or, with endpoint_independent, not at all"
+                    .into(),
+            ));
+        }
+        (Some(other), _) => {
+            return Err(error(format!(
+                "udp_filtering: \"{other}\" is none of endpoint_independent, \
+                 address_dependent and address_and_port_dependent"
+            )));
+        }
+    };
     Ok(TunSettings {
+        endpoint_independent_nat,
         name: options
             .interface_name
             .unwrap_or_else(|| DEFAULT_NAME.to_string()),
@@ -1294,6 +1375,7 @@ fn open_wintun(
         vec![io],
         mtu,
         netstack,
+        settings.endpoint_independent_nat,
     )
 }
 
@@ -1357,6 +1439,7 @@ fn open_device(
                 queues,
                 mtu,
                 netstack,
+                settings.endpoint_independent_nat,
             );
         }
         #[cfg(not(target_os = "linux"))]
@@ -1440,6 +1523,7 @@ fn open_device(
         vec![io],
         mtu,
         netstack,
+        settings.endpoint_independent_nat,
     )
 }
 
@@ -2077,6 +2161,82 @@ mod tests {
             .unwrap_err()
             .to_string();
             assert!(err.contains(field), "{field}: {err}");
+        }
+    }
+
+    /// A reply goes back on the flow the client sent to its source on;
+    /// from any other source, on the client's last flow only when
+    /// filtering is endpoint-independent, and never to another client.
+    #[test]
+    fn a_reply_from_an_address_never_sent_to_needs_endpoint_independence() {
+        use sail_netstack::{FlowId, NetworkGeneration};
+        let token = |n| UdpFlowToken::new(FlowId::new(n), NetworkGeneration::new(1));
+        let app: SocketAddr = "10.213.0.1:5000".parse().unwrap();
+        let other_app: SocketAddr = "10.213.0.1:5001".parse().unwrap();
+        let first: SocketAddr = "192.0.2.1:53".parse().unwrap();
+        let second: SocketAddr = "192.0.2.2:53".parse().unwrap();
+        let stranger: SocketAddr = "198.51.100.9:9".parse().unwrap();
+        for endpoint_independent in [false, true] {
+            let mut flows = ReplyFlows::new(8, endpoint_independent);
+            flows.sent(app, first, token(1));
+            flows.sent(app, second, token(2));
+            assert_eq!(flows.for_reply(app, first), Some(token(1)));
+            assert_eq!(flows.for_reply(app, second), Some(token(2)));
+            assert_eq!(
+                flows.for_reply(app, stranger),
+                endpoint_independent.then(|| token(2)),
+                "the flow sent on last, with endpoint independence"
+            );
+            assert_eq!(flows.for_reply(other_app, stranger), None);
+        }
+    }
+
+    /// `udp_filtering` and the older `endpoint_independent_nat` say the
+    /// same thing; they may not disagree, and what sail does not filter by
+    /// is an error.
+    #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
+    #[test]
+    fn udp_filtering_and_its_older_name_agree() {
+        use serde_json::json;
+        let read = |extra: serde_json::Value| {
+            let mut tun_options = json!({ "address": "172.19.0.1/30" });
+            tun_options
+                .as_object_mut()
+                .unwrap()
+                .extend(extra.as_object().unwrap().clone());
+            options(&tun(tun_options))
+                .map(|s| s.endpoint_independent_nat)
+                .map_err(|e| format!("{e:#}"))
+        };
+        assert_eq!(read(json!({})), Ok(false));
+        assert_eq!(read(json!({ "endpoint_independent_nat": true })), Ok(true));
+        assert_eq!(
+            read(json!({ "udp_filtering": "endpoint_independent" })),
+            Ok(true)
+        );
+        assert_eq!(
+            read(json!({ "udp_filtering": "address_and_port_dependent" })),
+            Ok(false)
+        );
+        assert_eq!(
+            read(
+                json!({ "udp_filtering": "endpoint_independent", "endpoint_independent_nat": true })
+            ),
+            Ok(true)
+        );
+        for (extra, part) in [
+            (
+                json!({ "udp_filtering": "endpoint_independent", "endpoint_independent_nat": false }),
+                "disagree",
+            ),
+            (
+                json!({ "udp_filtering": "address_dependent" }),
+                "not implemented",
+            ),
+            (json!({ "udp_filtering": "x" }), "is none of"),
+        ] {
+            let err = read(extra).unwrap_err();
+            assert!(err.contains(part), "{err}");
         }
     }
 }

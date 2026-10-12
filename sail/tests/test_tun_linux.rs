@@ -59,6 +59,11 @@ def tcp():
 udp = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
 udp.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
 udp.bind(("::", 7002))
+# Another address of the server's: a datagram from here comes from one the
+# client never sent to.
+other = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
+other.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
+other.bind(("::", 7003))
 
 def later(seconds, peer):
     time.sleep(seconds)
@@ -69,6 +74,9 @@ while True:
     data, peer = udp.recvfrom(65535)
     if data == b"whoami":
         udp.sendto(str(peer[1]).encode(), peer)
+    elif data == b"other":
+        other.sendto(b"from-other", peer)
+        udp.sendto(b"sent", peer)
     elif data.startswith(b"delay:"):
         threading.Thread(target=later, args=(int(data[6:]), peer), daemon=True).start()
     else:
@@ -161,6 +169,12 @@ impl Drop for Peer {
 /// The configuration `Sail` runs: a TUN inbound, a direct outbound that
 /// marks its sockets, and `rules` before the DNS one.
 fn sail_config(udp_timeout: &str, rules: &str) -> String {
+    sail_config_tun(udp_timeout, rules, "")
+}
+
+/// `sail_config`, with `tun` (JSON fields, each preceded by a comma) after
+/// the TUN inbound's own.
+fn sail_config_tun(udp_timeout: &str, rules: &str, tun: &str) -> String {
     let inbound = format!(
         r#"{{
             "type": "tun",
@@ -168,7 +182,7 @@ fn sail_config(udp_timeout: &str, rules: &str) -> String {
             "interface_name": "{TUN}",
             "address": "10.213.0.1/24",
             "mtu": 1500,
-            "udp_timeout": "{udp_timeout}"
+            "udp_timeout": "{udp_timeout}"{tun}
         }}"#
     );
     format!(
@@ -209,7 +223,18 @@ impl Sail {
         session_check: Duration,
         rules: &str,
     ) -> Result<Self> {
-        let config = sail_config(udp_timeout, rules);
+        Self::start_tun(id, udp_timeout, session_check, rules, "").await
+    }
+
+    /// `start_with`, with `tun` among the TUN inbound's fields.
+    async fn start_tun(
+        id: u16,
+        udp_timeout: &str,
+        session_check: Duration,
+        rules: &str,
+        tun: &str,
+    ) -> Result<Self> {
+        let config = sail_config_tun(udp_timeout, rules, tun);
         let mut runtime = sail::runtime::RuntimeOptions::default();
         runtime.udp.session_check_interval = session_check;
         let thread = std::thread::spawn(move || {
@@ -488,6 +513,53 @@ async fn tun_inbound_carries_tcp_udp_and_icmp_over_ipv4_and_ipv6() -> Result<()>
     .await;
     for answer in late {
         ensure!(answer? == b"late", "the late answer changed");
+    }
+    Ok(())
+}
+
+/// A datagram from an address the app never sent to, the server's other
+/// port, reaches the app on the port it sent from only when the TUN's
+/// filtering is endpoint-independent, by either of sing-box's names; by
+/// default it is dropped. The answer from the port it sent to arrives in
+/// every case.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires root: network namespaces, veth, a TUN and policy routing"]
+async fn a_datagram_from_an_address_never_sent_to_needs_endpoint_independent_filtering(
+) -> Result<()> {
+    let _serial = SERIAL.lock().await;
+    let _peer = Peer::up()?;
+    for (id, tun, heard) in [
+        (61_020, "", false),
+        (61_021, r#", "udp_filtering": "endpoint_independent""#, true),
+        (61_022, r#", "endpoint_independent_nat": true"#, true),
+    ] {
+        let _sail = Sail::start_tun(id, "30s", Duration::from_secs(10), "", tun).await?;
+        for server in [IpAddr::V4(SERVER_V4), IpAddr::V6(SERVER_V6)] {
+            let socket = udp_socket(server).await?;
+            socket
+                .send_to(b"other", SocketAddr::new(server, UDP_PORT))
+                .await?;
+            // The server sends from its other port first, then answers:
+            // what comes within a second of the answer is all there is.
+            let mut from = Vec::new();
+            let mut buffer = [0_u8; 64];
+            let mut wait = Duration::from_secs(5);
+            while let Ok(received) = timeout(wait, socket.recv_from(&mut buffer)).await {
+                let (count, source) = received?;
+                from.push((source.port(), buffer[..count].to_vec()));
+                if &buffer[..count] == b"sent" {
+                    wait = Duration::from_secs(1);
+                }
+            }
+            ensure!(
+                from.contains(&(UDP_PORT, b"sent".to_vec())),
+                "no answer from {server} with `{tun}`: {from:?}"
+            );
+            ensure!(
+                from.contains(&(7003, b"from-other".to_vec())) == heard,
+                "{server} with `{tun}`: heard {from:?}, the other port expected: {heard}"
+            );
+        }
     }
     Ok(())
 }

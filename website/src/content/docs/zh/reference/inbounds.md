@@ -825,11 +825,11 @@ Rust 定义：[`TunInboundOptions`](https://github.com/peakpassvpn/sail/blob/mas
 | `exclude_mac_address` | listable-string | — | 报错：Filtering LAN clients by MAC address | — |
 | `udp_timeout` | number\|duration | 未设置 | 支持 | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
 | `udp_mapping` | string, 取值 `endpoint_independent`, `address_dependent`, `address_and_port_dependent` | — | 警告：How UDP mappings are made and how many are kept: the same traffic | — |
-| `udp_filtering` | string, 取值 `endpoint_independent`, `address_dependent`, `address_and_port_dependent` | — | 报错：Which remote addresses may answer through a UDP mapping: others would | — |
+| `udp_filtering` | string, 取值 `endpoint_independent`, `address_dependent`, `address_and_port_dependent` | 未设置 | 支持 | sing-box 1.14's: which remote addresses reach an app through the port it sent from. `endpoint_independent`: any (full cone, as P2P and some games need). `address_and_port_dependent`, the default: only an address and port the app sent to. `address_dependent` is not implemented, and is an error. An app's port is one mapping in every case. |
 | `udp_nat_max` | number | — | 警告：How UDP mappings are made and how many are kept: the same traffic | — |
 | `stack` | string, 取值 `system`, `gvisor`, `mixed` | — | 警告：One stack serves every `stack`; the platform proxy is the host's to set | — |
 | `platform` | object → [对象](#inbounds-tun-platform) | — | 警告：One stack serves every `stack`; the platform proxy is the host's to set | — |
-| `endpoint_independent_nat` | bool | — | 警告：One stack serves every `stack`; the platform proxy is the host's to set (sing-box 已弃用) | — |
+| `endpoint_independent_nat` | bool | 未设置 | 支持 (sing-box 已弃用) | sing-box's older name for `udp_filtering: endpoint_independent`, deprecated there; the two may not disagree. |
 
 <a id="inbounds-tun-platform"></a>
 

@@ -11975,8 +11975,13 @@
      "description": "sail ignores this field, with a warning: How UDP mappings are made and how many are kept: the same traffic"
     },
     "udp_filtering": {
-     "not": {},
-     "description": "sail refuses this field: Which remote addresses may answer through a UDP mapping: others would"
+     "type": "string",
+     "examples": [
+      "endpoint_independent",
+      "address_dependent",
+      "address_and_port_dependent"
+     ],
+     "description": "sing-box 1.14's: which remote addresses reach an app through the port it sent from. `endpoint_independent`: any (full cone, as P2P and some games need). `address_and_port_dependent`, the default: only an address and port the app sent to. `address_dependent` is not implemented, and is an error. An app's port is one mapping in every case."
     },
     "udp_nat_max": {
      "type": "number",
@@ -12000,8 +12005,8 @@
     },
     "endpoint_independent_nat": {
      "type": "boolean",
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: One stack serves every `stack`; the platform proxy is the host's to set"
+     "description": "sing-box's older name for `udp_filtering: endpoint_independent`, deprecated there; the two may not disagree.",
+     "deprecated": true
     },
     "type": {
      "const": "tun"
