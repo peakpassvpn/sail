@@ -2340,8 +2340,7 @@ checksum = "33cb294fe86a74cbcf50d4445b37da762029549ebeea341421c7c70370f86cac"
 [[package]]
 name = "quinn"
 version = "0.11.12"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4051e23e9185c255a7e33ef59cdbca87a22d359052eecd22fc6b901fb37d9d11"
+source = "git+https://github.com/peakpassvpn/quinn.git?rev=f814623b47c3435cf71b7570780c1dcf136a9b5c#f814623b47c3435cf71b7570780c1dcf136a9b5c"
 dependencies = [
  "bytes",
  "cfg_aliases",
@@ -2377,7 +2376,7 @@ dependencies = [
 [[package]]
 name = "quinn-proto"
 version = "0.11.19"
-source = "git+https://github.com/peakpassvpn/quinn.git?rev=ac0737da7704788407daab3c5e6abd3dca7ae55e#ac0737da7704788407daab3c5e6abd3dca7ae55e"
+source = "git+https://github.com/peakpassvpn/quinn.git?rev=f814623b47c3435cf71b7570780c1dcf136a9b5c#f814623b47c3435cf71b7570780c1dcf136a9b5c"
 dependencies = [
  "bytes",
  "getrandom 0.4.3",
@@ -2397,8 +2396,7 @@ dependencies = [
 [[package]]
 name = "quinn-udp"
 version = "0.5.16"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "af66907df18639dcf4db56ca65490cabc4b27a97dbadd96f2926cca73298f016"
+source = "git+https://github.com/peakpassvpn/quinn.git?rev=f814623b47c3435cf71b7570780c1dcf136a9b5c#f814623b47c3435cf71b7570780c1dcf136a9b5c"
 dependencies = [
  "cfg_aliases",
  "libc",
