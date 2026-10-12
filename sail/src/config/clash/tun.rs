@@ -31,7 +31,6 @@ const FIELDS: &[(&str, Tier)] = &[
     ("stack", Ignored),
     ("gso", Ignored),
     ("gso-max-size", Ignored),
-    ("endpoint-independent-nat", Ignored),
     ("udp-timeout", Ignored),
     ("icmp-timeout", Ignored),
     ("disable-icmp-forwarding", Ignored),
@@ -139,6 +138,10 @@ pub fn lower(
         if let Some(on) = f.bool(key)? {
             tun.insert((*name).into(), json!(on));
         }
+    }
+    // Mihomo's full cone: a flow's replies are taken from any address.
+    if f.bool("endpoint-independent-nat")? == Some(true) {
+        tun.insert("udp_filtering".into(), json!("endpoint_independent"));
     }
     // Mihomo's default: the TUN takes the routes.
     tun.entry("auto_route").or_insert(json!(true));

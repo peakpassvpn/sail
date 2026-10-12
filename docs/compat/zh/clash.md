@@ -88,8 +88,8 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `sniffer` | 12 | 12 | 0 | 0 |
 | `tls` | 7 | 0 | 7 | 0 |
 | `tuic-server` | 13 | 0 | 0 | 13 |
-| `tun` | 50 | 33 | 10 | 7 |
-| **All** | **2077** | **490** | **140** | **1447** |
+| `tun` | 50 | 34 | 9 | 7 |
+| **All** | **2077** | **491** | **139** | **1447** |
 
 
 ## `general`
@@ -1562,7 +1562,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `tun.disable-icmp-forwarding` | 警告 | tun.disable-icmp-forwarding: sail does not implement this field; ignored |
 | `tun.dns-hijack` | 支持 | tun.dns-hijack[0]: "x" names no port |
 | `tun.enable` | 支持 |  |
-| `tun.endpoint-independent-nat` | 警告 | tun.endpoint-independent-nat: sail does not implement this field; ignored |
+| `tun.endpoint-independent-nat` | 支持 |  |
 | `tun.exclude-dst-port` | 报错 | tun.exclude-dst-port: sail does not implement this field yet |
 | `tun.exclude-dst-port-range` | 报错 | tun.exclude-dst-port-range: sail does not implement this field yet |
 | `tun.exclude-interface` | 支持 |  |

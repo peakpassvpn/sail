@@ -1632,6 +1632,7 @@ tun:
   auto-detect-interface: true
   mtu: 1500
   gso: true
+  endpoint-independent-nat: true
   inet6-address: [fdfe:dcba:9876::1/126]
   dns-hijack: [any:53, tcp://any:53, udp://8.8.8.8:5353]
   route-exclude-address: [10.0.0.0/8]
@@ -1663,6 +1664,7 @@ fn tun_is_a_tun_inbound_and_its_dns_hijack_a_rule_before_every_other() {
     assert_eq!(o["auto_route"], true);
     assert_eq!(o.get("auto_redirect").is_some(), cfg!(target_os = "linux"));
     assert_eq!(o["strict_route"], true);
+    assert_eq!(o["udp_filtering"], "endpoint_independent");
     assert_eq!(
         o["route_exclude_address"],
         serde_json::json!(["10.0.0.0/8"])
@@ -1686,6 +1688,7 @@ fn tun_is_a_tun_inbound_and_its_dns_hijack_a_rule_before_every_other() {
         let settings = crate::protocol::tun::inbound::options(tun, &Default::default()).unwrap();
         assert_eq!(settings.mtu, 1500);
         assert!(settings.auto_route);
+        assert!(settings.endpoint_independent_nat);
     }
 
     let rules = all_rules(&config);
@@ -2312,6 +2315,8 @@ fn a_tun_takes_mihomo_s_defaults() {
     // answered.
     let (o, detect, hijack) = tun("tun: { enable: true }\n");
     assert_eq!(o["auto_route"], true);
+    // Endpoint-dependent, as Mihomo's.
+    assert!(o.get("udp_filtering").is_none());
     assert!(detect);
     assert_eq!(
         hijack["rules"][1]["rules"][0],
