@@ -3182,6 +3182,7 @@ sail 接受而 sing-box 没有的字段和类型。
 | `outbounds[load-balance].timeout` | How long a test may take before its member counts as failed (Mihomo's timeout) |
 | `outbounds[load-balance].max_failed_times` | How many failed connections within the timeout have the members tested again (Mihomo's max-failed-times) |
 | `outbounds[load-balance].expected_status` | The HTTP statuses a test must get to pass (Mihomo's expected-status) |
+| `outbounds[urltest|fallback|load-balance|smart].unified_delay` | A member's latency is that of a second request on the connection the first opened, without the connect and handshakes (Mihomo's unified-delay) |
 | `outbounds[selector|urltest|fallback|load-balance|smart].disable_udp` | The group carries TCP alone, whatever member it picks (Mihomo's disable-udp) |
 | `outbounds[smart].outbounds` | A group scoring its members by the connections through them |
 | `outbounds[network].default` | A group picking its member by the network the host is on |

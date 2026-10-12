@@ -20,7 +20,6 @@ pub const TOP: &[(&str, Tier)] = &[
     ("external-doh-server", Ignored),
     ("tls", Ignored),
     // How connections are made and timed, not where they go.
-    ("unified-delay", Ignored),
     ("inbound-tfo", Ignored),
     ("inbound-mptcp", Ignored),
     ("find-process-mode", Ignored),
@@ -59,6 +58,7 @@ pub fn lower(doc: &mut Fields, out: &mut Lowered, warnings: &mut Vec<String>) ->
     controller(doc, out, warnings)?;
     profile(doc, out, warnings)?;
     keep_alive(doc, out)?;
+    out.unified_delay = doc.bool("unified-delay")?.unwrap_or(false);
     if let Some(name) = doc.string("interface-name")? {
         out.route.insert("default_interface".into(), json!(name));
     }

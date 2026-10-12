@@ -354,8 +354,8 @@ the rules match the address.\n\n\
 ## Clash API\n\n\
 The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the type they read \
 it as, from the requests they make: `sail/tests/it/test_clash_dashboards.rs` makes them. Where \
-sail has no value of its own: `unified-delay` is false (a delay includes the connect and the \
-TLS handshake, as sing-box's); `tun.stack` is `gVisor`, the name the dashboards have for a \
+sail has no value of its own: `unified-delay` is false, as sail sets it on each group that tests \
+its members (`unified_delay`, which Clash's `unified-delay` lowers to), not at once; `tun.stack` is `gVisor`, the name the dashboards have for a \
 user-space stack such as sail's one; a connection's `dscp` is 0, and its `specialProxy`, \
 `specialRules` and `remoteDestination` are empty. A rule switched off with \
 `PATCH /rules/disable` stays off until the next reload, as in Mihomo. What sail does not give:\n\
@@ -400,7 +400,7 @@ sail 自己的 `override_destination` 路由选项不同：规则匹配原地址
 ## Clash API\n\n\
 面板（yacd、Yacd-meta、metacubexd）实际发出的请求，sail 都给出它们读取的全部字段，类型也一致：\
 `sail/tests/it/test_clash_dashboards.rs` 按面板的方式逐个发出这些请求。sail 自身没有对应值的：\
-`unified-delay` 为 false（延迟包括建连与 TLS 握手，与 sing-box 一致）；`tun.stack` 为 `gVisor`，即面板对 sail \
+`unified-delay` 为 false：sail 按分组设置（`unified_delay`，Clash 的 `unified-delay` 降级到各个测速分组），没有全局值；`tun.stack` 为 `gVisor`，即面板对 sail \
 这类用户态协议栈的叫法；连接的 `dscp` 为 0，`specialProxy`、`specialRules` 与 `remoteDestination` 为空。\
 用 `PATCH /rules/disable` 停用的规则在下次重载前保持停用，与 Mihomo 一致。sail 不提供的有：\n\
 - `GET /configs`：`dns`。`PATCH /configs` 只设置 `mode` 和 `log-level`；端口、`allow-lan`、`tun`、\

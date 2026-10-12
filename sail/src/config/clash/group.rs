@@ -101,6 +101,7 @@ pub fn lower(
         groups: &group_names,
         all_proxies: &all_proxies,
         providers,
+        unified_delay: out.unified_delay,
     };
     for (i, node) in groups.into_iter().enumerate() {
         let mut f = Fields::of(node, &format!("proxy-groups[{}]", i))?;
@@ -187,6 +188,9 @@ struct Context<'a> {
     /// The proxies, sorted, for `include-all-proxies`.
     all_proxies: &'a [&'a str],
     providers: &'a Providers,
+    /// `unified-delay`: every group that tests its members times a second
+    /// request on the first's connection.
+    unified_delay: bool,
 }
 
 fn group(f: &mut Fields, cx: &Context, warnings: &mut Vec<String>) -> Result<Value> {
@@ -322,6 +326,9 @@ fn group(f: &mut Fields, cx: &Context, warnings: &mut Vec<String>) -> Result<Val
     let interval = f.int::<u64>("interval")?.unwrap_or(INTERVAL);
     let health = |o: &mut Map<String, Value>| {
         o.insert("url".into(), json!(url));
+        if cx.unified_delay {
+            o.insert("unified_delay".into(), json!(true));
+        }
         if interval > 0 {
             o.insert("interval".into(), json!(format!("{}s", interval)));
         }

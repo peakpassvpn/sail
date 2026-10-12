@@ -17,7 +17,7 @@ As in Mihomo, the sniffer's `override-destination` makes the sniffed name the de
 
 ## Clash API
 
-The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the type they read it as, from the requests they make: `sail/tests/it/test_clash_dashboards.rs` makes them. Where sail has no value of its own: `unified-delay` is false (a delay includes the connect and the TLS handshake, as sing-box's); `tun.stack` is `gVisor`, the name the dashboards have for a user-space stack such as sail's one; a connection's `dscp` is 0, and its `specialProxy`, `specialRules` and `remoteDestination` are empty. A rule switched off with `PATCH /rules/disable` stays off until the next reload, as in Mihomo. What sail does not give:
+The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the type they read it as, from the requests they make: `sail/tests/it/test_clash_dashboards.rs` makes them. Where sail has no value of its own: `unified-delay` is false, as sail sets it on each group that tests its members (`unified_delay`, which Clash's `unified-delay` lowers to), not at once; `tun.stack` is `gVisor`, the name the dashboards have for a user-space stack such as sail's one; a connection's `dscp` is 0, and its `specialProxy`, `specialRules` and `remoteDestination` are empty. A rule switched off with `PATCH /rules/disable` stays off until the next reload, as in Mihomo. What sail does not give:
 - `GET /configs`: `dns`. `PATCH /configs` sets `mode` and `log-level`; the ports, `allow-lan`, `tun`, `sniffing` and `interface-name` stay as the configuration has them, as in sing-box.
 - `/rules`: `extra`'s `missCount` and `missAt` (only hits are counted). `size` is a rule-set's rule count, -1 for the others; Mihomo counts GeoIP and GeoSite too. A condition Mihomo has no type for goes by sing-box's field name (`clash_mode`).
 - `/connections`: no `providerChains`, nor the metadata's `sourceGeoIP`, `destinationGeoIP`, `sourceIPASN` and `destinationIPASN`; `uid` only where the system tells it.
@@ -30,7 +30,7 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 | `dns` | 33 | 28 | 5 | 0 |
 | `experimental` | 5 | 0 | 5 | 0 |
 | `external-controller-cors` | 3 | 3 | 0 | 0 |
-| `general` | 48 | 29 | 17 | 2 |
+| `general` | 48 | 30 | 16 | 2 |
 | `geox-url` | 5 | 0 | 5 | 0 |
 | `iptables` | 5 | 0 | 0 | 5 |
 | `listeners[anytls]` | 45 | 0 | 0 | 45 |
@@ -89,7 +89,7 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 | `tls` | 7 | 0 | 7 | 0 |
 | `tuic-server` | 13 | 0 | 0 | 13 |
 | `tun` | 50 | 34 | 9 | 7 |
-| **All** | **2077** | **493** | **137** | **1447** |
+| **All** | **2077** | **494** | **136** | **1447** |
 
 
 ## `general`
@@ -1607,5 +1607,5 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 | Field | sail | What sail says |
 |---|---|---|
 | `tunnels` | Supported | tunnels[0]: "x" is not network,address,target and a proxy |
-| `unified-delay` | Warned | unified-delay: sail does not implement this field; ignored |
+| `unified-delay` | Supported |  |
 | `vmess-config` | Error | vmess-config: sail does not implement this field yet |

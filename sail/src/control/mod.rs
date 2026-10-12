@@ -1214,7 +1214,7 @@ impl RuntimeManager {
         // its scope, and a stop ends it.
         let measured = match tokio::time::timeout(
             timeout,
-            self.env.scope.enter(probe.run(dns, handler)),
+            self.env.scope.enter(probe.run(dns, handler, timeout)),
         )
         .await
         {

@@ -76,6 +76,11 @@ struct LoadBalanceOutboundOptions {
     /// urltest's; any when unset.
     #[serde(default)]
     expected_status: Option<String>,
+    /// The latency of a second request on the connection the first
+    /// opened, without the connect and handshakes, as Mihomo's
+    /// `unified-delay`; a sail extension.
+    #[serde(default)]
+    unified_delay: bool,
     /// How long a test may take before its member counts as failed; 5s.
     /// Also how close together `max_failed_times` failures must come, as
     /// urltest's.
@@ -124,7 +129,8 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         .map_err(|e| anyhow!("[{}] outbound: expected_status: {}", ctx.tag, e))?;
     let probe = HttpProbe::new(&options.url, ctx.dns_client.clone(), ctx.env)
         .map_err(|e| anyhow!("[{}] outbound: url: {}", ctx.tag, e))?
-        .expecting(expected);
+        .expecting(expected)
+        .unified(options.unified_delay);
     let timeout = options.timeout.unwrap_or(health::DEFAULT_TIMEOUT);
     if timeout.is_zero() {
         return Err(anyhow!("[{}] outbound: timeout: must not be zero", ctx.tag));

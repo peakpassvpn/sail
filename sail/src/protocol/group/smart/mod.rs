@@ -132,6 +132,11 @@ struct SmartOutboundOptions {
     /// minutes.
     #[serde(default, with = "crate::config::model::duration")]
     idle_timeout: Option<Duration>,
+    /// The latency of a second request on the connection the first
+    /// opened, without the connect and handshakes, as Mihomo's
+    /// `unified-delay`; a sail extension.
+    #[serde(default)]
+    unified_delay: bool,
     /// Milliseconds: a member whose score is within this of the best may
     /// be picked.
     #[serde(default = "default_tolerance")]
@@ -275,7 +280,8 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         })
         .transpose()?;
     let probe = HttpProbe::new(&options.url, ctx.dns_client.clone(), ctx.env)
-        .map_err(|e| error("url", &e))?;
+        .map_err(|e| error("url", &e))?
+        .unified(options.unified_delay);
 
     let merged = merge::members(ctx, &options.outbounds, &options.providers)?;
     let members = merged.members.clone();
@@ -840,7 +846,7 @@ async fn probe_loop(group: Weak<Group>, probe: HttpProbe) {
                     // A panic probing one member is that probe's failure,
                     // not the loop's.
                     crate::runtime::scope::contain("smart group probe", async move {
-                        tokio::time::timeout(timeout, probe.run(dns_client, member))
+                        tokio::time::timeout(timeout, probe.run(dns_client, member, timeout))
                             .await
                             .ok()
                             .and_then(Result::ok)

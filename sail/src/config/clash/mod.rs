@@ -149,6 +149,8 @@ pub struct Lowered {
     /// The dial fields every outbound that dials takes besides:
     /// `tcp-concurrent`.
     pub outbound_dial: Map<String, Value>,
+    /// `unified-delay`, for the groups that test their members.
+    pub unified_delay: bool,
 }
 
 impl Lowered {

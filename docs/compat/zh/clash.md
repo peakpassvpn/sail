@@ -17,7 +17,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 
 ## Clash API
 
-面板（yacd、Yacd-meta、metacubexd）实际发出的请求，sail 都给出它们读取的全部字段，类型也一致：`sail/tests/it/test_clash_dashboards.rs` 按面板的方式逐个发出这些请求。sail 自身没有对应值的：`unified-delay` 为 false（延迟包括建连与 TLS 握手，与 sing-box 一致）；`tun.stack` 为 `gVisor`，即面板对 sail 这类用户态协议栈的叫法；连接的 `dscp` 为 0，`specialProxy`、`specialRules` 与 `remoteDestination` 为空。用 `PATCH /rules/disable` 停用的规则在下次重载前保持停用，与 Mihomo 一致。sail 不提供的有：
+面板（yacd、Yacd-meta、metacubexd）实际发出的请求，sail 都给出它们读取的全部字段，类型也一致：`sail/tests/it/test_clash_dashboards.rs` 按面板的方式逐个发出这些请求。sail 自身没有对应值的：`unified-delay` 为 false：sail 按分组设置（`unified_delay`，Clash 的 `unified-delay` 降级到各个测速分组），没有全局值；`tun.stack` 为 `gVisor`，即面板对 sail 这类用户态协议栈的叫法；连接的 `dscp` 为 0，`specialProxy`、`specialRules` 与 `remoteDestination` 为空。用 `PATCH /rules/disable` 停用的规则在下次重载前保持停用，与 Mihomo 一致。sail 不提供的有：
 - `GET /configs`：`dns`。`PATCH /configs` 只设置 `mode` 和 `log-level`；端口、`allow-lan`、`tun`、`sniffing` 与 `interface-name` 保持配置中的值，与 sing-box 一致。
 - `/rules`：`extra` 里的 `missCount` 和 `missAt`（只统计命中）。`size` 是规则集的规则数，其他规则为 -1；Mihomo 对 GeoIP 和 GeoSite 也计数。Mihomo 没有对应类型的条件用 sing-box 的字段名（`clash_mode`）。
 - `/connections`：没有 `providerChains`，元数据里也没有 `sourceGeoIP`、`destinationGeoIP`、`sourceIPASN` 和 `destinationIPASN`；`uid` 只在系统告知时提供。
@@ -30,7 +30,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `dns` | 33 | 28 | 5 | 0 |
 | `experimental` | 5 | 0 | 5 | 0 |
 | `external-controller-cors` | 3 | 3 | 0 | 0 |
-| `general` | 48 | 29 | 17 | 2 |
+| `general` | 48 | 30 | 16 | 2 |
 | `geox-url` | 5 | 0 | 5 | 0 |
 | `iptables` | 5 | 0 | 0 | 5 |
 | `listeners[anytls]` | 45 | 0 | 0 | 45 |
@@ -89,7 +89,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `tls` | 7 | 0 | 7 | 0 |
 | `tuic-server` | 13 | 0 | 0 | 13 |
 | `tun` | 50 | 34 | 9 | 7 |
-| **All** | **2077** | **493** | **137** | **1447** |
+| **All** | **2077** | **494** | **136** | **1447** |
 
 
 ## `general`
@@ -1607,5 +1607,5 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | 字段 | sail | sail 的说明 |
 |---|---|---|
 | `tunnels` | 支持 | tunnels[0]: "x" is not network,address,target and a proxy |
-| `unified-delay` | 警告 | unified-delay: sail does not implement this field; ignored |
+| `unified-delay` | 支持 |  |
 | `vmess-config` | 报错 | vmess-config: sail does not implement this field yet |
