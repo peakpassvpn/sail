@@ -59,10 +59,10 @@ on:
         options: [windows, macos, both]
         default: windows
       builds:
-        description: "what to compare: socket buffers (one build), or allocators and toolchains (three builds, Windows)"
+        description: "plain: one build, all protocols; buffers: one build, four socket buffer sizes, Hysteria2; allocators: three builds (Windows), all protocols"
         type: choice
-        options: [buffers, allocators]
-        default: buffers
+        options: [plain, buffers, allocators]
+        default: plain
 
 permissions:
   contents: read
@@ -265,8 +265,43 @@ jobs:
           bin/sing-box version
 
       - name: psutil
-        run: python -m pip install psutil
+        run: python -m pip install psutil py-cpuinfo
 
+      # Which machine this is: the cell's ratios differ from runner to
+      # runner (Hysteria2's download was 0.63 on one and 1.38 on another,
+      # the same image), so each run says what it ran on, and the CPU
+      # features BoringSSL chooses its code by.
+      - name: the runner
+        run: |
+          python - <<'EOF' | tee -a "$GITHUB_STEP_SUMMARY"
+          import os, platform, urllib.request
+          import cpuinfo
+          info = cpuinfo.get_cpu_info()
+          flags = set(info.get("flags", []))
+          region = "not known"
+          try:
+              request = urllib.request.Request(
+                  "http://169.254.169.254/metadata/instance/compute/location?api-version=2021-02-01&format=text",
+                  headers={"Metadata": "true"})
+              region = urllib.request.urlopen(request, timeout=2).read().decode().strip()
+          except Exception:
+              pass
+          names = [("aes", "aes"), ("pclmulqdq", "pclmulqdq"), ("avx2", "avx2"), ("bmi2", "bmi2"),
+                   ("adx", "adx"), ("sha", "sha"), ("sha_ni", "sha"), ("vaes", "vaes"),
+                   ("vpclmulqdq", "vpclmulqdq"), ("avx512f", "avx512f"), ("avx512vl", "avx512vl"),
+                   ("avx512bw", "avx512bw")]
+          have = {}
+          for flag, name in names:
+              have[name] = have.get(name, False) or flag in flags
+          print(f"Runner: {info.get('brand_raw', 'CPU not known')}, {os.cpu_count()} CPUs, "
+                f"{platform.platform()}, region {region}.")
+          print()
+          print("CPU features: " + ", ".join(f"{name} {'yes' if yes else 'no'}" for name, yes in have.items()) + ".")
+          print()
+          EOF
+
+      # `plain`: one build, all protocols, three rounds: the run to repeat
+      # across runners.
       # `allocators`: Windows' three builds, or macOS's one, all protocols.
       # `buffers`: one build started four ways, which differ by the buffers
       # its QUIC sockets ask for, over Hysteria2, and five rounds of it: the
@@ -275,8 +310,9 @@ jobs:
         env:
           BUILDS: ${{ inputs.builds }}
         run: |
-          if [ "$BUILDS" = allocators ] && [ "$RUNNER_OS" != Windows ]; then
+          if [ "$BUILDS" = plain ] || { [ "$BUILDS" = allocators ] && [ "$RUNNER_OS" != Windows ]; }; then
             builds=(--sail variants/sail)
+            "variants/sail$EXE" --version
           elif [ "$BUILDS" = allocators ]; then
             builds=(--sail sail=variants/sail --sail sail-mimalloc=variants/sail-mimalloc)
             if [ -f variants/sail-gnu.exe ]; then

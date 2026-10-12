@@ -69,7 +69,16 @@ On GitHub: the workflow `perf-desktop`, by hand, with `os` = `windows` (the
 default), `macos` or `both`. The tables are in the job's summary and
 `results.json` in its artifact. Its input `builds` says what is compared.
 
-`buffers`, the default: one build at the dist profile, started four ways,
+Every run's summary starts with the runner: its CPU, its region and the CPU
+features BoringSSL chooses its code by (AES-NI, AVX2, VAES, VPCLMULQDQ and
+the rest). The ratios differ from runner to runner, so one run is one
+sample: Hysteria2's download was 0.63 of sing-box's on one runner and 1.38
+on another, the same image and the same builds.
+
+`plain`, the default: one build at the dist profile, all three protocols,
+three rounds. It is the run to repeat when a distribution is wanted.
+
+`buffers`: one build at the dist profile, started four ways,
 over Hysteria2 alone and for five rounds. sail leaves the UDP sockets of
 QUIC the system's buffers unless told otherwise, and Windows' are 64 KiB:
 
