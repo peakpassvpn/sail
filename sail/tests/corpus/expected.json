@@ -1168,7 +1168,7 @@
     "warnings": 0
   },
   "sing-box/0047.json": {
-    "error": "inbounds[0].dns_mode: sail does not implement this field yet"
+    "error": "inbounds[0].dns_address: sail does not implement this field yet"
   },
   "sing-box/0048.json": {
     "error": "dns.fakeip: unknown field `fakeip`, expected one of `servers`, `rules`, `final`, `strategy`, `client_strategy`, `disable_cache`, `disable_expire`, `cache_capacity`, `optimistic`, `timeout`, `reverse_mapping`, `client_subnet`"
@@ -1335,7 +1335,7 @@
     "error": "dns.servers[0]: missing field `type`"
   },
   "sing-box/0096.json": {
-    "error": "inbounds[0].dns_mode: sail does not implement this field yet"
+    "error": "outbounds[0].network: sail does not implement this field yet"
   },
   "sing-box/0097.json": {
     "error": "route.final: outbound [Proxy 2] does not exist"
@@ -1390,10 +1390,10 @@
     "error": "outbounds[2].network: sail does not implement this field yet"
   },
   "sing-box/0111.json": {
-    "error": "inbounds[1].dns_mode: sail does not implement this field yet"
+    "error": "inbounds[1].udp_filtering: sail does not implement this field yet"
   },
   "sing-box/0112.json": {
-    "error": "inbounds[1].dns_mode: sail does not implement this field yet"
+    "error": "inbounds[1].udp_filtering: sail does not implement this field yet"
   },
   "sing-box/0113.json": {
     "error": "outbounds[4].network: sail does not implement this field yet"
@@ -1402,7 +1402,7 @@
     "error": "outbounds[4].network: sail does not implement this field yet"
   },
   "sing-box/0115.json": {
-    "error": "inbounds[0].dns_mode: sail does not implement this field yet"
+    "error": "outbounds[0].network: sail does not implement this field yet"
   },
   "sing-box/0116.json": {
     "check": "ok",

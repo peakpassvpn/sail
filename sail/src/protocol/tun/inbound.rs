@@ -431,6 +431,13 @@ struct TunInboundOptions {
     /// Elsewhere it changes nothing, as in sing-box.
     #[serde(default)]
     strict_route: bool,
+    /// sing-box 1.14's: whether the TUN's DNS is the system's, `native`,
+    /// and its port 53 taken too, `hijack`, or neither, `disabled`.
+    /// `hijack` with `auto_route`, `disabled` without, when unset. Port 53
+    /// is taken with auto_redirect on Linux and strict_route on Windows;
+    /// on macOS `hijack` is `native`.
+    #[serde(default)]
+    dns_mode: Option<String>,
     /// Addresses whose TCP goes into the device rather than to the
     /// redirect listener: a destination sail's own listeners use, say.
     #[serde(default, with = "crate::config::model::listable")]
@@ -541,6 +548,7 @@ pub(crate) struct RouteSelection {
     pub table_index: u32,
     pub rule_index: u32,
     pub strict_route: bool,
+    pub dns_mode: DnsMode,
     pub route_address: Vec<IpInet>,
     pub route_exclude_address: Vec<IpInet>,
     /// Rule sets whose IP CIDRs are what is taken, or what is not.
@@ -550,6 +558,21 @@ pub(crate) struct RouteSelection {
     pub exclude_interface: Vec<String>,
     pub include_uid: Vec<std::ops::RangeInclusive<u32>>,
     pub exclude_uid: Vec<std::ops::RangeInclusive<u32>>,
+}
+
+/// What `auto_route` does with DNS, as sing-box 1.14's `dns_mode` says.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DnsMode {
+    /// The system's DNS is left as it is, and DNS anywhere goes where it
+    /// went.
+    Disabled,
+    /// The system's DNS is the TUN's: the interface's DNS on Windows, the
+    /// system resolver on macOS, systemd-resolved's link DNS on Linux.
+    Native,
+    /// `Native`, and DNS sent elsewhere is taken too: auto_redirect sends
+    /// port 53 to sail (Linux), strict_route blocks port 53 off the TUN
+    /// (Windows).
+    Hijack,
 }
 
 /// sing-tun's defaults (redirect.go, tun.go).
@@ -1064,6 +1087,21 @@ fn route_selection(options: &TunInboundOptions) -> std::result::Result<RouteSele
     if !options.include_interface.is_empty() && !options.exclude_interface.is_empty() {
         return Err("include_interface and exclude_interface exclude each other".into());
     }
+    let dns_mode = match options.dns_mode.as_deref() {
+        None | Some("") if options.auto_route => DnsMode::Hijack,
+        None | Some("") | Some("disabled") => DnsMode::Disabled,
+        // The TUN's DNS is set with its routes.
+        Some("native" | "hijack") if !options.auto_route => {
+            return Err("dns_mode: needs `auto_route`, which sets the TUN's DNS".into());
+        }
+        Some("native") => DnsMode::Native,
+        Some("hijack") => DnsMode::Hijack,
+        Some(other) => {
+            return Err(format!(
+                "dns_mode: \"{other}\" is none of disabled, native and hijack"
+            ))
+        }
+    };
     let prefixes = |field: &str, values: &[String]| {
         values
             .iter()
@@ -1086,6 +1124,7 @@ fn route_selection(options: &TunInboundOptions) -> std::result::Result<RouteSele
             .filter(|index| *index != 0)
             .unwrap_or(DEFAULT_RULE_INDEX),
         strict_route: options.strict_route,
+        dns_mode,
         route_address: prefixes("route_address", &options.route_address)?,
         route_exclude_address: prefixes("route_exclude_address", &options.route_exclude_address)?,
         route_address_set: options.route_address_set.clone(),
@@ -1515,6 +1554,47 @@ mod tests {
             }
         }
         assert_eq!(table.stats().active_flows, 2_000);
+    }
+
+    /// sing-box 1.14's `dns_mode`: `hijack` with auto_route and
+    /// `disabled` without, when unset; `native` and `hijack` need
+    /// auto_route, which sets the TUN's DNS.
+    #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
+    #[test]
+    fn dns_mode_is_hijack_with_auto_route_unless_set() {
+        let mode = |extra: serde_json::Value| {
+            let mut tun_options = serde_json::json!({ "address": "172.19.0.1/30" });
+            tun_options
+                .as_object_mut()
+                .unwrap()
+                .extend(extra.as_object().unwrap().clone());
+            options(&tun(tun_options)).map(|s| s.route.dns_mode)
+        };
+        use serde_json::json;
+        assert_eq!(
+            mode(json!({ "auto_route": true })).unwrap(),
+            DnsMode::Hijack
+        );
+        assert_eq!(mode(json!({})).unwrap(), DnsMode::Disabled);
+        assert_eq!(
+            mode(json!({ "auto_route": true, "dns_mode": "native" })).unwrap(),
+            DnsMode::Native
+        );
+        assert_eq!(
+            mode(json!({ "auto_route": true, "dns_mode": "disabled" })).unwrap(),
+            DnsMode::Disabled
+        );
+        let err = format!("{:#}", mode(json!({ "dns_mode": "native" })).unwrap_err());
+        assert!(err.contains("dns_mode: needs `auto_route`"), "{}", err);
+        let err = format!(
+            "{:#}",
+            mode(json!({ "auto_route": true, "dns_mode": "x" })).unwrap_err()
+        );
+        assert!(
+            err.contains("none of disabled, native and hijack"),
+            "{}",
+            err
+        );
     }
 
     fn tun(options: serde_json::Value) -> Inbound {

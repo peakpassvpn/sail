@@ -12,7 +12,8 @@
 //! | 10     | v4, v6  | remote port 53              | block           |
 //!
 //! So DNS leaves only through the TUN, save sail's own; and with no IPv6
-//! on the TUN, no IPv6 leaves at all.
+//! on the TUN, no IPv6 leaves at all. The port 53 rule is there only when
+//! the TUN's `dns_mode` is `hijack`, the default.
 
 use std::io;
 
@@ -70,7 +71,12 @@ impl StrictRoute {
 
     /// The rules for the TUN of interface `index`, with IPv4 and IPv6
     /// addresses as said.
-    pub(crate) fn start(index: u32, ipv4: bool, ipv6: bool) -> io::Result<StrictRoute> {
+    pub(crate) fn start(
+        index: u32,
+        ipv4: bool,
+        ipv6: bool,
+        block_dns: bool,
+    ) -> io::Result<StrictRoute> {
         let mut name = wide("sail");
         let display = FWPM_DISPLAY_DATA0 {
             name: name.as_mut_ptr(),
@@ -202,16 +208,18 @@ impl StrictRoute {
         }
 
         // 10: DNS elsewhere.
-        for layer in layers {
-            let mut condition = [FWPM_FILTER_CONDITION0 {
-                fieldKey: FWPM_CONDITION_IP_REMOTE_PORT,
-                matchType: FWP_MATCH_EQUAL,
-                conditionValue: FWP_CONDITION_VALUE0 {
-                    r#type: FWP_UINT16,
-                    Anonymous: FWP_CONDITION_VALUE0_0 { uint16: 53 },
-                },
-            }];
-            add(layer, 10, &mut condition, FWP_ACTION_BLOCK, 0)?;
+        if block_dns {
+            for layer in layers {
+                let mut condition = [FWPM_FILTER_CONDITION0 {
+                    fieldKey: FWPM_CONDITION_IP_REMOTE_PORT,
+                    matchType: FWP_MATCH_EQUAL,
+                    conditionValue: FWP_CONDITION_VALUE0 {
+                        r#type: FWP_UINT16,
+                        Anonymous: FWP_CONDITION_VALUE0_0 { uint16: 53 },
+                    },
+                }];
+                add(layer, 10, &mut condition, FWP_ACTION_BLOCK, 0)?;
+            }
         }
         Ok(this)
     }

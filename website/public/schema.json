@@ -11683,8 +11683,13 @@
      "description": "The device's addresses with their prefixes: one IPv4, one IPv6, or one of each."
     },
     "dns_mode": {
-     "not": {},
-     "description": "sail refuses this field: The TUN's own DNS handling: queries would be answered otherwise"
+     "type": "string",
+     "examples": [
+      "disabled",
+      "native",
+      "hijack"
+     ],
+     "description": "sing-box 1.14's: whether the TUN's DNS is the system's, `native`, and its port 53 taken too, `hijack`, or neither, `disabled`. `hijack` with `auto_route`, `disabled` without, when unset. Port 53 is taken with auto_redirect on Linux and strict_route on Windows; on macOS `hijack` is `native`."
     },
     "dns_address": {
      "not": {},

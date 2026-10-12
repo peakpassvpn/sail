@@ -410,7 +410,7 @@ fn ruleset_options(
         reset_mark: options.reset_mark,
         nfqueue,
         redirect_port,
-        dns_hijack: true,
+        dns_hijack: settings.route.dns_mode == super::inbound::DnsMode::Hijack,
         exclude_mptcp: options.exclude_mptcp,
         strict_route: settings.route.strict_route,
         loopback_address: options.loopback_address.clone(),

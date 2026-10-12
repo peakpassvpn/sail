@@ -424,6 +424,10 @@ mod backend {
                         settings
                             .ipv6
                             .map(|i| IpAddr::from(super::super::inbound::peer(i)))
+                    })
+                    // `dns_mode: disabled` leaves the system's DNS alone.
+                    .filter(|_| {
+                        settings.route.dns_mode != super::super::inbound::DnsMode::Disabled
                     }),
             };
             // A sweep has taken what a killed instance wrote down: what is
@@ -805,11 +809,14 @@ mod backend {
                 socket: RouteSocket::open()
                     .map_err(|e| anyhow!("auto_route: routing socket: {}", e))?,
                 tun: settings.name.clone(),
+                // None with `dns_mode: disabled`: the system's DNS is left
+                // alone.
                 dns_servers: settings
                     .ipv4
                     .map(|i| IpAddr::from(peer(i)))
                     .into_iter()
                     .chain(settings.ipv6.map(|i| IpAddr::from(peer(i))))
+                    .filter(|_| settings.route.dns_mode != super::super::inbound::DnsMode::Disabled)
                     .collect(),
                 dns: Mutex::new(None),
                 ipv4: settings.ipv4.map(|i| i.address().into()),
@@ -1324,6 +1331,7 @@ mod backend {
         /// The TUN's own addresses.
         addresses: Vec<IpAddr>,
         strict_route: bool,
+        dns_mode: super::super::inbound::DnsMode,
         rules: Mutex<Option<StrictRoute>>,
         /// Its DNS servers are sail's: from when `routed` set them until
         /// they are undone. Only then are they checked; held while they
@@ -1351,6 +1359,7 @@ mod backend {
                     .chain(settings.ipv6.map(|i| IpAddr::from(i.address())))
                     .collect(),
                 strict_route: settings.route.strict_route,
+                dns_mode: settings.route.dns_mode,
                 rules: Mutex::new(None),
                 dns_set: Mutex::new(false),
             })
@@ -1415,19 +1424,26 @@ mod backend {
                     self.name
                 ))
             }));
-            for (v6, gateway) in [(false, self.gateway4), (true, self.gateway6)] {
-                if let Some(gateway) = gateway {
-                    self.luid
-                        .set_dns(v6, &[gateway])
-                        .map_err(|e| anyhow!("auto_route: DNS: {}", e))?;
+            use super::super::inbound::DnsMode;
+            // `dns_mode: disabled` leaves the adapter without DNS servers,
+            // and the system's DNS as it is.
+            if self.dns_mode != DnsMode::Disabled {
+                for (v6, gateway) in [(false, self.gateway4), (true, self.gateway6)] {
+                    if let Some(gateway) = gateway {
+                        self.luid
+                            .set_dns(v6, &[gateway])
+                            .map_err(|e| anyhow!("auto_route: DNS: {}", e))?;
+                    }
                 }
+                *self.dns_set() = true;
             }
-            *self.dns_set() = true;
             if self.strict_route {
                 let rules = StrictRoute::start(
                     self.index,
                     self.gateway4.is_some(),
                     self.gateway6.is_some(),
+                    // Port 53 off the TUN is blocked only to take DNS in.
+                    self.dns_mode == DnsMode::Hijack,
                 )
                 .map_err(|e| anyhow!("auto_route: strict_route: firewall rules: {}", e))?;
                 *self.rules.lock().unwrap_or_else(|e| e.into_inner()) = Some(rules);
@@ -1460,6 +1476,10 @@ mod backend {
         fn undo_dns(&self) -> io::Result<()> {
             let mut set = self.dns_set();
             *set = false;
+            // `dns_mode: disabled` set none: the adapter's are not sail's.
+            if self.dns_mode == super::super::inbound::DnsMode::Disabled {
+                return Ok(());
+            }
             if !self.luid.exists() {
                 return Ok(());
             }

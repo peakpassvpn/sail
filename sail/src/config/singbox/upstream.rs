@@ -472,7 +472,7 @@ pub const GROUPS: &[Group] = &[
         "The TUN's own DNS handling: queries would be answered otherwise",
         Unsupported,
         &["tun"],
-        &["inbounds.*.dns_mode", "inbounds.*.dns_address"],
+        &["inbounds.*.dns_address"],
     ),
     g(
         "Filtering LAN clients by MAC address",

@@ -878,6 +878,7 @@
   "inbounds[tun].interface_name",
   "inbounds[tun].mtu",
   "inbounds[tun].address",
+  "inbounds[tun].dns_mode",
   "inbounds[tun].auto_route",
   "inbounds[tun].iproute2_table_index",
   "inbounds[tun].iproute2_rule_index",
@@ -4540,7 +4541,6 @@
    "outbounds[vmess].transport[http].ping_timeout"
   ],
   "The TUN's own DNS handling: queries would be answered otherwise": [
-   "inbounds[tun].dns_mode",
    "inbounds[tun].dns_address"
   ],
   "Not supported; include_uid_range takes in an Android user's apps (user N's are uids N*100000 to N*100000+99999)": [

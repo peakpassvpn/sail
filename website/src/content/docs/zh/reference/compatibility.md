@@ -22,12 +22,12 @@ sail 直接读取 sing-box、Clash / Mihomo 与 Surge 的配置。每种格式�
 | `http_clients` | 80 | 30 | 11 | 39 |
 | `network_namespaces` | 6 | 0 | 0 | 6 |
 | `endpoints` | 433 | 48 | 13 | 372 |
-| `inbounds` | 1367 | 592 | 151 | 624 |
+| `inbounds` | 1367 | 593 | 151 | 623 |
 | `outbounds` | 1228 | 680 | 75 | 473 |
 | `route` | 268 | 174 | 41 | 53 |
 | `services` | 751 | 1 | 166 | 584 |
 | `experimental` | 34 | 16 | 17 | 1 |
-| **全部** | **5003** | **1919** | **576** | **2508** |
+| **全部** | **5003** | **1920** | **576** | **2507** |
 
 ## Clash / Mihomo
 

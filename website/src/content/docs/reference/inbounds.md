@@ -794,7 +794,7 @@ Rust: [`TunInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail
 | `netns` | string | — | Error: Where and how an inbound listens: it would take connections otherwise | — |
 | `mtu` | number | `9000` | Supported | 9000 when omitted, as sing-box has it on Android. |
 | `address` | listable-string | `[]` | Supported | The device's addresses with their prefixes: one IPv4, one IPv6, or one of each. |
-| `dns_mode` | string, one of `disabled`, `native`, `hijack` | — | Error: The TUN's own DNS handling: queries would be answered otherwise | — |
+| `dns_mode` | string, one of `disabled`, `native`, `hijack` | unset | Supported | sing-box 1.14's: whether the TUN's DNS is the system's, `native`, and its port 53 taken too, `hijack`, or neither, `disabled`. `hijack` with `auto_route`, `disabled` without, when unset. Port 53 is taken with auto_redirect on Linux and strict_route on Windows; on macOS `hijack` is `native`. |
 | `dns_address` | listable-string | — | Error: The TUN's own DNS handling: queries would be answered otherwise | — |
 | `auto_route` | bool | `false` | Supported | Routes the system's traffic into the device. |
 | `iproute2_table_index` | number | unset | Supported | Linux: the routing table of the device's routes (2022). Elsewhere, or without `auto_route`, it changes nothing, and is ignored with a warning, as in sing-box; so is `iproute2_rule_index`. |
