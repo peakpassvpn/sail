@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use anyhow::{anyhow, Result};
 use tracing::field::Visit;
-use tracing_appender::non_blocking::WorkerGuard;
+use tracing_appender::non_blocking::{ErrorCounter, WorkerGuard};
 use tracing_subscriber::{
     filter::{filter_fn, LevelFilter},
     fmt,
@@ -112,33 +112,72 @@ struct HandleController {
     /// Its drop writes out the lines queued, and stops the thread that
     /// writes them.
     writer_guard: Option<WorkerGuard>,
+    /// Counts the lines the writer's queue had no room for.
+    dropped: ErrorCounter,
 }
 
 impl HandleController {
-    pub fn new(filter: FilterHandle, writer: WriterHandle, writer_guard: WorkerGuard) -> Self {
+    pub fn new(filter: FilterHandle, writer: WriterHandle, queued: Queued) -> Self {
         Self {
             filter,
             writer,
-            writer_guard: Some(writer_guard),
+            writer_guard: Some(queued.guard),
+            dropped: queued.dropped,
         }
     }
 
+    /// Returns how many lines the writer replaced had dropped.
     pub fn reload(
         &mut self,
         filter: LevelFilter,
         writer: WriterLayer,
-        writer_guard: WorkerGuard,
-    ) -> Result<(), reload::Error> {
+        queued: Queued,
+    ) -> Result<usize, reload::Error> {
         self.filter.modify(|f| *f = filter)?;
         self.writer.reload(writer)?;
-        self.writer_guard = Some(writer_guard);
-        Ok(())
+        self.writer_guard = Some(queued.guard);
+        let dropped = std::mem::replace(&mut self.dropped, queued.dropped);
+        Ok(dropped.dropped_lines())
+    }
+}
+
+/// The lines a writer keeps until they are written. tracing-appender's
+/// own bound is 128,000, a queue of 4 MiB allocated whole, in an instance
+/// that logs a line now and then; this many are 128 KiB.
+const QUEUED_LINES: usize = 4096;
+
+/// What a queued writer leaves beside it.
+struct Queued {
+    guard: WorkerGuard,
+    dropped: ErrorCounter,
+}
+
+/// A writer to `to` that never blocks who logs: lines queue, at most
+/// `QUEUED_LINES`, for a thread that writes them, and one logged while
+/// the queue is full is dropped and counted.
+fn queued<W: std::io::Write + Send + 'static>(
+    to: W,
+) -> (tracing_appender::non_blocking::NonBlocking, Queued) {
+    let (writer, guard) = tracing_appender::non_blocking::NonBlockingBuilder::default()
+        .buffered_lines_limit(QUEUED_LINES)
+        .finish(to);
+    let dropped = writer.error_counter();
+    (writer, Queued { guard, dropped })
+}
+
+/// Says how many lines were dropped, when any were.
+fn tell_dropped(dropped: usize) {
+    if dropped > 0 {
+        tracing::warn!(
+            "{} log line(s) were dropped: they were logged faster than written",
+            dropped
+        );
     }
 }
 
 static HANDLE: RwLock<Option<HandleController>> = RwLock::new(None);
 
-fn get_writer(config: &config::Log, host: &Host) -> Result<(WriterLayer, WorkerGuard)> {
+fn get_writer(config: &config::Log, host: &Host) -> Result<(WriterLayer, Queued)> {
     let timestamp = config.timestamp;
     let mode = match config.format {
         config::model::LogFormat::Compact => LogFormatMode::Compact,
@@ -152,7 +191,7 @@ fn get_writer(config: &config::Log, host: &Host) -> Result<(WriterLayer, WorkerG
                 .clone()
                 .ok_or_else(|| anyhow!("log_to_system: the host provides no system log"))?;
             let (writer, writer_guard) =
-                tracing_appender::non_blocking(crate::runtime::platform::LineWriter::new(platform));
+                queued(crate::runtime::platform::LineWriter::new(platform));
             let writer = fmt::Layer::default()
                 .with_ansi(false)
                 .with_writer(writer)
@@ -164,7 +203,7 @@ fn get_writer(config: &config::Log, host: &Host) -> Result<(WriterLayer, WorkerG
                 std::io::IsTerminal::is_terminal(&std::io::stdout()),
                 std::env::var_os("NO_COLOR"),
             );
-            let (writer, writer_guard) = tracing_appender::non_blocking(std::io::stdout());
+            let (writer, writer_guard) = queued(std::io::stdout());
             let writer = fmt::Layer::default()
                 .with_ansi(colors)
                 .with_writer(writer)
@@ -174,7 +213,7 @@ fn get_writer(config: &config::Log, host: &Host) -> Result<(WriterLayer, WorkerG
         Some(output_file) => {
             let p = Path::new(output_file);
             let writer = OpenOptions::new().append(true).create(true).open(p)?;
-            let (writer, writer_guard) = tracing_appender::non_blocking(writer);
+            let (writer, writer_guard) = queued(writer);
             let writer = fmt::Layer::default()
                 .with_ansi(false)
                 .with_writer(writer)
@@ -197,6 +236,13 @@ fn console_colors(is_terminal: bool, no_color: Option<std::ffi::OsString>) -> bo
 /// the static that holds it is never dropped. Lines logged after are lost
 /// until the logger is set up again.
 pub fn flush() {
+    let dropped = HANDLE
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .map_or(0, |h| h.dropped.dropped_lines());
+    // Before the queue is written out, so that it is.
+    tell_dropped(dropped);
     let guard = HANDLE
         .write()
         .unwrap_or_else(|e| e.into_inner())
@@ -324,8 +370,12 @@ pub fn setup_logger(config: &config::Log, host: &Host) -> Result<()> {
     let (writer, writer_guard) = get_writer(config, host)?;
     REDACT.store(redact_bits(config), std::sync::atomic::Ordering::Relaxed);
     let mut h = HANDLE.write().unwrap_or_else(|e| e.into_inner());
-    if let Some(h) = h.as_mut() {
-        h.reload(filter, writer, writer_guard)?;
+    if let Some(controller) = h.as_mut() {
+        let dropped = controller.reload(filter, writer, writer_guard)?;
+        drop(h);
+        // To the writer in place now.
+        tell_dropped(dropped);
+        return Ok(());
     } else {
         let (filter, filter_handle) = reload::Layer::new(filter);
         let (writer, writer_handle) = reload::Layer::new(writer);
@@ -599,6 +649,31 @@ mod tests {
         });
         assert_eq!(out, 7);
         assert_eq!(kept, ["a field is ignored", "and an error"]);
+    }
+
+    /// A writer that takes nothing keeps `QUEUED_LINES` lines and no
+    /// more: those logged past them are dropped, and counted.
+    #[test]
+    fn a_writer_s_queue_is_bounded_and_counts_what_it_drops() {
+        struct Stuck(std::sync::mpsc::Receiver<()>);
+        impl std::io::Write for Stuck {
+            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                let _ = self.0.recv();
+                Ok(buf.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let (release, held) = std::sync::mpsc::channel();
+        let (mut writer, queued) = queued(Stuck(held));
+        // One line may be in the stuck write, the queue full behind it.
+        for _ in 0..QUEUED_LINES + 11 {
+            std::io::Write::write_all(&mut writer, b"a line\n").unwrap();
+        }
+        let dropped = queued.dropped.dropped_lines();
+        assert!((10..=11).contains(&dropped), "{} dropped", dropped);
+        drop(release);
     }
 
     #[test]
