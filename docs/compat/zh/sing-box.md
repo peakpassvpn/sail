@@ -3149,6 +3149,7 @@ sail 接受而 sing-box 没有的字段和类型。
 | `route.rule_set[inline].rules[].no_resolve` | As a routing rule's |
 | `outbounds[anytls|http|hysteria2|shadowtls|trojan|tuic|vless|vmess].tls.certificate_sha256` | In any outbound's `tls`: whole certificates pinned by SHA-256, hex (Mihomo's fingerprint); the server's own is trusted for any name, a CA's in its chain is the only CA it is verified by |
 | `outbounds[direct|anytls|http|hysteria2|shadowsocks|shadowtls|socks|trojan|tuic|vless|vmess].skip_default_domain_resolver` | Names resolve as the DNS rules say, not by `route.default_domain_resolver` |
+| `outbounds[direct|anytls|http|shadowsocks|shadowtls|socks|trojan|vless|vmess].tcp_concurrent` | A name's addresses are all connected to at once and the first to connect taken, rather than Happy Eyeballs (Mihomo's tcp-concurrent) |
 | `endpoints[wireguard].skip_default_domain_resolver` | As an outbound's, for the peers' names |
 | `inbounds[http|mixed].realm` | The realm a 407 names, which clients show when asking for credentials; `sail` when unset (sing-box sends `sing-box`) |
 | `inbounds[shadowtls].handshake.skip_default_domain_resolver` | As an outbound's, for the handshake server's name |

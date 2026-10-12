@@ -30,7 +30,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `dns` | 33 | 28 | 5 | 0 |
 | `experimental` | 5 | 0 | 5 | 0 |
 | `external-controller-cors` | 3 | 3 | 0 | 0 |
-| `general` | 48 | 28 | 18 | 2 |
+| `general` | 48 | 29 | 17 | 2 |
 | `geox-url` | 5 | 0 | 5 | 0 |
 | `iptables` | 5 | 0 | 0 | 5 |
 | `listeners[anytls]` | 45 | 0 | 0 | 45 |
@@ -89,7 +89,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `tls` | 7 | 0 | 7 | 0 |
 | `tuic-server` | 13 | 0 | 0 | 13 |
 | `tun` | 50 | 34 | 9 | 7 |
-| **All** | **2077** | **491** | **139** | **1447** |
+| **All** | **2077** | **492** | **138** | **1447** |
 
 
 ## `general`
@@ -1509,7 +1509,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `socks-port` | 支持 |  |
 | `ss-config` | 报错 | ss-config: sail does not implement this field yet |
 | `sub-rules` | 支持 |  |
-| `tcp-concurrent` | 警告 | tcp-concurrent: sail does not implement this field; ignored |
+| `tcp-concurrent` | 支持 |  |
 
 ## `tls`
 

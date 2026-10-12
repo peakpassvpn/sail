@@ -561,6 +561,7 @@ impl Dialer {
         let addrs: Vec<SocketAddr> = ips.iter().map(|ip| SocketAddr::new(*ip, port)).collect();
         let order = Order {
             race: !spec.tcp_fast_open,
+            concurrent: spec.tcp_concurrent && !spec.tcp_fast_open,
             prefer_ipv6: first.to_canonical().is_ipv6(),
             fallback_delay: spec.fallback_delay,
         };
@@ -682,6 +683,7 @@ impl Dialer {
             // A Fast Open connect completes before the server answers, so
             // there is nothing to race: as in sing-box.
             race: !spec.tcp_fast_open,
+            concurrent: spec.tcp_concurrent && !spec.tcp_fast_open,
             prefer_ipv6: resolve.prefers_ipv6(),
             fallback_delay: spec.fallback_delay,
         };

@@ -168,6 +168,9 @@ pub struct DialSpec {
     pub udp_fragment: bool,
     /// TCP Fast Open, which tries addresses one by one.
     pub tcp_fast_open: bool,
+    /// All addresses at once, the first to connect taken (Mihomo's
+    /// `tcp-concurrent`).
+    pub tcp_concurrent: bool,
     /// How long one family's addresses are tried before the other's race
     /// them.
     pub fallback_delay: Duration,
@@ -290,6 +293,7 @@ impl DialSpec {
             reuse_addr: fields.reuse_addr,
             udp_fragment: fields.udp_fragment.unwrap_or(fields.udp_fragment_default),
             tcp_fast_open: fields.tcp_fast_open,
+            tcp_concurrent: fields.tcp_concurrent,
             fallback_delay: set(fields.fallback_delay).unwrap_or(DEFAULT_FALLBACK_DELAY),
             networks: network_fallback_delay.and_then(|delay| networks(fields, defaults, delay)),
             network_fallback_delay,

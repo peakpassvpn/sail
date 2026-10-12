@@ -21,7 +21,6 @@ pub const TOP: &[(&str, Tier)] = &[
     ("tls", Ignored),
     // How connections are made and timed, not where they go.
     ("unified-delay", Ignored),
-    ("tcp-concurrent", Ignored),
     ("inbound-tfo", Ignored),
     ("inbound-mptcp", Ignored),
     ("find-process-mode", Ignored),
@@ -69,12 +68,18 @@ pub fn lower(doc: &mut Fields, out: &mut Lowered, warnings: &mut Vec<String>) ->
     Ok(())
 }
 
-/// The TCP keepalive Mihomo sets on every connection it makes and takes:
+/// `tcp-concurrent`, for the connections Mihomo makes, as sail's
+/// `tcp_concurrent` on each outbound that dials. And the TCP keepalive
+/// Mihomo sets on every connection it makes and takes:
 /// `keep-alive-idle` and `keep-alive-interval` in seconds, or none with
 /// `disable-keep-alive`. As sail's dial and listen fields, which each
 /// outbound and listener gets (`Lowered::apply_keep_alive`); one not given
 /// is sail's default.
 fn keep_alive(doc: &mut Fields, out: &mut Lowered) -> Result<()> {
+    if doc.bool("tcp-concurrent")? == Some(true) {
+        out.outbound_dial
+            .insert("tcp_concurrent".into(), json!(true));
+    }
     let idle = doc.int::<u64>("keep-alive-idle")?;
     let interval = doc.int::<u64>("keep-alive-interval")?;
     if doc.bool("disable-keep-alive")?.unwrap_or(false) {

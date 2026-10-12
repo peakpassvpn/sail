@@ -147,6 +147,9 @@ pub struct Lowered {
     /// The TCP keepalive fields every outbound that dials and every
     /// listener takes: `keep-alive-idle` and the like.
     pub keep_alive: Map<String, Value>,
+    /// The dial fields every outbound that dials takes besides:
+    /// `tcp-concurrent`.
+    pub outbound_dial: Map<String, Value>,
 }
 
 impl Lowered {
@@ -155,25 +158,29 @@ impl Lowered {
     /// its own. A provider's proxies, read as it runs, keep sail's
     /// default, which `warnings` tells.
     fn apply_keep_alive(&mut self, warnings: &mut Vec<String>) {
-        if self.keep_alive.is_empty() {
+        if self.keep_alive.is_empty() && self.outbound_dial.is_empty() {
             return;
         }
         let dials = |o: &Value| o.get("server").is_some() || o["type"] == "direct";
         let listens = |i: &Value| i.get("listen_port").is_some();
-        let outbounds = self.outbounds.iter_mut().filter(|o| dials(o));
-        let inbounds = self.inbounds.iter_mut().filter(|i| listens(i));
-        for item in outbounds.chain(inbounds) {
-            let Some(item) = item.as_object_mut() else {
-                continue;
-            };
-            for (field, value) in &self.keep_alive {
-                item.entry(field.clone()).or_insert_with(|| value.clone());
+        let set = |item: &mut Value, fields: &Map<String, Value>| {
+            if let Some(item) = item.as_object_mut() {
+                for (field, value) in fields {
+                    item.entry(field.clone()).or_insert_with(|| value.clone());
+                }
             }
+        };
+        for outbound in self.outbounds.iter_mut().filter(|o| dials(o)) {
+            set(outbound, &self.keep_alive);
+            set(outbound, &self.outbound_dial);
+        }
+        for inbound in self.inbounds.iter_mut().filter(|i| listens(i)) {
+            set(inbound, &self.keep_alive);
         }
         if !self.outbound_providers.is_empty() {
             warnings.push(
-                "keep-alive-idle, keep-alive-interval, disable-keep-alive: the proxies of \
-                 proxy-providers keep sail's TCP keepalive"
+                "keep-alive-idle, keep-alive-interval, disable-keep-alive, tcp-concurrent: the \
+                 proxies of proxy-providers keep sail's TCP keepalive and dialing"
                     .to_string(),
             );
         }

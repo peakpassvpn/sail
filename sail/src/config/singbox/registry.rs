@@ -1269,6 +1269,11 @@ const EXTENSIONS: &[(&str, &str, &str)] = &[
         "Names resolve as the DNS rules say, not by `route.default_domain_resolver`",
     ),
     (
+        "outbounds[direct|anytls|http|shadowsocks|shadowtls|socks|trojan|vless|vmess].tcp_concurrent",
+        "true",
+        "A name's addresses are all connected to at once and the first to connect taken, rather than Happy Eyeballs (Mihomo's tcp-concurrent)",
+    ),
+    (
         "endpoints[wireguard].skip_default_domain_resolver",
         "true",
         "As an outbound's, for the peers' names",

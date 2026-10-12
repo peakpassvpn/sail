@@ -342,6 +342,7 @@ fn mihomo_s_tcp_keepalive_is_every_dial_s_and_listener_s() {
 mixed-port: 7890
 keep-alive-idle: 600
 keep-alive-interval: 30
+tcp-concurrent: true
 proxies:
   - { name: ss, type: ss, server: s.example.com, port: 1, cipher: aes-128-gcm, password: p }
   - { name: d, type: direct }
@@ -354,9 +355,11 @@ rules: ["MATCH,G"]
         let o = serde_json::to_value(outbound(&config, tag)).unwrap();
         assert_eq!(o["tcp_keep_alive"], "600s", "{}", tag);
         assert_eq!(o["tcp_keep_alive_interval"], "30s", "{}", tag);
+        assert_eq!(o["tcp_concurrent"], true, "{}", tag);
     }
     let g = serde_json::to_value(outbound(&config, "G")).unwrap();
     assert!(g.get("tcp_keep_alive").is_none());
+    assert!(g.get("tcp_concurrent").is_none());
     assert_eq!(
         config.inbounds[0].tcp_keep_alive,
         Some(std::time::Duration::from_secs(600))

@@ -63,6 +63,7 @@ Rust: [`AnyTlsOutboundOptions`](https://github.com/peakpassvpn/sail/blob/master/
 | `client_metadata` | string | — | Warned: Metadata the client tells the server: the connection goes the same way without it | — |
 | `domain_strategy` | string | unset | Supported (deprecated in sing-box) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
 | `skip_default_domain_resolver` | bool | `false` | sail extension | A sail extension: without a `domain_resolver` of its own, the names dialled resolve as the DNS rules say, not as `route.default_domain_resolver` does; as Mihomo's DIRECT resolves apart from the proxies' servers. |
+| `tcp_concurrent` | bool | `false` | sail extension | A sail extension, Mihomo's `tcp-concurrent`: a name's addresses are all connected to at once and the first to connect is taken, rather than one family's one by one, the other's raced against them after `fallback_delay` (Happy Eyeballs). With `network_strategy`, each address is still raced over the interfaces, so as many sockets open at once as there are addresses times interfaces. |
 
 <a id="outbounds-block"></a>
 
@@ -106,6 +107,7 @@ Rust: [`DirectOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src
 | `fallback_delay` | duration | unset | Supported | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs), and the first interfaces before the fallback ones; 300ms when unset. |
 | `domain_strategy` | string | unset | Supported (deprecated in sing-box) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
 | `skip_default_domain_resolver` | bool | `false` | sail extension | A sail extension: without a `domain_resolver` of its own, the names dialled resolve as the DNS rules say, not as `route.default_domain_resolver` does; as Mihomo's DIRECT resolves apart from the proxies' servers. |
+| `tcp_concurrent` | bool | `false` | sail extension | A sail extension, Mihomo's `tcp-concurrent`: a name's addresses are all connected to at once and the first to connect is taken, rather than one family's one by one, the other's raced against them after `fallback_delay` (Happy Eyeballs). With `network_strategy`, each address is still raced over the interfaces, so as many sockets open at once as there are addresses times interfaces. |
 
 <a id="outbounds-fallback"></a>
 
@@ -184,6 +186,7 @@ Rust: [`HttpOutboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sa
 | `headers` | map | `{}` | Supported | Sent with every `CONNECT`. |
 | `domain_strategy` | string | unset | Supported (deprecated in sing-box) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
 | `skip_default_domain_resolver` | bool | `false` | sail extension | A sail extension: without a `domain_resolver` of its own, the names dialled resolve as the DNS rules say, not as `route.default_domain_resolver` does; as Mihomo's DIRECT resolves apart from the proxies' servers. |
+| `tcp_concurrent` | bool | `false` | sail extension | A sail extension, Mihomo's `tcp-concurrent`: a name's addresses are all connected to at once and the first to connect is taken, rather than one family's one by one, the other's raced against them after `fallback_delay` (Happy Eyeballs). With `network_strategy`, each address is still raced over the interfaces, so as many sockets open at once as there are addresses times interfaces. |
 
 <a id="outbounds-hysteria2"></a>
 
@@ -416,6 +419,7 @@ Rust: [`RedirectOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/s
 | `udp_fragment` | bool | unset | sail extension | Whether UDP datagrams may be fragmented on the way; unset, as the place says, see `udp_fragment_default`. |
 | `domain_resolver` | object → [object](#outbounds-redirect-domain-resolver) | unset | sail extension | The DNS server that resolves the names dialled. |
 | `skip_default_domain_resolver` | bool | `false` | sail extension | A sail extension: without a `domain_resolver` of its own, the names dialled resolve as the DNS rules say, not as `route.default_domain_resolver` does; as Mihomo's DIRECT resolves apart from the proxies' servers. |
+| `tcp_concurrent` | bool | `false` | sail extension | A sail extension, Mihomo's `tcp-concurrent`: a name's addresses are all connected to at once and the first to connect is taken, rather than one family's one by one, the other's raced against them after `fallback_delay` (Happy Eyeballs). With `network_strategy`, each address is still raced over the interfaces, so as many sockets open at once as there are addresses times interfaces. |
 | `domain_strategy` | string, one of `prefer_ipv4`, `prefer_ipv6`, `ipv4_only`, `ipv6_only` | unset | sail extension | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
 | `network_strategy` | string, one of `default`, `hybrid`, `fallback` | unset | sail extension | Which of the host's interfaces a connection goes out of, and how they race; `default` where only types are given. Only where the host lists its interfaces (`NetworkState::interfaces`). |
 | `network_type` | string, one of `wifi`, `cellular`, `ethernet`, `other` or array of string, one of `wifi`, `cellular`, `ethernet`, `other` | `[]` | sail extension | The types of interface the strategy goes out of first. |
@@ -439,6 +443,7 @@ Rust: [`RedirectOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/s
 | `udp_fragment` | bool | unset | sail extension | Whether UDP datagrams may be fragmented on the way; unset, as the place says, see `udp_fragment_default`. |
 | `domain_resolver` | object → [object](#outbounds-redirect-domain-resolver) | unset | sail extension | The DNS server that resolves the names dialled. |
 | `skip_default_domain_resolver` | bool | `false` | sail extension | A sail extension: without a `domain_resolver` of its own, the names dialled resolve as the DNS rules say, not as `route.default_domain_resolver` does; as Mihomo's DIRECT resolves apart from the proxies' servers. |
+| `tcp_concurrent` | bool | `false` | sail extension | A sail extension, Mihomo's `tcp-concurrent`: a name's addresses are all connected to at once and the first to connect is taken, rather than one family's one by one, the other's raced against them after `fallback_delay` (Happy Eyeballs). With `network_strategy`, each address is still raced over the interfaces, so as many sockets open at once as there are addresses times interfaces. |
 | `domain_strategy` | string, one of `prefer_ipv4`, `prefer_ipv6`, `ipv4_only`, `ipv6_only` | unset | sail extension | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
 | `network_strategy` | string, one of `default`, `hybrid`, `fallback` | unset | sail extension | Which of the host's interfaces a connection goes out of, and how they race; `default` where only types are given. Only where the host lists its interfaces (`NetworkState::interfaces`). |
 | `network_type` | string, one of `wifi`, `cellular`, `ethernet`, `other` or array of string, one of `wifi`, `cellular`, `ethernet`, `other` | `[]` | sail extension | The types of interface the strategy goes out of first. |
@@ -522,6 +527,7 @@ Rust: [`ShadowsocksOutboundOptions`](https://github.com/peakpassvpn/sail/blob/ma
 | `multiplex` | object → [object](/sail/reference/shared/#multiplex-outbounds) | unset | Supported | — |
 | `domain_strategy` | string | unset | Supported (deprecated in sing-box) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
 | `skip_default_domain_resolver` | bool | `false` | sail extension | A sail extension: without a `domain_resolver` of its own, the names dialled resolve as the DNS rules say, not as `route.default_domain_resolver` does; as Mihomo's DIRECT resolves apart from the proxies' servers. |
+| `tcp_concurrent` | bool | `false` | sail extension | A sail extension, Mihomo's `tcp-concurrent`: a name's addresses are all connected to at once and the first to connect is taken, rather than one family's one by one, the other's raced against them after `fallback_delay` (Happy Eyeballs). With `network_strategy`, each address is still raced over the interfaces, so as many sockets open at once as there are addresses times interfaces. |
 | `prefix` | string | unset | sail extension | Bytes sent before the first payload, percent-encoded. |
 
 <a id="outbounds-shadowtls"></a>
@@ -561,6 +567,7 @@ Rust: [`ShadowTlsOutboundOptions`](https://github.com/peakpassvpn/sail/blob/mast
 | `tls` | object → [object](/sail/reference/shared/#tls-outbounds) | unset | Supported | Must be enabled: the handshake with the site the server imitates, `server_name` being the site's (the server's address when unset). A browser fingerprint, disable_sni and a client certificate apply as for TLS; REALITY and ECH do not. |
 | `domain_strategy` | string | unset | Supported (deprecated in sing-box) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
 | `skip_default_domain_resolver` | bool | `false` | sail extension | A sail extension: without a `domain_resolver` of its own, the names dialled resolve as the DNS rules say, not as `route.default_domain_resolver` does; as Mihomo's DIRECT resolves apart from the proxies' servers. |
+| `tcp_concurrent` | bool | `false` | sail extension | A sail extension, Mihomo's `tcp-concurrent`: a name's addresses are all connected to at once and the first to connect is taken, rather than one family's one by one, the other's raced against them after `fallback_delay` (Happy Eyeballs). With `network_strategy`, each address is still raced over the interfaces, so as many sockets open at once as there are addresses times interfaces. |
 
 <a id="outbounds-smart"></a>
 
@@ -641,6 +648,7 @@ Rust: [`SocksOutboundOptions`](https://github.com/peakpassvpn/sail/blob/master/s
 | `udp_over_tcp` | bool\|object → [object](/sail/reference/shared/#udp-over-tcp) | unset | Supported | UDP over its TCP, to `sp.v2.udp-over-tcp.arpa` (version 2, the default) or `sp.udp-over-tcp.arpa` (version 1), instead of UDP ASSOCIATE. |
 | `domain_strategy` | string | unset | Supported (deprecated in sing-box) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
 | `skip_default_domain_resolver` | bool | `false` | sail extension | A sail extension: without a `domain_resolver` of its own, the names dialled resolve as the DNS rules say, not as `route.default_domain_resolver` does; as Mihomo's DIRECT resolves apart from the proxies' servers. |
+| `tcp_concurrent` | bool | `false` | sail extension | A sail extension, Mihomo's `tcp-concurrent`: a name's addresses are all connected to at once and the first to connect is taken, rather than one family's one by one, the other's raced against them after `fallback_delay` (Happy Eyeballs). With `network_strategy`, each address is still raced over the interfaces, so as many sockets open at once as there are addresses times interfaces. |
 
 <a id="outbounds-trojan"></a>
 
@@ -681,6 +689,7 @@ Rust: [`TrojanOutboundOptions`](https://github.com/peakpassvpn/sail/blob/master/
 | `transport` | object → [object](/sail/reference/shared/#transport-outbounds), [[grpc]](/sail/reference/shared/#transport-grpc-outbounds), [[http]](/sail/reference/shared/#transport-http-outbounds), [[httpupgrade]](/sail/reference/shared/#transport-httpupgrade-outbounds), [[ws]](/sail/reference/shared/#transport-ws-outbounds) | unset | Supported | — |
 | `domain_strategy` | string | unset | Supported (deprecated in sing-box) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
 | `skip_default_domain_resolver` | bool | `false` | sail extension | A sail extension: without a `domain_resolver` of its own, the names dialled resolve as the DNS rules say, not as `route.default_domain_resolver` does; as Mihomo's DIRECT resolves apart from the proxies' servers. |
+| `tcp_concurrent` | bool | `false` | sail extension | A sail extension, Mihomo's `tcp-concurrent`: a name's addresses are all connected to at once and the first to connect is taken, rather than one family's one by one, the other's raced against them after `fallback_delay` (Happy Eyeballs). With `network_strategy`, each address is still raced over the interfaces, so as many sockets open at once as there are addresses times interfaces. |
 
 <a id="outbounds-tryall"></a>
 
@@ -860,6 +869,7 @@ Rust: [`VlessOutboundOptions`](https://github.com/peakpassvpn/sail/blob/master/s
 | `packet_encoding` | string | unset | Supported | How UDP travels: unset means `xudp`, as in sing-box; `""` is VLESS's own UDP, one destination per connection. |
 | `domain_strategy` | string | unset | Supported (deprecated in sing-box) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
 | `skip_default_domain_resolver` | bool | `false` | sail extension | A sail extension: without a `domain_resolver` of its own, the names dialled resolve as the DNS rules say, not as `route.default_domain_resolver` does; as Mihomo's DIRECT resolves apart from the proxies' servers. |
+| `tcp_concurrent` | bool | `false` | sail extension | A sail extension, Mihomo's `tcp-concurrent`: a name's addresses are all connected to at once and the first to connect is taken, rather than one family's one by one, the other's raced against them after `fallback_delay` (Happy Eyeballs). With `network_strategy`, each address is still raced over the interfaces, so as many sockets open at once as there are addresses times interfaces. |
 
 <a id="outbounds-vmess"></a>
 
@@ -905,6 +915,7 @@ Rust: [`VMessOutboundOptions`](https://github.com/peakpassvpn/sail/blob/master/s
 | `transport` | object → [object](/sail/reference/shared/#transport-outbounds), [[grpc]](/sail/reference/shared/#transport-grpc-outbounds), [[http]](/sail/reference/shared/#transport-http-outbounds), [[httpupgrade]](/sail/reference/shared/#transport-httpupgrade-outbounds), [[ws]](/sail/reference/shared/#transport-ws-outbounds) | unset | Supported | — |
 | `domain_strategy` | string | unset | Supported (deprecated in sing-box) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
 | `skip_default_domain_resolver` | bool | `false` | sail extension | A sail extension: without a `domain_resolver` of its own, the names dialled resolve as the DNS rules say, not as `route.default_domain_resolver` does; as Mihomo's DIRECT resolves apart from the proxies' servers. |
+| `tcp_concurrent` | bool | `false` | sail extension | A sail extension, Mihomo's `tcp-concurrent`: a name's addresses are all connected to at once and the first to connect is taken, rather than one family's one by one, the other's raced against them after `fallback_delay` (Happy Eyeballs). With `network_strategy`, each address is still raced over the interfaces, so as many sockets open at once as there are addresses times interfaces. |
 
 <a id="outbounds-missing"></a>
 

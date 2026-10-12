@@ -111,6 +111,14 @@ pub struct DialFields {
     /// apart from the proxies' servers.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub skip_default_domain_resolver: bool,
+    /// A sail extension, Mihomo's `tcp-concurrent`: a name's addresses are
+    /// all connected to at once and the first to connect is taken, rather
+    /// than one family's one by one, the other's raced against them after
+    /// `fallback_delay` (Happy Eyeballs). With `network_strategy`, each
+    /// address is still raced over the interfaces, so as many sockets open
+    /// at once as there are addresses times interfaces.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub tcp_concurrent: bool,
     /// sing-box's deprecated field for the families names resolve to,
     /// which a resolver's own `strategy` goes before.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -164,6 +172,7 @@ pub const IMPLEMENTED: &[&str] = &[
     "udp_fragment",
     "domain_resolver",
     "skip_default_domain_resolver",
+    "tcp_concurrent",
     "domain_strategy",
     "network_strategy",
     "network_type",
@@ -184,6 +193,7 @@ const SOCKET: &[&str] = &[
     "connect_timeout",
     "tcp_fast_open",
     "tcp_multi_path",
+    "tcp_concurrent",
     "disable_tcp_keep_alive",
     "tcp_keep_alive",
     "tcp_keep_alive_interval",
@@ -232,6 +242,7 @@ impl DialFields {
                 "skip_default_domain_resolver",
                 self.skip_default_domain_resolver,
             ),
+            ("tcp_concurrent", self.tcp_concurrent),
             ("domain_strategy", self.domain_strategy.is_some()),
             ("network_strategy", self.network_strategy.is_some()),
             ("network_type", !self.network_type.is_empty()),
@@ -435,11 +446,11 @@ mod tests {
     ];
 
     #[test]
-    fn the_fields_are_sing_box_s_and_one_extension() {
+    fn the_fields_are_sing_box_s_and_sail_s_extensions() {
         let mut names = DialFields::names().to_vec();
         names.sort_unstable();
         let mut want = SING_BOX.to_vec();
-        want.push("skip_default_domain_resolver");
+        want.extend(["skip_default_domain_resolver", "tcp_concurrent"]);
         want.sort_unstable();
         assert_eq!(names, want);
         // `set` knows each of them.
@@ -448,6 +459,7 @@ mod tests {
             "inet6_bind_address": "2001:db8::1", "bind_address_no_port": true,
             "protect_path": "p", "routing_mark": 1, "reuse_addr": true, "netns": "n",
             "connect_timeout": "1s", "tcp_fast_open": true, "tcp_multi_path": true,
+            "tcp_concurrent": true,
             "disable_tcp_keep_alive": true, "tcp_keep_alive": "1m",
             "tcp_keep_alive_interval": "1s", "udp_fragment": true,
             "domain_resolver": "dns", "skip_default_domain_resolver": true,

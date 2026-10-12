@@ -14185,6 +14185,10 @@
      "type": "boolean",
      "description": "A sail extension: without a `domain_resolver` of its own, the names dialled resolve as the DNS rules say, not as `route.default_domain_resolver` does; as Mihomo's DIRECT resolves apart from the proxies' servers."
     },
+    "tcp_concurrent": {
+     "type": "boolean",
+     "description": "A sail extension, Mihomo's `tcp-concurrent`: a name's addresses are all connected to at once and the first to connect is taken, rather than one family's one by one, the other's raced against them after `fallback_delay` (Happy Eyeballs). With `network_strategy`, each address is still raced over the interfaces, so as many sockets open at once as there are addresses times interfaces."
+    },
     "type": {
      "const": "anytls"
     }
@@ -14691,6 +14695,10 @@
      "type": "boolean",
      "description": "A sail extension: without a `domain_resolver` of its own, the names dialled resolve as the DNS rules say, not as `route.default_domain_resolver` does; as Mihomo's DIRECT resolves apart from the proxies' servers."
     },
+    "tcp_concurrent": {
+     "type": "boolean",
+     "description": "A sail extension, Mihomo's `tcp-concurrent`: a name's addresses are all connected to at once and the first to connect is taken, rather than one family's one by one, the other's raced against them after `fallback_delay` (Happy Eyeballs). With `network_strategy`, each address is still raced over the interfaces, so as many sockets open at once as there are addresses times interfaces."
+    },
     "type": {
      "const": "direct"
     }
@@ -15074,6 +15082,10 @@
     "skip_default_domain_resolver": {
      "type": "boolean",
      "description": "A sail extension: without a `domain_resolver` of its own, the names dialled resolve as the DNS rules say, not as `route.default_domain_resolver` does; as Mihomo's DIRECT resolves apart from the proxies' servers."
+    },
+    "tcp_concurrent": {
+     "type": "boolean",
+     "description": "A sail extension, Mihomo's `tcp-concurrent`: a name's addresses are all connected to at once and the first to connect is taken, rather than one family's one by one, the other's raced against them after `fallback_delay` (Happy Eyeballs). With `network_strategy`, each address is still raced over the interfaces, so as many sockets open at once as there are addresses times interfaces."
     },
     "type": {
      "const": "http"
@@ -16849,6 +16861,10 @@
      "type": "boolean",
      "description": "A sail extension: without a `domain_resolver` of its own, the names dialled resolve as the DNS rules say, not as `route.default_domain_resolver` does; as Mihomo's DIRECT resolves apart from the proxies' servers."
     },
+    "tcp_concurrent": {
+     "type": "boolean",
+     "description": "A sail extension, Mihomo's `tcp-concurrent`: a name's addresses are all connected to at once and the first to connect is taken, rather than one family's one by one, the other's raced against them after `fallback_delay` (Happy Eyeballs). With `network_strategy`, each address is still raced over the interfaces, so as many sockets open at once as there are addresses times interfaces."
+    },
     "domain_strategy": {
      "type": "string",
      "enum": [
@@ -17309,6 +17325,10 @@
      "type": "boolean",
      "description": "A sail extension: without a `domain_resolver` of its own, the names dialled resolve as the DNS rules say, not as `route.default_domain_resolver` does; as Mihomo's DIRECT resolves apart from the proxies' servers."
     },
+    "tcp_concurrent": {
+     "type": "boolean",
+     "description": "A sail extension, Mihomo's `tcp-concurrent`: a name's addresses are all connected to at once and the first to connect is taken, rather than one family's one by one, the other's raced against them after `fallback_delay` (Happy Eyeballs). With `network_strategy`, each address is still raced over the interfaces, so as many sockets open at once as there are addresses times interfaces."
+    },
     "prefix": {
      "type": "string",
      "description": "Bytes sent before the first payload, percent-encoded."
@@ -17628,6 +17648,10 @@
     "skip_default_domain_resolver": {
      "type": "boolean",
      "description": "A sail extension: without a `domain_resolver` of its own, the names dialled resolve as the DNS rules say, not as `route.default_domain_resolver` does; as Mihomo's DIRECT resolves apart from the proxies' servers."
+    },
+    "tcp_concurrent": {
+     "type": "boolean",
+     "description": "A sail extension, Mihomo's `tcp-concurrent`: a name's addresses are all connected to at once and the first to connect is taken, rather than one family's one by one, the other's raced against them after `fallback_delay` (Happy Eyeballs). With `network_strategy`, each address is still raced over the interfaces, so as many sockets open at once as there are addresses times interfaces."
     },
     "type": {
      "const": "shadowtls"
@@ -18318,6 +18342,10 @@
      "type": "boolean",
      "description": "A sail extension: without a `domain_resolver` of its own, the names dialled resolve as the DNS rules say, not as `route.default_domain_resolver` does; as Mihomo's DIRECT resolves apart from the proxies' servers."
     },
+    "tcp_concurrent": {
+     "type": "boolean",
+     "description": "A sail extension, Mihomo's `tcp-concurrent`: a name's addresses are all connected to at once and the first to connect is taken, rather than one family's one by one, the other's raced against them after `fallback_delay` (Happy Eyeballs). With `network_strategy`, each address is still raced over the interfaces, so as many sockets open at once as there are addresses times interfaces."
+    },
     "type": {
      "const": "socks"
     }
@@ -18656,6 +18684,10 @@
     "skip_default_domain_resolver": {
      "type": "boolean",
      "description": "A sail extension: without a `domain_resolver` of its own, the names dialled resolve as the DNS rules say, not as `route.default_domain_resolver` does; as Mihomo's DIRECT resolves apart from the proxies' servers."
+    },
+    "tcp_concurrent": {
+     "type": "boolean",
+     "description": "A sail extension, Mihomo's `tcp-concurrent`: a name's addresses are all connected to at once and the first to connect is taken, rather than one family's one by one, the other's raced against them after `fallback_delay` (Happy Eyeballs). With `network_strategy`, each address is still raced over the interfaces, so as many sockets open at once as there are addresses times interfaces."
     },
     "type": {
      "const": "trojan"
@@ -20153,6 +20185,10 @@
      "type": "boolean",
      "description": "A sail extension: without a `domain_resolver` of its own, the names dialled resolve as the DNS rules say, not as `route.default_domain_resolver` does; as Mihomo's DIRECT resolves apart from the proxies' servers."
     },
+    "tcp_concurrent": {
+     "type": "boolean",
+     "description": "A sail extension, Mihomo's `tcp-concurrent`: a name's addresses are all connected to at once and the first to connect is taken, rather than one family's one by one, the other's raced against them after `fallback_delay` (Happy Eyeballs). With `network_strategy`, each address is still raced over the interfaces, so as many sockets open at once as there are addresses times interfaces."
+    },
     "type": {
      "const": "vless"
     }
@@ -20951,6 +20987,10 @@
     "skip_default_domain_resolver": {
      "type": "boolean",
      "description": "A sail extension: without a `domain_resolver` of its own, the names dialled resolve as the DNS rules say, not as `route.default_domain_resolver` does; as Mihomo's DIRECT resolves apart from the proxies' servers."
+    },
+    "tcp_concurrent": {
+     "type": "boolean",
+     "description": "A sail extension, Mihomo's `tcp-concurrent`: a name's addresses are all connected to at once and the first to connect is taken, rather than one family's one by one, the other's raced against them after `fallback_delay` (Happy Eyeballs). With `network_strategy`, each address is still raced over the interfaces, so as many sockets open at once as there are addresses times interfaces."
     },
     "type": {
      "const": "vmess"

@@ -12,6 +12,10 @@ use std::time::Duration;
 pub struct Order {
     /// Whether the families race; one by one, in the order given, if not.
     pub race: bool,
+    /// Whether every address is tried at once, the first to connect taken
+    /// (Mihomo's `tcp-concurrent`); `race` and `fallback_delay` are then
+    /// beside the point.
+    pub concurrent: bool,
     /// Whether IPv6's addresses go first in the race; IPv4's do otherwise.
     pub prefer_ipv6: bool,
     /// How long the first family has before the other joins the race.
@@ -38,6 +42,9 @@ where
     };
     let v4: Vec<SocketAddr> = addrs.iter().filter(is_v4).copied().collect();
     let v6: Vec<SocketAddr> = addrs.iter().filter(|a| !is_v4(a)).copied().collect();
+    if order.concurrent && addrs.len() > 1 {
+        return concurrent(addrs, &connect).await;
+    }
     if !order.race || v4.is_empty() || v6.is_empty() {
         return serial(addrs, &connect).await;
     }
@@ -77,6 +84,30 @@ where
     }
 }
 
+/// Tries `addrs` all at once: the first connection made is taken, and
+/// the other attempts dropped, closing what they made. Failing, says why
+/// each failed, as `serial` does.
+async fn concurrent<T, F, Fut>(addrs: &[SocketAddr], connect: &F) -> io::Result<T>
+where
+    F: Fn(SocketAddr) -> Fut,
+    Fut: Future<Output = io::Result<T>>,
+{
+    use futures::stream::{FuturesUnordered, StreamExt};
+
+    let mut attempts: FuturesUnordered<_> = addrs
+        .iter()
+        .map(|addr| async move { (*addr, connect(*addr).await) })
+        .collect();
+    let mut errors: Vec<(SocketAddr, io::Error)> = Vec::new();
+    while let Some((addr, result)) = attempts.next().await {
+        match result {
+            Ok(c) => return Ok(c),
+            Err(e) => errors.push((addr, e)),
+        }
+    }
+    Err(failed(errors))
+}
+
 /// Tries `addrs` one by one; failing, says why each failed.
 async fn serial<T, F, Fut>(addrs: &[SocketAddr], connect: &F) -> io::Result<T>
 where
@@ -90,7 +121,12 @@ where
             Err(e) => errors.push((*addr, e)),
         }
     }
-    Err(match errors.len() {
+    Err(failed(errors))
+}
+
+/// The error of attempts that all failed, each with `addrs`'s address.
+fn failed(mut errors: Vec<(SocketAddr, io::Error)>) -> io::Error {
+    match errors.len() {
         0 => io::Error::new(io::ErrorKind::InvalidInput, "no address to connect to"),
         1 => errors.pop().map(|(_, e)| e).expect("one error"),
         _ => {
@@ -103,7 +139,7 @@ where
                 .join("; ");
             io::Error::new(kind, format!("all attempts failed: {}", each))
         }
-    })
+    }
 }
 
 #[cfg(test)]
@@ -122,6 +158,7 @@ mod tests {
     fn racing(prefer_ipv6: bool) -> Order {
         Order {
             race: true,
+            concurrent: false,
             prefer_ipv6,
             fallback_delay: Duration::from_millis(300),
         }
@@ -217,6 +254,77 @@ mod tests {
             .unwrap();
         assert_eq!(won, V4.parse().unwrap());
         assert_eq!(start.elapsed(), Duration::from_secs(5));
+    }
+
+    /// `tcp-concurrent`: every address at once, of one family or both;
+    /// the first to connect is taken, however slow the others.
+    #[tokio::test(start_paused = true)]
+    async fn concurrent_it_takes_the_first_of_all_at_once() {
+        let start = Instant::now();
+        let order = Order {
+            concurrent: true,
+            ..racing(false)
+        };
+        let v4b_fast = |addr: SocketAddr| async move {
+            if addr == V4B.parse().unwrap() {
+                sleep(Duration::from_millis(100)).await;
+                return Ok(addr);
+            }
+            sleep(Duration::from_secs(5)).await;
+            Err(io::Error::from(io::ErrorKind::TimedOut))
+        };
+        let won = connect(&addrs(&[V4, V6, V4B]), order, v4b_fast)
+            .await
+            .unwrap();
+        assert_eq!(won, V4B.parse().unwrap());
+        assert_eq!(start.elapsed(), Duration::from_millis(100));
+
+        // All failing, it says why each did, once the last has.
+        let refused = |_: SocketAddr| async move {
+            Err::<SocketAddr, _>(io::Error::from(io::ErrorKind::ConnectionRefused))
+        };
+        let e = connect(&addrs(&[V4, V4B]), order, refused)
+            .await
+            .unwrap_err();
+        assert!(e.to_string().contains("192.0.2.1:443") && e.to_string().contains("192.0.2.2:443"));
+    }
+
+    /// Once one connects, the others are dropped, not left running behind:
+    /// a join of them all would hold the dial until the last ended.
+    #[tokio::test(start_paused = true)]
+    async fn concurrent_drops_the_others_once_one_connects() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+
+        struct Live(Arc<AtomicUsize>);
+        impl Drop for Live {
+            fn drop(&mut self) {
+                self.0.fetch_sub(1, Ordering::SeqCst);
+            }
+        }
+        let live = Arc::new(AtomicUsize::new(0));
+        let order = Order {
+            concurrent: true,
+            ..racing(false)
+        };
+        let v4b_fast = |addr: SocketAddr| {
+            let live = live.clone();
+            async move {
+                live.fetch_add(1, Ordering::SeqCst);
+                let _live = Live(live);
+                if addr == V4B.parse().unwrap() {
+                    sleep(Duration::from_millis(100)).await;
+                    return Ok(addr);
+                }
+                sleep(Duration::from_secs(5)).await;
+                Err(io::Error::from(io::ErrorKind::TimedOut))
+            }
+        };
+        let won = connect(&addrs(&[V4, V6, V4B]), order, v4b_fast)
+            .await
+            .unwrap();
+        assert_eq!(won, V4B.parse().unwrap());
+        assert_eq!(live.load(Ordering::SeqCst), 0);
     }
 
     #[tokio::test(start_paused = true)]
