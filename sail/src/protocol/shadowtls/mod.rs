@@ -367,6 +367,48 @@ impl Records {
     }
 }
 
+/// Fuzzing (sail::fuzzing): the bytes of a ShadowTLS v3 connection as
+/// either end reads them: TLS records cut from the stream, each read as a
+/// ClientHello to authenticate, a ServerHello to take the random, version
+/// and name from, a site's record to mark and unmark, and a data record to
+/// open.
+#[cfg(feature = "fuzzing")]
+pub(crate) fn fuzz(data: &[u8]) {
+    use futures::FutureExt;
+    let password = b"password";
+    let random = [7; RANDOM_LEN];
+    let _ = session_id(password, data, [9; 28]);
+    let mut records = Records::default();
+    let mut reader = data;
+    let mut all = Vec::new();
+    while let Some(Ok(Some(record))) = records.next(&mut reader).now_or_never() {
+        let _ = authenticate(&record, [&password[..], &b"another"[..]]);
+        let _ = server_random(&record);
+        let _ = picks_tls13(&record);
+        let _ = server_name(&record);
+        let _ = SiteRecords::new(password, &random).check(&record);
+        let _ = SiteRecords::new(password, &random).unmark(record.clone());
+        // What the server marks, the client unmarks to the same record.
+        let marked = SiteRecords::new(password, &random).mark(record.clone());
+        if record[0] == APPLICATION_DATA
+            && record.len() > HEADER_LEN
+            && record.len() - HEADER_LEN + TAG_LEN <= usize::from(u16::MAX)
+        {
+            let back = SiteRecords::new(password, &random).unmark(marked);
+            assert_eq!(
+                back.as_deref(),
+                Some(&record[..]),
+                "a marked record changed"
+            );
+        }
+        all.push(record);
+        if all.len() == 64 {
+            break;
+        }
+    }
+    stream::fuzz_open(all);
+}
+
 #[cfg(test)]
 mod unit_tests {
     use super::*;

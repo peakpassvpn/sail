@@ -341,6 +341,19 @@ pub fn huffman_decode(input: &[u8]) -> io::Result<Vec<u8>> {
     Ok(out)
 }
 
+/// Fuzzing (sail::fuzzing): the HTTP/3 of the authentication, as each end
+/// reads the other's: frames up to HEADERS, the field section (QPACK
+/// static table and Huffman), and the body.
+#[cfg(feature = "fuzzing")]
+pub(crate) fn fuzz(data: &[u8]) {
+    use futures::FutureExt;
+    let _ = decode_field_section(data);
+    let _ = huffman_decode(data);
+    let _ = read_headers(&mut &data[..], None).now_or_never();
+    let _ = read_headers(&mut &data[..], Some(1)).now_or_never();
+    let _ = read_body(&mut &data[..], 4096).now_or_never();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

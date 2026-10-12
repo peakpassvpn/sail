@@ -24,6 +24,12 @@ mod padding;
 )]
 mod session;
 
+/// Fuzzing (sail::fuzzing): see `session::fuzz`.
+#[cfg(feature = "fuzzing")]
+pub(crate) fn fuzz(data: &[u8]) {
+    session::fuzz(data);
+}
+
 #[cfg(feature = "inbound-anytls")]
 pub mod inbound;
 #[cfg(feature = "outbound-anytls")]

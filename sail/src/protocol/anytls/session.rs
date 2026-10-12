@@ -585,6 +585,64 @@ pub fn auth(hash: &[u8; 32], padding: usize) -> Vec<u8> {
     buf
 }
 
+/// Fuzzing (sail::fuzzing): what a peer sends an AnyTLS end. A padding
+/// scheme as a server pushes it, read, drawn from and used to pad a write;
+/// and the bytes of a session as each end's decoder takes them, in
+/// pieces.
+#[cfg(feature = "fuzzing")]
+pub(crate) fn fuzz(data: &[u8]) {
+    if let Some(scheme) = PaddingScheme::parse(data) {
+        let _ = scheme.auth_padding();
+        for pkt in 0..scheme.stop().min(16) {
+            let unit = BytesMut::from(&data[..data.len().min(300)]);
+            let written: usize = pad(unit, &scheme.sizes(pkt))
+                .iter()
+                .map(BytesMut::len)
+                .sum();
+            assert!(written >= data.len().min(300), "padding lost payload");
+        }
+    }
+    if let Ok(text) = std::str::from_utf8(data) {
+        let _ = PaddingScheme::parse_strict(text);
+    }
+    let _ = string_map(data);
+    let _ = futures::FutureExt::now_or_never(read_auth_padding(&mut &data[..]));
+    let step = 1 + usize::from(data.first().copied().unwrap_or(0) % 97);
+    for server in [false, true] {
+        let role = if server {
+            Role::Server {
+                padding: Arc::new(PaddingScheme::default_scheme()),
+            }
+        } else {
+            Role::Client {
+                padding: Arc::new(RwLock::new(Arc::new(PaddingScheme::default_scheme()))),
+            }
+        };
+        let proto = Arc::new(Proto {
+            role,
+            peer_version: AtomicU8::new(0),
+            synack_generation: AtomicU64::new(0),
+            synack_missed: AtomicU32::new(0),
+            settings: Mutex::new(None),
+        });
+        let mut decoder = AnyTls(proto).decoder(server);
+        let mut buf = BytesMut::new();
+        'feed: for chunk in data.chunks(step) {
+            buf.extend_from_slice(chunk);
+            // A frame gives a few events at most: the bound only stops a
+            // decoder that would give them for ever.
+            for _ in 0..chunk.len() + 64 {
+                match decoder.decode(&mut buf) {
+                    Ok(Some(_)) => {}
+                    Ok(None) => continue 'feed,
+                    Err(_) => break 'feed,
+                }
+            }
+            panic!("the decoder gives events without end");
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

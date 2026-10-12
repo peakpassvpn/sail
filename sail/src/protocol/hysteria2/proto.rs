@@ -426,6 +426,52 @@ impl Defragger {
     }
 }
 
+/// Fuzzing (sail::fuzzing): what a Hysteria2 peer sends on a stream and in
+/// datagrams. The TCP request a server reads and the response a client
+/// reads; a UDP message, which must encode back to itself; and messages
+/// through the defragmenter.
+#[cfg(feature = "fuzzing")]
+pub(crate) fn fuzz(data: &[u8]) {
+    use futures::FutureExt;
+    let _ = get_varint(data);
+    let _ = read_varint(&mut &data[..]).now_or_never();
+    let _ = read_tcp_request(&mut &data[..]).now_or_never();
+    let _ = tcp_response_needs(data);
+    if let Ok(text) = std::str::from_utf8(data) {
+        let _ = parse_addr(text);
+    }
+    if let Ok(message) = UdpMessage::decode(data) {
+        let mut again = BytesMut::new();
+        message.encode(&mut again);
+        let decoded = UdpMessage::decode(&again).expect("an encoded message decodes");
+        assert_eq!(
+            (
+                decoded.session_id,
+                decoded.packet_id,
+                decoded.addr,
+                decoded.payload
+            ),
+            (
+                message.session_id,
+                message.packet_id,
+                message.addr,
+                message.payload
+            )
+        );
+    }
+    // Messages cut from the input by a length byte each, through one
+    // session's defragmenter.
+    let mut defragger = Defragger::default();
+    let mut rest = data;
+    while let Some((&len, tail)) = rest.split_first() {
+        let (message, tail) = tail.split_at(usize::from(len).min(tail.len()));
+        if let Ok(message) = UdpMessage::decode(message) {
+            let _ = defragger.feed(&message);
+        }
+        rest = tail;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

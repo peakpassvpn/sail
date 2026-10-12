@@ -159,6 +159,33 @@ fn deobfuscate_segments(obfs: &Salamander, buf: &mut [u8], meta: &mut RecvMeta) 
     meta.stride = new_stride.max(1);
 }
 
+/// Fuzzing (sail::fuzzing): datagrams as they arrive obfuscated, one and
+/// several to a receive (GRO), and what sail obfuscates comes back whole.
+#[cfg(feature = "fuzzing")]
+pub(crate) fn fuzz(data: &[u8]) {
+    let obfs = Salamander::new("password");
+    let mut one = data.to_vec();
+    if let Some(len) = obfs.deobfuscate(&mut one) {
+        assert!(len <= data.len());
+    }
+    // An empty packet is only its salt, which is dropped as too short.
+    if !data.is_empty() {
+        let mut wire = obfs.obfuscate(data);
+        let len = obfs
+            .deobfuscate(&mut wire)
+            .expect("an obfuscated packet reads back");
+        assert_eq!(&wire[..len], data);
+    }
+    if let Some((&stride, rest)) = data.split_first() {
+        let mut buf = rest.to_vec();
+        let mut meta = RecvMeta::default();
+        meta.len = buf.len();
+        meta.stride = usize::from(stride);
+        deobfuscate_segments(&obfs, &mut buf, &mut meta);
+        assert!(meta.len <= buf.len() && meta.stride >= 1);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

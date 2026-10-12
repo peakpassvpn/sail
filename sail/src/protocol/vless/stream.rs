@@ -555,6 +555,24 @@ impl<S: AsyncRead + AsyncWrite + Unpin> AsyncWrite for VlessStream<S> {
     }
 }
 
+/// Fuzzing (sail::fuzzing): what a vision peer sends, in pieces, as a
+/// client and as a server parse it; neither gives out more than it took.
+#[cfg(feature = "fuzzing")]
+pub(crate) fn fuzz(data: &[u8]) {
+    let step = 1 + usize::from(data.first().copied().unwrap_or(0) % 61);
+    for mut parser in [
+        VisionParser::new([7; 16]),
+        VisionParser::for_server([7; 16]),
+    ] {
+        let (mut taken, mut given) = (0, 0);
+        for chunk in data.chunks(step) {
+            taken += chunk.len();
+            given += parser.parse(chunk).len();
+            assert!(given <= taken, "vision gave out more than it took");
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

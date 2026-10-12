@@ -380,6 +380,35 @@ pub async fn write_packet<W: AsyncWrite + Unpin>(w: &mut W, buf: &[u8]) -> io::R
     w.flush().await
 }
 
+/// Fuzzing (sail::fuzzing): the request a VLESS server reads, the response
+/// header a client strips, in pieces, and a length-prefixed UDP packet.
+#[cfg(feature = "fuzzing")]
+pub(crate) fn fuzz(data: &[u8]) {
+    use futures::FutureExt;
+    let _ = read_request(&mut &data[..], |_| true).now_or_never();
+    let _ = parse_addons(data);
+    let step = 1 + usize::from(data.first().copied().unwrap_or(0) % 13);
+    let mut client = ClientStream::new(());
+    let mut stripped = 0;
+    for chunk in data.chunks(step) {
+        match client.strip(chunk) {
+            Ok(used) => {
+                assert!(used <= chunk.len());
+                stripped += used;
+            }
+            Err(_) => break,
+        }
+    }
+    // The header is two bytes and at most 255 of addons.
+    assert!(stripped <= 2 + 255);
+    for room in [0, 7, 2048] {
+        let mut buf = vec![0_u8; room];
+        if let Some(Ok(read)) = read_packet(&mut &data[..], &mut buf).now_or_never() {
+            assert!(read <= room);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

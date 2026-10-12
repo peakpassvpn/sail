@@ -197,6 +197,26 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for VerifiedStream<S> {
     }
 }
 
+/// Fuzzing (sail::fuzzing): records as a peer sends them after the
+/// handshake, opened one after another until one is refused.
+#[cfg(feature = "fuzzing")]
+pub(super) fn fuzz_open(records: Vec<BytesMut>) {
+    let password = b"password";
+    let mut stream = VerifiedStream::new(
+        (),
+        super::hmac(password),
+        super::hmac(password),
+        Some(SiteRecords::new(password, &[7; super::RANDOM_LEN])),
+        BytesMut::new(),
+        BytesMut::new(),
+    );
+    for record in records {
+        if !matches!(stream.open(record), Ok(Some(_))) {
+            break;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};

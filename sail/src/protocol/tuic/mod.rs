@@ -10,6 +10,20 @@ mod frag;
 #[cfg_attr(feature = "fuzzing", allow(dead_code))]
 mod proto;
 
+/// Fuzzing (sail::fuzzing): the wire a TUIC peer sends, and its packets'
+/// fragments through a reassembler, which holds a bounded number.
+#[cfg(all(
+    feature = "fuzzing",
+    any(feature = "inbound-tuic", feature = "outbound-tuic")
+))]
+pub(crate) fn fuzz(data: &[u8]) {
+    let mut reassembler = frag::Reassembler::new(4, std::time::Duration::from_secs(1));
+    let now = std::time::Instant::now();
+    for (header, payload) in proto::fuzz(data) {
+        let _ = reassembler.feed(header, payload, now);
+    }
+}
+
 #[cfg(feature = "fuzzing")]
 pub(crate) fn fuzz_decode(data: &[u8]) {
     let _ = std::hint::black_box(proto::decode_address(data));

@@ -96,3 +96,34 @@ pub fn tun_vnet_header(data: &[u8]) {
 pub fn tun_coalesce(data: &[u8]) {
     crate::protocol::tun::fuzz_coalesce(data);
 }
+
+/// AnyTLS: a pushed padding scheme, and a session's frames at each end.
+#[cfg(any(feature = "inbound-anytls", feature = "outbound-anytls"))]
+pub fn anytls(data: &[u8]) {
+    crate::protocol::anytls::fuzz(data);
+}
+
+/// Hysteria2: the authentication's HTTP/3, TCP requests and responses, UDP
+/// messages and their fragments, and salamander.
+#[cfg(any(feature = "inbound-hysteria2", feature = "outbound-hysteria2"))]
+pub fn hysteria2(data: &[u8]) {
+    crate::protocol::hysteria2::fuzz(data);
+}
+
+/// TUIC: addresses, commands, packets and their fragments.
+#[cfg(any(feature = "inbound-tuic", feature = "outbound-tuic"))]
+pub fn tuic(data: &[u8]) {
+    crate::protocol::tuic::fuzz(data);
+}
+
+/// ShadowTLS v3: the handshake's records and the HMAC-framed data.
+#[cfg(any(feature = "inbound-shadowtls", feature = "outbound-shadowtls"))]
+pub fn shadowtls(data: &[u8]) {
+    crate::protocol::shadowtls::fuzz(data);
+}
+
+/// VLESS: the request, the response header, UDP packets, and vision.
+#[cfg(any(feature = "inbound-vless", feature = "outbound-vless"))]
+pub fn vless(data: &[u8]) {
+    crate::protocol::vless::fuzz(data);
+}

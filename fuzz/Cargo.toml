@@ -6,8 +6,9 @@
 #     cargo +nightly fuzz run --fuzz-dir fuzz sniff_quic -- -max_total_time=60
 #
 # Targets: sniff_tls, sniff_http, sniff_dns, sniff_quic, sniff_any,
-# share_link, dhcp_leases, and on Linux the TUN's tun_vnet_header and
-# tun_coalesce.
+# share_link, dhcp_leases, on Linux the TUN's tun_vnet_header and
+# tun_coalesce, and the protocols' wire as a peer sends it: proto_anytls,
+# proto_hysteria2, proto_tuic, proto_shadowtls, proto_vless.
 
 [package]
 name = "sail-fuzz"
@@ -22,7 +23,14 @@ cargo-fuzz = true
 libfuzzer-sys = "0.4"
 # The sniffers, btls for QUIC's Initial packets, and the entry points of
 # sail's fuzzing module.
-sail = { path = "../sail", default-features = false, features = ["aead", "fuzzing", "inbound-tun"] }
+sail = { path = "../sail", default-features = false, features = [
+    "aead", "fuzzing", "inbound-tun",
+    "inbound-anytls", "outbound-anytls",
+    "inbound-hysteria2", "outbound-hysteria2",
+    "inbound-tuic", "outbound-tuic",
+    "inbound-shadowtls", "outbound-shadowtls",
+    "inbound-vless", "outbound-vless",
+] }
 
 # A workspace of its own: the targets build on nightly with sanitizers,
 # apart from sail's.
@@ -97,6 +105,41 @@ bench = false
 [[bin]]
 name = "tun_coalesce"
 path = "fuzz_targets/tun_coalesce.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "proto_anytls"
+path = "fuzz_targets/proto_anytls.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "proto_hysteria2"
+path = "fuzz_targets/proto_hysteria2.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "proto_tuic"
+path = "fuzz_targets/proto_tuic.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "proto_shadowtls"
+path = "fuzz_targets/proto_shadowtls.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "proto_vless"
+path = "fuzz_targets/proto_vless.rs"
 test = false
 doc = false
 bench = false

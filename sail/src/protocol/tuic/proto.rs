@@ -310,6 +310,41 @@ pub fn decode_datagram(data: Bytes) -> io::Result<Datagram> {
     }
 }
 
+/// Fuzzing (sail::fuzzing): what a TUIC peer sends on streams and in
+/// datagrams: addresses, commands, and packets, which must encode back to
+/// what was read.
+#[cfg(all(
+    feature = "fuzzing",
+    any(feature = "inbound-tuic", feature = "outbound-tuic")
+))]
+pub(crate) fn fuzz(data: &[u8]) -> Vec<(PacketHeader, Bytes)> {
+    use futures::FutureExt;
+    let _ = decode_address(data);
+    let _ = read_address(&mut &data[..]).now_or_never();
+    let _ = read_command(&mut &data[..]).now_or_never();
+    let mut packets = Vec::new();
+    if let Some(Ok((header, payload))) = read_packet(&mut &data[..]).now_or_never() {
+        let wire = encode_packet(&header, &payload).expect("a packet read encodes");
+        assert_eq!(
+            decode_datagram(wire).expect("an encoded packet decodes"),
+            Datagram::Packet(header.clone(), payload.clone())
+        );
+        packets.push((header, payload));
+    }
+    // Datagrams cut from the input by a length byte each.
+    let mut rest = data;
+    while let Some((&len, tail)) = rest.split_first() {
+        let (datagram, tail) = tail.split_at(usize::from(len).min(tail.len()));
+        if let Ok(Datagram::Packet(header, payload)) =
+            decode_datagram(Bytes::copy_from_slice(datagram))
+        {
+            packets.push((header, payload));
+        }
+        rest = tail;
+    }
+    packets
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

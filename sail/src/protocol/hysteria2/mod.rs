@@ -29,6 +29,15 @@ mod congestion;
 mod h3_tables;
 mod salamander;
 
+/// Fuzzing (sail::fuzzing): the wire of streams and datagrams, the
+/// authentication's HTTP/3, and salamander.
+#[cfg(feature = "fuzzing")]
+pub(crate) fn fuzz(data: &[u8]) {
+    proto::fuzz(data);
+    h3::fuzz(data);
+    salamander::fuzz(data);
+}
+
 #[cfg(feature = "inbound-hysteria2")]
 pub mod inbound;
 #[cfg(feature = "outbound-hysteria2")]
