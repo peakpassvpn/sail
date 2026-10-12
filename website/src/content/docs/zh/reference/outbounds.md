@@ -134,6 +134,7 @@ Rust 定义：[`FallbackOutboundOptions`](https://github.com/peakpassvpn/sail/bl
 | `lazy` | bool | `true` | sail 扩展 | Tests only while the group is in use: not when it was not used since the last ones. |
 | `interrupt_exist_connections` | bool | `false` | sail 扩展 | Ends the connections through the member left once the group switches. |
 | `debounce` | 对象 → [对象](#outbounds-fallback-debounce) | 类型的默认值 | sail 扩展 | How many rounds of tests in a row have the group leave a member, or take an earlier one back, and how long it stays on a member at least; a sail extension. Unset, every round counts at once. |
+| `disable_udp` | — | — | sail 扩展 | The group carries TCP alone, whatever member it picks (Mihomo's disable-udp) |
 
 <a id="outbounds-fallback-debounce"></a>
 
@@ -324,7 +325,11 @@ Rust 定义：[`LoadBalanceOutboundOptions`](https://github.com/peakpassvpn/sail
 | `strategy` | string, 取值 `consistent-hashing`, `round-robin`, `sticky-sessions` | `consistent-hashing` | sail 扩展 | — |
 | `url` | string | `default_url()` | sail 扩展 | What is requested through each member to test it. |
 | `interval` | duration | 未设置 | sail 扩展 | — |
+| `expected_status` | string | 未设置 | sail 扩展 | The HTTP statuses a test must be answered with to pass, as urltest's; any when unset. |
+| `timeout` | duration | 未设置 | sail 扩展 | How long a test may take before its member counts as failed; 5s. Also how close together `max_failed_times` failures must come, as urltest's. |
+| `max_failed_times` | number | 未设置 | sail 扩展 | How many failed connections, within `timeout` of the first, have the members tested again; 5, as urltest's. |
 | `lazy` | bool | `true` | sail 扩展 | Tests only while the group is in use: not when it was not used since the last ones. |
+| `disable_udp` | — | — | sail 扩展 | The group carries TCP alone, whatever member it picks (Mihomo's disable-udp) |
 
 <a id="outbounds-mptp"></a>
 
@@ -485,6 +490,7 @@ Rust 定义：[`SelectorOutboundOptions`](https://github.com/peakpassvpn/sail/bl
 | `exclude_filter` | string 或 数组，元素为 string | `[]` | sail 扩展 | Regular expressions no member's name may match, the group's own outbounds' too. |
 | `exclude_type` | string 或 数组，元素为 string | `[]` | sail 扩展 | The types no member may be of, the group's own outbounds too, in Mihomo's names for them, without case: `Shadowsocks`, `Vmess`, `Socks5`, `Direct`, ... |
 | `empty_fallback` | string | 未设置 | sail 扩展 | An outbound, not a group, that is the member while there is none else. Without it such a group has none, and its connections fail. |
+| `disable_udp` | — | — | sail 扩展 | The group carries TCP alone, whatever member it picks (Mihomo's disable-udp) |
 
 <a id="outbounds-shadowsocks"></a>
 
@@ -597,6 +603,7 @@ Rust 定义：[`SmartOutboundOptions`](https://github.com/peakpassvpn/sail/blob/
 | `asn_file` | string | 未设置 | sail 扩展 | The ASN database, for `prefer_asn`; relative to the asset directory. |
 | `evaluate_before_use` | bool | `false` | sail 扩展 | The first connection waits for the first probes, `timeout` at most, rather than going through a member not measured yet. |
 | `interrupt_exist_connections` | bool | `false` | sail 扩展 | Ends the connections through a member once it leaves the group. |
+| `disable_udp` | — | — | sail 扩展 | The group carries TCP alone, whatever member it picks (Mihomo's disable-udp) |
 
 <a id="outbounds-smart-policy-priority"></a>
 
@@ -827,6 +834,7 @@ Rust 定义：[`UrlTestOutboundOptions`](https://github.com/peakpassvpn/sail/blo
 | `max_failed_times` | number | 未设置 | sail 扩展 | How many failed connections, within `timeout` of the first, have the members tested again; 5, as Mihomo's `max-failed-times`. One whose member's server cannot be reached has them tested at once. |
 | `expected_status` | string | 未设置 | sail 扩展 | The HTTP statuses a test must be answered with to pass, as Mihomo's `expected-status`: codes and ranges, `200/204/401-429`; any when unset. |
 | `lazy` | bool | `true` | sail 扩展 | `false`: tests never pause, used or not, as Mihomo's `lazy: false`; `idle_timeout` is then a mistake. |
+| `disable_udp` | — | — | sail 扩展 | The group carries TCP alone, whatever member it picks (Mihomo's disable-udp) |
 
 <a id="outbounds-vless"></a>
 

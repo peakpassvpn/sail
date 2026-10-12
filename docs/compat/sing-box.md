@@ -3179,6 +3179,10 @@ Fields and types sail accepts that sing-box does not.
 | `outbounds[fallback].url` | Several URLs to test the members at, at once, as well as one |
 | `outbounds[fallback].url_policy` | With several URLs, whether a member passes when `any` of them answers or only when `all` do |
 | `outbounds[load-balance].outbounds` | A group spreading connections over its members |
+| `outbounds[load-balance].timeout` | How long a test may take before its member counts as failed (Mihomo's timeout) |
+| `outbounds[load-balance].max_failed_times` | How many failed connections within the timeout have the members tested again (Mihomo's max-failed-times) |
+| `outbounds[load-balance].expected_status` | The HTTP statuses a test must get to pass (Mihomo's expected-status) |
+| `outbounds[selector|urltest|fallback|load-balance|smart].disable_udp` | The group carries TCP alone, whatever member it picks (Mihomo's disable-udp) |
 | `outbounds[smart].outbounds` | A group scoring its members by the connections through them |
 | `outbounds[network].default` | A group picking its member by the network the host is on |
 | `outbounds[tryall].outbounds` | A group trying its members at once |

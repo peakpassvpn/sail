@@ -35,7 +35,7 @@ use crate::adapter::registry::{
     parse_options, Options, OutboundContext, OutboundFactory, OutboundRegistry,
 };
 use crate::adapter::*;
-use crate::app::healthcheck::HttpProbe;
+use crate::app::healthcheck::{HttpProbe, StatusRanges};
 use crate::app::SyncDnsClient;
 use crate::config::model::GroupProviders;
 use crate::session::{Session, SocksAddr};
@@ -72,6 +72,19 @@ struct LoadBalanceOutboundOptions {
     url: String,
     #[serde(default, with = "crate::config::model::duration")]
     interval: Option<Duration>,
+    /// The HTTP statuses a test must be answered with to pass, as
+    /// urltest's; any when unset.
+    #[serde(default)]
+    expected_status: Option<String>,
+    /// How long a test may take before its member counts as failed; 5s.
+    /// Also how close together `max_failed_times` failures must come, as
+    /// urltest's.
+    #[serde(default, with = "crate::config::model::duration")]
+    timeout: Option<Duration>,
+    /// How many failed connections, within `timeout` of the first, have
+    /// the members tested again; 5, as urltest's.
+    #[serde(default)]
+    max_failed_times: Option<u32>,
     /// Tests only while the group is in use: not when it was not used
     /// since the last ones.
     #[serde(default = "default_lazy")]
@@ -107,8 +120,24 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
             ctx.tag
         ));
     }
+    let expected = StatusRanges::parse(options.expected_status.as_deref().unwrap_or_default())
+        .map_err(|e| anyhow!("[{}] outbound: expected_status: {}", ctx.tag, e))?;
     let probe = HttpProbe::new(&options.url, ctx.dns_client.clone(), ctx.env)
-        .map_err(|e| anyhow!("[{}] outbound: url: {}", ctx.tag, e))?;
+        .map_err(|e| anyhow!("[{}] outbound: url: {}", ctx.tag, e))?
+        .expecting(expected);
+    let timeout = options.timeout.unwrap_or(health::DEFAULT_TIMEOUT);
+    if timeout.is_zero() {
+        return Err(anyhow!("[{}] outbound: timeout: must not be zero", ctx.tag));
+    }
+    let max_failed_times = options
+        .max_failed_times
+        .unwrap_or(health::DEFAULT_MAX_FAILED_TIMES);
+    if max_failed_times == 0 {
+        return Err(anyhow!(
+            "[{}] outbound: max_failed_times: must not be zero",
+            ctx.tag
+        ));
+    }
     let (checker, abort_handle) = Checker::new(
         ctx.tag,
         members.clone(),
@@ -116,8 +145,8 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         ctx.dns_client.clone(),
         ctx.env.network.clone(),
         interval,
-        health::DEFAULT_TIMEOUT,
-        health::DEFAULT_MAX_FAILED_TIMES,
+        timeout,
+        max_failed_times,
         options.lazy.then_some(interval),
         Default::default(),
         Box::new(|_, _, _| ()),
