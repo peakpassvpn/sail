@@ -517,7 +517,7 @@ Rust 定义：[`ShadowsocksOutboundOptions`](https://github.com/peakpassvpn/sail
 | `password` | string | 必填 | 支持 | With a 2022 method, the base64 PSK, or `iPSK:uPSK` for a server with users. |
 | `plugin` | string | 未设置 | 支持 | Only `obfs-local` (simple-obfs) is supported. |
 | `plugin_opts` | string | 未设置 | 支持 | `obfs=http\|tls;obfs-host=<host>;obfs-uri=<path>`, as simple-obfs takes them. |
-| `network` | listable-string, 取值 `tcp`, `udp` | — | 报错：Which networks an outbound carries: connections it should refuse would go through it | — |
+| `network` | listable-string, 取值 `tcp`, `udp` | — | 支持 | — |
 | `udp_over_tcp` | bool\|object → [对象](/sail/zh/reference/shared/#udp-over-tcp) | 未设置 | 支持 | UDP over its TCP, to `sp.v2.udp-over-tcp.arpa` (version 2, the default) or `sp.udp-over-tcp.arpa` (version 1), instead of its own UDP. |
 | `multiplex` | object → [对象](/sail/zh/reference/shared/#multiplex-outbounds) | 未设置 | 支持 | — |
 | `domain_strategy` | string | 未设置 | 支持 (sing-box 已弃用) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
@@ -637,7 +637,7 @@ Rust 定义：[`SocksOutboundOptions`](https://github.com/peakpassvpn/sail/blob/
 | `version` | string, 取值 `4`, `4a`, `5` | 未设置 | 支持 | `5`, the default, which is all sail speaks. sing-box also takes `4` and `4a` (option/simple.go:25), which are errors here. |
 | `username` | string | `""` | 支持 | — |
 | `password` | string | `""` | 支持 | — |
-| `network` | listable-string, 取值 `tcp`, `udp` | — | 报错：Which networks an outbound carries: connections it should refuse would go through it | — |
+| `network` | listable-string, 取值 `tcp`, `udp` | — | 支持 | — |
 | `udp_over_tcp` | bool\|object → [对象](/sail/zh/reference/shared/#udp-over-tcp) | 未设置 | 支持 | UDP over its TCP, to `sp.v2.udp-over-tcp.arpa` (version 2, the default) or `sp.udp-over-tcp.arpa` (version 1), instead of UDP ASSOCIATE. |
 | `domain_strategy` | string | 未设置 | 支持 (sing-box 已弃用) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
 | `skip_default_domain_resolver` | bool | `false` | sail 扩展 | A sail extension: without a `domain_resolver` of its own, the names dialled resolve as the DNS rules say, not as `route.default_domain_resolver` does; as Mihomo's DIRECT resolves apart from the proxies' servers. |
@@ -675,7 +675,7 @@ Rust 定义：[`TrojanOutboundOptions`](https://github.com/peakpassvpn/sail/blob
 | `server` | string | 未设置 | 支持 | May be left out, with `server_port`, by an outbound with a `detour`: one over ShadowTLS, which dials its own server. |
 | `server_port` | number | 未设置 | 支持 | — |
 | `password` | string | 必填 | 支持 | — |
-| `network` | listable-string, 取值 `tcp`, `udp` | — | 报错：Which networks an outbound carries: connections it should refuse would go through it | — |
+| `network` | listable-string, 取值 `tcp`, `udp` | — | 支持 | — |
 | `tls` | object → [对象](/sail/zh/reference/shared/#tls-outbounds) | 未设置 | 支持 | — |
 | `multiplex` | object → [对象](/sail/zh/reference/shared/#multiplex-outbounds) | 未设置 | 支持 | — |
 | `transport` | object → [对象](/sail/zh/reference/shared/#transport-outbounds), [[grpc]](/sail/zh/reference/shared/#transport-grpc-outbounds), [[http]](/sail/zh/reference/shared/#transport-http-outbounds), [[httpupgrade]](/sail/zh/reference/shared/#transport-httpupgrade-outbounds), [[ws]](/sail/zh/reference/shared/#transport-ws-outbounds) | 未设置 | 支持 | — |
@@ -853,7 +853,7 @@ Rust 定义：[`VlessOutboundOptions`](https://github.com/peakpassvpn/sail/blob/
 | `server_port` | number | 未设置 | 支持 | — |
 | `uuid` | string | 必填 | 支持 | — |
 | `flow` | string | `""` | 支持 | `""` or `xtls-rprx-vision`. |
-| `network` | listable-string, 取值 `tcp`, `udp` | — | 报错：Which networks an outbound carries: connections it should refuse would go through it | — |
+| `network` | listable-string, 取值 `tcp`, `udp` | — | 支持 | — |
 | `tls` | object → [对象](/sail/zh/reference/shared/#tls-outbounds) | 未设置 | 支持 | — |
 | `multiplex` | object → [对象](/sail/zh/reference/shared/#multiplex-outbounds) | 未设置 | 支持 | — |
 | `transport` | object → [对象](/sail/zh/reference/shared/#transport-outbounds), [[grpc]](/sail/zh/reference/shared/#transport-grpc-outbounds), [[http]](/sail/zh/reference/shared/#transport-http-outbounds), [[httpupgrade]](/sail/zh/reference/shared/#transport-httpupgrade-outbounds), [[ws]](/sail/zh/reference/shared/#transport-ws-outbounds) | 未设置 | 支持 | — |
@@ -898,7 +898,7 @@ Rust 定义：[`VMessOutboundOptions`](https://github.com/peakpassvpn/sail/blob/
 | `alter_id` | number | `0` | 支持 | Only 0: legacy VMess is not spoken. |
 | `global_padding` | bool | `false` | 支持 | Random padding after each chunk, as v2ray pads. |
 | `authenticated_length` | bool | — | 报错：VMess's authenticated length: sail would speak VMess otherwise | — |
-| `network` | listable-string, 取值 `tcp`, `udp` | — | 报错：Which networks an outbound carries: connections it should refuse would go through it | — |
+| `network` | listable-string, 取值 `tcp`, `udp` | — | 支持 | — |
 | `tls` | object → [对象](/sail/zh/reference/shared/#tls-outbounds) | 未设置 | 支持 | — |
 | `packet_encoding` | string, 取值 `packetaddr`, `xudp` | `""` | 支持 | `""` (VMess's own UDP) or `xudp`. |
 | `multiplex` | object → [对象](/sail/zh/reference/shared/#multiplex-outbounds) | 未设置 | 支持 | — |

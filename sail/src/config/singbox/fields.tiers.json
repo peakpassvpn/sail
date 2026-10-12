@@ -1304,6 +1304,7 @@
   "outbounds[shadowsocks].password",
   "outbounds[shadowsocks].plugin",
   "outbounds[shadowsocks].plugin_opts",
+  "outbounds[shadowsocks].network",
   "outbounds[shadowsocks].udp_over_tcp",
   "outbounds[shadowsocks].udp_over_tcp.enabled",
   "outbounds[shadowsocks].udp_over_tcp.version",
@@ -1410,6 +1411,7 @@
   "outbounds[socks].version",
   "outbounds[socks].username",
   "outbounds[socks].password",
+  "outbounds[socks].network",
   "outbounds[socks].udp_over_tcp",
   "outbounds[socks].udp_over_tcp.enabled",
   "outbounds[socks].udp_over_tcp.version",
@@ -1448,6 +1450,7 @@
   "outbounds[trojan].server",
   "outbounds[trojan].server_port",
   "outbounds[trojan].password",
+  "outbounds[trojan].network",
   "outbounds[trojan].tls",
   "outbounds[trojan].tls.enabled",
   "outbounds[trojan].tls.disable_sni",
@@ -1597,6 +1600,7 @@
   "outbounds[vless].server_port",
   "outbounds[vless].uuid",
   "outbounds[vless].flow",
+  "outbounds[vless].network",
   "outbounds[vless].tls",
   "outbounds[vless].tls.enabled",
   "outbounds[vless].tls.disable_sni",
@@ -1681,6 +1685,7 @@
   "outbounds[vmess].security",
   "outbounds[vmess].alter_id",
   "outbounds[vmess].global_padding",
+  "outbounds[vmess].network",
   "outbounds[vmess].tls",
   "outbounds[vmess].tls.enabled",
   "outbounds[vmess].tls.disable_sni",
@@ -4556,13 +4561,6 @@
   "Not supported over QUIC": [
    "outbounds[hysteria2].tls.utls",
    "outbounds[hysteria2].tls.utls.fingerprint"
-  ],
-  "Which networks an outbound carries: connections it should refuse would go through it": [
-   "outbounds[shadowsocks].network",
-   "outbounds[socks].network",
-   "outbounds[trojan].network",
-   "outbounds[vless].network",
-   "outbounds[vmess].network"
   ],
   "Not supported with TUIC": [
    "outbounds[tuic].tls.utls",

@@ -78,6 +78,67 @@ impl Tag for Handler {
     }
 }
 
+/// `handler`, carrying TCP alone (`tcp`) or UDP alone: what sing-box's
+/// `network` asks of an outbound. The other is refused, and a group passes
+/// over it for that network.
+pub fn one_network(handler: AnyOutboundHandler, tcp: bool) -> AnyOutboundHandler {
+    Arc::new(OneNetwork {
+        inner: handler,
+        tcp,
+    })
+}
+
+struct OneNetwork {
+    inner: AnyOutboundHandler,
+    tcp: bool,
+}
+
+impl BaseHandler for OneNetwork {}
+
+impl Tag for OneNetwork {
+    fn tag(&self) -> &String {
+        self.inner.tag()
+    }
+}
+
+impl OutboundHandler for OneNetwork {
+    fn stream(&self) -> io::Result<&AnyOutboundStreamHandler> {
+        match self.tcp {
+            true => self.inner.stream(),
+            false => Err(io::Error::other(format!(
+                "[{}] outbound: carries UDP alone (network: udp)",
+                self.tag()
+            ))),
+        }
+    }
+
+    fn datagram(&self) -> io::Result<&AnyOutboundDatagramHandler> {
+        match self.tcp {
+            false => self.inner.datagram(),
+            true => Err(io::Error::other(format!(
+                "[{}] outbound: carries TCP alone (network: tcp)",
+                self.tag()
+            ))),
+        }
+    }
+
+    fn is_direct(&self) -> bool {
+        self.inner.is_direct()
+    }
+
+    fn is_pass(&self) -> bool {
+        self.inner.is_pass()
+    }
+
+    fn is_group(&self) -> bool {
+        self.inner.is_group()
+    }
+
+    fn network_changed(&self, change: &crate::net::network::NetworkChange) {
+        self.inner.network_changed(change)
+    }
+}
+
 pub struct HandlerBuilder {
     tag: String,
     stream_handler: Option<AnyOutboundStreamHandler>,

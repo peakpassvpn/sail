@@ -552,12 +552,6 @@ pub const GROUPS: &[Group] = &[
     ),
     // Outbounds, and inbounds, by type.
     t(
-        "Which networks an outbound carries: connections it should refuse would go through it",
-        Unsupported,
-        &["shadowsocks", "socks", "trojan", "vless", "vmess"],
-        &["outbounds.*.network"],
-    ),
-    t(
         "VMess's authenticated length: sail would speak VMess otherwise",
         Unsupported,
         &["vmess"],

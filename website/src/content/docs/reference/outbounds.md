@@ -517,7 +517,7 @@ Rust: [`ShadowsocksOutboundOptions`](https://github.com/peakpassvpn/sail/blob/ma
 | `password` | string | required | Supported | With a 2022 method, the base64 PSK, or `iPSK:uPSK` for a server with users. |
 | `plugin` | string | unset | Supported | Only `obfs-local` (simple-obfs) is supported. |
 | `plugin_opts` | string | unset | Supported | `obfs=http\|tls;obfs-host=<host>;obfs-uri=<path>`, as simple-obfs takes them. |
-| `network` | listable-string, one of `tcp`, `udp` | — | Error: Which networks an outbound carries: connections it should refuse would go through it | — |
+| `network` | listable-string, one of `tcp`, `udp` | — | Supported | — |
 | `udp_over_tcp` | bool\|object → [object](/sail/reference/shared/#udp-over-tcp) | unset | Supported | UDP over its TCP, to `sp.v2.udp-over-tcp.arpa` (version 2, the default) or `sp.udp-over-tcp.arpa` (version 1), instead of its own UDP. |
 | `multiplex` | object → [object](/sail/reference/shared/#multiplex-outbounds) | unset | Supported | — |
 | `domain_strategy` | string | unset | Supported (deprecated in sing-box) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
@@ -637,7 +637,7 @@ Rust: [`SocksOutboundOptions`](https://github.com/peakpassvpn/sail/blob/master/s
 | `version` | string, one of `4`, `4a`, `5` | unset | Supported | `5`, the default, which is all sail speaks. sing-box also takes `4` and `4a` (option/simple.go:25), which are errors here. |
 | `username` | string | `""` | Supported | — |
 | `password` | string | `""` | Supported | — |
-| `network` | listable-string, one of `tcp`, `udp` | — | Error: Which networks an outbound carries: connections it should refuse would go through it | — |
+| `network` | listable-string, one of `tcp`, `udp` | — | Supported | — |
 | `udp_over_tcp` | bool\|object → [object](/sail/reference/shared/#udp-over-tcp) | unset | Supported | UDP over its TCP, to `sp.v2.udp-over-tcp.arpa` (version 2, the default) or `sp.udp-over-tcp.arpa` (version 1), instead of UDP ASSOCIATE. |
 | `domain_strategy` | string | unset | Supported (deprecated in sing-box) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
 | `skip_default_domain_resolver` | bool | `false` | sail extension | A sail extension: without a `domain_resolver` of its own, the names dialled resolve as the DNS rules say, not as `route.default_domain_resolver` does; as Mihomo's DIRECT resolves apart from the proxies' servers. |
@@ -675,7 +675,7 @@ Rust: [`TrojanOutboundOptions`](https://github.com/peakpassvpn/sail/blob/master/
 | `server` | string | unset | Supported | May be left out, with `server_port`, by an outbound with a `detour`: one over ShadowTLS, which dials its own server. |
 | `server_port` | number | unset | Supported | — |
 | `password` | string | required | Supported | — |
-| `network` | listable-string, one of `tcp`, `udp` | — | Error: Which networks an outbound carries: connections it should refuse would go through it | — |
+| `network` | listable-string, one of `tcp`, `udp` | — | Supported | — |
 | `tls` | object → [object](/sail/reference/shared/#tls-outbounds) | unset | Supported | — |
 | `multiplex` | object → [object](/sail/reference/shared/#multiplex-outbounds) | unset | Supported | — |
 | `transport` | object → [object](/sail/reference/shared/#transport-outbounds), [[grpc]](/sail/reference/shared/#transport-grpc-outbounds), [[http]](/sail/reference/shared/#transport-http-outbounds), [[httpupgrade]](/sail/reference/shared/#transport-httpupgrade-outbounds), [[ws]](/sail/reference/shared/#transport-ws-outbounds) | unset | Supported | — |
@@ -853,7 +853,7 @@ Rust: [`VlessOutboundOptions`](https://github.com/peakpassvpn/sail/blob/master/s
 | `server_port` | number | unset | Supported | — |
 | `uuid` | string | required | Supported | — |
 | `flow` | string | `""` | Supported | `""` or `xtls-rprx-vision`. |
-| `network` | listable-string, one of `tcp`, `udp` | — | Error: Which networks an outbound carries: connections it should refuse would go through it | — |
+| `network` | listable-string, one of `tcp`, `udp` | — | Supported | — |
 | `tls` | object → [object](/sail/reference/shared/#tls-outbounds) | unset | Supported | — |
 | `multiplex` | object → [object](/sail/reference/shared/#multiplex-outbounds) | unset | Supported | — |
 | `transport` | object → [object](/sail/reference/shared/#transport-outbounds), [[grpc]](/sail/reference/shared/#transport-grpc-outbounds), [[http]](/sail/reference/shared/#transport-http-outbounds), [[httpupgrade]](/sail/reference/shared/#transport-httpupgrade-outbounds), [[ws]](/sail/reference/shared/#transport-ws-outbounds) | unset | Supported | — |
@@ -898,7 +898,7 @@ Rust: [`VMessOutboundOptions`](https://github.com/peakpassvpn/sail/blob/master/s
 | `alter_id` | number | `0` | Supported | Only 0: legacy VMess is not spoken. |
 | `global_padding` | bool | `false` | Supported | Random padding after each chunk, as v2ray pads. |
 | `authenticated_length` | bool | — | Error: VMess's authenticated length: sail would speak VMess otherwise | — |
-| `network` | listable-string, one of `tcp`, `udp` | — | Error: Which networks an outbound carries: connections it should refuse would go through it | — |
+| `network` | listable-string, one of `tcp`, `udp` | — | Supported | — |
 | `tls` | object → [object](/sail/reference/shared/#tls-outbounds) | unset | Supported | — |
 | `packet_encoding` | string, one of `packetaddr`, `xudp` | `""` | Supported | `""` (VMess's own UDP) or `xudp`. |
 | `multiplex` | object → [object](/sail/reference/shared/#multiplex-outbounds) | unset | Supported | — |
