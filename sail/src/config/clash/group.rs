@@ -29,19 +29,18 @@ impl Policies {
     }
 }
 
-/// The fields every group takes that sail does not implement yet: those of
-/// how members are tested, which `url-test` and `fallback` take, see
-/// `checks`, and `smart` its `timeout`. `load-balance` is not lowered yet:
-/// Mihomo gives every group with a `url` these health-check fields, and
-/// `max-failed-times` to all in its group base, but a Clash load-balance
-/// group's are still warned of.
+/// The fields every group takes that its kind does not use in sail: those
+/// of how members are tested, which `url-test`, `fallback` and
+/// `load-balance` take, see `checks`, and `smart` its `timeout`. Mihomo
+/// gives every group with a `url` these health-check fields, and
+/// `max-failed-times` to all in its group base: a `select` group's are
+/// warned of.
 const COMMON: &[(&str, Tier)] = &[
     // How members are tested, not which carries what.
     ("timeout", Ignored),
     ("max-failed-times", Ignored),
     ("expected-status", Ignored),
     ("lazy", Ignored),
-    ("disable-udp", Ignored),
 ];
 
 /// The defaults of a group's health checks, Mihomo's.
@@ -283,6 +282,10 @@ fn group(f: &mut Fields, cx: &Context, warnings: &mut Vec<String>) -> Result<Val
     let mut o = Map::new();
     o.insert("tag".into(), json!(name));
     o.insert("outbounds".into(), json!(members));
+    // UDP refused, whatever member is picked.
+    if f.bool("disable-udp")? == Some(true) {
+        o.insert("disable_udp".into(), json!(true));
+    }
     if !providers.is_empty() {
         // Of the providers' proxies alone; those of `include-all-proxies`
         // were picked above.
@@ -364,6 +367,7 @@ fn group(f: &mut Fields, cx: &Context, warnings: &mut Vec<String>) -> Result<Val
         "load-balance" => {
             o.insert("type".into(), json!("load-balance"));
             health(&mut o);
+            checks(f, &mut o)?;
             let strategy = f
                 .string("strategy")?
                 .unwrap_or_else(|| "consistent-hashing".to_string());
@@ -428,7 +432,7 @@ fn group(f: &mut Fields, cx: &Context, warnings: &mut Vec<String>) -> Result<Val
     Ok(Value::Object(o))
 }
 
-/// How a `url-test` or `fallback` group tests its members, as sail's
+/// How a `url-test`, `fallback` or `load-balance` group tests its members, as sail's
 /// fields of the same names. `timeout` and `max-failed-times`, 0 or unset:
 /// Mihomo's 5000 ms and 5 failures, which are also sail's defaults, so
 /// they are left unset. `expected-status`: `*` or unset is any. `lazy`:

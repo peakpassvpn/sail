@@ -106,7 +106,7 @@ impl OutboundHandler for OneNetwork {
         match self.tcp {
             true => self.inner.stream(),
             false => Err(io::Error::other(format!(
-                "[{}] outbound: carries UDP alone (network: udp)",
+                "[{}] outbound: carries UDP alone",
                 self.tag()
             ))),
         }
@@ -116,7 +116,7 @@ impl OutboundHandler for OneNetwork {
         match self.tcp {
             false => self.inner.datagram(),
             true => Err(io::Error::other(format!(
-                "[{}] outbound: carries TCP alone (network: tcp)",
+                "[{}] outbound: carries TCP alone",
                 self.tag()
             ))),
         }

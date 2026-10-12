@@ -269,9 +269,33 @@ enum Buildable<'a> {
 /// network they carry, the other refused. Both when unset.
 const ONE_NETWORK: &[&str] = &["shadowsocks", "socks", "trojan", "vless", "vmess"];
 
-/// The `network` of `o`, checked: whether it carries TCP alone (true) or
-/// UDP alone (false); None for both.
+/// The groups that take `disable_udp`, a sail extension (Mihomo's
+/// `disable-udp`): they carry TCP alone, whatever member they pick.
+const DISABLE_UDP: &[&str] = &["selector", "urltest", "fallback", "load-balance", "smart"];
+
+/// The fields of `o` that the registry takes, not its protocol.
+fn registry_fields(protocol: &str) -> &'static [&'static str] {
+    match () {
+        _ if ONE_NETWORK.contains(&protocol) => &["network"],
+        _ if DISABLE_UDP.contains(&protocol) => &["disable_udp"],
+        _ => &[],
+    }
+}
+
+/// The `network` of `o`, checked, or its `disable_udp`: whether it carries
+/// TCP alone (true) or UDP alone (false); None for both.
 fn one_network(o: &crate::config::model::Outbound) -> Result<Option<bool>> {
+    if DISABLE_UDP.contains(&o.protocol.as_str()) {
+        return match o.options.get("disable_udp") {
+            None => Ok(None),
+            Some(serde_json::Value::Bool(disable)) => Ok(disable.then_some(true)),
+            Some(other) => Err(anyhow!(
+                "[{}] outbound: disable_udp: {} is not a boolean",
+                o.tag,
+                other
+            )),
+        };
+    }
     if !ONE_NETWORK.contains(&o.protocol.as_str()) {
         return Ok(None);
     }
@@ -329,11 +353,11 @@ pub fn build_outbounds_as(
 ) -> Result<BuiltOutbounds> {
     let outbound_nodes = outbounds.iter().map(|o| {
         let factory = registry.require(&o.tag, &o.protocol)?;
-        // `network` is the registry's, not the protocol's.
+        // `network` and `disable_udp` are the registry's, not the protocol's.
         one_network(o)?;
         let mut own = o.options.clone();
-        if ONE_NETWORK.contains(&o.protocol.as_str()) {
-            own.remove("network");
+        for field in registry_fields(&o.protocol) {
+            own.remove(*field);
         }
         let (options, blocks) = factory.blocks.split(&own);
         let blocks = OutboundBlocks::parse(&o.tag, &blocks)?;

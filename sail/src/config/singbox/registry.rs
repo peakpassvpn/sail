@@ -195,7 +195,9 @@ fn outbound(kind: &str) -> Value {
     let server = json!({ "server": "example.com", "server_port": 443 });
     let extra = match kind {
         "direct" | "block" | "bridge" => json!({}),
-        "selector" | "urltest" | "fallback" => json!({ "outbounds": ["direct"] }),
+        "selector" | "urltest" | "fallback" | "load-balance" | "smart" => {
+            json!({ "outbounds": ["direct"] })
+        }
         "shadowsocks" => json!({ "method": "aes-128-gcm", "password": "p" }),
         "trojan" | "naive" => json!({ "password": "p" }),
         "anytls" | "hysteria2" => json!({ "password": "p",
@@ -1417,6 +1419,26 @@ const EXTENSIONS: &[(&str, &str, &str)] = &[
         "outbounds[load-balance].outbounds",
         r#"["direct"]"#,
         "A group spreading connections over its members",
+    ),
+    (
+        "outbounds[load-balance].timeout",
+        r#""3s""#,
+        "How long a test may take before its member counts as failed (Mihomo's timeout)",
+    ),
+    (
+        "outbounds[load-balance].max_failed_times",
+        "3",
+        "How many failed connections within the timeout have the members tested again (Mihomo's max-failed-times)",
+    ),
+    (
+        "outbounds[load-balance].expected_status",
+        r#""200/204""#,
+        "The HTTP statuses a test must get to pass (Mihomo's expected-status)",
+    ),
+    (
+        "outbounds[selector|urltest|fallback|load-balance|smart].disable_udp",
+        "true",
+        "The group carries TCP alone, whatever member it picks (Mihomo's disable-udp)",
     ),
     (
         "outbounds[smart].outbounds",

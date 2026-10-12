@@ -14865,6 +14865,9 @@
      "$ref": "#/$defs/outbounds%5Bfallback%5D.debounce",
      "description": "How many rounds of tests in a row have the group leave a member, or take an earlier one back, and how long it stays on a member at least; a sail extension. Unset, every round counts at once."
     },
+    "disable_udp": {
+     "description": "The group carries TCP alone, whatever member it picks (Mihomo's disable-udp)"
+    },
     "type": {
      "const": "fallback"
     }
@@ -16586,9 +16589,24 @@
     "interval": {
      "type": "string"
     },
+    "expected_status": {
+     "type": "string",
+     "description": "The HTTP statuses a test must be answered with to pass, as urltest's; any when unset."
+    },
+    "timeout": {
+     "type": "string",
+     "description": "How long a test may take before its member counts as failed; 5s. Also how close together `max_failed_times` failures must come, as urltest's."
+    },
+    "max_failed_times": {
+     "type": "number",
+     "description": "How many failed connections, within `timeout` of the first, have the members tested again; 5, as urltest's."
+    },
     "lazy": {
      "type": "boolean",
      "description": "Tests only while the group is in use: not when it was not used since the last ones."
+    },
+    "disable_udp": {
+     "description": "The group carries TCP alone, whatever member it picks (Mihomo's disable-udp)"
     },
     "type": {
      "const": "load-balance"
@@ -17075,6 +17093,9 @@
     "empty_fallback": {
      "type": "string",
      "description": "An outbound, not a group, that is the member while there is none else. Without it such a group has none, and its connections fail."
+    },
+    "disable_udp": {
+     "description": "The group carries TCP alone, whatever member it picks (Mihomo's disable-udp)"
     },
     "type": {
      "const": "selector"
@@ -18101,6 +18122,9 @@
     "interrupt_exist_connections": {
      "type": "boolean",
      "description": "Ends the connections through a member once it leaves the group."
+    },
+    "disable_udp": {
+     "description": "The group carries TCP alone, whatever member it picks (Mihomo's disable-udp)"
     },
     "type": {
      "const": "smart"
@@ -19889,6 +19913,9 @@
     "lazy": {
      "type": "boolean",
      "description": "`false`: tests never pause, used or not, as Mihomo's `lazy: false`; `idle_timeout` is then a mistake."
+    },
+    "disable_udp": {
+     "description": "The group carries TCP alone, whatever member it picks (Mihomo's disable-udp)"
     },
     "type": {
      "const": "urltest"

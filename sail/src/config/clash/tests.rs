@@ -378,6 +378,31 @@ rules: ["MATCH,G"]
 const KEY: &str = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=";
 
 #[test]
+fn a_load_balance_group_tests_as_url_test_does_and_any_group_may_drop_udp() {
+    let config = load(
+        r#"
+proxies:
+  - { name: a, type: direct }
+  - { name: b, type: direct }
+proxy-groups:
+  - { name: LB, type: load-balance, proxies: [a, b], lazy: false, timeout: 3000,
+      max-failed-times: 3, expected-status: "204", disable-udp: true }
+  - { name: S, type: select, proxies: [LB, a], disable-udp: true }
+rules: ["MATCH,S"]
+"#,
+    );
+    let lb = serde_json::to_value(outbound(&config, "LB")).unwrap();
+    assert_eq!(lb["lazy"], false);
+    assert_eq!(lb["timeout"], "3000ms");
+    assert_eq!(lb["max_failed_times"], 3);
+    assert_eq!(lb["expected_status"], "204");
+    assert_eq!(lb["disable_udp"], true);
+    let s = serde_json::to_value(outbound(&config, "S")).unwrap();
+    assert_eq!(s["disable_udp"], true);
+    assert!(config.warnings.is_empty(), "{:?}", config.warnings);
+}
+
+#[test]
 fn a_wireguard_proxy_is_an_endpoint() {
     let yaml = format!(
         r#"

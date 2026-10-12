@@ -82,14 +82,14 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `proxies[vmess]` | 128 | 46 | 2 | 80 |
 | `proxies[wireguard]` | 64 | 27 | 6 | 31 |
 | `proxies[zerotier]` | 30 | 0 | 0 | 30 |
-| `proxy-groups` | 23 | 18 | 5 | 0 |
+| `proxy-groups` | 23 | 19 | 4 | 0 |
 | `proxy-providers` | 39 | 28 | 8 | 3 |
 | `rule-providers` | 11 | 9 | 2 | 0 |
 | `sniffer` | 12 | 12 | 0 | 0 |
 | `tls` | 7 | 0 | 7 | 0 |
 | `tuic-server` | 13 | 0 | 0 | 13 |
 | `tun` | 50 | 34 | 9 | 7 |
-| **All** | **2077** | **492** | **138** | **1447** |
+| **All** | **2077** | **493** | **137** | **1447** |
 
 
 ## `general`
@@ -1386,7 +1386,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 
 | 字段 | sail | sail 的说明 |
 |---|---|---|
-| `proxy-groups[*].disable-udp` | 警告 | proxy-groups[0].disable-udp: sail does not implement this field; ignored |
+| `proxy-groups[*].disable-udp` | 支持 |  |
 | `proxy-groups[*].empty-fallback` | 支持 | proxy-groups[0].empty-fallback: no proxy, not a group, is named "x" |
 | `proxy-groups[*].exclude-filter` | 支持 |  |
 | `proxy-groups[*].exclude-type` | 支持 |  |

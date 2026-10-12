@@ -7,7 +7,7 @@
   "clash/0002.yaml": {
     "check": "ok",
     "ok": true,
-    "warnings": 24
+    "warnings": 15
   },
   "clash/0003.yaml": {
     "check": "ok",
@@ -190,7 +190,7 @@
   "clash/0043.yaml": {
     "check": "ok",
     "ok": true,
-    "warnings": 9
+    "warnings": 7
   },
   "clash/0044.yaml": {
     "check": "dns.servers[https://192.0.2.1/dns-query#Proxy 1]: [https://192.0.2.1/dns-query#Proxy 1] dns server: bind_interface: there is no interface \"Proxy 1\"",
@@ -508,7 +508,7 @@
   "clash/0108.yaml": {
     "check": "ok",
     "ok": true,
-    "warnings": 5
+    "warnings": 3
   },
   "clash/0109.yaml": {
     "error": "proxy-groups[30].proxies[0]: a string, not a map"
@@ -539,7 +539,7 @@
         "warnings": 4
       }
     },
-    "warnings": 4
+    "warnings": 1
   },
   "clash/0115.yaml": {
     "check": "ok",
@@ -606,7 +606,7 @@
         "warnings": 2
       }
     },
-    "warnings": 2
+    "warnings": 0
   },
   "clash/0131.yaml": {
     "error": "dns.proxy-server-nameserver[0]: dns.default-nameserver[3]: \"str1\" is not an address, as Mihomo requires"
@@ -757,7 +757,7 @@
   "clash/0164.yaml": {
     "check": "route.rule_set[0]: [set-1]: <data_dir>/./path-3.yaml: No such file or directory (os error 2)",
     "ok": true,
-    "warnings": 9
+    "warnings": 3
   },
   "clash/0165.yaml": {
     "check": "ok",
@@ -910,7 +910,7 @@
   "clash/0197.yaml": {
     "check": "route.rules[118].ip_cidr: invalid CIDR \"198.19.174.0/16\": host part of address was not zero",
     "ok": true,
-    "warnings": 20
+    "warnings": 12
   },
   "clash/0198.yaml": {
     "error": "proxies[23].http-opts: sail does not implement this field yet"

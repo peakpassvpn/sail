@@ -1167,4 +1167,43 @@ mod one_network_tests {
             e
         );
     }
+
+    /// A group's `disable_udp`: it carries TCP alone, whatever it picks.
+    #[cfg(feature = "outbound-select")]
+    #[test]
+    fn a_group_that_drops_udp_carries_tcp_alone() {
+        let config = Config::from_json(
+            r#"{ "outbounds": [
+                { "type": "socks", "tag": "s", "server": "127.0.0.1", "server_port": 1080 },
+                { "type": "selector", "tag": "g", "outbounds": ["s"], "disable_udp": true }
+            ] }"#,
+        )
+        .unwrap();
+        let dial = DialDefaults::default();
+        let dns = crate::app::dns::DnsClient::new(
+            &config.dns,
+            Arc::new(dial.clone()),
+            &Default::default(),
+        )
+        .unwrap()
+        .into_shared();
+        let manager = OutboundManager::with_endpoints(
+            &config.outbounds,
+            &config.endpoints,
+            #[cfg(feature = "outbound-provider")]
+            Default::default(),
+            &dial,
+            &RuntimeEnv::default(),
+            dns,
+        )
+        .unwrap();
+        let g = manager.get("g").unwrap();
+        assert!(g.stream().is_ok());
+        assert!(g.datagram().is_err());
+        // Wrapped, it is still the selector the API and the rules know:
+        // by its tag, as before; a selector is not a dialling group.
+        assert_eq!(g.tag(), "g");
+        assert!(!g.is_group());
+        assert!(manager.get_selector("g").is_some());
+    }
 }
