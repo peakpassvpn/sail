@@ -32,11 +32,11 @@ The dial fields Windows cannot take are refused there. A known gap is `tcp_fast_
 | `network_namespaces` | 6 | 0 | 0 | 6 |
 | `endpoints` | 433 | 48 | 13 | 372 |
 | `inbounds` | 1367 | 595 | 150 | 622 |
-| `outbounds` | 1228 | 680 | 75 | 473 |
+| `outbounds` | 1228 | 685 | 75 | 468 |
 | `route` | 268 | 174 | 41 | 53 |
 | `services` | 751 | 1 | 166 | 584 |
 | `experimental` | 34 | 16 | 17 | 1 |
-| **All** | **5003** | **1922** | **575** | **2506** |
+| **All** | **5003** | **1927** | **575** | **2501** |
 
 ## `$schema`
 
@@ -2179,7 +2179,7 @@ The dial fields Windows cannot take are refused there. A known gap is `tcp_fast_
 | `password` | Supported |  |
 | `plugin` | Supported |  |
 | `plugin_opts` | Supported |  |
-| `network` | Error | Which networks an outbound carries: connections it should refuse would go through it |
+| `network` | Supported |  |
 | `udp_over_tcp` | Supported |  |
 | `udp_over_tcp.enabled` | Supported |  |
 | `udp_over_tcp.version` | Supported |  |
@@ -2311,7 +2311,7 @@ The dial fields Windows cannot take are refused there. A known gap is `tcp_fast_
 | `version` | Supported |  |
 | `username` | Supported |  |
 | `password` | Supported |  |
-| `network` | Error | Which networks an outbound carries: connections it should refuse would go through it |
+| `network` | Supported |  |
 | `udp_over_tcp` | Supported |  |
 | `udp_over_tcp.enabled` | Supported |  |
 | `udp_over_tcp.version` | Supported |  |
@@ -2353,7 +2353,7 @@ The dial fields Windows cannot take are refused there. A known gap is `tcp_fast_
 | `server` | Supported |  |
 | `server_port` | Supported |  |
 | `password` | Supported |  |
-| `network` | Error | Which networks an outbound carries: connections it should refuse would go through it |
+| `network` | Supported |  |
 | `tls` | Supported |  |
 | `tls.enabled` | Supported |  |
 | `tls.engine` | Warned | The TLS stack: sail has one |
@@ -2561,7 +2561,7 @@ The dial fields Windows cannot take are refused there. A known gap is `tcp_fast_
 | `server_port` | Supported |  |
 | `uuid` | Supported |  |
 | `flow` | Supported |  |
-| `network` | Error | Which networks an outbound carries: connections it should refuse would go through it |
+| `network` | Supported |  |
 | `tls` | Supported |  |
 | `tls.enabled` | Supported |  |
 | `tls.engine` | Warned | The TLS stack: sail has one |
@@ -2673,7 +2673,7 @@ The dial fields Windows cannot take are refused there. A known gap is `tcp_fast_
 | `alter_id` | Supported |  |
 | `global_padding` | Supported |  |
 | `authenticated_length` | Error | VMess's authenticated length: sail would speak VMess otherwise |
-| `network` | Error | Which networks an outbound carries: connections it should refuse would go through it |
+| `network` | Supported |  |
 | `tls` | Supported |  |
 | `tls.enabled` | Supported |  |
 | `tls.engine` | Warned | The TLS stack: sail has one |

@@ -1186,7 +1186,7 @@
     "error": "outbounds[13].authenticated_length: sail does not implement this field yet"
   },
   "sing-box/0053.json": {
-    "error": "outbounds[2].network: sail does not implement this field yet"
+    "error": "outbounds[5].authenticated_length: sail does not implement this field yet"
   },
   "sing-box/0054.json": {
     "error": "[Proxy 1] outbound: tls.reality.public_key: neither hex nor base64url"
@@ -1335,7 +1335,7 @@
     "error": "dns.servers[0]: missing field `type`"
   },
   "sing-box/0096.json": {
-    "error": "outbounds[0].network: sail does not implement this field yet"
+    "error": "[Proxy 1] outbound: tls.reality.public_key: neither hex nor base64url"
   },
   "sing-box/0097.json": {
     "error": "route.final: outbound [Proxy 2] does not exist"
@@ -1387,7 +1387,9 @@
     "warnings": 0
   },
   "sing-box/0110.json": {
-    "error": "outbounds[2].network: sail does not implement this field yet"
+    "check": "dns.servers[dns-1]: connect_timeout: has no effect with a detour; set it on [Proxy 3]",
+    "ok": true,
+    "warnings": 0
   },
   "sing-box/0111.json": {
     "error": "http_clients[0]: tcp_fast_open: has no effect with a detour; set it on [Proxy 1]"
@@ -1396,13 +1398,13 @@
     "error": "http_clients[0]: tcp_fast_open: has no effect with a detour; set it on [Proxy 1]"
   },
   "sing-box/0113.json": {
-    "error": "outbounds[4].network: sail does not implement this field yet"
+    "error": "dns.fakeip: unknown field `fakeip`, expected one of `servers`, `rules`, `final`, `strategy`, `client_strategy`, `disable_cache`, `disable_expire`, `cache_capacity`, `optimistic`, `timeout`, `reverse_mapping`, `client_subnet`"
   },
   "sing-box/0114.json": {
-    "error": "outbounds[4].network: sail does not implement this field yet"
+    "error": "dns.fakeip: unknown field `fakeip`, expected one of `servers`, `rules`, `final`, `strategy`, `client_strategy`, `disable_cache`, `disable_expire`, `cache_capacity`, `optimistic`, `timeout`, `reverse_mapping`, `client_subnet`"
   },
   "sing-box/0115.json": {
-    "error": "outbounds[0].network: sail does not implement this field yet"
+    "error": "[Proxy 1] outbound: tls.reality.public_key: neither hex nor base64url"
   },
   "sing-box/0116.json": {
     "check": "ok",
@@ -1431,7 +1433,9 @@
     "warnings": 0
   },
   "sing-box/0122.json": {
-    "error": "outbounds[0].network: sail does not implement this field yet"
+    "check": "[Proxy 2] outbound: tls: certificate_public_key_sha256[0]: 3 bytes, where a SHA-256 hash has 32",
+    "ok": true,
+    "warnings": 1
   },
   "sing-box/0123.json": {
     "error": "dns.fakeip: unknown field `fakeip`, expected one of `servers`, `rules`, `final`, `strategy`, `client_strategy`, `disable_cache`, `disable_expire`, `cache_capacity`, `optimistic`, `timeout`, `reverse_mapping`, `client_subnet`"

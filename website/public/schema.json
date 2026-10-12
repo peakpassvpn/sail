@@ -17264,8 +17264,21 @@
      "description": "`obfs=http|tls;obfs-host=<host>;obfs-uri=<path>`, as simple-obfs takes them."
     },
     "network": {
-     "not": {},
-     "description": "sail refuses this field: Which networks an outbound carries: connections it should refuse would go through it"
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      }
+     ],
+     "examples": [
+      "tcp",
+      "udp"
+     ]
     },
     "udp_over_tcp": {
      "anyOf": [
@@ -18263,8 +18276,21 @@
      "type": "string"
     },
     "network": {
-     "not": {},
-     "description": "sail refuses this field: Which networks an outbound carries: connections it should refuse would go through it"
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      }
+     ],
+     "examples": [
+      "tcp",
+      "udp"
+     ]
     },
     "udp_over_tcp": {
      "anyOf": [
@@ -18516,8 +18542,21 @@
      "type": "string"
     },
     "network": {
-     "not": {},
-     "description": "sail refuses this field: Which networks an outbound carries: connections it should refuse would go through it"
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      }
+     ],
+     "examples": [
+      "tcp",
+      "udp"
+     ]
     },
     "tls": {
      "$ref": "#/$defs/outbounds%5Btrojan%5D.tls"
@@ -19995,8 +20034,21 @@
      "description": "`\"\"` or `xtls-rprx-vision`."
     },
     "network": {
-     "not": {},
-     "description": "sail refuses this field: Which networks an outbound carries: connections it should refuse would go through it"
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      }
+     ],
+     "examples": [
+      "tcp",
+      "udp"
+     ]
     },
     "tls": {
      "$ref": "#/$defs/outbounds%5Bvless%5D.tls"
@@ -20777,8 +20829,21 @@
      "description": "sail refuses this field: VMess's authenticated length: sail would speak VMess otherwise"
     },
     "network": {
-     "not": {},
-     "description": "sail refuses this field: Which networks an outbound carries: connections it should refuse would go through it"
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      }
+     ],
+     "examples": [
+      "tcp",
+      "udp"
+     ]
     },
     "tls": {
      "$ref": "#/$defs/outbounds%5Bvmess%5D.tls"

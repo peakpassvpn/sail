@@ -265,6 +265,29 @@ enum Buildable<'a> {
     Endpoint(&'a crate::config::model::Endpoint, &'a EndpointFactory),
 }
 
+/// The outbounds that take sing-box's `network`, `tcp` or `udp`: the one
+/// network they carry, the other refused. Both when unset.
+const ONE_NETWORK: &[&str] = &["shadowsocks", "socks", "trojan", "vless", "vmess"];
+
+/// The `network` of `o`, checked: whether it carries TCP alone (true) or
+/// UDP alone (false); None for both.
+fn one_network(o: &crate::config::model::Outbound) -> Result<Option<bool>> {
+    if !ONE_NETWORK.contains(&o.protocol.as_str()) {
+        return Ok(None);
+    }
+    match o.options.get("network").map(|n| n.as_str()) {
+        None => Ok(None),
+        Some(Some("tcp")) => Ok(Some(true)),
+        Some(Some("udp")) => Ok(Some(false)),
+        Some(Some("")) => Ok(None),
+        Some(_) => Err(anyhow!(
+            "[{}] outbound: network: {} is neither tcp nor udp",
+            o.tag,
+            o.options["network"]
+        )),
+    }
+}
+
 /// What `build_outbounds` hands back besides what it builds into its
 /// state.
 #[derive(Default)]
@@ -306,7 +329,13 @@ pub fn build_outbounds_as(
 ) -> Result<BuiltOutbounds> {
     let outbound_nodes = outbounds.iter().map(|o| {
         let factory = registry.require(&o.tag, &o.protocol)?;
-        let (options, blocks) = factory.blocks.split(&o.options);
+        // `network` is the registry's, not the protocol's.
+        one_network(o)?;
+        let mut own = o.options.clone();
+        if ONE_NETWORK.contains(&o.protocol.as_str()) {
+            own.remove("network");
+        }
+        let (options, blocks) = factory.blocks.split(&own);
         let blocks = OutboundBlocks::parse(&o.tag, &blocks)?;
         (factory.check)(&o.tag, &options, &blocks)?;
         let mut dependencies = (factory.dependencies)(&o.tag, &options)?;
@@ -488,6 +517,10 @@ pub fn build_outbounds_as(
                         env: state.env,
                     },
                 )?
+            };
+            let handler = match one_network(outbound)? {
+                Some(tcp) => super::outbound::one_network(handler, tcp),
+                None => handler,
             };
             state.handlers.insert(outbound.tag.clone(), handler);
             state.abort_handles.insert(outbound.tag.clone(), tasks);

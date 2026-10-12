@@ -32,11 +32,11 @@ Windows 无法实现的拨号字段在 Windows 上报错。已知缺口是 `tcp_
 | `network_namespaces` | 6 | 0 | 0 | 6 |
 | `endpoints` | 433 | 48 | 13 | 372 |
 | `inbounds` | 1367 | 595 | 150 | 622 |
-| `outbounds` | 1228 | 680 | 75 | 473 |
+| `outbounds` | 1228 | 685 | 75 | 468 |
 | `route` | 268 | 174 | 41 | 53 |
 | `services` | 751 | 1 | 166 | 584 |
 | `experimental` | 34 | 16 | 17 | 1 |
-| **全部** | **5003** | **1922** | **575** | **2506** |
+| **全部** | **5003** | **1927** | **575** | **2501** |
 
 ## `$schema`
 
@@ -2179,7 +2179,7 @@ Windows 无法实现的拨号字段在 Windows 上报错。已知缺口是 `tcp_
 | `password` | 支持 |  |
 | `plugin` | 支持 |  |
 | `plugin_opts` | 支持 |  |
-| `network` | 报错 | Which networks an outbound carries: connections it should refuse would go through it |
+| `network` | 支持 |  |
 | `udp_over_tcp` | 支持 |  |
 | `udp_over_tcp.enabled` | 支持 |  |
 | `udp_over_tcp.version` | 支持 |  |
@@ -2311,7 +2311,7 @@ Windows 无法实现的拨号字段在 Windows 上报错。已知缺口是 `tcp_
 | `version` | 支持 |  |
 | `username` | 支持 |  |
 | `password` | 支持 |  |
-| `network` | 报错 | Which networks an outbound carries: connections it should refuse would go through it |
+| `network` | 支持 |  |
 | `udp_over_tcp` | 支持 |  |
 | `udp_over_tcp.enabled` | 支持 |  |
 | `udp_over_tcp.version` | 支持 |  |
@@ -2353,7 +2353,7 @@ Windows 无法实现的拨号字段在 Windows 上报错。已知缺口是 `tcp_
 | `server` | 支持 |  |
 | `server_port` | 支持 |  |
 | `password` | 支持 |  |
-| `network` | 报错 | Which networks an outbound carries: connections it should refuse would go through it |
+| `network` | 支持 |  |
 | `tls` | 支持 |  |
 | `tls.enabled` | 支持 |  |
 | `tls.engine` | 警告 | The TLS stack: sail has one |
@@ -2561,7 +2561,7 @@ Windows 无法实现的拨号字段在 Windows 上报错。已知缺口是 `tcp_
 | `server_port` | 支持 |  |
 | `uuid` | 支持 |  |
 | `flow` | 支持 |  |
-| `network` | 报错 | Which networks an outbound carries: connections it should refuse would go through it |
+| `network` | 支持 |  |
 | `tls` | 支持 |  |
 | `tls.enabled` | 支持 |  |
 | `tls.engine` | 警告 | The TLS stack: sail has one |
@@ -2673,7 +2673,7 @@ Windows 无法实现的拨号字段在 Windows 上报错。已知缺口是 `tcp_
 | `alter_id` | 支持 |  |
 | `global_padding` | 支持 |  |
 | `authenticated_length` | 报错 | VMess's authenticated length: sail would speak VMess otherwise |
-| `network` | 报错 | Which networks an outbound carries: connections it should refuse would go through it |
+| `network` | 支持 |  |
 | `tls` | 支持 |  |
 | `tls.enabled` | 支持 |  |
 | `tls.engine` | 警告 | The TLS stack: sail has one |

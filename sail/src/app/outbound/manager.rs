@@ -1118,3 +1118,53 @@ mod carry_tests {
         assert_eq!(tested(&otherwise), [named("x", None), named("y", None)]);
     }
 }
+
+#[cfg(all(test, feature = "outbound-socks"))]
+mod one_network_tests {
+    use super::*;
+    use crate::config::Config;
+
+    fn build(network: &str) -> Result<OutboundManager> {
+        let config = Config::from_json(&format!(
+            r#"{{ "outbounds": [{{ "type": "socks", "tag": "s", "server": "127.0.0.1",
+                "server_port": 1080{} }}] }}"#,
+            network
+        ))?;
+        let dial = DialDefaults::default();
+        let dns = crate::app::dns::DnsClient::new(
+            &config.dns,
+            Arc::new(dial.clone()),
+            &Default::default(),
+        )?
+        .into_shared();
+        OutboundManager::with_endpoints(
+            &config.outbounds,
+            &config.endpoints,
+            #[cfg(feature = "outbound-provider")]
+            Default::default(),
+            &dial,
+            &RuntimeEnv::default(),
+            dns,
+        )
+    }
+
+    /// sing-box's `network`: the one network an outbound carries; the
+    /// other is refused.
+    #[test]
+    fn an_outbound_carries_the_network_it_names_alone() {
+        let both = build("").unwrap().get("s").unwrap();
+        assert!(both.stream().is_ok() && both.datagram().is_ok());
+        let tcp = build(r#", "network": "tcp""#).unwrap().get("s").unwrap();
+        assert!(tcp.stream().is_ok());
+        let e = tcp.datagram().err().unwrap().to_string();
+        assert!(e.contains("carries TCP alone"), "{}", e);
+        let udp = build(r#", "network": "udp""#).unwrap().get("s").unwrap();
+        assert!(udp.datagram().is_ok() && udp.stream().is_err());
+        let e = format!("{:#}", build(r#", "network": "quic""#).err().unwrap());
+        assert!(
+            e.contains("network: \"quic\" is neither tcp nor udp"),
+            "{}",
+            e
+        );
+    }
+}
