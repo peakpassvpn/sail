@@ -829,6 +829,10 @@ mod tests {
         assert_eq!(sized, system);
     }
 
+    // Not on Windows: a duplicate made before the sizing went on reporting
+    // the size the socket had then (131072 after 1048576 was asked and, by
+    // the tests above, given), so it tells nothing of the socket there.
+    #[cfg(not(windows))]
     #[tokio::test]
     async fn a_wrapped_socket_has_the_buffers_asked() {
         // Through wrap_socket, where every real QUIC socket passes: the
