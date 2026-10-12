@@ -851,9 +851,15 @@ impl RuntimeManager {
                 .map_err(Error::Config)?,
         );
         let http_clients = app::http::HttpClients::new(&config, dial_defaults.clone());
-        let rule_sets =
-            app::router::rule_set::RuleSets::load(&config.route.rule_set, &http_clients, &self.env)
-                .map_err(Error::Config)?;
+        // Those configured as they were, their source the same, go on as
+        // they are, not read again.
+        let rule_sets = app::router::rule_set::RuleSets::load(
+            &config.route.rule_set,
+            &http_clients,
+            &self.env,
+            Some(self.router.load().rule_sets()),
+        )
+        .map_err(Error::Config)?;
         // Those configured as they were go on as they are.
         #[cfg(feature = "outbound-provider")]
         let providers = app::provider::Providers::load(
@@ -2337,6 +2343,8 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
         network_change_tx,
         &instance,
     );
+    // Their updater is spawned and the TUN has its feed.
+    instance.let_go_of_rule_sets();
 
     // The configuration file is watched when the host asked for it
     // (new_watcher checks); the inbounds' certificate files are followed

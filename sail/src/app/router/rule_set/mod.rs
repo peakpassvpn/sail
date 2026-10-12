@@ -65,6 +65,21 @@ pub(crate) struct RuleSet {
     /// matches them: with their `ip_cidr` on the destination, and on the
     /// source.
     needs: [Needs; 2],
+    /// Of the file's bytes a local one was read from: a reload that finds
+    /// the file the same keeps it.
+    source: Option<(u64, u64)>,
+}
+
+/// Two hashes of `data`, the second begun with a byte the first is not:
+/// 128 bits together, so that a file changed is not taken for the same.
+fn digest(data: &[u8]) -> (u64, u64) {
+    use std::hash::Hasher;
+    let mut first = std::collections::hash_map::DefaultHasher::new();
+    let mut second = std::collections::hash_map::DefaultHasher::new();
+    second.write_u8(0x5a);
+    first.write(data);
+    second.write(data);
+    (first.finish(), second.finish())
 }
 
 impl RuleSet {
@@ -87,6 +102,7 @@ impl RuleSet {
             rules,
             narrow,
             needs,
+            source: None,
         }
     }
 
@@ -258,10 +274,17 @@ impl Local {
 impl RuleSets {
     /// Reads the inline and local rule-sets. A remote one starts from its
     /// cached copy, or its `initial_path`, or else empty until downloaded.
+    ///
+    /// At a reload, `before` has those that run. One configured as it was
+    /// there is kept as it runs, not read again, when its source is the
+    /// same: an inline one always, a local one when its file's bytes hash
+    /// as those it was read from, a remote one with the copy it has (its
+    /// ETag and update time go on). Any other is read as at a start.
     pub(crate) fn load(
         configs: &[config::RuleSet],
         clients: &HttpClients,
         env: &RuntimeEnv,
+        before: Option<&RuleSets>,
     ) -> Result<Self> {
         let mut sets = HashMap::new();
         let mut remotes = Vec::new();
@@ -273,6 +296,13 @@ impl RuleSets {
             for tag in &config.tag {
                 listed.push((tag.clone(), shared.clone()));
                 let context = || format!("route.rule_set[{}]: [{}]", i, tag);
+                // The one that runs under this tag, configured the same.
+                let before = before.filter(|before| {
+                    before
+                        .configs
+                        .iter()
+                        .any(|(t, c)| t == tag && **c == *config)
+                });
                 let set = if config.kind == RuleSetKind::Remote {
                     let client = clients
                         .client(
@@ -280,8 +310,10 @@ impl RuleSets {
                             config.download_detour.as_deref(),
                         )
                         .with_context(context)?;
+                    let ran = before.and_then(|b| b.remotes.iter().find(|r| r.tag == *tag));
                     let remote = Arc::new(
-                        remote::Remote::load(config, tag, client, env).with_context(context)?,
+                        remote::Remote::load(config, tag, client, env, ran.map(|r| &**r))
+                            .with_context(context)?,
                     );
                     let set = remote.set.clone();
                     remotes.push(remote);
@@ -299,8 +331,8 @@ impl RuleSets {
                         let read = crate::runtime::watch::Stamp::of(&path);
                         (path, read)
                     });
-                    let set =
-                        HotResource::new(Self::load_one(config, tag, env).with_context(context)?);
+                    let ran = before.and_then(|b| b.sets.get(tag));
+                    let set = Self::load_one(config, tag, env, ran).with_context(context)?;
                     #[cfg(feature = "auto-reload")]
                     if let Some((path, read)) = local {
                         locals.push(Arc::new(Local {
@@ -402,15 +434,33 @@ impl RuleSets {
         Some(task.abort_handle())
     }
 
-    fn load_one(config: &config::RuleSet, tag: &str, env: &RuntimeEnv) -> Result<RuleSet> {
+    /// An inline or local rule-set; `ran` is the one that runs, configured
+    /// the same, kept when its source is the same.
+    fn load_one(
+        config: &config::RuleSet,
+        tag: &str,
+        env: &RuntimeEnv,
+        ran: Option<&SharedRuleSet>,
+    ) -> Result<SharedRuleSet> {
         match config.kind {
-            RuleSetKind::Inline => RuleSet::from_rules(&config.rules, env),
+            RuleSetKind::Inline => match ran {
+                Some(ran) => Ok(ran.clone()),
+                None => RuleSet::from_rules(&config.rules, env).map(HotResource::new),
+            },
             RuleSetKind::Local => {
                 let path = env.data_path(&config::RuleSet::for_tag(
                     config.path.as_deref().unwrap_or_default(),
                     tag,
                 ));
-                read_file(&path, config, env)
+                let data = std::fs::read(&path).map_err(|e| anyhow!("{}: {}", path, e))?;
+                let source = digest(&data);
+                match ran.filter(|ran| ran.load().source == Some(source)) {
+                    Some(ran) => {
+                        tracing::debug!("rule-set [{}]: its file is unchanged, kept", tag);
+                        Ok(ran.clone())
+                    }
+                    None => read_data(&data, source, &path, config, env).map(HotResource::new),
+                }
             }
             RuleSetKind::Remote => unreachable!("remote rule-sets are loaded apart"),
         }
@@ -556,11 +606,26 @@ async fn follow_files(locals: Vec<Arc<Local>>) {
     drop(watchers);
 }
 
+#[cfg(feature = "auto-reload")]
 fn read_file(path: &str, config: &config::RuleSet, env: &RuntimeEnv) -> Result<RuleSet> {
     let data = std::fs::read(path).map_err(|e| anyhow!("{}: {}", path, e))?;
+    read_data(&data, digest(&data), path, config, env)
+}
+
+/// The rule-set of a local file's bytes, which hash as `source`.
+fn read_data(
+    data: &[u8],
+    source: (u64, u64),
+    path: &str,
+    config: &config::RuleSet,
+    env: &RuntimeEnv,
+) -> Result<RuleSet> {
     // Checked with the configuration.
     let format = config.format().unwrap_or(RuleSetFormat::Source);
-    RuleSet::read(&data, format, config.behavior, env).map_err(|e| anyhow!("{}: {}", path, e))
+    let mut set = RuleSet::read(data, format, config.behavior, env)
+        .map_err(|e| anyhow!("{}: {}", path, e))?;
+    set.source = Some(source);
+    Ok(set)
 }
 
 #[cfg(test)]
@@ -678,7 +743,7 @@ mod tests {
         let rule: crate::config::model::Rule = serde_json::from_value(route_rule).unwrap();
         let configs: Vec<config::RuleSet> = serde_json::from_value(sets).unwrap();
         let env = RuntimeEnv::default();
-        let sets = RuleSets::load(&configs, &HttpClients::default(), &env).unwrap();
+        let sets = RuleSets::load(&configs, &HttpClients::default(), &env, None).unwrap();
         Matcher::new(&rule, &env, &sets).unwrap()
     }
 
@@ -695,6 +760,57 @@ mod tests {
 
     use crate::app::router::matcher::Matcher;
     use crate::session::Network::{Tcp, Udp};
+
+    /// A reload keeps a rule-set that is configured as it was and whose
+    /// source is the same, the very rules that run, and reads any other
+    /// again: one whose file's bytes changed, were they as many and
+    /// written in the same instant, or whose configuration did.
+    #[test]
+    fn a_reload_keeps_the_rule_sets_whose_source_is_the_same() {
+        let dir = std::env::temp_dir().join(format!("sail-rs-keep-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&dir).unwrap();
+        let path = dir.join("rs.json");
+        let write = |domain: &str| {
+            let rules = serde_json::json!({ "version": 3, "rules": [{ "domain": [domain] }] });
+            std::fs::write(&path, rules.to_string()).unwrap();
+        };
+        write("a.example");
+        let configs = |inline: &str| -> Vec<config::RuleSet> {
+            serde_json::from_value(serde_json::json!([
+                { "type": "local", "tag": "file", "format": "source", "path": path },
+                { "type": "inline", "tag": "in", "rules": [{ "domain": [inline] }] }
+            ]))
+            .unwrap()
+        };
+        let env = RuntimeEnv::default();
+        let load = |configs: &[config::RuleSet], before: Option<&RuleSets>| {
+            RuleSets::load(configs, &HttpClients::default(), &env, before).unwrap()
+        };
+        let rules = |sets: &RuleSets, tag: &str| sets.get(tag).unwrap().load();
+        let kept =
+            |a: &RuleSets, b: &RuleSets, tag: &str| Arc::ptr_eq(&rules(a, tag), &rules(b, tag));
+        let started = load(&configs("x.example"), None);
+
+        // Nothing changed: both are the rules that ran.
+        let same = load(&configs("x.example"), Some(&started));
+        assert!(kept(&started, &same, "file") && kept(&started, &same, "in"));
+
+        // The inline one's rules changed: it alone is built again.
+        let inline = load(&configs("y.example"), Some(&same));
+        assert!(kept(&same, &inline, "file") && !kept(&same, &inline, "in"));
+        assert!(rules(&inline, "in").matches(&at("y.example", 443, Tcp), false));
+
+        // The file changed, to as many bytes: it alone is read again.
+        write("b.example");
+        let file = load(&configs("y.example"), Some(&inline));
+        assert!(!kept(&inline, &file, "file") && kept(&inline, &file, "in"));
+        assert!(rules(&file, "file").matches(&at("b.example", 443, Tcp), false));
+
+        // A start keeps nothing.
+        let again = load(&configs("y.example"), None);
+        assert!(!kept(&file, &again, "file") && !kept(&file, &again, "in"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
 
     /// A local rule-set follows its file, as sing-box's does: replaced, its
     /// rules are those of the new file; one that does not read leaves the
@@ -717,8 +833,13 @@ mod tests {
             { "type": "local", "tag": "rs", "format": "source", "path": path }
         ]))
         .unwrap();
-        let sets =
-            RuleSets::load(&configs, &HttpClients::default(), &RuntimeEnv::default()).unwrap();
+        let sets = RuleSets::load(
+            &configs,
+            &HttpClients::default(),
+            &RuntimeEnv::default(),
+            None,
+        )
+        .unwrap();
         let matches = |domain: &str| {
             sets.get("rs")
                 .unwrap()
@@ -761,8 +882,13 @@ mod tests {
             { "type": "local", "tag": "rs", "format": "source", "path": path }
         ]))
         .unwrap();
-        let sets =
-            RuleSets::load(&configs, &HttpClients::default(), &RuntimeEnv::default()).unwrap();
+        let sets = RuleSets::load(
+            &configs,
+            &HttpClients::default(),
+            &RuntimeEnv::default(),
+            None,
+        )
+        .unwrap();
         let matches = |domain: &str| {
             sets.get("rs")
                 .unwrap()
@@ -800,8 +926,13 @@ mod tests {
             ] }
         ]))
         .unwrap();
-        let sets =
-            RuleSets::load(&configs, &HttpClients::default(), &RuntimeEnv::default()).unwrap();
+        let sets = RuleSets::load(
+            &configs,
+            &HttpClients::default(),
+            &RuntimeEnv::default(),
+            None,
+        )
+        .unwrap();
         let ip = |s: &str| s.parse::<std::net::IpAddr>().unwrap();
         assert_eq!(
             sets.ip_ranges("s").unwrap(),
@@ -880,8 +1011,13 @@ mod tests {
             { "tag": "s", "rules": [{ "domain_suffix": ["example.com"] }] }
         ]))
         .unwrap();
-        let sets =
-            RuleSets::load(&configs, &HttpClients::default(), &RuntimeEnv::default()).unwrap();
+        let sets = RuleSets::load(
+            &configs,
+            &HttpClients::default(),
+            &RuntimeEnv::default(),
+            None,
+        )
+        .unwrap();
         let set = sets.get("s").unwrap();
         assert!(set.load().is_narrow());
         let many: Vec<String> = (0..=NARROW_DOMAINS)
@@ -1093,9 +1229,14 @@ mod tests {
             { "tag": "w", "rules": [{ "default_interface_address": "10.0.0.0/8" }] }
         ]))
         .unwrap();
-        let err = RuleSets::load(&configs, &HttpClients::default(), &RuntimeEnv::default())
-            .err()
-            .unwrap();
+        let err = RuleSets::load(
+            &configs,
+            &HttpClients::default(),
+            &RuntimeEnv::default(),
+            None,
+        )
+        .err()
+        .unwrap();
         assert!(
             format!("{:#}", err).contains("default_interface_address: sail does not match it yet"),
             "{:#}",
@@ -1216,7 +1357,7 @@ mod tests {
         .unwrap();
         // Never downloaded: due now.
         let remote =
-            Arc::new(remote::Remote::load(&config, "s", Default::default(), &env).unwrap());
+            Arc::new(remote::Remote::load(&config, "s", Default::default(), &env, None).unwrap());
         let remotes = [remote];
         let mut changes = network.changes();
         let wait = until_due(&remotes, &network, &mut changes);

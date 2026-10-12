@@ -55,12 +55,16 @@ struct State {
 
 impl Remote {
     /// The rule-set `tag` of `config`, from its cached copy or its
-    /// `initial_path`, or empty until the first download.
+    /// `initial_path`, or empty until the first download. At a reload,
+    /// `before` is the one that ran, configured the same: its copy goes on
+    /// as it is, with its ETag and the time it was updated, and nothing is
+    /// read again; it is downloaded when it was due before.
     pub(crate) fn load(
         config: &config::RuleSet,
         tag: &str,
         client: http::Client,
         env: &RuntimeEnv,
+        before: Option<&Remote>,
     ) -> Result<Self> {
         let format = config.format().unwrap_or(RuleSetFormat::Binary);
         let extension = match format {
@@ -95,6 +99,20 @@ impl Remote {
             set: HotResource::new(RuleSet::new(Vec::new())),
             state: Mutex::new(State::default()),
         };
+        if let Some(before) = before {
+            let state = before.state();
+            if state.loaded {
+                remote.set = before.set.clone();
+                *remote.state.get_mut().unwrap_or_else(|e| e.into_inner()) = State {
+                    loaded: true,
+                    etag: state.etag.clone(),
+                    updated: state.updated,
+                    failed: state.failed.clone(),
+                };
+                debug!("rule-set [{}]: unchanged, kept as it runs", tag);
+                return Ok(remote);
+            }
+        }
         // A cached copy that does not read is as good as none.
         if let Some(Ok(data)) = cache.as_ref().map(std::fs::read) {
             let cache = cache.as_ref().expect("read from it");
@@ -276,7 +294,7 @@ mod tests {
             "update_interval": "1h"
         }))
         .unwrap();
-        let remote = Remote::load(&config, "s", Default::default(), &env).unwrap();
+        let remote = Remote::load(&config, "s", Default::default(), &env, None).unwrap();
         assert!(!remote.is_loaded());
         assert!(remote.due_in(SystemTime::now()).is_zero());
 
@@ -285,7 +303,7 @@ mod tests {
             .unwrap();
         remote.state().updated = Some(SystemTime::now());
         remote.save_meta().unwrap();
-        let again = Remote::load(&config, "s", Default::default(), &env).unwrap();
+        let again = Remote::load(&config, "s", Default::default(), &env, None).unwrap();
         assert!(again.is_loaded());
         let due = again.due_in(SystemTime::now());
         assert!(
@@ -301,6 +319,18 @@ mod tests {
             &[],
         );
         assert!(again.set.load().matches(&facts, false));
+
+        // A reload's, after the one that ran: its copy and what is known
+        // of it, with nothing read: the cached file is gone.
+        again.state().etag = Some("\"v1\"".into());
+        std::fs::remove_dir_all(&dir).unwrap();
+        let kept = Remote::load(&config, "s", Default::default(), &env, Some(&again)).unwrap();
+        assert!(Arc::ptr_eq(&kept.set.load(), &again.set.load()));
+        assert_eq!(kept.state().etag.as_deref(), Some("\"v1\""));
+        assert_eq!(kept.updated(), again.updated());
+        // One that has no copy yet is loaded as at a start.
+        let unloaded = Remote::load(&config, "s", Default::default(), &env, Some(&remote)).unwrap();
+        assert!(!unloaded.is_loaded());
         let _ = std::fs::remove_dir_all(dir);
     }
 

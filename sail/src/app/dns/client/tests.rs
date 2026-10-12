@@ -1212,6 +1212,7 @@ mod tests {
             &config.route.rule_set,
             &Default::default(),
             &env,
+            None,
         )
         .unwrap();
         let client =

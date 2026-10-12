@@ -1079,6 +1079,7 @@ fn a_lowered_dns_builds_and_has_no_loop() {
         &config.route.rule_set,
         &Default::default(),
         &env,
+        None,
     )
     .unwrap();
     let client = crate::app::dns::DnsClient::with_rule_sets(
@@ -1551,6 +1552,7 @@ fn router_takes(config: &Config) {
         &config.route.rule_set,
         &Default::default(),
         &env,
+        None,
     )
     .unwrap();
     let dns = crate::app::dns_client::DnsClient::new(&config.dns, Default::default(), &env)

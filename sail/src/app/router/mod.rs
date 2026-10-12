@@ -42,6 +42,7 @@ pub(crate) mod rule_set {
             configs: &[crate::config::rule_set::RuleSet],
             _clients: &crate::app::http::HttpClients,
             _env: &crate::runtime::RuntimeEnv,
+            _before: Option<&RuleSets>,
         ) -> Result<Self> {
             match configs.first() {
                 Some(_) => Err(anyhow!(
@@ -855,6 +856,12 @@ impl Router {
     #[cfg(feature = "rule-set")]
     pub(crate) fn rule_sets(&self) -> &rule_set::RuleSets {
         &self.rule_sets
+    }
+
+    /// Without the feature there are none.
+    #[cfg(not(feature = "rule-set"))]
+    pub(crate) fn rule_sets(&self) -> &rule_set::RuleSets {
+        &rule_set::RuleSets
     }
 
     /// The rules, told, in order.
@@ -1973,7 +1980,8 @@ mod tests {
         .unwrap();
         let env = RuntimeEnv::default();
         let sets =
-            rule_set::RuleSets::load(&config.route.rule_set, &Default::default(), &env).unwrap();
+            rule_set::RuleSets::load(&config.route.rule_set, &Default::default(), &env, None)
+                .unwrap();
         let dns = DnsClient::new(&config.dns, Default::default(), &env)
             .unwrap()
             .into_shared();
@@ -2580,7 +2588,8 @@ mod tests {
         .unwrap();
         let env = RuntimeEnv::default();
         let sets =
-            rule_set::RuleSets::load(&config.route.rule_set, &Default::default(), &env).unwrap();
+            rule_set::RuleSets::load(&config.route.rule_set, &Default::default(), &env, None)
+                .unwrap();
         let dns = DnsClient::new(&config.dns, Default::default(), &env)
             .unwrap()
             .into_shared();

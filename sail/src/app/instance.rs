@@ -84,7 +84,7 @@ impl Instance {
             &env,
         )?);
         let http_clients = HttpClients::new(config, dial_defaults.clone());
-        let rule_sets = RuleSets::load(&config.route.rule_set, &http_clients, &env)?;
+        let rule_sets = RuleSets::load(&config.route.rule_set, &http_clients, &env, None)?;
         #[cfg(feature = "outbound-provider")]
         let providers = crate::app::provider::Providers::load(
             &config.outbound_providers,
@@ -312,6 +312,14 @@ impl Instance {
         Ok(runners)
     }
 
+    /// Lets go of the rule-sets it was built with, once it is started and
+    /// their updater spawned: the router, the DNS rules and the updater
+    /// hold those in use, and a reload replaces them there. Held here they
+    /// would stay, unused, until the instance stops.
+    pub(crate) fn let_go_of_rule_sets(&mut self) {
+        let _ = std::mem::take(&mut self.rule_sets);
+    }
+
     /// What a reload hands its rule-sets to, when the instance routes
     /// into the TUN.
     #[cfg(all(
@@ -401,5 +409,46 @@ impl TunRuleSets {
             TunRuleSets::Redirect(feed) => feed.publish(rule_sets),
             TunRuleSets::Route(feed) => feed.publish(rule_sets),
         }
+    }
+}
+
+#[cfg(all(test, feature = "rule-set"))]
+mod tests {
+    use super::*;
+
+    /// The rule-sets an instance was built with are the router's once it
+    /// is started: a router that replaces it, as a reload's does, leaves
+    /// nothing holding them.
+    #[tokio::test]
+    async fn a_started_instance_holds_its_rule_sets_only_where_they_are_used() {
+        let config = Config::from_json(
+            r#"{ "outbounds": [{ "type": "direct", "tag": "d" }],
+                 "route": { "rule_set": [{ "type": "inline", "tag": "s",
+                                           "rules": [{ "domain": ["a.example"] }] }],
+                            "rules": [{ "rule_set": "s", "outbound": "d" }] } }"#,
+        )
+        .unwrap();
+        let mut instance = Instance::build(
+            &config,
+            config.route.rules.clone(),
+            Arc::default(),
+            Arc::default(),
+        )
+        .unwrap();
+        let set = Arc::downgrade(&instance.rule_sets.get("s").unwrap().load());
+        instance.let_go_of_rule_sets();
+        assert!(set.upgrade().is_some(), "the router matches against it");
+        instance.router.store(Arc::new(
+            Router::new(
+                &Default::default(),
+                instance.dns_client.clone(),
+                &instance.env,
+            )
+            .unwrap(),
+        ));
+        assert!(
+            set.upgrade().is_none(),
+            "something of the instance holds it"
+        );
     }
 }
