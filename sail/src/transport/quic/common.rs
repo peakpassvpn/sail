@@ -22,6 +22,7 @@ use super::recv_backoff::RecvBackoff;
 use crate::app::SyncDnsClient;
 use crate::net::Dialer;
 use crate::runtime::options::Quic as Tuning;
+use crate::runtime::options::UdpBuffers;
 use crate::runtime::RuntimeEnv;
 use crate::transport::layers::{trusted_certificate, InboundTls, Listable, OutboundTls};
 use crate::transport::muxcore::stall::{Guarded, Stallable, STALL_TIMEOUT};
@@ -518,18 +519,84 @@ pub async fn bind(peer: IpAddr, dialer: &Dialer) -> io::Result<std::net::UdpSock
     dialer.udp_socket(&unspecified).await?.into_std()
 }
 
-/// `socket` as quinn takes it, for wrapping further.
-pub fn wrap_socket(socket: std::net::UdpSocket) -> io::Result<Arc<dyn AsyncUdpSocket>> {
+/// `socket` as quinn takes it, for wrapping further, with the buffers
+/// `buffers` asks the system for. Every QUIC socket of the system's passes
+/// here; a detour's datagrams have no socket to size.
+pub fn wrap_socket(
+    socket: std::net::UdpSocket,
+    buffers: UdpBuffers,
+) -> io::Result<Arc<dyn AsyncUdpSocket>> {
     socket.set_nonblocking(true)?;
+    size_buffers(&socket, buffers);
     quinn::TokioRuntime.wrap_udp_socket(socket)
+}
+
+/// Asks the system for `buffers` on `socket`, a zero leaving what it has.
+/// What the system gives is its own to decide (Linux doubles the number
+/// and stops at `net.core.rmem_max` and `wmem_max` without an error), so
+/// it is read back and logged; a refusal is no reason not to connect.
+///
+/// The buffers and no more. Windows' receive coalescing (URO,
+/// `UDP_RECV_MAX_COALESCED_SIZE`) is left out on purpose: on some
+/// Windows 11 systems it corrupts datagrams silently (quinn's issue 2041).
+fn size_buffers(socket: &std::net::UdpSocket, buffers: UdpBuffers) {
+    type Set = fn(&socket2::SockRef<'_>, usize) -> io::Result<()>;
+    type Get = fn(&socket2::SockRef<'_>) -> io::Result<usize>;
+    let socket = socket2::SockRef::from(socket);
+    let sizes: [(&str, usize, Set, Get); 2] = [
+        (
+            "receive",
+            buffers.receive,
+            |s, n| s.set_recv_buffer_size(n),
+            |s| s.recv_buffer_size(),
+        ),
+        (
+            "send",
+            buffers.send,
+            |s, n| s.set_send_buffer_size(n),
+            |s| s.send_buffer_size(),
+        ),
+    ];
+    for (which, asked, set, get) in sizes {
+        if asked == 0 {
+            continue;
+        }
+        if let Err(e) = set(&socket, asked) {
+            static SAID: std::sync::Once = std::sync::Once::new();
+            SAID.call_once(|| {
+                tracing::warn!(
+                    "quic: the UDP {} buffer of {} bytes was refused ({}); the system's is kept",
+                    which,
+                    asked,
+                    e
+                )
+            });
+            continue;
+        }
+        match get(&socket) {
+            Ok(got) => tracing::debug!(
+                "quic: UDP {} buffer: asked {} bytes, the system reports {}",
+                which,
+                asked,
+                got
+            ),
+            Err(e) => tracing::debug!(
+                "quic: UDP {} buffer: asked {} bytes, not read back ({})",
+                which,
+                asked,
+                e
+            ),
+        }
+    }
 }
 
 /// An endpoint on `socket`, serving with `server` if set.
 pub fn endpoint(
     socket: std::net::UdpSocket,
     server: Option<quinn::ServerConfig>,
+    buffers: UdpBuffers,
 ) -> io::Result<quinn::Endpoint> {
-    endpoint_on(wrap_socket(socket)?, server)
+    endpoint_on(wrap_socket(socket, buffers)?, server)
 }
 
 /// [`endpoint`] on a socket of quinn's. Every endpoint is made here: its
@@ -705,6 +772,84 @@ mod tests {
         );
     }
 
+    /// The buffers of a fresh socket, as the system made it, and of one
+    /// sized as `buffers`: (receive, send) each.
+    fn buffers_of(buffers: UdpBuffers) -> ((usize, usize), (usize, usize)) {
+        let sizes = |socket: &std::net::UdpSocket| {
+            let socket = socket2::SockRef::from(socket);
+            (
+                socket.recv_buffer_size().unwrap(),
+                socket.send_buffer_size().unwrap(),
+            )
+        };
+        let bind = || std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let sized = bind();
+        size_buffers(&sized, buffers);
+        (sizes(&bind()), sizes(&sized))
+    }
+
+    /// What was asked for, or what the system stopped at: Linux gives
+    /// twice its `rmem_max` or `wmem_max` at most, which is still more
+    /// than a socket starts with.
+    const ASKED: usize = 1 << 20;
+
+    #[test]
+    fn a_receive_buffer_is_asked_of_the_system() {
+        let (system, sized) = buffers_of(UdpBuffers {
+            receive: ASKED,
+            send: 0,
+        });
+        assert!(
+            sized.0 >= ASKED || sized.0 > system.0,
+            "{:?} from {:?}",
+            sized,
+            system
+        );
+        assert_eq!(sized.1, system.1, "the send buffer was not asked for");
+    }
+
+    #[test]
+    fn a_send_buffer_is_asked_of_the_system() {
+        let (system, sized) = buffers_of(UdpBuffers {
+            receive: 0,
+            send: ASKED,
+        });
+        assert!(
+            sized.1 >= ASKED || sized.1 > system.1,
+            "{:?} from {:?}",
+            sized,
+            system
+        );
+        assert_eq!(sized.0, system.0, "the receive buffer was not asked for");
+    }
+
+    #[test]
+    fn no_buffer_asked_leaves_the_systems() {
+        let (system, sized) = buffers_of(UdpBuffers::default());
+        assert_eq!(sized, system);
+    }
+
+    #[tokio::test]
+    async fn a_wrapped_socket_has_the_buffers_asked() {
+        // Through wrap_socket, where every real QUIC socket passes: the
+        // socket is quinn's from there, so a duplicate tells its size.
+        let socket = std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let system = socket2::SockRef::from(&socket).recv_buffer_size().unwrap();
+        let ours = socket.try_clone().unwrap();
+        let _wrapped = wrap_socket(
+            socket,
+            UdpBuffers {
+                receive: ASKED,
+                send: ASKED,
+            },
+        )
+        .unwrap();
+        let ours = socket2::SockRef::from(&ours);
+        let receive = ours.recv_buffer_size().unwrap();
+        assert!(receive >= ASKED || receive > system, "{}", receive);
+        assert!(ours.send_buffer_size().unwrap() > 0);
+    }
+
     #[test]
     fn congestion_controls_are_named_as_in_sing_box() {
         let parse = |s: &str| serde_json::from_str::<CongestionControl>(&format!("\"{}\"", s));
@@ -723,6 +868,7 @@ mod tests {
         let server = endpoint(
             std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap(),
             Some(server_config(server).unwrap()),
+            Default::default(),
         )
         .unwrap();
         (
@@ -759,6 +905,7 @@ mod tests {
         let client = endpoint(
             std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap(),
             None,
+            Default::default(),
         )
         .unwrap();
         let config = quinn::ClientConfig::new(crypto);
@@ -793,6 +940,7 @@ mod tests {
         let server = endpoint(
             std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap(),
             Some(server_config(crypto).unwrap()),
+            Default::default(),
         )
         .unwrap();
         (server, pem)
@@ -971,6 +1119,7 @@ mod tests {
                 server_config(server_crypto(&pem, &cert.key_pair.serialize_pem(), &[]).unwrap())
                     .unwrap(),
             ),
+            Default::default(),
         )
         .unwrap();
         // The path: the client's first datagram gets through, nothing after.
@@ -988,6 +1137,7 @@ mod tests {
         let client = endpoint(
             std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap(),
             None,
+            Default::default(),
         )
         .unwrap();
         let roots = crate::transport::tls::tests::test_roots();
@@ -1033,6 +1183,7 @@ mod tests {
         let server = endpoint(
             std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap(),
             Some(server_config(server).unwrap()),
+            Default::default(),
         )
         .unwrap();
         let roots = crate::transport::tls::tests::test_roots();
@@ -1066,6 +1217,7 @@ mod tests {
         let server = endpoint(
             std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap(),
             Some(server_config(server).unwrap()),
+            Default::default(),
         )
         .unwrap();
         let pin = crate::transport::tls::tests::spki_pin(&cert.key_pair.public_key_der());
@@ -1104,6 +1256,7 @@ mod tests {
         let server = endpoint(
             std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap(),
             Some(server_config(server).unwrap()),
+            Default::default(),
         )
         .unwrap();
         let env = RuntimeEnv::default();
@@ -1258,11 +1411,13 @@ mod tests {
         let server = endpoint(
             std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap(),
             Some(server_config),
+            Default::default(),
         )
         .unwrap();
         let client = endpoint(
             std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap(),
             None,
+            Default::default(),
         )
         .unwrap();
         let roots = crate::transport::tls::tests::test_roots();

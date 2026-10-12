@@ -46,6 +46,8 @@ pub(crate) struct Resources {
     server_config: quinn::ServerConfig,
     /// How long a client has to finish its handshake.
     handshake_timeout: std::time::Duration,
+    /// What the endpoint's socket asks the system to buffer.
+    buffers: crate::runtime::options::UdpBuffers,
     core: AnyInboundHandler,
     accept: crate::protocol::group::chain::inbound::Accept,
 }
@@ -75,6 +77,7 @@ impl Handler {
         let generation = Arc::new(Resources {
             server_config,
             handshake_timeout: env.options.quic.server_handshake_timeout,
+            buffers: env.options.quic.udp_buffers(),
             core,
             accept: (&env.options.inbound).into(),
         });
@@ -168,10 +171,14 @@ impl InboundDatagramHandler for Handler {
     async fn handle<'a>(&'a self, socket: AnyInboundDatagram) -> io::Result<AnyInboundTransport> {
         tracing::trace!("handling inbound datagram");
         let (stream_tx, stream_rx) = channel(ACCEPT_CHANNEL_SIZE);
-        let endpoint = endpoint(
-            socket.into_std()?,
-            Some(self.resource.load().server_config.clone()),
-        )?;
+        let endpoint = {
+            let generation = self.resource.load();
+            endpoint(
+                socket.into_std()?,
+                Some(generation.server_config.clone()),
+                generation.buffers,
+            )?
+        };
         let resource = self.resource.clone();
         let handshakes = Arc::new(Semaphore::new(resource.load().accept.concurrency.max(1)));
         crate::runtime::scope::spawn_essential("quic accept", async move {

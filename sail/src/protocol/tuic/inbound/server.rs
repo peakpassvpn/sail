@@ -63,6 +63,8 @@ struct Settings {
     heartbeat: Duration,
     /// How long a client has to finish its handshake, without 0-RTT.
     handshake_timeout: Duration,
+    /// What the endpoint's socket asks the system to buffer.
+    buffers: crate::runtime::options::UdpBuffers,
 }
 
 pub struct Server {
@@ -104,6 +106,7 @@ impl Server {
                     zero_rtt,
                     heartbeat,
                     handshake_timeout: tuning.server_handshake_timeout,
+                    buffers: tuning.udp_buffers(),
                 }),
             }),
         })
@@ -120,7 +123,14 @@ impl InboundDatagramHandler for Server {
     async fn handle<'a>(&'a self, socket: AnyInboundDatagram) -> io::Result<AnyInboundTransport> {
         let socket = socket.into_std()?;
         let local_addr = socket.local_addr()?;
-        let endpoint = endpoint(socket, Some(self.resource.load().server_config.clone()))?;
+        let endpoint = {
+            let resource = self.resource.load();
+            endpoint(
+                socket,
+                Some(resource.server_config.clone()),
+                resource.settings.buffers,
+            )?
+        };
         let (accepted, accepted_rx) = mpsc::channel(ACCEPT_CHANNEL_SIZE);
         let resource = self.resource.clone();
         crate::runtime::scope::spawn_essential("tuic accept", async move {

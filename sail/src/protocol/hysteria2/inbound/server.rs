@@ -106,8 +106,12 @@ impl InboundDatagramHandler for DatagramHandler {
     async fn handle<'a>(&'a self, socket: AnyInboundDatagram) -> io::Result<AnyInboundTransport> {
         let socket = socket.into_std()?;
         let local_addr = socket.local_addr()?;
-        let socket = quic::wrap_socket(socket, self.obfs.as_ref())?;
-        let endpoint = endpoint_on(socket, Some(self.resource.load().server_config.clone()))?;
+        let endpoint = {
+            let resource = self.resource.load();
+            let buffers = resource.server.tuning.udp_buffers();
+            let socket = quic::wrap_socket(socket, self.obfs.as_ref(), buffers)?;
+            endpoint_on(socket, Some(resource.server_config.clone()))?
+        };
         let (tx, rx) = mpsc::channel(ACCEPT_QUEUE);
         let resource = self.resource.clone();
         crate::runtime::scope::spawn_essential("hysteria2 accept", async move {
@@ -668,8 +672,12 @@ mod tests {
             &crate::transport::tls::tests::test_roots(),
         )
         .unwrap();
-        let mut endpoint =
-            endpoint(std::net::UdpSocket::bind("127.0.0.1:0").unwrap(), None).unwrap();
+        let mut endpoint = endpoint(
+            std::net::UdpSocket::bind("127.0.0.1:0").unwrap(),
+            None,
+            Default::default(),
+        )
+        .unwrap();
         endpoint.set_default_client_config(quinn::ClientConfig::new(Arc::new(crypto)));
         Fixture {
             endpoint,

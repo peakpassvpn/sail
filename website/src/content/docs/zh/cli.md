@@ -74,6 +74,17 @@ sail -c config.json --profile server \
 
 API 的 `/api/v1/runtime/stat/mux` 按协议给出会话数、流数和被重置的停滞流数。
 
+QUIC（Hysteria2、TUIC、`quic` 传输、DNS over QUIC）的 UDP 套接字使用其中两项，各配置档相同：
+
+| 参数 | 默认值 | 含义 |
+| --- | --- | --- |
+| `quic.udp_receive_buffer` | `0`（KiB，交给系统） | 为每个套接字申请的接收缓冲区（`SO_RCVBUF`）：sail 来不及读时系统替它保留的数据报，超出即丢弃。 |
+| `quic.udp_send_buffer` | `0`（KiB，交给系统） | 同一批套接字的发送缓冲区（`SO_SNDBUF`）。 |
+
+`0` 表示沿用系统自己的大小：Windows 为 64 KiB，Linux 约 200 KiB。作为对照，sing-box 的 QUIC 申请 7 MiB（`7168`），Chromium 申请 1 MiB（`1024`）。系统给的可能比申请的少：Linux 实际保留申请值的两倍，且不超过 `net.core.rmem_max` 与 `net.core.wmem_max`，想要更大需先调高这两项。套接字实际拿到的大小记录在 `debug` 日志里；系统拒绝时只给出警告，不算错误。经 `detour` 走的 QUIC 连接没有自己的套接字，不受这两项影响。
+
+QUIC 的套接字参数只有这两项。Windows 的 UDP 接收合并（URO，`UDP_RECV_MAX_COALESCED_SIZE`）是有意不提供的，也不应作为优化加进来：在部分 Windows 11 系统上它会悄悄损坏数据报。
+
 ## 数据与状态目录
 
 ```sh

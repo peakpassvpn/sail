@@ -347,8 +347,11 @@ mod tests {
         let pem = cert.cert.pem();
         let crypto = server_crypto(&pem, &cert.key_pair.serialize_pem(), &[]).unwrap();
         let faulty = Arc::new(Faulty {
-            inner: wrap_socket(std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap())
-                .unwrap(),
+            inner: wrap_socket(
+                std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap(),
+                Default::default(),
+            )
+            .unwrap(),
             failures: AtomicUsize::new(0),
         });
         let server = endpoint_on(faulty.clone(), Some(server_config(crypto).unwrap())).unwrap();
@@ -365,7 +368,11 @@ mod tests {
         });
 
         let client = endpoint_on(
-            wrap_socket(std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap()).unwrap(),
+            wrap_socket(
+                std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap(),
+                Default::default(),
+            )
+            .unwrap(),
             None,
         )
         .unwrap();

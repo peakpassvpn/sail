@@ -702,6 +702,7 @@ mod tests {
         let client = endpoint(
             std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap(),
             None,
+            Default::default(),
         )
         .unwrap();
         let crypto = client_crypto(

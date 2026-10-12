@@ -1876,6 +1876,7 @@ pub(crate) fn dial_defaults(
         .collect();
     defaults.env.network = Some(env.network.clone());
     defaults.env.own_interfaces = own_interfaces.clone();
+    defaults.env.quic_buffers = env.options.quic.udp_buffers();
     let host_routes = env
         .host
         .platform
@@ -2765,6 +2766,29 @@ mod tests {
         );
         // And it is the one the network's follower refreshes.
         assert!(Arc::ptr_eq(&started, env.auto_interface.get().unwrap()));
+    }
+
+    /// `quic.udp_receive_buffer` and `quic.udp_send_buffer` reach the
+    /// dialers, whose QUIC sockets ask the system for them.
+    #[test]
+    fn the_quic_socket_buffers_set_are_the_dialers() {
+        let config =
+            super::config::Config::from_json(r#"{ "outbounds": [{ "type": "direct" }] }"#).unwrap();
+        let mut env = super::runtime::RuntimeEnv::default();
+        let buffers = |env: &super::runtime::RuntimeEnv| {
+            super::dial_defaults(&config, env).unwrap().env.quic_buffers
+        };
+        assert_eq!(buffers(&env), Default::default());
+        env.options
+            .set_all(["quic.udp_receive_buffer=7168", "quic.udp_send_buffer=1024"])
+            .unwrap();
+        assert_eq!(
+            buffers(&env),
+            super::runtime::options::UdpBuffers {
+                receive: 7168 << 10,
+                send: 1 << 20,
+            }
+        );
     }
 
     /// What a service manager's scripts read of the log stays as it is:

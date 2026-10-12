@@ -86,6 +86,17 @@ The streams of multiplexed connections (sing-mux smux and yamux, AnyTLS, amux) t
 
 The API's `/api/v1/runtime/stat/mux` counts their sessions, streams and stalled streams per protocol.
 
+The UDP sockets of QUIC (Hysteria2, TUIC, the `quic` transport, DNS over QUIC) take two, the same on every profile:
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `quic.udp_receive_buffer` | `0` (KiB, the system's) | The receive buffer (`SO_RCVBUF`) asked for each socket: the datagrams the system holds while sail is busy, and drops beyond. |
+| `quic.udp_send_buffer` | `0` (KiB, the system's) | The send buffer (`SO_SNDBUF`) of the same sockets. |
+
+`0` leaves the system's own size, which is 64 KiB on Windows and about 200 KiB on Linux. For comparison, sing-box's QUIC asks for 7 MiB (`7168`) and Chromium for 1 MiB (`1024`). The system may give less than is asked: Linux keeps twice the number and stops at `net.core.rmem_max` and `net.core.wmem_max`, so raise those to get more. What a socket got is logged at `debug`, and a size the system refuses is a warning, not an error. A QUIC connection that goes through a `detour` has no socket of its own to size.
+
+These are the only socket settings of QUIC. Windows' UDP receive offload (URO, `UDP_RECV_MAX_COALESCED_SIZE`) is deliberately not among them and should not be added as an optimisation: on some Windows 11 systems it silently corrupts datagrams.
+
 ## Paths and persisted state
 
 ```sh

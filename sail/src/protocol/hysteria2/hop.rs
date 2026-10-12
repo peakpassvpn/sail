@@ -439,6 +439,7 @@ mod tests {
         let server = endpoint(
             std::net::UdpSocket::bind("127.0.0.1:0").unwrap(),
             Some(server_config(crypto).unwrap()),
+            Default::default(),
         )
         .unwrap();
         let server_addr = server.local_addr().unwrap();
@@ -486,8 +487,14 @@ mod tests {
             });
         }
 
-        let new_socket =
-            || quic::wrap_socket(std::net::UdpSocket::bind("127.0.0.1:0").unwrap(), None).unwrap();
+        let new_socket = || {
+            quic::wrap_socket(
+                std::net::UdpSocket::bind("127.0.0.1:0").unwrap(),
+                None,
+                Default::default(),
+            )
+            .unwrap()
+        };
         let hop = Arc::new(HopSocket::new(
             Ipv4Addr::LOCALHOST.into(),
             vec![server_addr.port(), relay_port],

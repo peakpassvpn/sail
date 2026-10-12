@@ -12,11 +12,14 @@ children's too) is read before and after each transfer.
     pip install psutil
     python3 tools/perf/desktop/run.py --sail PATH --sing-box PATH --netgen PATH --work DIR \\
         [--protocols trojan,reality,hysteria2] [--streams 4] [--bytes 268435456] \\
-        [--rounds 3] [--out results.json]
+        [--rounds 3] [--out results.json] [--sail-args NAME=ARGS ...]
 
 Several builds of sail are compared in one run by naming each:
 `--sail NAME=PATH`, as often as there are builds (a bare PATH is named
 `sail`). Each runs in every round, with sing-box once, the reference.
+One build serves several of them when they differ by sail's arguments:
+`--sail-args NAME=ARGS` appends ARGS, split as a shell would, to that
+one's command line, as in `--sail-args "big=--set quic.udp_receive_buffer=7168"`.
 
 It prints a Markdown table for each build of sail (medians, the range in
 brackets, and that build against the sing-box of the same round as
@@ -35,6 +38,7 @@ import os
 import platform
 import re
 import secrets
+import shlex
 import socket
 import statistics
 import subprocess
@@ -321,6 +325,7 @@ def run_client(args, proto, rnd, client, keys, server, server_port, target_port,
     else:
         # No record of system changes: it makes none. The desktop preset is the default.
         argv = [args.sail[client], "-c", config, "--no-run-dir", "-D", work]
+        argv += args.sail_args.get(client, [])
     samples = []
     proc = Proc(name, argv, os.path.join(work, f"{name}.log"))
     try:
@@ -470,6 +475,13 @@ def markdown(meta, rows, failures, warnings):
         + f", sing-box `{meta['sing_box_version']}`; "
         f"the server is sing-box. {meta['cpus']} CPUs.",
         "",
+    ]
+    if any(b.get("args") for b in builds):
+        lines += ["Started with more than the cell's own arguments: "
+                  + "; ".join(f"{b['name']} with `{' '.join(b['args'])}`"
+                              for b in builds if b.get("args")) + ".",
+                  ""]
+    lines += [
         "Ratios are per round, sail and sing-box of the same round, then the median. "
         "**Above 1 is better for sail in both**: throughput is sail ÷ sing-box, "
         "CPU is sing-box ÷ sail (inverted, as less CPU per GiB is better).",
@@ -525,6 +537,23 @@ def sail_builds(values):
     return builds
 
 
+def sail_arguments(values, builds):
+    """`--sail-args`'s values as {name: [argument, ...]}."""
+    extra = {}
+    for value in values:
+        name, eq, text = value.partition("=")
+        if not eq or name not in builds:
+            sys.exit(f"--sail-args {value}: NAME=ARGS, NAME one of --sail's "
+                     f"({', '.join(builds)})")
+        if name in extra:
+            sys.exit(f"--sail-args {value}: a second one for {name}; give its arguments in one")
+        try:
+            extra[name] = shlex.split(text)
+        except ValueError as e:
+            sys.exit(f"--sail-args {value}: {e}")
+    return extra
+
+
 def version(argv):
     try:
         out = subprocess.run(argv, capture_output=True, text=True, timeout=20).stdout.strip()
@@ -538,6 +567,9 @@ def main():
     ap.add_argument("--sail", required=True, action="append", metavar="[NAME=]PATH",
                     help="a build of sail; may be given several times, each with a name "
                          "of letters, digits, '.', '_' and '-' (a bare PATH is named sail)")
+    ap.add_argument("--sail-args", action="append", default=[], metavar="NAME=ARGS",
+                    help="more arguments for the build NAME, split as a shell splits them "
+                         "and appended to its command line; once a name")
     ap.add_argument("--sing-box", required=True)
     ap.add_argument("--netgen", required=True)
     ap.add_argument("--work", required=True, help="a directory for configs, keys and logs")
@@ -561,6 +593,7 @@ def main():
     if min(args.streams, args.bytes, args.rounds) < 1:
         ap.error("--streams, --bytes and --rounds are at least 1")
     args.sail = sail_builds(args.sail)
+    args.sail_args = sail_arguments(args.sail_args, args.sail)
     args.sing_box = executable(args.sing_box)
     args.netgen = executable(args.netgen)
     args.work = os.path.abspath(args.work)
@@ -568,7 +601,8 @@ def main():
 
     meta = {"system": platform.system(), "release": platform.release(),
             "machine": platform.machine(), "cpus": os.cpu_count(),
-            "sail": [{"name": name, "version": version([path, "--version"])}
+            "sail": [{"name": name, "version": version([path, "--version"]),
+                      "args": args.sail_args.get(name, [])}
                      for name, path in args.sail.items()],
             "sing_box_version": version([args.sing_box, "version"]),
             "streams": args.streams, "bytes": args.bytes, "rounds": args.rounds,

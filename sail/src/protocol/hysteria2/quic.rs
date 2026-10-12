@@ -45,13 +45,15 @@ pub fn transport_config(
     config
 }
 
-/// `socket` under quinn, obfuscated if `obfs` is set.
+/// `socket` under quinn with the buffers `buffers` asks for, obfuscated
+/// if `obfs` is set.
 pub fn wrap_socket(
     socket: std::net::UdpSocket,
     obfs: Option<&Salamander>,
+    buffers: crate::runtime::options::UdpBuffers,
 ) -> io::Result<Arc<dyn AsyncUdpSocket>> {
     Ok(obfuscate(
-        crate::transport::quic::wrap_socket(socket)?,
+        crate::transport::quic::wrap_socket(socket, buffers)?,
         obfs,
     ))
 }

@@ -358,8 +358,12 @@ mod tests {
         let crypto = server_crypto(&cert.pem(), &key_pair.serialize_pem(), &alpns).unwrap();
         let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
         let port = socket.local_addr().unwrap().port();
-        let endpoint =
-            crate::transport::quic::endpoint(socket, Some(server_config(crypto).unwrap())).unwrap();
+        let endpoint = crate::transport::quic::endpoint(
+            socket,
+            Some(server_config(crypto).unwrap()),
+            Default::default(),
+        )
+        .unwrap();
         (endpoint, port, cert.pem())
     }
 

@@ -220,6 +220,37 @@ pub struct Quic {
     /// What a Hysteria2 connection keeps sent and not yet acknowledged, in
     /// KiB: the memory it may take for what it sends.
     pub hysteria2_send_window: usize,
+    /// The receive buffer (`SO_RCVBUF`) asked for the UDP socket of a QUIC
+    /// endpoint (Hysteria2, TUIC, the quic transport, DNS over QUIC), in
+    /// KiB: the datagrams the system holds while sail is busy, and drops
+    /// beyond. Zero leaves the system's, 64 KiB on Windows and about
+    /// 200 KiB on Linux. The system may give less than is asked: Linux
+    /// keeps twice the number for its own bookkeeping and stops at
+    /// `net.core.rmem_max`. sing-box's QUIC (quic-go) asks for 7 MiB,
+    /// Chromium for 1 MiB.
+    pub udp_receive_buffer: usize,
+    /// The send buffer (`SO_SNDBUF`) of the same sockets, in KiB; zero
+    /// leaves the system's. On Linux, twice the number and no more than
+    /// `net.core.wmem_max`. quic-go asks for 7 MiB here too.
+    pub udp_send_buffer: usize,
+}
+
+/// What `quic.udp_receive_buffer` and `quic.udp_send_buffer` ask for, in
+/// bytes; zero leaves the system's.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct UdpBuffers {
+    pub receive: usize,
+    pub send: usize,
+}
+
+impl Quic {
+    /// The buffers its UDP sockets ask the system for.
+    pub fn udp_buffers(&self) -> UdpBuffers {
+        UdpBuffers {
+            receive: self.udp_receive_buffer.saturating_mul(1024),
+            send: self.udp_send_buffer.saturating_mul(1024),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -398,6 +429,10 @@ impl RuntimeOptions {
                 hysteria2_receive_window: 64 << 10,
                 hysteria2_stream_window: 8 << 10,
                 hysteria2_send_window: 16 << 10,
+                // The system's, until sizes are measured where it matters
+                // (Windows keeps 64 KiB).
+                udp_receive_buffer: 0,
+                udp_send_buffer: 0,
             },
             ws: Ws { half_close: false },
             dns: Dns {
@@ -710,6 +745,43 @@ mod tests {
         );
         let err = options.set_all(["relay.buffer_size"]).unwrap_err();
         assert!(err.to_string().contains("expected key=value"), "{}", err);
+    }
+
+    #[test]
+    fn quic_socket_buffers_are_the_systems_unless_set() {
+        for profile in [
+            Profile::Mobile,
+            Profile::Desktop,
+            Profile::Server,
+            Profile::Router,
+        ] {
+            let quic = RuntimeOptions::profile(profile).quic;
+            assert_eq!(quic.udp_buffers(), UdpBuffers::default(), "{:?}", profile);
+        }
+        let mut options = RuntimeOptions::default();
+        options
+            .set_all(["quic.udp_receive_buffer=7168", "quic.udp_send_buffer=1024"])
+            .unwrap();
+        assert_eq!(options.quic.udp_receive_buffer, 7168);
+        assert_eq!(
+            options.quic.udp_buffers(),
+            UdpBuffers {
+                receive: 7168 << 10,
+                send: 1 << 20,
+            }
+        );
+        for bad in ["7m", "-1", "1.5", "true"] {
+            let err = options.set("quic.udp_receive_buffer", bad).unwrap_err();
+            assert!(
+                err.to_string()
+                    .starts_with("runtime option \"quic.udp_receive_buffer\""),
+                "{}: {}",
+                bad,
+                err
+            );
+        }
+        // A refused value changes nothing.
+        assert_eq!(options.quic.udp_receive_buffer, 7168);
     }
 
     #[test]

@@ -11,8 +11,24 @@ name: perf-desktop
 # The default is Windows alone: macOS is asked for by name.
 #
 # sail is built natively, at the profile a release ships (dist), with the
-# BoringSSL ci.yml's jobs link. On Windows that is MSVC, as windows-msvc in
-# ci.yml, and the cell compares three builds of the commit in one run:
+# BoringSSL ci.yml's jobs link; on Windows that is MSVC, as windows-msvc in
+# ci.yml. What the cell compares is the input `builds`.
+#
+# `buffers`, the default: one build, started four ways, over Hysteria2 alone
+# (the other two protocols have no UDP socket). The UDP sockets of QUIC keep
+# the system's buffers unless `quic.udp_receive_buffer` and
+# `quic.udp_send_buffer` are set, and Windows' are 64 KiB:
+#
+#   sail        as it ships: the system's buffers;
+#   sail-buf1m  both at 1024 KiB, as Chromium asks;
+#   sail-buf7m  both at 7168 KiB, as sing-box's QUIC (quic-go) asks;
+#   sail-rcv7m  the receive buffer alone at 7168 KiB.
+#
+# What the runner gives a socket that asks for those sizes is in the summary.
+# Nothing else of the socket is varied, and Windows' receive offload (URO)
+# is not a candidate: it corrupts datagrams on some Windows 11 systems.
+#
+# `allocators`: three builds of the commit on Windows, all three protocols:
 #
 #   sail           dist, MSVC, the system's allocator;
 #   sail-mimalloc  the same with --cfg sail_measure_mimalloc, sail-cli's
@@ -24,13 +40,16 @@ name: perf-desktop
 #                  there is no prebuilt BoringSSL for windows-gnu, and its
 #                  MinGW is not the one a release is built with.
 #
-# macOS measures its one native build.
+# macOS has its one native build: started the same four ways with `buffers`
+# (its UDP buffers are small too), and once, over all three protocols, with
+# `allocators`.
 #
 # Time, from the first run (2026-10-12, windows-latest, 4 CPUs, no cache):
 # the dist build 15 minutes, the cell with one build of sail 3.5, the rest
-# 2. Now: the second build is a whole one, as its RUSTFLAGS differ, so
-# another 15; the cell with three builds about 7; so about 40 of the 60
-# minutes. The gnu job, 9 minutes in a release, runs before.
+# 2. `allocators`: the second build is a whole one, as its RUSTFLAGS differ,
+# so another 15; the cell with three builds about 7; so about 40 of the 60
+# minutes, and the gnu job, 9 minutes in a release, runs before. `buffers`
+# builds once and has no gnu job; its cell is not timed yet.
 on:
   workflow_dispatch:
     inputs:
@@ -39,6 +58,11 @@ on:
         type: choice
         options: [windows, macos, both]
         default: windows
+      builds:
+        description: "what to compare: socket buffers (one build), or allocators and toolchains (three builds, Windows)"
+        type: choice
+        options: [buffers, allocators]
+        default: buffers
 
 permissions:
   contents: read
@@ -53,7 +77,7 @@ jobs:
   # split-symbols.sh as package-cli.sh strips it. BoringSSL is compiled:
   # windows-gnu has no prebuilt one.
   gnu:
-    if: ${{ inputs.os != 'macos' }}
+    if: ${{ inputs.os != 'macos' && inputs.builds == 'allocators' }}
     name: sail-gnu (cross build)
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -91,8 +115,8 @@ jobs:
           retention-days: 7
 
   cell:
-    # After gnu, which a macOS run skips. When it failed, the cell runs
-    # without sail-gnu and says so.
+    # After gnu, which only `allocators` on Windows runs. When it failed,
+    # the cell runs without sail-gnu and says so.
     needs: gnu
     if: ${{ !cancelled() }}
     strategy:
@@ -153,7 +177,7 @@ jobs:
       # RUSTFLAGS build every crate again, and the build above stays as the
       # cache saves it. BoringSSL is the prebuilt one in both.
       - name: build sail-mimalloc (Windows)
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && inputs.builds == 'allocators'
         env:
           RUSTFLAGS: --cfg sail_measure_mimalloc
           CARGO_TARGET_DIR: target-mimalloc
@@ -163,7 +187,7 @@ jobs:
           rm -rf target-mimalloc
 
       - name: sail-gnu (Windows)
-        if: runner.os == 'Windows' && needs.gnu.result == 'success'
+        if: runner.os == 'Windows' && inputs.builds == 'allocators' && needs.gnu.result == 'success'
         uses: actions/download-artifact@v4
         with:
           name: sail-gnu
@@ -243,11 +267,17 @@ jobs:
       - name: psutil
         run: python -m pip install psutil
 
-      # One build on macOS, under the name sail; Windows' three.
+      # `allocators`: Windows' three builds, or macOS's one, all protocols.
+      # `buffers`: one build started four ways, which differ by the buffers
+      # its QUIC sockets ask for, over Hysteria2, and five rounds of it: the
+      # four are closer to each other than builds are.
       - name: measure
+        env:
+          BUILDS: ${{ inputs.builds }}
         run: |
-          builds=(--sail variants/sail)
-          if [ "$RUNNER_OS" = Windows ]; then
+          if [ "$BUILDS" = allocators ] && [ "$RUNNER_OS" != Windows ]; then
+            builds=(--sail variants/sail)
+          elif [ "$BUILDS" = allocators ]; then
             builds=(--sail sail=variants/sail --sail sail-mimalloc=variants/sail-mimalloc)
             if [ -f variants/sail-gnu.exe ]; then
               builds+=(--sail sail-gnu=variants/sail-gnu)
@@ -260,6 +290,47 @@ jobs:
               echo "system's allocator; \`sail-mimalloc\` the same with mimalloc (built with"
               echo "\`--cfg sail_measure_mimalloc\`, a measurement switch that no release has);"
               echo "\`sail-gnu\` the x86_64-pc-windows-gnu cross build, as a release ships."
+              echo
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            receive=quic.udp_receive_buffer send=quic.udp_send_buffer
+            builds=(
+              --sail sail=variants/sail
+              --sail sail-buf1m=variants/sail
+              --sail sail-buf7m=variants/sail
+              --sail sail-rcv7m=variants/sail
+              --sail-args "sail-buf1m=--set $receive=1024 --set $send=1024"
+              --sail-args "sail-buf7m=--set $receive=7168 --set $send=7168"
+              --sail-args "sail-rcv7m=--set $receive=7168"
+              --protocols hysteria2 --rounds 5
+            )
+            "variants/sail$EXE" --version
+            {
+              echo "One build of this commit, at the dist profile, started four ways: \`sail\` with"
+              echo "the system's UDP socket buffers, as it ships; \`sail-buf1m\` asking for 1024 KiB"
+              echo "both ways; \`sail-buf7m\` for 7168 KiB both ways, as sing-box's QUIC does;"
+              echo "\`sail-rcv7m\` for 7168 KiB to receive alone. Hysteria2 only: the other"
+              echo "protocols have no UDP socket."
+              echo
+              echo "What this runner gives a UDP socket (receive / send, bytes):"
+              echo
+              python - <<'EOF'
+          import socket
+          def sizes(asked):
+              with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+                  got = []
+                  for option in (socket.SO_RCVBUF, socket.SO_SNDBUF):
+                      try:
+                          if asked:
+                              s.setsockopt(socket.SOL_SOCKET, option, asked << 10)
+                          got.append(str(s.getsockopt(socket.SOL_SOCKET, option)))
+                      except OSError as e:
+                          got.append(f"refused ({e})")
+                  return " / ".join(got)
+          print(f"- as the system makes it: {sizes(0)}")
+          for kib in (1024, 7168):
+              print(f"- asked for {kib} KiB: {sizes(kib)}")
+          EOF
               echo
             } >> "$GITHUB_STEP_SUMMARY"
           fi

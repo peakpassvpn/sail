@@ -50,6 +50,9 @@ pub struct DialEnv {
     pub network: Option<crate::net::network::Network>,
     /// sail's own interfaces, its TUNs', which it never goes out of.
     pub own_interfaces: Vec<String>,
+    /// What the UDP socket of a QUIC connection asks the system to buffer
+    /// (`quic.udp_receive_buffer`, `quic.udp_send_buffer`).
+    pub quic_buffers: crate::runtime::options::UdpBuffers,
 }
 
 /// What an instance builds its dialers from: its defaults, and the
@@ -453,6 +456,16 @@ impl Dialer {
         }
     }
 
+    /// What a QUIC socket of its own asks the system to buffer; a detour
+    /// has no socket to size.
+    #[cfg(feature = "quic")]
+    pub fn quic_buffers(&self) -> crate::runtime::options::UdpBuffers {
+        match &*self.0 {
+            Kind::Socket(socket) => socket.env.quic_buffers,
+            Kind::Detour(_) => Default::default(),
+        }
+    }
+
     /// The handles it applies.
     #[cfg(test)]
     pub fn env(&self) -> &DialEnv {
@@ -605,7 +618,8 @@ impl Dialer {
                 let (socket, egress) = self.udp_out(&unspecified).await?;
                 let bound = BoundInterface::default();
                 bound.set(egress);
-                let socket = crate::transport::quic::wrap_socket(socket.into_std()?)?;
+                let socket =
+                    crate::transport::quic::wrap_socket(socket.into_std()?, self.quic_buffers())?;
                 Ok((socket, *addr, bound))
             }
             (Kind::Socket(_), SocksAddr::Domain(..)) => Err(io::Error::new(

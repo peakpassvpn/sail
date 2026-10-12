@@ -20,8 +20,9 @@ On loopback, nothing else:
   resident size (sampled every 0.2 s).
 - 3 rounds. In each, both clients run one after the other; sail first in
   odd rounds, sing-box first in even ones.
-- Several builds of sail can be compared in one run (below). Each runs in
-  every round and sing-box once; each round starts one client further on.
+- Several builds of sail can be compared in one run, or one build started
+  with different arguments (below). Each runs in every round and sing-box
+  once; each round starts one client further on.
 
 The certificate and the REALITY keys are made at each run by
 `sing-box generate`. REALITY's handshake target is a TLS inbound of the
@@ -54,10 +55,37 @@ build, with its ratios to the sing-box of the same round:
         --sail sail-mimalloc=other/sail --sing-box PATH/sing-box \
         --netgen bin/netgen --work cell-work
 
+One build serves several of them when they differ only by sail's
+arguments: `--sail-args NAME=ARGS`, once for each name that has any. ARGS is
+split as a shell splits it and appended to that one's command line, after
+the cell's own arguments; the report says who was started with what:
+
+    python3 tools/perf/desktop/run.py --sail sail=target/dist/sail \
+        --sail sail-buf7m=target/dist/sail \
+        --sail-args "sail-buf7m=--set quic.udp_receive_buffer=7168 --set quic.udp_send_buffer=7168" \
+        --sing-box PATH/sing-box --netgen bin/netgen --work cell-work
+
 On GitHub: the workflow `perf-desktop`, by hand, with `os` = `windows` (the
 default), `macos` or `both`. The tables are in the job's summary and
-`results.json` in its artifact. On Windows it compares three builds of the
-commit, all at the dist profile:
+`results.json` in its artifact. Its input `builds` says what is compared.
+
+`buffers`, the default: one build at the dist profile, started four ways,
+over Hysteria2 alone and for five rounds. sail leaves the UDP sockets of
+QUIC the system's buffers unless told otherwise, and Windows' are 64 KiB:
+
+- `sail`: as it ships, the system's buffers;
+- `sail-buf1m`: `quic.udp_receive_buffer` and `quic.udp_send_buffer` at
+  1024 KiB, as Chromium asks;
+- `sail-buf7m`: both at 7168 KiB, as sing-box's QUIC asks;
+- `sail-rcv7m`: the receive buffer alone at 7168 KiB.
+
+The summary also says what the runner gives a socket that asks for those
+sizes. The buffers are all that is varied: Windows' UDP receive offload
+(URO) is not a candidate, as it corrupts datagrams on some Windows 11
+systems.
+
+`allocators`: all three protocols; on macOS its one build, and on Windows
+three builds of the commit, all at the dist profile:
 
 - `sail`: MSVC, the system's allocator;
 - `sail-mimalloc`: the same with mimalloc, built with

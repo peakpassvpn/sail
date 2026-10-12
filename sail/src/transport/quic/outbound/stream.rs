@@ -249,6 +249,7 @@ mod tests {
         let server = endpoint(
             std::net::UdpSocket::bind("127.0.0.1:0").unwrap(),
             Some(server_config(crypto).unwrap()),
+            Default::default(),
         )
         .unwrap();
         let port = server.local_addr().unwrap().port();

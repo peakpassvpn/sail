@@ -220,7 +220,11 @@ impl DnsClient {
         )?;
         let dialer = &upstream.dialer;
         let mut endpoint = if dialer.is_direct() && dialer.detour.is_none() {
-            endpoint(bind(addr.ip(), &dialer.dial).await?, None)?
+            endpoint(
+                bind(addr.ip(), &dialer.dial).await?,
+                None,
+                dialer.dial.quic_buffers(),
+            )?
         } else {
             // QUIC over the datagrams of the detour, or of the outbound the
             // rules pick.
