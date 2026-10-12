@@ -88,8 +88,8 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 | `sniffer` | 12 | 12 | 0 | 0 |
 | `tls` | 7 | 0 | 7 | 0 |
 | `tuic-server` | 13 | 0 | 0 | 13 |
-| `tun` | 50 | 33 | 10 | 7 |
-| **All** | **2077** | **490** | **140** | **1447** |
+| `tun` | 50 | 34 | 9 | 7 |
+| **All** | **2077** | **491** | **139** | **1447** |
 
 
 ## `general`
@@ -1562,7 +1562,7 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 | `tun.disable-icmp-forwarding` | Warned | tun.disable-icmp-forwarding: sail does not implement this field; ignored |
 | `tun.dns-hijack` | Supported | tun.dns-hijack[0]: "x" names no port |
 | `tun.enable` | Supported |  |
-| `tun.endpoint-independent-nat` | Warned | tun.endpoint-independent-nat: sail does not implement this field; ignored |
+| `tun.endpoint-independent-nat` | Supported |  |
 | `tun.exclude-dst-port` | Error | tun.exclude-dst-port: sail does not implement this field yet |
 | `tun.exclude-dst-port-range` | Error | tun.exclude-dst-port-range: sail does not implement this field yet |
 | `tun.exclude-interface` | Supported |  |
