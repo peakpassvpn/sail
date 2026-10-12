@@ -83,6 +83,31 @@ pub fn manager(
     OutboundManager::new(&config.outbounds, &dial_defaults, env, dns_client)
 }
 
+/// A port that refuses connections for as long as the socket is held:
+/// bound, not listening, so no other test may take it, as one whose
+/// listener was dropped may be taken, and then answer. Handed out by
+/// `free_port`, as a server's is (see `listen`).
+///
+/// Linux refuses a connection to a port bound and not listening at once,
+/// Windows after its SYN retries, as it does a port nobody holds; macOS
+/// does not, and leaves it to time out. There the port is not held: one
+/// `free_port` hands out is taken by no other test of this process, nor
+/// given to a socket asking for no port.
+pub fn refusing_port() -> (Option<tokio::net::TcpSocket>, u16) {
+    if cfg!(target_os = "macos") {
+        return (None, crate::common::free_port());
+    }
+    // Another process may have asked for the same port.
+    for _ in 0..10 {
+        let port = crate::common::free_port();
+        let socket = tokio::net::TcpSocket::new_v4().unwrap();
+        if socket.bind(([127, 0, 0, 1], port).into()).is_ok() {
+            return (Some(socket), port);
+        }
+    }
+    panic!("no port to hold")
+}
+
 /// A `redirect` outbound to the member server on `port`.
 pub fn member(tag: &str, port: u16) -> serde_json::Value {
     serde_json::json!({
@@ -120,8 +145,7 @@ pub async fn serve_counted(
     let delay_ms = delay.clone();
     let requests = Arc::new(AtomicU64::new(0));
     let counted = requests.clone();
-    let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
-    let port = listener.local_addr().unwrap().port();
+    let (listener, port) = listen().await;
     let name = name.to_string();
     let (task, handle) = abortable(async move {
         let mut conns = AbortOnDrop(Vec::new());
@@ -177,6 +201,21 @@ pub async fn serve_counted(
         held: std::sync::Mutex::new(None),
     };
     (server, delay, port, requests)
+}
+
+/// A listener on a port `free_port` hands out, not one the system gives:
+/// the system could give a stopped server's port, freed for a moment
+/// before `Server::stop` holds it, to another test's listener, or to a
+/// connection as its source port.
+async fn listen() -> (TcpListener, u16) {
+    // Another process may have asked for the same port.
+    for _ in 0..10 {
+        let port = crate::common::free_port();
+        if let Ok(listener) = TcpListener::bind(("127.0.0.1", port)).await {
+            return (listener, port);
+        }
+    }
+    panic!("no port to listen on")
 }
 
 /// A member's server, as `serve` runs it.

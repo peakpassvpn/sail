@@ -292,14 +292,6 @@ fn tested_at(m: &sail::app::outbound::manager::OutboundManager, tag: &str) -> Op
     tested?.into_iter().find_map(|(_, t)| t.map(|t| t.at))
 }
 
-/// A port nothing listens on: a connection to it is refused.
-async fn closed_port() -> u16 {
-    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
-        .await
-        .unwrap();
-    listener.local_addr().unwrap().port()
-}
-
 fn pinned(m: &sail::app::outbound::manager::OutboundManager) -> Option<String> {
     let selector = m.get_selector("fb").unwrap();
     let fixed = selector.try_read().unwrap().fixed();
@@ -406,7 +398,7 @@ fn when_every_member_is_down_the_first_takes_the_connections() {
 #[test]
 fn failures_that_may_be_the_destinations_test_after_max_failed_times() {
     rt().block_on(async {
-        let port = closed_port().await;
+        let (_refusing, port) = refusing_port();
         let m = manager(
             json!([
                 {
