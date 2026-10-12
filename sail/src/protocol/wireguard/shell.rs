@@ -35,6 +35,12 @@ pub trait Transport: Send + Sync + 'static {
     /// Lets go of what it sends on at once, for good: a stopped endpoint's
     /// port is free again while its tasks are still being ended.
     fn close(&self) {}
+
+    /// The address it is bound to, where it is a socket of its own and
+    /// open.
+    fn local_addr(&self) -> Option<SocketAddr> {
+        None
+    }
 }
 
 #[async_trait]

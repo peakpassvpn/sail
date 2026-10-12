@@ -133,6 +133,10 @@ fn unmap(addr: SocketAddr) -> SocketAddr {
 
 #[async_trait]
 impl Transport for SocketTransport {
+    fn local_addr(&self) -> Option<SocketAddr> {
+        SocketTransport::local_addr(self).ok()
+    }
+
     async fn send_to(&self, datagram: &[u8], dst: SocketAddr) -> io::Result<()> {
         let dst = match dst {
             SocketAddr::V4(v4) if self.v6 => {

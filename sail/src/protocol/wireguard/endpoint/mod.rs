@@ -721,9 +721,7 @@ mod tests {
     use async_trait::async_trait;
 
     use super::*;
-    use crate::adapter::registry::{
-        build_outbounds_as, start_member, AnyEndpointServer, OutboundBuildState,
-    };
+    use crate::adapter::registry::{start_member, AnyEndpointServer};
     use crate::net::network::ChangeReason;
     use crate::runtime::scope::TaskScope;
 
@@ -944,98 +942,59 @@ mod tests {
     }
 
     /// A stopped member lets its port go at once, though its outbound is
-    /// still held, as a connection or a group holds it.
+    /// still held, as a connection or a group holds it. The port is the
+    /// one the member says it is bound to: a bind of the same port by the
+    /// test does not tell on Windows, where it may succeed beside it.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_stopped_member_frees_its_port() {
-        let port = std::net::UdpSocket::bind("0.0.0.0:0")
-            .unwrap()
-            .local_addr()
-            .unwrap()
-            .port();
-        let mut endpoint = options(serde_json::json!({}));
-        endpoint["type"] = "wireguard".into();
-        endpoint["tag"] = "p/wg".into();
-        endpoint["listen_port"] = port.into();
-        let config = crate::config::Config::from_json(
-            &serde_json::json!({ "endpoints": [endpoint] }).to_string(),
-        )
-        .unwrap();
-        let env = crate::runtime::RuntimeEnv::default();
-        let mut handlers = HashMap::new();
-        #[cfg(feature = "plugin")]
-        let mut external_handlers = crate::app::outbound::plugin::ExternalHandlers::new();
-        let built = build_outbounds_as(
+        let options: WireGuardOptions =
+            serde_json::from_value(options(serde_json::json!({}))).unwrap();
+        let shared = Arc::new(Shared::new(
+            "p/wg",
+            Settings::parse(&options, false).unwrap(),
+            Dialer::system(),
+            dns(),
+            Netstack::default(),
             TaskClass::Contained,
-            &crate::include::OUTBOUNDS,
-            &crate::include::ENDPOINTS,
-            &[],
-            &config.endpoints,
-            OutboundBuildState {
-                dns_client: &dns(),
-                dial_defaults: &Default::default(),
-                env: &env,
-                handlers: &mut handlers,
-                abort_handles: &mut HashMap::new(),
-                dependencies: &mut HashMap::new(),
-                endpoints: &mut HashMap::new(),
-                #[cfg(feature = "outbound-select")]
-                selectors: &mut Default::default(),
-                #[cfg(feature = "plugin")]
-                external_handlers: &mut external_handlers,
-                #[cfg(feature = "outbound-provider")]
-                providers: &mut Default::default(),
-                #[cfg(any(
-                    feature = "outbound-urltest",
-                    feature = "outbound-load-balance",
-                    feature = "outbound-fallback"
-                ))]
-                checkers: &mut HashMap::new(),
-            },
-        )
-        .unwrap();
-        assert_eq!(built.servers.len(), 1);
-        let (tag, server) = &built.servers[0];
-        assert_eq!(tag, "p/wg");
-        let outbound = handlers.remove("p/wg").unwrap();
+        ));
+        let server: AnyEndpointServer = Arc::new(Server(shared.clone()));
+        let outbound = shared.outbound();
 
         let (_instance, dispatcher, nat) = routing();
         let scope = TaskScope::default();
-        let run = start_member(server, dispatcher, nat, &scope).unwrap();
-        // Taken in either family: the member's dual-stack [::] socket does
-        // not keep a bind of 0.0.0.0 out on Windows.
-        let taken = move || {
-            [IpAddr::from([0u8; 4]), IpAddr::from([0u16; 8])]
-                .into_iter()
-                .any(|ip| match std::net::UdpSocket::bind((ip, port)) {
-                    Ok(_) => false,
-                    // A host without IPv6 has no [::] to bind.
-                    Err(e) => e.kind() != io::ErrorKind::AddrNotAvailable,
-                })
-        };
-        let free = |within: Duration| async move {
-            let deadline = tokio::time::Instant::now() + within;
-            loop {
-                if !taken() {
-                    return true;
-                }
-                if tokio::time::Instant::now() >= deadline {
-                    return false;
-                }
-                tokio::time::sleep(Duration::from_millis(5)).await;
+        let run = start_member(&server, dispatcher, nat, &scope).unwrap();
+        // Up, on a port of its own.
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+        let bound = loop {
+            let bound = shared
+                .bind
+                .lock()
+                .as_ref()
+                .and_then(|bind| bind.local_addr());
+            if let Some(bound) = bound {
+                break bound;
             }
-        };
-        // Up, on its port.
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
-        while !taken() {
             assert!(tokio::time::Instant::now() < deadline, "never bound");
             tokio::time::sleep(Duration::from_millis(5)).await;
-        }
+        };
+        assert_ne!(bound.port(), 0);
+        // Taken while it runs: its own address cannot be bound again.
+        // (Not asked of Windows, where a probe by binding did not tell.)
+        #[cfg(not(windows))]
+        assert!(std::net::UdpSocket::bind(bound).is_err());
+
         run.stop();
         let started = tokio::time::Instant::now();
-        assert!(
-            free(Duration::from_secs(1)).await,
-            "the port is still taken"
-        );
+        assert!(shared.bind.lock().is_none(), "it still holds its socket");
+        let deadline = started + Duration::from_secs(1);
+        while std::net::UdpSocket::bind(bound).is_err() {
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "port {} is still taken",
+                bound.port()
+            );
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
         eprintln!("the port was free in {:?}", started.elapsed());
         let (e, _) = dial(&outbound).await;
         assert!(e.to_string().contains("endpoint [p/wg] stopped"), "{}", e);
