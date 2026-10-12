@@ -210,7 +210,8 @@ pub(crate) fn server_name(frame: &[u8]) -> Option<String> {
     if *body.first()? != CLIENT_HELLO {
         return None;
     }
-    let len = u32::from_be_bytes([0, body[1], body[2], *body.get(3)?]) as usize;
+    let len = body.get(1..4)?;
+    let len = u32::from_be_bytes([0, len[0], len[1], len[2]]) as usize;
     let hello = body.get(4..4 + len)?;
     // The version and the random.
     let mut at = 2 + RANDOM_LEN;
@@ -374,6 +375,23 @@ mod unit_tests {
     // generateSessionID and verifyClientHello (user "b" of "other" and
     // "pw"), kdf, verifiedConn.Write and copyByFrameWithModification, on the
     // inputs the tests below give. The server random is 0, 1, .., 31.
+
+    /// A first record cut short anywhere is no ClientHello: each of the
+    /// handshake's parsers refuses it.
+    #[test]
+    fn a_hello_cut_short_is_refused_not_a_panic() {
+        assert_eq!(server_name(&[22, 3, 1, 0, 1, CLIENT_HELLO]), None);
+        assert_eq!(server_name(&[22, 3, 1, 0, 2, CLIENT_HELLO, 0]), None);
+        assert_eq!(server_name(&[22, 3, 1, 0, 3, CLIENT_HELLO, 0, 0]), None);
+        let hello = unhex(SIGNED_HELLO);
+        for cut in 0..hello.len() {
+            let cut = &hello[..cut];
+            let _ = server_name(cut);
+            let _ = authenticate(cut, [b"pw".as_slice()]);
+            let _ = server_random(cut);
+            let _ = picks_tls13(cut);
+        }
+    }
 
     /// A ClientHello record that generateSessionID signed with "pw".
     const SIGNED_HELLO: &str = "160301004f0100004c0303aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\
