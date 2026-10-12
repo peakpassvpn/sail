@@ -4,6 +4,11 @@
 //! is faster by more than `tolerance`, so that close latencies do not
 //! make it switch back and forth.
 //!
+//! A connection whose network the selected member does not carry (an
+//! outbound with sing-box's `network`), or that finds it down, goes to
+//! the fastest member that carries it, see `takes`, as sing-box's urltest
+//! selects for TCP and for UDP apart.
+//!
 //! A connection that fails has the members tested again: at once when the
 //! member's server cannot be reached, else once `max_failed_times` failed,
 //! as Mihomo's url-test does.
@@ -21,7 +26,7 @@ use tracing::debug;
 
 use super::attempt::{member_unreachable, Progress};
 use super::health::{self, Checker};
-use super::members::{Member, MemberKey, Members, Snapshot};
+use super::members::{Member, MemberKey, Members, Snapshot, Tested};
 use super::merge;
 use crate::adapter::outbound::HandlerBuilder;
 use crate::adapter::registry::{
@@ -145,6 +150,48 @@ pub(crate) fn repick(
         .map(|(m, _)| m.key.clone())
 }
 
+/// The member of `snapshot` a connection goes to, given the one
+/// `selected`, which of them carry its network, as `carries` tells, and
+/// their last checks: the one selected, while it carries it and did not
+/// fail its last test. Else, of those that carry it, the fastest that
+/// passed theirs; else the first not known to be down, one not tested
+/// being up; else, a test can be wrong and trying beats refusing, the one
+/// selected if it carries it, or the first that does. When none carries
+/// it, the one selected, whose error tells. As sing-box's urltest takes,
+/// for TCP and for UDP apart, the lowest delay among the outbounds that
+/// carry the network, else the first that does
+/// (protocol/group/urltest.go, `Select`).
+pub(crate) fn takes(
+    snapshot: &Snapshot,
+    selected: usize,
+    tested: &HashMap<MemberKey, Tested>,
+    carries: impl Fn(&AnyOutboundHandler) -> bool,
+) -> usize {
+    let latency = |m: &Member| tested.get(&m.key).map(|t| t.latency);
+    let member = &snapshot.members[selected];
+    let carried = carries(&member.handler);
+    if carried && latency(member) != Some(None) {
+        return selected;
+    }
+    let carrying: Vec<(usize, &Member)> = snapshot
+        .members
+        .iter()
+        .enumerate()
+        .filter(|(_, m)| !m.handler.is_pass() && carries(&m.handler))
+        .collect();
+    let fastest = carrying
+        .iter()
+        .filter_map(|(i, m)| latency(m).flatten().map(|l| (*i, l)))
+        .min_by_key(|(_, l)| *l)
+        .map(|(i, _)| i);
+    let not_down = || carrying.iter().find(|(_, m)| latency(m) != Some(None));
+    fastest
+        .or_else(|| not_down().map(|(i, _)| *i))
+        .or_else(|| carried.then_some(selected))
+        .or_else(|| carrying.first().map(|(i, _)| *i))
+        .unwrap_or(selected)
+}
+
 fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
     let options: UrlTestOutboundOptions = ctx.options()?;
     let merged = merge::members(ctx, &options.outbounds, &options.providers)?;
@@ -214,10 +261,14 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
                         );
                         selected.set(next.clone());
                         use crate::control::events::{GroupSwitch, SwitchReason as R};
-                        let reason = match latencies.get(at) {
+                        // One left that is not tested has no latency,
+                        // and did not fail.
+                        let reason = match snapshot.members.get(at) {
                             None => R::MembersChanged,
-                            Some(None) => R::TestFailed,
-                            Some(Some(_)) => R::Faster,
+                            Some(m) if latencies[at].is_none() && health::is_tested(&m.handler) => {
+                                R::TestFailed
+                            }
+                            Some(_) => R::Faster,
                         };
                         // TODO: the enclosing groups' tags, as the fallback's.
                         events.group_switched(GroupSwitch::new(
@@ -313,25 +364,45 @@ struct Group {
 impl Group {
     /// The member of `snapshot` for a new connection, which is also a use
     /// of the group, and, for `interrupt_exist_connections`, the
-    /// selection it went by.
-    fn pick<'s>(&self, snapshot: &'s Snapshot) -> io::Result<(&'s Member, Option<MemberKey>)> {
+    /// selection it went by: the member selected, or, when that one does
+    /// not carry the connection's network, as `carries` tells, or is
+    /// down, another that does, see `takes`. A connection through another
+    /// than the one selected ends as the others do, once the selection
+    /// moves.
+    fn pick<'s>(
+        &self,
+        snapshot: &'s Snapshot,
+        carries: impl Fn(&AnyOutboundHandler) -> bool,
+    ) -> io::Result<(&'s Member, Option<MemberKey>)> {
         self.checker.used();
-        let (i, by) = self
+        let (selected, by) = self
             .selected
             .pick(snapshot)
             .ok_or_else(|| io::Error::other("no outbound to select"))?;
         let by = self.interrupt.as_ref().map(|_| MemberKey::clone(&by));
+        let i = self
+            .checker
+            .latencies()
+            .read(|tested| takes(snapshot, selected, tested, carries));
         Ok((&snapshot.members[i], by))
     }
 
-    /// A connection through the selected member that failed, at the
-    /// stage `progress` tells, is reason to test again rather than wait
-    /// out the interval: at once if the member's server cannot be
-    /// reached, as Mihomo tests at once after a refusal; else once enough
-    /// failed, see `Checker::failed`.
-    fn failed<T>(&self, result: io::Result<T>, progress: &Progress) -> io::Result<T> {
+    /// A connection through `member` that failed, at the stage `progress`
+    /// tells, is reason to test again rather than wait out the interval:
+    /// at once if the member's server cannot be reached, as Mihomo tests
+    /// at once after a refusal; else once enough failed, see
+    /// `Checker::failed`. Not through a member that is not tested, see
+    /// `health::is_tested`: the tests would say nothing of it, and each
+    /// of its failures would run them again.
+    fn failed<T>(
+        &self,
+        member: &Member,
+        result: io::Result<T>,
+        progress: &Progress,
+    ) -> io::Result<T> {
         match &result {
             Ok(_) => self.checker.succeeded(),
+            Err(_) if !health::is_tested(&member.handler) => {}
             Err(e) if member_unreachable(progress.get(), e.kind()) => self.checker.retest(),
             Err(_) => self.checker.failed(),
         }
@@ -360,13 +431,14 @@ impl OutboundStreamHandler for Group {
         _stream: Option<AnyStream>,
     ) -> io::Result<AnyStream> {
         let snapshot = self.members.load();
-        let (member, by) = self.pick(&snapshot)?;
+        let (member, by) = self.pick(&snapshot, |m| m.stream().is_ok())?;
         let a = &member.handler;
         debug!("urltest handles [{}] to [{}]", sess.destination, a.tag());
         let progress = Progress::default();
         // In the chain before it is dialled: a failure names it.
         sess.chain.push(&member.key.name);
         let stream = self.failed(
+            member,
             async {
                 let connect = a.stream()?.connect_addr();
                 progress.dialing(&connect);
@@ -409,13 +481,14 @@ impl OutboundDatagramHandler for Group {
         _transport: Option<AnyOutboundTransport>,
     ) -> io::Result<AnyOutboundDatagram> {
         let snapshot = self.members.load();
-        let (member, by) = self.pick(&snapshot)?;
+        let (member, by) = self.pick(&snapshot, |m| m.datagram().is_ok())?;
         let a = &member.handler;
         debug!("urltest handles [{}] to [{}]", sess.destination, a.tag());
         let progress = Progress::default();
         // In the chain before it is dialled: a failure names it.
         sess.chain.push(&member.key.name);
         let datagram = self.failed(
+            member,
             async {
                 let connect = a.datagram()?.connect_addr();
                 progress.dialing(&connect);
@@ -476,6 +549,167 @@ mod tests {
     #[test]
     fn nothing_changes_when_every_member_failed() {
         assert_eq!(choose(1, &[None, None], Duration::ZERO), None);
+    }
+
+    /// A urltest of `members`, on the first, whose rounds are fed by hand.
+    fn group(members: Vec<Member>) -> Group {
+        let first = members[0].key.clone();
+        let members = Members::of(members);
+        let selected = Arc::new(Selection::new(&first.name, first.clone()));
+        let on_tested: health::OnTested = Box::new({
+            let selected = selected.clone();
+            move |_: &Checker, snapshot: &Snapshot, latencies: &[Option<Duration>]| {
+                let at = snapshot.position(&selected.get()).unwrap();
+                if let Some(next) = choose(at, latencies, Duration::ZERO) {
+                    selected.set(snapshot.members[next].key.clone());
+                }
+            }
+        });
+        Group {
+            checker: health::tests::checker(members.clone(), Default::default(), on_tested),
+            members,
+            selected,
+            dns_client: health::tests::dns(),
+            interrupt: None,
+        }
+    }
+
+    /// The members a TCP and a UDP connection through `group` go to.
+    fn goes(group: &Group) -> (String, String) {
+        let snapshot = group.members.load();
+        let to = |carries: fn(&AnyOutboundHandler) -> bool| {
+            let (member, _) = group.pick(&snapshot, carries).unwrap();
+            member.key.name.to_string()
+        };
+        (to(|m| m.stream().is_ok()), to(|m| m.datagram().is_ok()))
+    }
+
+    #[tokio::test]
+    async fn a_member_that_carries_udp_alone_takes_udp_once_the_selected_one_is_down() {
+        use crate::protocol::group::members::tests::{member, one};
+        let group = group(vec![member(None, "a"), one("u", false)]);
+        let both = |a: &str, b: &str| (a.to_string(), b.to_string());
+        assert_eq!(goes(&group), both("a", "a"));
+        // [u] is not tested: [a], selected and up, takes both.
+        group.checker.round(&[ms(20), None]);
+        assert_eq!(goes(&group), both("a", "a"));
+        // [a] down, it is still the one selected, and takes TCP as it
+        // did; UDP goes to the member that carries it and is not down.
+        for _ in 0..3 {
+            group.checker.round(&[None, None]);
+            assert_eq!(group.selected.get().name.as_ref(), "a");
+            assert_eq!(goes(&group), both("a", "u"));
+        }
+    }
+
+    #[tokio::test]
+    async fn a_connection_the_selected_member_does_not_carry_goes_to_the_fastest_that_does() {
+        use crate::protocol::group::members::tests::{member, one};
+        let group = group(vec![
+            one("t", true),
+            one("u", false),
+            member(None, "b"),
+            member(None, "c"),
+        ]);
+        let both = |a: &str, b: &str| (a.to_string(), b.to_string());
+        // Before the tests, the first that carries it.
+        assert_eq!(goes(&group), both("t", "u"));
+        // [t], the fastest, is selected, and carries TCP alone: UDP goes
+        // to the fastest that passed, of those that carry it.
+        group.checker.round(&[ms(10), None, ms(90), ms(30)]);
+        assert_eq!(group.selected.get().name.as_ref(), "t");
+        assert_eq!(goes(&group), both("t", "c"));
+        group.checker.round(&[ms(10), None, ms(30), ms(90)]);
+        assert_eq!(goes(&group), both("t", "b"));
+        // None passed: the one not tested, which is not down.
+        group.checker.round(&[ms(10), None, None, None]);
+        assert_eq!(goes(&group), both("t", "u"));
+        // The member selected carries UDP: it takes both.
+        group.checker.round(&[ms(50), None, ms(20), None]);
+        assert_eq!(group.selected.get().name.as_ref(), "b");
+        assert_eq!(goes(&group), both("b", "b"));
+    }
+
+    #[test]
+    fn when_every_member_is_down_the_selected_one_is_still_tried() {
+        use crate::protocol::group::members::tests::{member, one, outbounds};
+        let members = outbounds(&[]);
+        members.publish(vec![one("t", true), member(None, "b"), member(None, "c")]);
+        let snapshot = members.load();
+        let at = std::time::SystemTime::now();
+        let tested = |latencies: [Option<Duration>; 3]| -> HashMap<MemberKey, Tested> {
+            snapshot
+                .members
+                .iter()
+                .zip(latencies)
+                .map(|(m, latency)| (m.key.clone(), Tested { latency, at }))
+                .collect()
+        };
+        let tcp = |m: &AnyOutboundHandler| m.stream().is_ok();
+        let udp = |m: &AnyOutboundHandler| m.datagram().is_ok();
+        let down = tested([None, None, None]);
+        // As it was: the one selected, down as every member is.
+        assert_eq!(takes(&snapshot, 2, &down, tcp), 2);
+        assert_eq!(takes(&snapshot, 2, &down, udp), 2);
+        // It does not carry the network: the first that does.
+        assert_eq!(takes(&snapshot, 0, &down, udp), 1);
+        // Down, it is left for one that passed, or was not tested yet.
+        assert_eq!(takes(&snapshot, 1, &tested([None, None, ms(9)]), udp), 2);
+        let untested: HashMap<_, _> = tested([None, None, None])
+            .into_iter()
+            .filter(|(key, _)| &*key.name != "c")
+            .collect();
+        assert_eq!(takes(&snapshot, 1, &untested, tcp), 2);
+        // No member carries it: the one selected, whose error tells.
+        assert_eq!(takes(&snapshot, 1, &down, |_| false), 1);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_failure_through_a_member_not_tested_asks_for_no_tests() {
+        use crate::protocol::group::members::tests::{member, one};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let members = Members::of(vec![member(None, "a"), one("u", false)]);
+        let rounds = Arc::new(AtomicUsize::new(0));
+        let checker = health::tests::running(
+            members.clone(),
+            Box::new({
+                let rounds = rounds.clone();
+                move |_, _, _| {
+                    rounds.fetch_add(1, Ordering::Relaxed);
+                }
+            }),
+        );
+        let group = Group {
+            checker,
+            members: members.clone(),
+            selected: Arc::new(Selection::new("a", MemberKey::outbound("a"))),
+            dns_client: health::tests::dns(),
+            interrupt: None,
+        };
+        tokio::time::sleep(Duration::from_secs(10)).await;
+        assert_eq!(rounds.load(Ordering::Relaxed), 1);
+        let snapshot = members.load();
+        let refused = || -> io::Result<()> { Err(io::ErrorKind::ConnectionRefused.into()) };
+        let dialer = crate::net::DialDefaults::default()
+            .dialer(&Default::default(), None)
+            .unwrap();
+        let progress = Progress::default();
+        progress.dialing(&OutboundConnect::Proxy(
+            crate::session::Network::Udp,
+            "server.test".into(),
+            443,
+            dialer,
+        ));
+        // Through [u], which the tests say nothing of.
+        for _ in 0..20 {
+            let _ = group.failed(&snapshot.members[1], refused(), &progress);
+        }
+        tokio::time::sleep(Duration::from_secs(10)).await;
+        assert_eq!(rounds.load(Ordering::Relaxed), 1);
+        // Through [a], whose server cannot be reached: tested at once.
+        let _ = group.failed(&snapshot.members[0], refused(), &progress);
+        tokio::time::sleep(Duration::from_secs(10)).await;
+        assert_eq!(rounds.load(Ordering::Relaxed), 2);
     }
 
     #[test]

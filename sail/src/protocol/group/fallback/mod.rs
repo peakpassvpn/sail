@@ -13,6 +13,10 @@
 //! back up. Other failures are counted, and the members tested again after
 //! `max_failed_times` of them, as Mihomo does.
 //!
+//! A connection is tried through the members that carry its network only:
+//! one that carries TCP alone, or UDP alone (an outbound with sing-box's
+//! `network`), is passed over for the other, selected or not.
+//!
 //! It can be pinned to a member by hand, through the API, as Mihomo's
 //! can: it goes there while that member is up, and is unpinned once it is
 //! down; the pin is kept across restarts in the cache file.
@@ -528,19 +532,27 @@ fn kept_pin(tag: &str, cache_file: Option<&CacheFile>) -> Option<Arc<str>> {
     }
 }
 
-/// The members a connection is tried through, in turn: the one selected,
-/// then the others that are up in the order configured, or, when none is,
-/// all of them, since a test can be wrong and trying beats refusing.
+/// The members a connection is tried through, in turn, of those that
+/// carry its network, as `carries` tells: the one selected, then the
+/// others that are up in the order configured, or, when none is, all of
+/// them, since a test can be wrong and trying beats refusing. When no
+/// member carries it, the one selected, whose error tells.
 pub(crate) fn candidates(
     selected: usize,
     members: usize,
+    carries: impl Fn(usize) -> bool,
     is_up: impl Fn(usize) -> bool,
 ) -> Vec<usize> {
-    let any_up = (0..members).any(&is_up);
-    std::iter::once(selected)
+    let any_up = (0..members).any(|i| carries(i) && is_up(i));
+    let order: Vec<usize> = std::iter::once(selected)
         .chain((0..members).filter(|&i| i != selected && (!any_up || is_up(i))))
+        .filter(|&i| carries(i))
         .take(MAX_ATTEMPTS)
-        .collect()
+        .collect();
+    match order.is_empty() {
+        true => vec![selected],
+        false => order,
+    }
 }
 
 /// The time a member but the last one tried has to connect: the
@@ -727,8 +739,8 @@ struct Group {
 
 impl Group {
     /// Connects through the members of `snapshot` in turn, see
-    /// `candidates`, until one connects; returns which, and what it
-    /// connected. Every member but the last one tried has `dial_timeout`
+    /// `candidates`, of those that carry its network, as `carries` tells,
+    /// until one connects; returns which, and what it connected. Every member but the last one tried has `dial_timeout`
     /// to connect. `connect` tells how far it got, see `Progress`. Each
     /// member is in the session's chain while it is tried, and its
     /// failure told (`tell::Attempt`).
@@ -736,6 +748,7 @@ impl Group {
         &'a self,
         sess: &'a Session,
         snapshot: &'a Snapshot,
+        carries: impl Fn(&AnyOutboundHandler) -> bool,
         connect: F,
     ) -> io::Result<(&'a MemberKey, T)>
     where
@@ -746,10 +759,15 @@ impl Group {
         let Some((selected, _)) = self.selected.pick(snapshot) else {
             return Err(io::Error::other("no outbound to try"));
         };
-        let order = candidates(selected, snapshot.members.len(), |i| {
-            let member = &snapshot.members[i];
-            !member.handler.is_pass() && self.checker.is_up(&member.key)
-        });
+        let order = candidates(
+            selected,
+            snapshot.members.len(),
+            |i| carries(&snapshot.members[i].handler),
+            |i| {
+                let member = &snapshot.members[i];
+                !member.handler.is_pass() && self.checker.is_up(&member.key)
+            },
+        );
         let mut last_error = None;
         for (n, &i) in order.iter().enumerate() {
             let a = &snapshot.members[i].handler;
@@ -795,15 +813,18 @@ impl Group {
                     // next connection goes elsewhere, the tests asked to
                     // bring it back; other failures, which may be the
                     // destination's, are counted, and enough have the
-                    // members tested.
+                    // members tested. Not for a member that is not tested,
+                    // see `health::is_tested`: no test would bring it back
+                    // up, nor say more of it.
                     let key = &snapshot.members[i].key;
-                    if member_unreachable(progress.get(), e.kind()) {
+                    let tested = health::is_tested(a);
+                    if tested && member_unreachable(progress.get(), e.kind()) {
                         if self.checker.mark_down(key) {
                             let why = format!("a connection through [{}] failed: {}", key.name, e);
                             self.choosing
                                 .settle(&self.checker, snapshot, Cause::Failed(why));
                         }
-                    } else {
+                    } else if tested {
                         self.checker.failed();
                     }
                     last_error = Some(e);
@@ -845,18 +866,24 @@ impl OutboundStreamHandler for Group {
     ) -> io::Result<AnyStream> {
         let snapshot = self.members.load();
         let (member, stream) = self
-            .connect(sess, &snapshot, |a, progress| async move {
-                let connect = a.stream()?.connect_addr();
-                progress.dialing(&connect);
-                let at = dial_domain::session(sess, a, &connect);
-                let result = async {
-                    let stream = connect_stream_outbound(&at, self.dns_client.clone(), a).await?;
-                    progress.dialled();
-                    a.stream()?.handle(&at, None, stream).await
-                }
-                .await;
-                dial_domain::stream_done(&at, result)
-            })
+            .connect(
+                sess,
+                &snapshot,
+                |a| a.stream().is_ok(),
+                |a, progress| async move {
+                    let connect = a.stream()?.connect_addr();
+                    progress.dialing(&connect);
+                    let at = dial_domain::session(sess, a, &connect);
+                    let result = async {
+                        let stream =
+                            connect_stream_outbound(&at, self.dns_client.clone(), a).await?;
+                        progress.dialled();
+                        a.stream()?.handle(&at, None, stream).await
+                    }
+                    .await;
+                    dial_domain::stream_done(&at, result)
+                },
+            )
             .await?;
         Ok(match self.interrupt(member) {
             Some(selection) => super::interrupt::stream(stream, selection, member.clone()),
@@ -882,19 +909,24 @@ impl OutboundDatagramHandler for Group {
     ) -> io::Result<AnyOutboundDatagram> {
         let snapshot = self.members.load();
         let (member, datagram) = self
-            .connect(sess, &snapshot, |a, progress| async move {
-                let connect = a.datagram()?.connect_addr();
-                progress.dialing(&connect);
-                let at = dial_domain::session(sess, a, &connect);
-                let result = async {
-                    let transport =
-                        connect_datagram_outbound(&at, self.dns_client.clone(), a).await?;
-                    progress.dialled();
-                    a.datagram()?.handle(&at, transport).await
-                }
-                .await;
-                dial_domain::datagram_done(sess, &at, result)
-            })
+            .connect(
+                sess,
+                &snapshot,
+                |a| a.datagram().is_ok(),
+                |a, progress| async move {
+                    let connect = a.datagram()?.connect_addr();
+                    progress.dialing(&connect);
+                    let at = dial_domain::session(sess, a, &connect);
+                    let result = async {
+                        let transport =
+                            connect_datagram_outbound(&at, self.dns_client.clone(), a).await?;
+                        progress.dialled();
+                        a.datagram()?.handle(&at, transport).await
+                    }
+                    .await;
+                    dial_domain::datagram_done(sess, &at, result)
+                },
+            )
             .await?;
         Ok(match self.interrupt(member) {
             Some(selection) => super::interrupt::datagram(datagram, selection, member.clone()),
@@ -952,18 +984,32 @@ mod tests {
 
     #[test]
     fn a_connection_falls_back_to_the_next_members_up_in_order() {
-        assert_eq!(candidates(0, 4, |_| true), [0, 1, 2]);
-        assert_eq!(candidates(1, 4, |i| i != 0), [1, 2, 3]);
-        assert_eq!(candidates(1, 4, |i| i == 1 || i == 3), [1, 3]);
+        let all = |_| true;
+        assert_eq!(candidates(0, 4, all, |_| true), [0, 1, 2]);
+        assert_eq!(candidates(1, 4, all, |i| i != 0), [1, 2, 3]);
+        assert_eq!(candidates(1, 4, all, |i| i == 1 || i == 3), [1, 3]);
         // The selected member is tried first even if a test since failed
         // it: the selection moves after the round, or a failure.
-        assert_eq!(candidates(0, 3, |i| i == 2), [0, 2]);
+        assert_eq!(candidates(0, 3, all, |i| i == 2), [0, 2]);
+    }
+
+    #[test]
+    fn a_connection_is_tried_through_the_members_that_carry_its_network() {
+        // The one selected does not: the next up that does, and each of
+        // those is one of the few tried.
+        assert_eq!(candidates(0, 5, |i| i != 0, |_| true), [1, 2, 3]);
+        assert_eq!(candidates(0, 5, |i| i >= 3, |_| true), [3, 4]);
+        assert_eq!(candidates(2, 5, |i| i % 2 == 1, |i| i != 1), [3]);
+        // None of those that do is up: each of them is tried.
+        assert_eq!(candidates(0, 4, |i| i >= 2, |i| i < 2), [2, 3]);
+        // None does: the one selected, whose error tells.
+        assert_eq!(candidates(1, 3, |_| false, |_| true), [1]);
     }
 
     #[test]
     fn when_every_member_is_down_each_is_tried_in_order() {
-        assert_eq!(candidates(1, 3, |_| false), [1, 0, 2]);
-        assert_eq!(candidates(0, 5, |_| false), [0, 1, 2]);
+        assert_eq!(candidates(1, 3, |_| true, |_| false), [1, 0, 2]);
+        assert_eq!(candidates(0, 5, |_| true, |_| false), [0, 1, 2]);
     }
 
     #[test]
@@ -992,8 +1038,21 @@ mod tests {
 
     impl Harness {
         fn new(fail_after: u32, recover_after: u32, min_dwell: Duration) -> Self {
-            let members = crate::protocol::group::members::tests::outbounds(&["a", "b", "c"]);
-            let selected = Arc::new(Selection::new("a", MemberKey::outbound("a")));
+            use crate::protocol::group::members::tests::member;
+            let members = ["a", "b", "c"].map(|name| member(None, name));
+            Self::of(members.into(), fail_after, recover_after, min_dwell)
+        }
+
+        /// One of `members`, on the first.
+        fn of(
+            members: Vec<crate::protocol::group::members::Member>,
+            fail_after: u32,
+            recover_after: u32,
+            min_dwell: Duration,
+        ) -> Self {
+            let first = members[0].key.clone();
+            let members = Members::of(members);
+            let selected = Arc::new(Selection::new(&first.name, first.clone()));
             let choosing = Arc::new(Choosing::new(
                 "fb",
                 selected.clone(),
@@ -1180,19 +1239,24 @@ mod tests {
         let snapshot = group.members.load();
         let start = Instant::now();
         let (member, reached) = group
-            .connect(&sess, &snapshot, |a, progress| {
-                let server = server.clone();
-                async move {
-                    progress.dialing(&server);
-                    if a.tag() == "a" {
-                        if handshake {
-                            progress.dialled();
+            .connect(
+                &sess,
+                &snapshot,
+                |_| true,
+                |a, progress| {
+                    let server = server.clone();
+                    async move {
+                        progress.dialing(&server);
+                        if a.tag() == "a" {
+                            if handshake {
+                                progress.dialled();
+                            }
+                            std::future::pending::<()>().await;
                         }
-                        std::future::pending::<()>().await;
+                        Ok(a.tag().to_string())
                     }
-                    Ok(a.tag().to_string())
-                }
-            })
+                },
+            )
             .await
             .unwrap();
         assert_eq!(member.name.as_ref(), reached);
@@ -1232,6 +1296,91 @@ mod tests {
         // It may be the destination's doing: [a] stays up, and chosen.
         assert!(h.checker.is_up(&MemberKey::outbound("a")));
         assert_eq!(h.on(), "a");
+    }
+
+    /// A connection of the network `carries` tells through `group`, each
+    /// member in `refuse` refusing the dial of its server: what it
+    /// reached.
+    async fn reaches(
+        group: &Group,
+        carries: fn(&AnyOutboundHandler) -> bool,
+        refuse: &[&str],
+    ) -> io::Result<String> {
+        let dialer = crate::net::DialDefaults::default()
+            .dialer(&Default::default(), None)
+            .unwrap();
+        let server = OutboundConnect::Proxy(
+            crate::session::Network::Tcp,
+            "server.test".into(),
+            443,
+            dialer,
+        );
+        let sess = Session::default();
+        let snapshot = group.members.load();
+        let (_, reached) = group
+            .connect(&sess, &snapshot, carries, |a, progress| {
+                let server = server.clone();
+                async move {
+                    progress.dialing(&server);
+                    match refuse.contains(&a.tag().as_str()) {
+                        true => Err(io::ErrorKind::ConnectionRefused.into()),
+                        false => Ok(a.tag().to_string()),
+                    }
+                }
+            })
+            .await?;
+        Ok(reached)
+    }
+
+    fn tcp(member: &AnyOutboundHandler) -> bool {
+        member.stream().is_ok()
+    }
+
+    fn udp(member: &AnyOutboundHandler) -> bool {
+        member.datagram().is_ok()
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_member_that_does_not_carry_the_network_is_passed_over() {
+        use crate::protocol::group::members::tests::{member, one};
+        let members = vec![
+            one("t1", true),
+            one("t2", true),
+            one("t3", true),
+            member(None, "b"),
+        ];
+        let h = Harness::of(members, 1, 1, Duration::ZERO);
+        let group = h.group(health::DEFAULT_TIMEOUT);
+        assert_eq!(h.round(&[PASS, PASS, PASS, PASS]), "t1");
+        assert_eq!(reaches(&group, tcp, &[]).await.unwrap(), "t1");
+        // Past more of them than a connection is tried through, none
+        // counting as tried.
+        assert_eq!(reaches(&group, udp, &[]).await.unwrap(), "b");
+        assert_eq!(h.on(), "t1");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_member_that_carries_udp_alone_stays_up_and_takes_udp() {
+        use crate::protocol::group::members::tests::{member, one};
+        let members = vec![one("u", false), member(None, "b"), member(None, "c")];
+        let h = Harness::of(members, 1, 1, Duration::ZERO);
+        let group = h.group(health::DEFAULT_TIMEOUT);
+        let u = MemberKey::outbound("u");
+        // Its tests say nothing of it: it is up, and comes first.
+        for _ in 0..3 {
+            assert_eq!(h.round(&[FAIL, PASS, PASS]), "u");
+        }
+        assert!(h.checker.is_up(&u));
+        assert_eq!(reaches(&group, udp, &[]).await.unwrap(), "u");
+        assert_eq!(reaches(&group, tcp, &[]).await.unwrap(), "b");
+        // Its server refuses: the connection falls back, and it is not
+        // marked down, which no test would bring it back from.
+        assert_eq!(reaches(&group, udp, &["u"]).await.unwrap(), "b");
+        assert!(h.checker.is_up(&u));
+        assert_eq!(h.on(), "u");
+        // As one that is tested is.
+        assert_eq!(reaches(&group, tcp, &["b"]).await.unwrap(), "c");
+        assert!(!h.checker.is_up(&MemberKey::outbound("b")));
     }
 
     #[test]

@@ -164,6 +164,17 @@ where
     (results, latency)
 }
 
+/// Whether the rounds test `member`. Their tests are HTTP requests, which
+/// go over a member's stream, so they say nothing of one that carries
+/// none, UDP alone, as an outbound with sing-box's `network: udp`: it is
+/// not tested. It has no last check and no standing, as a member not
+/// tested yet, and so is up; and a connection that fails through it asks
+/// for no tests, which would not tell more. A `pass` outbound is down
+/// instead, see `Checker::test`.
+pub(crate) fn is_tested(member: &AnyOutboundHandler) -> bool {
+    member.is_pass() || member.stream().is_ok()
+}
+
 /// How many rounds in a row turn a member's standing, a fallback's
 /// `debounce`: `fail_after` failed rounds take a member that is up down,
 /// `recover_after` passed ones bring one that is down back up. One and
@@ -227,7 +238,8 @@ impl Standing {
 }
 
 /// Called after every round of tests with the checker, the members tested
-/// and their latencies, in the same order.
+/// and their latencies, in the same order; none for a member that failed,
+/// and for one that is not tested, see `is_tested`.
 pub type OnTested = Box<dyn Fn(&Checker, &Snapshot, &[Option<Duration>]) + Send + Sync>;
 
 pub struct Checker {
@@ -252,12 +264,13 @@ pub struct Checker {
     /// Tests pause once the group has not been used for this long, and
     /// resume, at once, when it is used again.
     idle: Option<Duration>,
-    /// A member is taken to be up until it is tested.
+    /// A member is taken to be up until it is tested; one that is not
+    /// tested, see `is_tested`, has none.
     latencies: MemberLatencies,
     /// How many rounds in a row turn a member's standing.
     debounce: Debounce,
     /// The members' standings, as their rounds turn them; a member missing
-    /// was not tested yet, and is up.
+    /// was not tested yet, or is not tested, and is up.
     standings: Mutex<HashMap<MemberKey, Standing>>,
     /// Held through a round: one asked for through the API waits for the
     /// one under way, rather than running beside it.
@@ -423,7 +436,8 @@ impl Checker {
     }
 
     /// Whether `member` stands up, as its rounds of tests have it, see
-    /// `Debounce`, or was not tested yet. With the default debounce, as
+    /// `Debounce`, or was not tested yet, or is not tested, see
+    /// `is_tested`. With the default debounce, as
     /// load-balance and urltest have it, whether it passed its last test.
     /// A `pass` outbound is never up, see `Snapshot::first_up`; this goes
     /// by the tests only.
@@ -475,7 +489,8 @@ impl Checker {
     /// itself cannot be reached: it is down from now until rounds of tests
     /// that begin after this pass it, `recover_after` in a row, which are
     /// asked for. `fail_after` does not apply: such a failure is evidence
-    /// enough. True if it was up.
+    /// enough. True if it was up. Not for a member that is not tested, see
+    /// `is_tested`, which no round would bring back.
     #[cfg(feature = "outbound-fallback")]
     pub fn mark_down(&self, member: &MemberKey) -> bool {
         let at = SystemTime::now();
@@ -507,7 +522,8 @@ impl Checker {
     /// A test of `member` made elsewhere, through the API, ended at `at`:
     /// it counts as the member's last check, and as a round toward its
     /// standing, and, once every member was checked, the group chooses
-    /// again, as after a round.
+    /// again, as after a round. One of a member the group does not test,
+    /// see `is_tested`, says nothing of it, and is dropped.
     ///
     /// It never awaits and never takes the selector's `RwLock`; it may set
     /// the `Selection`, whose own lock is separate. The API calls it under
@@ -515,7 +531,10 @@ impl Checker {
     #[cfg(any(feature = "outbound-urltest", feature = "outbound-fallback"))]
     pub fn record(&self, member: &MemberKey, latency: Option<Duration>, at: SystemTime) {
         let snapshot = self.members.load();
-        if snapshot.position(member).is_none() {
+        let tested = snapshot
+            .position(member)
+            .is_some_and(|i| is_tested(&snapshot.members[i].handler));
+        if !tested {
             return;
         }
         Self::count(
@@ -532,7 +551,10 @@ impl Checker {
             snapshot
                 .members
                 .iter()
-                .map(|m| tested.get(&m.key).map(|t| t.latency))
+                .map(|m| match is_tested(&m.handler) {
+                    true => tested.get(&m.key).map(|t| t.latency),
+                    false => Some(None),
+                })
                 .collect()
         });
         if let Some(latencies) = latencies {
@@ -656,9 +678,10 @@ impl Checker {
 
     /// Tests `member` at every URL at once; its latency, none if it
     /// failed. A pass outbound fails any connection: it is down, and not
-    /// tested.
+    /// tested. Nor is a member that carries no stream, see `is_tested`,
+    /// which the round then leaves as it was.
     async fn test(&self, member: &AnyOutboundHandler) -> Option<Duration> {
-        if member.is_pass() {
+        if member.is_pass() || !is_tested(member) {
             return None;
         }
         let probes = &self.probes.probes;
@@ -685,7 +708,8 @@ impl Checker {
 
     /// Ends a round of tests of `snapshot` begun at `started`: records
     /// its `latencies`, counts them toward the members' standings, and
-    /// has the group choose.
+    /// has the group choose. A member that is not tested, see `is_tested`,
+    /// has no latency, and neither a check recorded nor a standing.
     fn round_ended(
         &self,
         snapshot: Arc<Snapshot>,
@@ -703,6 +727,7 @@ impl Checker {
                 .iter()
                 .zip(latencies)
                 .map(|(m, l)| match tested.get(&m.key) {
+                    _ if !is_tested(&m.handler) => None,
                     Some(t) if t.latency.is_none() && t.at >= started => None,
                     _ => l,
                 })
@@ -717,16 +742,21 @@ impl Checker {
                 .zip(&latencies)
                 .map(|(m, l)| match l {
                     Some(l) => format!("{}({}ms)", m.key.name, l.as_millis()),
-                    None => format!("{}(failed)", m.key.name),
+                    None if is_tested(&m.handler) => format!("{}(failed)", m.key.name),
+                    None => format!("{}(not tested)", m.key.name),
                 })
                 .collect::<Vec<_>>()
                 .join(" ")
         );
         {
-            // Those of members since gone are dropped, as their latencies.
+            // Those of members since gone are dropped, as their latencies,
+            // and those of members no longer tested.
             let mut standings = self.standings.lock().unwrap_or_else(|e| e.into_inner());
             let mut before = std::mem::take(&mut *standings);
             for (m, l) in snapshot.members.iter().zip(&latencies) {
+                if !is_tested(&m.handler) {
+                    continue;
+                }
                 if let Some(standing) = before.remove(&m.key) {
                     standings.insert(m.key.clone(), standing);
                 }
@@ -748,7 +778,12 @@ impl Checker {
     /// ended with `latencies`, for the members as they are now.
     #[cfg(test)]
     #[cfg_attr(
-        not(any(feature = "outbound-fallback", feature = "outbound-direct")),
+        not(any(
+            feature = "outbound-fallback",
+            feature = "outbound-urltest",
+            feature = "outbound-load-balance",
+            feature = "outbound-direct"
+        )),
         allow(dead_code)
     )]
     pub(crate) fn round(&self, latencies: &[Option<Duration>]) {
@@ -799,7 +834,8 @@ impl crate::app::outbound::selector::GroupChecks for Checker {
 }
 
 /// The latencies of a round of tests of `snapshot`, ended at `at`, by
-/// member: those of members since gone are dropped.
+/// member: those of members since gone are dropped, and a member that is
+/// not tested, see `is_tested`, has none.
 fn measured(
     snapshot: &Snapshot,
     latencies: &[Option<Duration>],
@@ -809,6 +845,7 @@ fn measured(
         .members
         .iter()
         .zip(latencies)
+        .filter(|(m, _)| is_tested(&m.handler))
         .map(|(m, l)| (m.key.clone(), Tested { latency: *l, at }))
         .collect()
 }
@@ -886,6 +923,61 @@ pub(crate) mod tests {
         assert!(is_up(&latencies, &MemberKey::outbound("c")));
     }
 
+    /// A member that carries UDP alone, which the tests' requests cannot
+    /// go through: the rounds leave it not tested, and so up.
+    #[cfg(feature = "outbound-fallback")]
+    #[tokio::test]
+    async fn a_member_that_carries_no_stream_is_not_tested_and_stays_up() {
+        use crate::protocol::group::members::tests::one;
+        let ms = Some(Duration::from_millis(10));
+        let members = outbounds(&[]);
+        members.publish(vec![member(None, "a"), one("u", false)]);
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let checker = checker(
+            members.clone(),
+            Debounce {
+                fail_after: 2,
+                recover_after: 3,
+            },
+            Box::new({
+                let seen = seen.clone();
+                move |_: &Checker, _: &Snapshot, latencies: &[Option<Duration>]| {
+                    seen.lock().unwrap().push(latencies.to_vec())
+                }
+            }),
+        );
+        let (a, u) = (MemberKey::outbound("a"), MemberKey::outbound("u"));
+        assert!(is_tested(&members.load().members[0].handler));
+        assert!(!is_tested(&members.load().members[1].handler));
+        for _ in 0..4 {
+            // Its test gives nothing, whatever a round is told of it.
+            checker.round(&[ms, None]);
+            checker.round(&[None, ms]);
+            assert!(checker.is_up(&u) && checker.passed(&u));
+            assert_eq!(checker.standing(&u), None);
+            assert_eq!(checker.latencies().get(&u), None);
+        }
+        assert!(!checker.passed(&a));
+        assert_eq!(*seen.lock().unwrap().last().unwrap(), [None, None]);
+        // A test of it through the API says nothing either, and does not
+        // keep the group from choosing once the others were checked.
+        let rounds = seen.lock().unwrap().len();
+        checker.record(&u, None, SystemTime::now());
+        assert!(checker.is_up(&u) && checker.standing(&u).is_none());
+        assert_eq!(seen.lock().unwrap().len(), rounds);
+        checker.record(&a, ms, SystemTime::now());
+        assert_eq!(*seen.lock().unwrap().last().unwrap(), [ms, None]);
+        // Once it carries a stream, under the same name, it is tested.
+        members.publish(vec![member(None, "a"), member(None, "u")]);
+        checker.round(&[ms, None]);
+        assert!(!checker.passed(&u));
+        // And its check and standing go when it no longer does.
+        members.publish(vec![member(None, "a"), one("u", false)]);
+        checker.round(&[ms, None]);
+        assert!(checker.is_up(&u) && checker.passed(&u));
+        assert_eq!(checker.standing(&u), None);
+    }
+
     #[test]
     fn failures_count_within_the_window_of_the_first() {
         let window = Duration::from_secs(5);
@@ -913,7 +1005,6 @@ pub(crate) mod tests {
 
     /// A checker of `members`, debounced so, that tests nothing by itself:
     /// the network is down. Its rounds are `Checker::round`'s.
-    #[cfg(feature = "outbound-fallback")]
     pub(crate) fn checker(
         members: Arc<Members>,
         debounce: Debounce,
@@ -924,6 +1015,14 @@ pub(crate) mod tests {
         let (checker, abort) = with(members, &network, None, debounce, on_tested);
         abort.abort();
         checker
+    }
+
+    /// A checker of `members` that tests them, on a network that is up.
+    #[cfg(feature = "outbound-urltest")]
+    pub(crate) fn running(members: Arc<Members>, on_tested: OnTested) -> Arc<Checker> {
+        let network = Network::default();
+        network.detected(on("en0"), ChangeReason::State);
+        with(members, &network, None, Default::default(), on_tested).0
     }
 
     /// A checker of no members, which counts its rounds, on `network`.

@@ -223,6 +223,8 @@ sing-box 没有这个选项：它的 sniff `override_destination` 已废弃，�
 
 `selector`、`urltest`、`fallback`、`load-balance` 和 `smart` 组都可以在自身 `outbounds` 之外使用 `providers`。
 
+带有 sing-box `network` 字段的成员只承载 TCP 或只承载 UDP。`urltest`、`fallback` 和 `load-balance` 只把连接交给能承载其网络的成员。`urltest` 使用当前选中的成员；选中的成员不承载该网络，或上次测试失败时，改用能承载该网络的成员中延迟最低的一个，与 sing-box 的 urltest 对 TCP 和 UDP 分别选择一致。`fallback` 按顺序使用第一个可用且承载该网络的成员，`load-balance` 在可用且承载该网络的成员之间分配。测试是 HTTP 请求，所以只承载 UDP 的成员不参与测试：它没有延迟，视为可用，经它的连接失败也不会触发测试。
+
 `fallback` 组在第一次测试失败时就切走，在第一次测试通过时就切回。成员时好时坏时，流量会来回切换。Sail 扩展字段 `debounce` 可以抑制这种切换：
 
 ```json

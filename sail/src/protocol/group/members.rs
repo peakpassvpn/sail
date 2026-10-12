@@ -189,11 +189,71 @@ impl Members {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use super::*;
-    use crate::adapter::outbound::HandlerBuilder;
+    use std::io;
 
+    use async_trait::async_trait;
+
+    use super::*;
+    use crate::adapter::outbound::{one_network, HandlerBuilder};
+    use crate::adapter::*;
+    use crate::session::Session;
+
+    /// A stream and a datagram handler that connect nothing: what makes a
+    /// handler one that carries both networks.
+    struct Carries;
+
+    #[async_trait]
+    impl OutboundStreamHandler for Carries {
+        fn connect_addr(&self) -> OutboundConnect {
+            OutboundConnect::Unknown
+        }
+
+        async fn handle<'a>(
+            &'a self,
+            _sess: &'a Session,
+            _lhs: Option<&mut AnyStream>,
+            _stream: Option<AnyStream>,
+        ) -> io::Result<AnyStream> {
+            Err(io::Error::other("not dialled here"))
+        }
+    }
+
+    #[async_trait]
+    impl OutboundDatagramHandler for Carries {
+        fn connect_addr(&self) -> OutboundConnect {
+            OutboundConnect::Unknown
+        }
+
+        fn transport_type(&self) -> DatagramTransportType {
+            DatagramTransportType::Unknown
+        }
+
+        async fn handle<'a>(
+            &'a self,
+            _sess: &'a Session,
+            _transport: Option<AnyOutboundTransport>,
+        ) -> io::Result<AnyOutboundDatagram> {
+            Err(io::Error::other("not dialled here"))
+        }
+    }
+
+    /// A handler that carries TCP and UDP.
     pub fn handler(tag: &str) -> AnyOutboundHandler {
-        HandlerBuilder::default().tag(tag.to_owned()).build()
+        HandlerBuilder::default()
+            .tag(tag.to_owned())
+            .stream_handler(Arc::new(Carries))
+            .datagram_handler(Arc::new(Carries))
+            .build()
+    }
+
+    /// The outbound `name`, carrying TCP alone, `tcp`, or UDP alone, as
+    /// one with sing-box's `network`.
+    #[allow(dead_code)]
+    pub fn one(name: &str, tcp: bool) -> Member {
+        Member {
+            handler: one_network(handler(name), tcp),
+            ..member(None, name)
+        }
     }
 
     pub fn member(source: Option<&str>, name: &str) -> Member {

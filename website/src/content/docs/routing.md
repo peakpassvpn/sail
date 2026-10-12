@@ -232,6 +232,8 @@ Group outbounds pick a member for each connection. sing-box's `selector` and `ur
 
 `selector`, `urltest`, `fallback`, `load-balance` and `smart` groups take `providers`, beside their own `outbounds`.
 
+A member with sing-box's `network` carries TCP alone or UDP alone. `urltest`, `fallback` and `load-balance` send a connection only to a member that carries its network. `urltest` uses the selected member; when that one does not carry the network, or failed its last test, it uses the fastest member that does, as sing-box's urltest selects for TCP and UDP apart. `fallback` uses the first member in order that is up and carries it, and `load-balance` spreads over those that are up and carry it. The tests are HTTP requests, so a member that carries UDP alone is not tested: it has no delay, counts as up, and a failed connection through it starts no tests.
+
 A `fallback` group switches on the first failed test and switches back on the first passing one. A member that flaps then sends traffic back and forth. `debounce`, a Sail extension, holds the switches back:
 
 ```json

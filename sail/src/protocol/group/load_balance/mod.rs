@@ -1,6 +1,8 @@
 //! `load-balance`: spreads connections over its members, as Mihomo's
 //! load-balance group does, skipping those that failed their last URL
-//! test.
+//! test, and those that do not carry the connection's network: one that
+//! carries TCP alone, or UDP alone (an outbound with sing-box's
+//! `network`).
 //!
 //! - `consistent-hashing`: a destination's registrable domain, or its IP,
 //!   always goes to the same member, so a site sees one address. Members
@@ -171,15 +173,10 @@ impl Balancer {
     /// The member of `members`, which are not none, for `sess`, among
     /// those `is_up`; when none is, among all, since a test can be wrong
     /// and trying beats refusing.
-    fn pick(
-        &self,
-        sess: &Session,
-        members: &[Member],
-        is_up: impl Fn(&MemberKey) -> bool,
-    ) -> usize {
+    fn pick(&self, sess: &Session, members: &[Member], is_up: impl Fn(&Member) -> bool) -> usize {
         let n = members.len();
-        let any_up = members.iter().any(|m| is_up(&m.key));
-        let is_up = |i: usize| !any_up || is_up(&members[i].key);
+        let any_up = members.iter().any(&is_up);
+        let is_up = |i: usize| !any_up || is_up(&members[i]);
         match &self.strategy {
             Strategy::ConsistentHashing => {
                 let site = fnv1a(destination_key(&sess.destination).as_bytes());
@@ -272,23 +269,35 @@ struct Group {
 }
 
 impl Group {
-    /// The member of `snapshot` for `sess`.
-    fn pick<'s>(&self, sess: &Session, snapshot: &'s Snapshot) -> io::Result<&'s Member> {
+    /// The member of `snapshot` for `sess`, of those that carry its
+    /// network, as `carries` tells, and are up; when none of them is up,
+    /// of those that carry it; when none does, of all, and its error
+    /// tells.
+    fn pick<'s>(
+        &self,
+        sess: &Session,
+        snapshot: &'s Snapshot,
+        carries: impl Fn(&AnyOutboundHandler) -> bool,
+    ) -> io::Result<&'s Member> {
         self.checker.used();
         let members = &snapshot.members;
         if members.is_empty() {
             return Err(io::Error::other("no outbound to balance over"));
         }
-        let i = self
-            .balancer
-            .pick(sess, members, |key| self.checker.is_up(key));
+        let up = |m: &Member| carries(&m.handler) && self.checker.is_up(&m.key);
+        let i = match members.iter().any(up) {
+            true => self.balancer.pick(sess, members, up),
+            false => self.balancer.pick(sess, members, |m| carries(&m.handler)),
+        };
         Ok(&members[i])
     }
 
-    /// A failed connection is reason to test again rather than wait out
-    /// the interval.
-    fn failed<T>(&self, result: io::Result<T>) -> io::Result<T> {
-        if result.is_err() {
+    /// A failed connection through `member` is reason to test again
+    /// rather than wait out the interval; not through a member that is
+    /// not tested, see `health::is_tested`, of which the tests would say
+    /// nothing.
+    fn failed<T>(&self, member: &Member, result: io::Result<T>) -> io::Result<T> {
+        if result.is_err() && health::is_tested(&member.handler) {
             self.checker.retest();
         }
         result
@@ -316,7 +325,7 @@ impl OutboundStreamHandler for Group {
         _stream: Option<AnyStream>,
     ) -> io::Result<AnyStream> {
         let snapshot = self.members.load();
-        let member = self.pick(sess, &snapshot)?;
+        let member = self.pick(sess, &snapshot, |m| m.stream().is_ok())?;
         let a = &member.handler;
         debug!(
             "load-balance handles [{}] to [{}]",
@@ -325,7 +334,10 @@ impl OutboundStreamHandler for Group {
         );
         // In the chain before it is dialled: a failure names it.
         sess.chain.push(&member.key.name);
-        self.failed(crate::net::dial_domain::stream(sess, self.dns_client.clone(), a).await)
+        self.failed(
+            member,
+            crate::net::dial_domain::stream(sess, self.dns_client.clone(), a).await,
+        )
     }
 }
 
@@ -345,7 +357,7 @@ impl OutboundDatagramHandler for Group {
         _transport: Option<AnyOutboundTransport>,
     ) -> io::Result<AnyOutboundDatagram> {
         let snapshot = self.members.load();
-        let member = self.pick(sess, &snapshot)?;
+        let member = self.pick(sess, &snapshot, |m| m.datagram().is_ok())?;
         let a = &member.handler;
         debug!(
             "load-balance handles [{}] to [{}]",
@@ -354,6 +366,7 @@ impl OutboundDatagramHandler for Group {
         );
         sess.chain.push(&member.key.name);
         self.failed(
+            member,
             crate::net::dial_domain::datagram_through(sess, self.dns_client.clone(), a).await,
         )
     }
@@ -383,7 +396,7 @@ mod tests {
     /// `Balancer::pick` over `n` members, `m0` on, by index.
     fn pick(b: &Balancer, s: &Session, n: usize, is_up: impl Fn(usize) -> bool) -> usize {
         let members: Vec<Member> = (0..n).map(|i| member(None, &format!("m{}", i))).collect();
-        b.pick(s, &members, |key| is_up(key.name[1..].parse().unwrap()))
+        b.pick(s, &members, |m| is_up(m.key.name[1..].parse().unwrap()))
     }
 
     #[test]
@@ -542,6 +555,82 @@ mod tests {
         assert_ne!(next, first);
         // And sticks to the new one, even once the old one is back.
         assert_eq!(pick(&b, &s, 3, all_up), next);
+    }
+
+    /// A group over `members`, whose rounds are fed by hand.
+    fn group(kind: StrategyKind, members: Vec<Member>) -> Group {
+        let members = Members::of(members);
+        Group {
+            balancer: Balancer::new(kind, STICKY_TTL),
+            checker: health::tests::checker(
+                members.clone(),
+                Default::default(),
+                Box::new(|_, _, _| ()),
+            ),
+            members,
+            dns_client: health::tests::dns(),
+        }
+    }
+
+    /// The members the connections to sixty sites through `group` go to,
+    /// of the network `carries` tells, sorted; sites no connection went to
+    /// before, so that no session sticks.
+    fn taken(group: &Group, carries: fn(&AnyOutboundHandler) -> bool) -> Vec<String> {
+        static SITES: AtomicUsize = AtomicUsize::new(0);
+        let snapshot = group.members.load();
+        let mut taken: Vec<String> = (0..60)
+            .map(|_| {
+                let site = SITES.fetch_add(1, Ordering::Relaxed);
+                let s = sess("10.0.0.1", &format!("site{}.test", site));
+                let member = group.pick(&s, &snapshot, carries).unwrap();
+                member.key.name.to_string()
+            })
+            .collect();
+        taken.sort();
+        taken.dedup();
+        taken
+    }
+
+    fn tcp(member: &AnyOutboundHandler) -> bool {
+        member.stream().is_ok()
+    }
+
+    fn udp(member: &AnyOutboundHandler) -> bool {
+        member.datagram().is_ok()
+    }
+
+    #[tokio::test]
+    async fn connections_go_to_the_members_that_carry_their_network() {
+        use crate::protocol::group::members::tests::one;
+        let ms = Some(Duration::from_millis(10));
+        for kind in [
+            StrategyKind::ConsistentHashing,
+            StrategyKind::RoundRobin,
+            StrategyKind::StickySessions,
+        ] {
+            let members = vec![
+                one("t", true),
+                one("u", false),
+                member(None, "b"),
+                member(None, "c"),
+            ];
+            let group = group(kind, members);
+            assert_eq!(taken(&group, tcp), ["b", "c", "t"], "{:?}", kind);
+            assert_eq!(taken(&group, udp), ["b", "c", "u"], "{:?}", kind);
+            // [u] is not tested, and stays up, round after round.
+            for _ in 0..3 {
+                group.checker.round(&[ms, None, ms, None]);
+                assert_eq!(taken(&group, tcp), ["b", "t"], "{:?}", kind);
+                assert_eq!(taken(&group, udp), ["b", "u"], "{:?}", kind);
+            }
+            group.checker.round(&[ms, None, None, None]);
+            assert_eq!(taken(&group, tcp), ["t"], "{:?}", kind);
+            assert_eq!(taken(&group, udp), ["u"], "{:?}", kind);
+            // None that carries it is up: one that does is tried.
+            group.checker.round(&[None, None, None, None]);
+            assert_eq!(taken(&group, tcp), ["b", "c", "t"], "{:?}", kind);
+            assert_eq!(taken(&group, udp), ["u"], "{:?}", kind);
+        }
     }
 
     #[test]
