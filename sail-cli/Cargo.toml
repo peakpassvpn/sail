@@ -31,8 +31,18 @@ tracing = "0.1"
 libc = "0.2"
 
 # With the mimalloc feature, on the targets it builds for.
-[target.'cfg(all(target_env = "musl", not(any(target_arch = "mips", target_arch = "mips64"))))'.dependencies]
+#
+# `sail_measure_mimalloc` is a measurement switch, set in no build that
+# ships: with `--cfg sail_measure_mimalloc` in RUSTFLAGS, mimalloc is the
+# allocator on the other targets too (Windows, macOS, glibc Linux), to tell
+# what the system's allocator costs there (tools/perf/desktop). A cfg and
+# not a feature: a feature could not leave this dependency out of the
+# default builds for those targets. Without the flag nothing changes.
+[target.'cfg(any(all(target_env = "musl", not(any(target_arch = "mips", target_arch = "mips64"))), sail_measure_mimalloc))'.dependencies]
 mimalloc = { version = "0.1.52", optional = true }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(sail_measure_mimalloc)'] }
 
 [target.'cfg(not(windows))'.dependencies.sail]
 path = "../sail"

@@ -499,10 +499,20 @@ static ALLOC: sail::alloc_stats::Counting = sail::alloc_stats::Counting;
 // 30,000-line profile, a load's peak 59 MiB against 75, after a reload 78
 // against 88; x86_64). The library crates leave the allocator to the
 // binary; alloc-stats replaces this one.
+//
+// `sail_measure_mimalloc` is a measurement switch (Cargo.toml), set in no
+// build that ships: with `--cfg sail_measure_mimalloc` in RUSTFLAGS,
+// mimalloc is the allocator on the other targets too, and gives memory
+// back as below. Without it they keep the system's allocator.
 #[cfg(all(
     feature = "mimalloc",
-    target_env = "musl",
-    not(any(target_arch = "mips", target_arch = "mips64")),
+    any(
+        all(
+            target_env = "musl",
+            not(any(target_arch = "mips", target_arch = "mips64"))
+        ),
+        sail_measure_mimalloc
+    ),
     not(feature = "alloc-stats")
 ))]
 #[global_allocator]
@@ -519,8 +529,13 @@ static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
 /// reload.
 #[cfg(all(
     feature = "mimalloc",
-    target_env = "musl",
-    not(any(target_arch = "mips", target_arch = "mips64")),
+    any(
+        all(
+            target_env = "musl",
+            not(any(target_arch = "mips", target_arch = "mips64"))
+        ),
+        sail_measure_mimalloc
+    ),
     not(feature = "alloc-stats")
 ))]
 fn give_memory_back() {
@@ -537,8 +552,13 @@ fn give_memory_back() {
 fn main() {
     #[cfg(all(
         feature = "mimalloc",
-        target_env = "musl",
-        not(any(target_arch = "mips", target_arch = "mips64")),
+        any(
+            all(
+                target_env = "musl",
+                not(any(target_arch = "mips", target_arch = "mips64"))
+            ),
+            sail_measure_mimalloc
+        ),
         not(feature = "alloc-stats")
     ))]
     sail::runtime::memory::on_memory_freed(give_memory_back);

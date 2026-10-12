@@ -20,6 +20,8 @@ On loopback, nothing else:
   resident size (sampled every 0.2 s).
 - 3 rounds. In each, both clients run one after the other; sail first in
   odd rounds, sing-box first in even ones.
+- Several builds of sail can be compared in one run (below). Each runs in
+  every round and sing-box once; each round starts one client further on.
 
 The certificate and the REALITY keys are made at each run by
 `sing-box generate`. REALITY's handshake target is a TLS inbound of the
@@ -38,11 +40,34 @@ side, so both clients and the server use BBR.
 `results.json`) change the defaults above. On Windows the `.exe` suffix
 may be left out. The Markdown table goes to stdout, each transfer's line to
 stderr, and every sample to the JSON file; configs and logs stay in
-`--work`. It exits 1 when a transfer failed.
+`--work`.
+
+It exits 1 when a transfer of sail's failed. A transfer of sing-box's that
+failed is listed under the tables as a warning, and its round has no ratio
+(a ratio no round gave is shown as –); it does not fail the run.
+
+To compare builds of sail, name each: `--sail NAME=PATH`, as often as
+there are builds. A bare `PATH` is named `sail`. There is a table for each
+build, with its ratios to the sing-box of the same round:
+
+    python3 tools/perf/desktop/run.py --sail sail=target/dist/sail \
+        --sail sail-mimalloc=other/sail --sing-box PATH/sing-box \
+        --netgen bin/netgen --work cell-work
 
 On GitHub: the workflow `perf-desktop`, by hand, with `os` = `windows` (the
-default), `macos` or `both`. The table is in the job's summary and
-`results.json` in its artifact.
+default), `macos` or `both`. The tables are in the job's summary and
+`results.json` in its artifact. On Windows it compares three builds of the
+commit, all at the dist profile:
+
+- `sail`: MSVC, the system's allocator;
+- `sail-mimalloc`: the same with mimalloc, built with
+  `RUSTFLAGS="--cfg sail_measure_mimalloc"`. That is sail-cli's measurement
+  switch: no release is built with it, and without it nothing changes;
+- `sail-gnu`: the `x86_64-pc-windows-gnu` cross build, which is what a
+  release ships for Windows, built on Linux as a release builds it.
+
+Between builds, compare their ratios to sing-box, or their own columns of
+the same run.
 
 ## Reading it
 

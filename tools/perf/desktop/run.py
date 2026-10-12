@@ -4,8 +4,8 @@ system it runs on (Windows, macOS or Linux).
 
 On loopback: netgen -> SOCKS inbound of the client -> protocol -> a
 sing-box server -> netgen's server. The server is the same sing-box for
-both clients. For each protocol and round both clients run one after the
-other, in an order that alternates by round; each moves `--streams` x
+every client. For each protocol and round the clients run one after the
+other, in an order that turns by round; each moves `--streams` x
 `--bytes` up, then down, and its process's CPU time (user + system, its
 children's too) is read before and after each transfer.
 
@@ -14,10 +14,16 @@ children's too) is read before and after each transfer.
         [--protocols trojan,reality,hysteria2] [--streams 4] [--bytes 268435456] \\
         [--rounds 3] [--out results.json]
 
-It prints a Markdown table (medians, the range in brackets, and sail
-against sing-box as ratios), writes the same and every sample as JSON, and
-on GitHub appends the table to the job's summary. It exits 1 when a
-transfer failed.
+Several builds of sail are compared in one run by naming each:
+`--sail NAME=PATH`, as often as there are builds (a bare PATH is named
+`sail`). Each runs in every round, with sing-box once, the reference.
+
+It prints a Markdown table for each build of sail (medians, the range in
+brackets, and that build against the sing-box of the same round as
+ratios), writes the same and every sample as JSON, and on GitHub appends
+the tables to the job's summary. It exits 1 when a transfer of sail's
+failed. One of sing-box's that failed is a warning in the report, and its
+round has no ratio: the reference failing says nothing about sail.
 
 Only the standard library and psutil. Nothing leaves loopback: the keys,
 the certificate and REALITY's handshake target are made here.
@@ -27,6 +33,7 @@ import argparse
 import json
 import os
 import platform
+import re
 import secrets
 import socket
 import statistics
@@ -45,7 +52,10 @@ LOCAL = "127.0.0.1"
 PASSWORD = "desktop-cell-password"
 UUID = "9b2b4b81-6125-4a7c-9a83-847cb325758f"
 PROTOCOLS = ("trojan", "reality", "hysteria2")
-CLIENTS = ("sail", "sing-box")
+# The reference client: every build of sail is read against it.
+REFERENCE = "sing-box"
+# A build's name is part of file names and of a table's headings.
+VARIANT_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*\Z")
 DIRECTIONS = ("up", "down")
 GIB = 1 << 30
 # Before the measured transfers: the chain works, and its connections' first
@@ -300,16 +310,17 @@ def bulk(args, socks_port, target_port, direction, size):
 
 
 def run_client(args, proto, rnd, client, keys, server, server_port, target_port, work):
-    """One client's turn: start, warm up, up and down, stop. Returns its samples."""
+    """One client's turn: start, warm up, up and down, stop. Returns its
+    samples. `client` is REFERENCE or the name of a build of sail."""
     socks_port = free_port()
     name = f"{proto}-{client}"
     config = write_json(os.path.join(work, f"{name}.json"),
                         client_config(proto, keys, server_port, socks_port))
-    if client == "sail":
-        # No record of system changes: it makes none. The desktop preset is the default.
-        argv = [args.sail, "-c", config, "--no-run-dir", "-D", work]
-    else:
+    if client == REFERENCE:
         argv = [args.sing_box, "run", "-c", config, "-D", work]
+    else:
+        # No record of system changes: it makes none. The desktop preset is the default.
+        argv = [args.sail[client], "-c", config, "--no-run-dir", "-D", work]
     samples = []
     proc = Proc(name, argv, os.path.join(work, f"{name}.log"))
     try:
@@ -372,10 +383,12 @@ def run_protocol(args, proto, keys, target_port):
             wait_port(server_port, server)
             if handshake_port:
                 wait_port(handshake_port, server)
+        clients = list(args.sail) + [REFERENCE]
         for rnd in range(1, args.rounds + 1):
-            # sail first in odd rounds, sing-box first in even ones.
-            order = CLIENTS if rnd % 2 else CLIENTS[::-1]
-            for client in order:
+            # Turn about: each round starts one client further on. With one
+            # build, sail first in odd rounds, sing-box first in even ones.
+            first = (rnd - 1) % len(clients)
+            for client in clients[first:] + clients[:first]:
                 if not server.alive():
                     raise RuntimeError(f"the server exited with {server.p.returncode}: see {server.log_path}")
                 samples += run_client(args, proto, rnd, client, keys, server, server_port,
@@ -396,78 +409,120 @@ def spread(values):
             "max": round(max(values), 3), "n": len(values)}
 
 
-def summarize(samples, protocols):
-    """Per protocol and direction: each client's medians, and the ratios of
-    the rounds in which both clients' transfers were whole."""
+def summarize(samples, protocols, variants):
+    """Per protocol and direction: each client's medians, and for each build
+    of sail its ratios to sing-box, of the rounds in which both transfers
+    were whole."""
     rows = []
+    keys = ("mbps", "cpu_s_per_gib", "rss_peak_mib")
     for proto in protocols:
         for direction in DIRECTIONS:
             good = {}
             for s in samples:
                 if (s.get("protocol"), s.get("direction")) == (proto, direction) and "error" not in s:
                     good[(s["client"], s["round"])] = s
-            row = {"protocol": proto, "direction": direction}
-            for client in CLIENTS:
+
+            def medians(client):
                 mine = [s for (c, _), s in sorted(good.items()) if c == client]
-                row[client] = {key: spread([s[key] for s in mine])
-                               for key in ("mbps", "cpu_s_per_gib", "rss_peak_mib")}
-            throughput, cpu = [], []
-            for rnd in sorted({r for _, r in good}):
-                a, b = good.get(("sail", rnd)), good.get(("sing-box", rnd))
-                if a and b:
-                    if b["mbps"] > 0:
-                        throughput.append(a["mbps"] / b["mbps"])
-                    if a["cpu_s_per_gib"] > 0:
-                        cpu.append(b["cpu_s_per_gib"] / a["cpu_s_per_gib"])
-            # Both read the same way: above 1, sail is the better one.
-            row["throughput_sail_over_sing_box"] = spread(throughput)
-            row["cpu_sing_box_over_sail"] = spread(cpu)
+                return {key: spread([s[key] for s in mine]) for key in keys}
+
+            row = {"protocol": proto, "direction": direction, REFERENCE: medians(REFERENCE),
+                   "sail": {}}
+            for name in variants:
+                throughput, cpu = [], []
+                for rnd in sorted({r for _, r in good}):
+                    a, b = good.get((name, rnd)), good.get((REFERENCE, rnd))
+                    if a and b:
+                        if b["mbps"] > 0:
+                            throughput.append(a["mbps"] / b["mbps"])
+                        if a["cpu_s_per_gib"] > 0:
+                            cpu.append(b["cpu_s_per_gib"] / a["cpu_s_per_gib"])
+                # Both read the same way: above 1, sail is the better one.
+                row["sail"][name] = dict(medians(name),
+                                         throughput_over_sing_box=spread(throughput),
+                                         cpu_sing_box_over=spread(cpu))
             rows.append(row)
     return rows
 
 
-def cell(value, digits):
+def cell(value, digits, none="failed"):
     if not value:
-        return "failed"
+        return none
     text = f"{value['median']:.{digits}f}"
     if value["n"] > 1:
         text += f" ({value['min']:.{digits}f}–{value['max']:.{digits}f})"
     return text
 
 
-def markdown(meta, rows, failures):
+def told(sample):
+    return (f"- {sample.get('protocol')} round {sample.get('round', '-')} "
+            f"{sample.get('client', 'server')} {sample.get('direction', '')}: {sample['error']}")
+
+
+def markdown(meta, rows, failures, warnings):
+    builds = meta["sail"]
     lines = [
         f"### Desktop cell: sail against sing-box on {meta['system']} {meta['machine']}",
         "",
         f"{meta['streams']} streams × {meta['bytes'] / (1 << 20):.0f} MiB each way on loopback, "
         f"median of {meta['rounds']} rounds (min–max). "
-        f"sail `{meta['sail_version']}`, sing-box `{meta['sing_box_version']}`; "
+        + ", ".join(f"{b['name']} `{b['version']}`" for b in builds)
+        + f", sing-box `{meta['sing_box_version']}`; "
         f"the server is sing-box. {meta['cpus']} CPUs.",
         "",
         "Ratios are per round, sail and sing-box of the same round, then the median. "
         "**Above 1 is better for sail in both**: throughput is sail ÷ sing-box, "
         "CPU is sing-box ÷ sail (inverted, as less CPU per GiB is better).",
-        "",
-        "| protocol | direction | sail Mbit/s | sing-box Mbit/s | throughput sail÷sing-box "
-        "| sail CPU-s/GiB | sing-box CPU-s/GiB | CPU sing-box÷sail "
-        "| sail peak RSS MiB | sing-box peak RSS MiB |",
-        "|---|---|---|---|---|---|---|---|---|---|",
     ]
-    for row in rows:
-        sail, other = row["sail"], row["sing-box"]
-        lines.append("| " + " | ".join([
-            row["protocol"], row["direction"],
-            cell(sail["mbps"], 0), cell(other["mbps"], 0),
-            cell(row["throughput_sail_over_sing_box"], 2),
-            cell(sail["cpu_s_per_gib"], 2), cell(other["cpu_s_per_gib"], 2),
-            cell(row["cpu_sing_box_over_sail"], 2),
-            cell(sail["rss_peak_mib"], 0), cell(other["rss_peak_mib"], 0),
-        ]) + " |")
+    if len(builds) > 1:
+        lines += ["", f"{len(builds)} builds of sail, a table each; sing-box's columns are "
+                      "the same in all, as it ran once a round."]
+    for build in builds:
+        name = build["name"]
+        if len(builds) > 1:
+            lines += ["", f"#### {name}"]
+        lines += [
+            "",
+            f"| protocol | direction | {name} Mbit/s | sing-box Mbit/s | throughput {name}÷sing-box "
+            f"| {name} CPU-s/GiB | sing-box CPU-s/GiB | CPU sing-box÷{name} "
+            f"| {name} peak RSS MiB | sing-box peak RSS MiB |",
+            "|---|---|---|---|---|---|---|---|---|---|",
+        ]
+        for row in rows:
+            sail, other = row["sail"][name], row[REFERENCE]
+            lines.append("| " + " | ".join([
+                row["protocol"], row["direction"],
+                cell(sail["mbps"], 0), cell(other["mbps"], 0),
+                # No round had both transfers whole: no ratio.
+                cell(sail["throughput_over_sing_box"], 2, "–"),
+                cell(sail["cpu_s_per_gib"], 2), cell(other["cpu_s_per_gib"], 2),
+                cell(sail["cpu_sing_box_over"], 2, "–"),
+                cell(sail["rss_peak_mib"], 0), cell(other["rss_peak_mib"], 0),
+            ]) + " |")
     if failures:
         lines += ["", f"{len(failures)} failed:"]
-        lines += [f"- {f.get('protocol')} round {f.get('round', '-')} {f.get('client', 'server')} "
-                  f"{f.get('direction', '')}: {f['error']}" for f in failures]
+        lines += [told(f) for f in failures]
+    if warnings:
+        lines += ["", f"Warning: {len(warnings)} of sing-box's, the reference, failed. "
+                      "Their rounds have no ratio, and they do not fail the run:"]
+        lines += [told(w) for w in warnings]
     return "\n".join(lines) + "\n"
+
+
+def sail_builds(values):
+    """`--sail`'s values as {name: path}, in the order given."""
+    builds = {}
+    for value in values:
+        name, eq, path = value.partition("=")
+        if not eq or not VARIANT_NAME.match(name):
+            # A bare path, one with a `=` in it too.
+            name, path = "sail", value
+        if name == REFERENCE:
+            sys.exit(f"--sail {value}: {REFERENCE} is the reference's name")
+        if name in builds:
+            sys.exit(f"--sail {value}: a second build named {name}; name each, NAME=PATH")
+        builds[name] = executable(path)
+    return builds
 
 
 def version(argv):
@@ -480,7 +535,9 @@ def version(argv):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--sail", required=True)
+    ap.add_argument("--sail", required=True, action="append", metavar="[NAME=]PATH",
+                    help="a build of sail; may be given several times, each with a name "
+                         "of letters, digits, '.', '_' and '-' (a bare PATH is named sail)")
     ap.add_argument("--sing-box", required=True)
     ap.add_argument("--netgen", required=True)
     ap.add_argument("--work", required=True, help="a directory for configs, keys and logs")
@@ -503,7 +560,7 @@ def main():
         ap.error(f"--protocols: of {', '.join(PROTOCOLS)}; not {', '.join(unknown) or 'none'}")
     if min(args.streams, args.bytes, args.rounds) < 1:
         ap.error("--streams, --bytes and --rounds are at least 1")
-    args.sail = executable(args.sail)
+    args.sail = sail_builds(args.sail)
     args.sing_box = executable(args.sing_box)
     args.netgen = executable(args.netgen)
     args.work = os.path.abspath(args.work)
@@ -511,7 +568,8 @@ def main():
 
     meta = {"system": platform.system(), "release": platform.release(),
             "machine": platform.machine(), "cpus": os.cpu_count(),
-            "sail_version": version([args.sail, "--version"]),
+            "sail": [{"name": name, "version": version([path, "--version"])}
+                     for name, path in args.sail.items()],
             "sing_box_version": version([args.sing_box, "version"]),
             "streams": args.streams, "bytes": args.bytes, "rounds": args.rounds,
             "protocols": protocols}
@@ -527,9 +585,13 @@ def main():
     finally:
         target.stop()
 
-    rows = summarize(samples, protocols)
-    failures = [s for s in samples if "error" in s]
-    table = markdown(meta, rows, failures)
+    rows = summarize(samples, protocols, list(args.sail))
+    # The reference's own failed transfers are told and no more: what fails
+    # the run is sail's, and a server that went away (no client named).
+    errors = [s for s in samples if "error" in s]
+    warnings = [s for s in errors if s.get("client") == REFERENCE]
+    failures = [s for s in errors if s.get("client") != REFERENCE]
+    table = markdown(meta, rows, failures, warnings)
     with open(args.out, "w", newline="\n") as f:
         json.dump({"meta": meta, "summary": rows, "samples": samples}, f, indent=1)
         f.write("\n")
@@ -538,6 +600,10 @@ def main():
     if summary:
         with open(summary, "a", encoding="utf-8", newline="\n") as f:
             f.write(table + "\n")
+    if warnings and os.environ.get("GITHUB_ACTIONS"):
+        # An annotation on the run, which stays green.
+        print(f"::warning title=sing-box::{len(warnings)} of the reference's transfers failed; "
+              "see the summary")
     sys.exit(1 if failures else 0)
 
 

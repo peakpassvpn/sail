@@ -11,8 +11,26 @@ name: perf-desktop
 # The default is Windows alone: macOS is asked for by name.
 #
 # sail is built natively, at the profile a release ships (dist), with the
-# BoringSSL ci.yml's jobs link. A release's Windows file is the gnu cross
-# build; this one is MSVC, as windows-msvc in ci.yml.
+# BoringSSL ci.yml's jobs link. On Windows that is MSVC, as windows-msvc in
+# ci.yml, and the cell compares three builds of the commit in one run:
+#
+#   sail           dist, MSVC, the system's allocator;
+#   sail-mimalloc  the same with --cfg sail_measure_mimalloc, sail-cli's
+#                  measurement switch: what the allocator costs on Windows;
+#   sail-gnu       what a release ships for Windows: the x86_64-pc-windows-gnu
+#                  cross build, made on Linux by the job `gnu` with the
+#                  release's scripts (as release.yml's cli job), stripped as
+#                  the shipped file is. Not built on the Windows runner:
+#                  there is no prebuilt BoringSSL for windows-gnu, and its
+#                  MinGW is not the one a release is built with.
+#
+# macOS measures its one native build.
+#
+# Time, from the first run (2026-10-12, windows-latest, 4 CPUs, no cache):
+# the dist build 15 minutes, the cell with one build of sail 3.5, the rest
+# 2. Now: the second build is a whole one, as its RUSTFLAGS differ, so
+# another 15; the cell with three builds about 7; so about 40 of the 60
+# minutes. The gnu job, 9 minutes in a release, runs before.
 on:
   workflow_dispatch:
     inputs:
@@ -30,7 +48,53 @@ env:
   SING_BOX_VERSION: 1.14.2
 
 jobs:
+  # sail-gnu for the Windows cell: scripts/cross.sh at the dist profile, as
+  # scripts/release/build-cli.sh builds it, and scripts/release/
+  # split-symbols.sh as package-cli.sh strips it. BoringSSL is compiled:
+  # windows-gnu has no prebuilt one.
+  gnu:
+    if: ${{ inputs.os != 'macos' }}
+    name: sail-gnu (cross build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      # The version is rust-toolchain.toml's; keep them in step. llvm-tools
+      # for split-symbols.sh.
+      - name: install rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+          components: llvm-tools
+
+      - name: install cross toolchain
+        run: scripts/install_cross_toolchain.sh x86_64-pc-windows-gnu
+
+      - name: build sail
+        run: scripts/cross.sh x86_64-pc-windows-gnu build --locked --profile dist -p sail-cli
+
+      - name: strip
+        run: |
+          mkdir -p sail-gnu
+          cp target/x86_64-pc-windows-gnu/dist/sail.exe sail-gnu/sail-gnu.exe
+          scripts/release/split-symbols.sh sail-gnu/sail-gnu.exe "$RUNNER_TEMP/symbols"
+          ls -l sail-gnu
+
+      - name: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: sail-gnu
+          path: sail-gnu/sail-gnu.exe
+          if-no-files-found: error
+          retention-days: 7
+
   cell:
+    # After gnu, which a macOS run skips. When it failed, the cell runs
+    # without sail-gnu and says so.
+    needs: gnu
+    if: ${{ !cancelled() }}
     strategy:
       fail-fast: false
       matrix:
@@ -40,6 +104,7 @@ jobs:
     timeout-minutes: 60
     env:
       CARGO_INCREMENTAL: 0
+      EXE: ${{ startsWith(matrix.os, 'windows') && '.exe' || '' }}
     defaults:
       run:
         shell: bash
@@ -76,8 +141,33 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/master' }}
 
       # What a release ships: the dist profile (release, with line tables).
+      # Each build of the cell is kept under its name in variants/.
       - name: build sail
-        run: cargo build --locked --profile dist -p sail-cli
+        run: |
+          cargo build --locked --profile dist -p sail-cli
+          mkdir -p variants
+          cp "target/dist/sail$EXE" "variants/sail$EXE"
+
+      # The measurement switch (sail-cli's Cargo.toml): mimalloc in place of
+      # the system's allocator. In a target directory of its own: other
+      # RUSTFLAGS build every crate again, and the build above stays as the
+      # cache saves it. BoringSSL is the prebuilt one in both.
+      - name: build sail-mimalloc (Windows)
+        if: runner.os == 'Windows'
+        env:
+          RUSTFLAGS: --cfg sail_measure_mimalloc
+          CARGO_TARGET_DIR: target-mimalloc
+        run: |
+          cargo build --locked --profile dist -p sail-cli
+          cp target-mimalloc/dist/sail.exe variants/sail-mimalloc.exe
+          rm -rf target-mimalloc
+
+      - name: sail-gnu (Windows)
+        if: runner.os == 'Windows' && needs.gnu.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: sail-gnu
+          path: variants
 
       # BoringSSL without its assembly would be several times slower at
       # AES-GCM and ChaCha20, and the cell would measure that: the prebuilt
@@ -153,9 +243,27 @@ jobs:
       - name: psutil
         run: python -m pip install psutil
 
+      # One build on macOS, under the name sail; Windows' three.
       - name: measure
         run: |
-          python tools/perf/desktop/run.py --sail target/dist/sail --sing-box bin/sing-box \
+          builds=(--sail variants/sail)
+          if [ "$RUNNER_OS" = Windows ]; then
+            builds=(--sail sail=variants/sail --sail sail-mimalloc=variants/sail-mimalloc)
+            if [ -f variants/sail-gnu.exe ]; then
+              builds+=(--sail sail-gnu=variants/sail-gnu)
+            else
+              echo "::warning title=sail-gnu::the cross build failed; the cell runs without it"
+            fi
+            for f in variants/*.exe; do "$f" --version; done
+            {
+              echo "Builds of this commit, all at the dist profile: \`sail\` is MSVC with the"
+              echo "system's allocator; \`sail-mimalloc\` the same with mimalloc (built with"
+              echo "\`--cfg sail_measure_mimalloc\`, a measurement switch that no release has);"
+              echo "\`sail-gnu\` the x86_64-pc-windows-gnu cross build, as a release ships."
+              echo
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          python tools/perf/desktop/run.py "${builds[@]}" --sing-box bin/sing-box \
             --netgen bin/netgen --work cell-work --out results.json
 
       # The numbers, and the logs of a cell that failed. Not the keys.
