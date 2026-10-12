@@ -160,11 +160,7 @@ fn it_is_not_selected_by_hand() {
 #[test]
 fn failures_that_may_be_the_destinations_test_after_max_failed_times() {
     rt().block_on(async {
-        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
-            .await
-            .unwrap();
-        let port = listener.local_addr().unwrap().port();
-        drop(listener);
+        let (_refusing, port) = refusing_port();
         let m = manager(
             json!([
                 {

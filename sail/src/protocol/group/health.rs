@@ -733,11 +733,13 @@ impl Checker {
                 Self::count(&mut standings, self.debounce, &m.key, l.is_some());
             }
         }
-        self.latencies.replace(measured(&snapshot, &latencies, at));
-        // The failures counted asked for this round, or come before it.
+        // The failures counted asked for this round, or come before it;
+        // forgotten before the round is seen to have ended, so that a
+        // failure counted after its time is shown counts toward the next.
         if let Ok(mut f) = self.failures.lock() {
             f.reset();
         }
+        self.latencies.replace(measured(&snapshot, &latencies, at));
         (self.on_tested)(self, &snapshot, &latencies);
         (snapshot, latencies)
     }
