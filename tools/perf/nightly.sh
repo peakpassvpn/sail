@@ -134,7 +134,7 @@ mem: $MEM_MB MB
 cores: $CLIENT_CPU-$SERVER_CPU (taskset)
 netns: nc$NETEM_NS/ns$NETEM_NS, ${SERVER_NAME}c/${SERVER_NAME}s; subnets 10.$NETEM_NET-10.$((NETEM_NET + 2)), 10.$SERVER_NET
 started: $(date -u '+%Y-%m-%d %H:%M UTC')
-expected end: about 40 minutes later
+expected end: about 16 minutes a round later
 stop: NETEM_NS=$NETEM_NS NETEM_NET=$NETEM_NET sh $WORK/netem/netns.sh down; remove this file
 JOBFILE
 cleanup() {
@@ -156,7 +156,8 @@ for round in $(seq 1 "$ROUNDS"); do
   for which in $order; do
     remote "cd $WORK/netem && NETEM_NS=$NETEM_NS NETEM_NET=$NETEM_NET python3 run.py \
       --work $WORK/$which/r$round --sail $WORK/$which/sail --netgen $WORK/netgen \
-      --protocols direct,trojan --clients sail-mobile,sail-server --only baseline,rate10m \
+      --protocols direct,trojan --clients sail-mobile,sail-server \
+      --only baseline --bulk-bytes ${BULK_BYTES:-2147483648} \
       --cpus $CLIENT_CPU --server-cpus $SERVER_CPU" > "$OUT/netem-$which-r$round.log" 2>&1
   done
 done

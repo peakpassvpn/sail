@@ -24,13 +24,17 @@
 #     The musl toolchain is the one scripts/install_cross_toolchain.sh
 #     installs, installed beforehand: never in the window, where a slow
 #     download would eat the night. Without it, the host's own build,
-#     glibc and its allocator, which every summary then says. Builds,
-#     previous and reference are kept per kind, never compared across.
+#     glibc and its allocator, which every summary then says. Builds
+#     and the reference are kept per kind, never compared across.
 #  3. Measure from MEASURE_AT on cores CLIENT_CPU and SERVER_CPU: `new`
-#     against the previous night's build (`base`), and against the pinned
-#     reference, the calibration night's build, replaced only by hand
-#     (`echo <sha> > $PERF_ROOT/reference-<kind>`). The first night, with neither,
-#     is the calibration: new against itself, the spread is the noise.
+#     against the pinned reference, the calibration night's build,
+#     replaced only by hand (`echo <sha> > $PERF_ROOT/reference-<kind>`;
+#     removing the file makes the next night a calibration). A night
+#     without a reference is the calibration: new against itself, the
+#     spread is the noise, and new becomes the reference. One pair a
+#     night: a round takes 16 minutes (two runs of netem's cells at 5,
+#     one of server-accept's at 6, measured on the host), so 4 rounds
+#     end 65 minutes after MEASURE_AT and a calibration's 6 after 100.
 #  4. Write status.txt (ran / skipped: why / failed: why) and, when it ran,
 #     summary.json and report-*.md; keep the last KEEP runs.
 set -uo pipefail
@@ -46,6 +50,11 @@ export NETEM_NS=${NETEM_NS:-54} NETEM_NET=${NETEM_NET:-90}
 SERVER_NAME=${SERVER_NAME:-pf54} SERVER_NET=${SERVER_NET:-92}
 ROUNDS=${ROUNDS:-4}
 CALIBRATION_ROUNDS=${CALIBRATION_ROUNDS:-6}
+# What each of a bulk transfer's 4 streams carries. At 128 MiB a transfer
+# took 0.3 s and 0.12 s of CPU, counted in hundredths: the same build
+# against itself differed by 6 to 61% in CPU per GiB. At 2 GiB, 20 to 30 s
+# each, by 1 to 4% (measured on the host, 6 runs).
+BULK_BYTES=${BULK_BYTES:-2147483648}
 MAX_LOAD=${MAX_LOAD:-1.0}
 KEEP=${KEEP:-14}
 SRC=$(cd "$(dirname "$0")/../.." && pwd)
@@ -136,7 +145,7 @@ cores: $4
 netns: nc$NETEM_NS/ns$NETEM_NS, ${SERVER_NAME}c/${SERVER_NAME}s; subnets 10.$NETEM_NET-10.$((NETEM_NET + 2)), 10.$SERVER_NET
 resources: ${LOCKS[*]}
 started: $(date -u '+%Y-%m-%d %H:%M UTC')
-expected end: about 01:50 UTC
+expected end: about 02:15 UTC (a calibration: 02:50)
 stop: systemctl stop sail-perf-nightly.service (it releases its locks and removes this file)
 JOBFILE
 }
@@ -172,21 +181,20 @@ fi
 now=$(date -u +%s)
 at=$(date -u -d "today $MEASURE_AT" +%s)
 [ "$now" -lt "$at" ] && sleep $((at - now))
-register measurement "new $NEW against the previous night and the reference" "800 MB" "$CLIENT_CPU-$SERVER_CPU (taskset)"
+register measurement "new $NEW against the reference" "800 MB" "$CLIENT_CPU-$SERVER_CPU (taskset)"
 load=$(cut -d' ' -f1 /proc/loadavg)
 if awk -v l="$load" -v m="$MAX_LOAD" 'BEGIN { exit !(l > m) }'; then
   status "skipped: load $load above $MAX_LOAD at $MEASURE_AT"
   exit 0
 fi
 
-BASE=$(cat "$PERF_ROOT/last-$KIND" 2>/dev/null || true)
+# The reference, or none: a calibration, after which new is it.
 REF=$(cat "$PERF_ROOT/reference-$KIND" 2>/dev/null || true)
-if [ -z "$REF" ]; then
-  REF=$NEW
-  echo "$REF" >"$PERF_ROOT/reference-$KIND"
+built "$REF" || REF=
+if [ "$REF" = "$NEW" ]; then
+  status "skipped: master is still the reference, $REF"
+  exit 0
 fi
-built "$BASE" || BASE=$NEW
-built "$REF" || REF=$NEW
 mkdir -p "$RUN/work"
 cp -r "$SRC/scripts/netem" "$SRC/scripts/server-accept" "$RUN/work/"
 
@@ -203,7 +211,8 @@ compare() {
       [ "$which" = base ] && sha=$against
       (cd "$RUN/work/netem" && python3 run.py --work "$dir/results/$which/r$round" \
         --sail "$BIN/$sha/sail" --netgen "$NETGEN" \
-        --protocols direct,trojan --clients sail-mobile,sail-server --only baseline,rate10m \
+        --protocols direct,trojan --clients sail-mobile,sail-server \
+        --only baseline --bulk-bytes "$BULK_BYTES" \
         --cpus "$CLIENT_CPU" --server-cpus "$SERVER_CPU") || return 1
     done
   done
@@ -215,32 +224,27 @@ compare() {
 }
 
 pairs=()
-if [ "$BASE" = "$NEW" ] && [ "$REF" = "$NEW" ]; then
+if [ -z "$REF" ]; then
   compare "$RUN/calibration" "$NEW" "$CALIBRATION_ROUNDS" || { status "failed: calibration (see log)"; exit 1; }
   pairs+=(calibration)
+  REF=$NEW
+  echo "$REF" >"$PERF_ROOT/reference-$KIND"
 else
-  if [ "$BASE" != "$NEW" ]; then
-    compare "$RUN/previous" "$BASE" "$ROUNDS" || { status "failed: new against previous (see log)"; exit 1; }
-    pairs+=(previous)
-  fi
-  if [ "$REF" != "$BASE" ] && [ "$REF" != "$NEW" ]; then
-    compare "$RUN/reference" "$REF" "$ROUNDS" || { status "failed: new against reference (see log)"; exit 1; }
-    pairs+=(reference)
-  fi
+  compare "$RUN/reference" "$REF" "$ROUNDS" || { status "failed: new against reference (see log)"; exit 1; }
+  pairs+=(reference)
 fi
-echo "$NEW" >"$PERF_ROOT/last-$KIND"
 
 # 4. The reports, and what the host was.
 verdict=ok
 for pair in "${pairs[@]}"; do
   "$SRC/tools/perf/btier.py" "$RUN/$pair" >"$RUN/report-$pair.md" || verdict=regression
 done
-python3 - "$RUN" "$NEW" "$BASE" "$REF" "$PROFILE" "$verdict" "${pairs[@]}" <<'PY'
+python3 - "$RUN" "$NEW" "$REF" "$PROFILE" "$verdict" "${pairs[@]}" <<'PY'
 import json, subprocess, sys
-run, new, base, ref, profile, verdict, *pairs = sys.argv[1:]
+run, new, ref, profile, verdict, *pairs = sys.argv[1:]
 swap = subprocess.run(["swapon", "--show=NAME,SIZE", "--noheadings"], capture_output=True, text=True).stdout.split()
 json.dump({
-    "new": new, "base": base, "reference": ref, "build": profile,
+    "new": new, "reference": ref, "build": profile,
     "pairs": pairs, "verdict": verdict,
     "reports": {p: open(f"{run}/report-{p}.md").read() for p in pairs},
     "host": {"swap": swap, "swappiness": open("/proc/sys/vm/swappiness").read().strip()},
@@ -251,4 +255,4 @@ rm -rf "$RUN/work"
 for pair in "${pairs[@]}"; do
   find "$RUN/$pair" -type f ! -name summary.json -delete
 done
-status "ran ($KIND): new $NEW, base $BASE, reference $REF; ${pairs[*]}; $verdict"
+status "ran ($KIND): new $NEW, reference $REF; ${pairs[*]}; $verdict"
