@@ -1099,6 +1099,27 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
+      # The system image, kept between runs and fetched here with retries:
+      # a run failed with both boots refused when the SDK's package list
+      # came back cut short ("Failed to find package 'system-images;…'").
+      # The device itself is still made anew each run.
+      - name: system image cache
+        id: image
+        uses: actions/cache@v4
+        with:
+          path: /usr/local/lib/android/sdk/system-images/android-34/google_apis/x86_64
+          key: android-system-image-34-google_apis-x86_64
+
+      - name: system image
+        if: steps.image.outputs.cache-hit != 'true'
+        run: |
+          sdkmanager=/usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager
+          for attempt in 1 2 3 4 5; do
+            yes | "$sdkmanager" --install 'system-images;android-34;google_apis;x86_64' >/dev/null && break
+            [ "$attempt" = 5 ] && { echo "::error::the system image could not be fetched"; exit 1; }
+            sleep 30
+          done
+
       # A fresh device each time, nothing restored from a snapshot. The boot
       # is tried again once when it, not the tests, failed: run.sh marks
       # where the tests begin, after the device is booted and its package
