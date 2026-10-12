@@ -687,7 +687,7 @@ impl Checker {
         let probes = &self.probes.probes;
         let tests = probes
             .iter()
-            .map(|probe| probe.run(self.dns_client.clone(), member));
+            .map(|probe| probe.run(self.dns_client.clone(), member, self.timeout));
         let (results, latency) = run_tests(self.probes.policy, self.timeout, tests).await;
         for (probe, result) in probes.iter().zip(&results) {
             if let Err(e) = result {

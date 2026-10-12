@@ -14838,6 +14838,10 @@
      "type": "string",
      "description": "The HTTP statuses a test must be answered with to pass, as Mihomo's `expected-status`: codes and ranges, `200/204/401-429`; any when unset. Each URL's answer must be one."
     },
+    "unified_delay": {
+     "type": "boolean",
+     "description": "The latency of a second request on the connection the first opened, without the connect and handshakes, as Mihomo's `unified-delay`; a sail extension."
+    },
     "interval": {
      "type": "string"
     },
@@ -16593,6 +16597,10 @@
      "type": "string",
      "description": "The HTTP statuses a test must be answered with to pass, as urltest's; any when unset."
     },
+    "unified_delay": {
+     "type": "boolean",
+     "description": "The latency of a second request on the connection the first opened, without the connect and handshakes, as Mihomo's `unified-delay`; a sail extension."
+    },
     "timeout": {
      "type": "string",
      "description": "How long a test may take before its member counts as failed; 5s. Also how close together `max_failed_times` failures must come, as urltest's."
@@ -18083,6 +18091,10 @@
     "idle_timeout": {
      "type": "string",
      "description": "Probes pause once the group has not been used for this long; 30 minutes."
+    },
+    "unified_delay": {
+     "type": "boolean",
+     "description": "The latency of a second request on the connection the first opened, without the connect and handshakes, as Mihomo's `unified-delay`; a sail extension."
     },
     "tolerance": {
      "type": "number",
@@ -19913,6 +19925,10 @@
     "lazy": {
      "type": "boolean",
      "description": "`false`: tests never pause, used or not, as Mihomo's `lazy: false`; `idle_timeout` is then a mistake."
+    },
+    "unified_delay": {
+     "type": "boolean",
+     "description": "The latency of a second request on the connection the first opened, without the connect and handshakes, as Mihomo's `unified-delay`; a sail extension."
     },
     "disable_udp": {
      "description": "The group carries TCP alone, whatever member it picks (Mihomo's disable-udp)"

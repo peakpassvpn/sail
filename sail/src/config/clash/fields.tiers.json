@@ -1943,7 +1943,8 @@
       "tun.route-exclude-address",
       "tun.route-exclude-address-set",
       "tun.strict-route",
-      "tunnels"
+      "tunnels",
+      "unified-delay"
     ],
     "warned": [
       "clash-for-android",
@@ -2081,8 +2082,7 @@
       "tun.recvmsgx",
       "tun.sendmsgx",
       "tun.stack",
-      "tun.udp-timeout",
-      "unified-delay"
+      "tun.udp-timeout"
     ]
   }
 }

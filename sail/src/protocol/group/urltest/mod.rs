@@ -61,6 +61,11 @@ struct UrlTestOutboundOptions {
     /// any when unset.
     #[serde(default)]
     expected_status: Option<String>,
+    /// The latency of a second request on the connection the first
+    /// opened, without the connect and handshakes, as Mihomo's
+    /// `unified-delay`; a sail extension.
+    #[serde(default)]
+    unified_delay: bool,
     #[serde(default, with = "crate::config::model::duration")]
     interval: Option<Duration>,
     /// How long a test may take before its member counts as failed; 5s.
@@ -233,7 +238,8 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         .map_err(|e| anyhow!("[{}] outbound: expected_status: {}", ctx.tag, e))?;
     let probe = HttpProbe::new(&options.url, ctx.dns_client.clone(), ctx.env)
         .map_err(|e| anyhow!("[{}] outbound: url: {}", ctx.tag, e))?
-        .expecting(expected);
+        .expecting(expected)
+        .unified(options.unified_delay);
 
     // The first member until the first tests are done.
     let first = members

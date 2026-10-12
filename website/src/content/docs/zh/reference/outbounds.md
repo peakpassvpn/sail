@@ -127,6 +127,7 @@ Rust 定义：[`FallbackOutboundOptions`](https://github.com/peakpassvpn/sail/bl
 | `url` | string 或 数组，元素为 string | `default_url()` | sail 扩展 | What is requested through each member to test it: a URL, or a list of them, a sail extension, all tested at once in each round. The latency shown is the first URL's, and the API shows it as the group's `testUrl`. |
 | `url_policy` | string, 取值 `any`, `all` | `any` | sail 扩展 | With several URLs, which a member must answer to pass: `any` of them, which tells a dead member from a URL blocked, or `all`; a sail extension. Under `any`, the latency shown is that of the first URL that answered. |
 | `expected_status` | string | 未设置 | sail 扩展 | The HTTP statuses a test must be answered with to pass, as Mihomo's `expected-status`: codes and ranges, `200/204/401-429`; any when unset. Each URL's answer must be one. |
+| `unified_delay` | bool | `false` | sail 扩展 | The latency of a second request on the connection the first opened, without the connect and handshakes, as Mihomo's `unified-delay`; a sail extension. |
 | `interval` | duration | 未设置 | sail 扩展 | — |
 | `timeout` | duration | 未设置 | sail 扩展 | How long a test may take before its member counts as failed; 5s, as Mihomo's `timeout`. Also how close together `max_failed_times` failures must come, and `dial_timeout` when that is unset. |
 | `dial_timeout` | duration | 未设置 | sail 扩展 | How long a connection attempt through a member, with a member left to fall back to, may take before the group moves on to the next; a sail extension, 1s at least, `timeout` when unset. One still dialling the member's server then marks it down at once; one in the member's handshake is counted toward `max_failed_times`. |
@@ -326,6 +327,7 @@ Rust 定义：[`LoadBalanceOutboundOptions`](https://github.com/peakpassvpn/sail
 | `url` | string | `default_url()` | sail 扩展 | What is requested through each member to test it. |
 | `interval` | duration | 未设置 | sail 扩展 | — |
 | `expected_status` | string | 未设置 | sail 扩展 | The HTTP statuses a test must be answered with to pass, as urltest's; any when unset. |
+| `unified_delay` | bool | `false` | sail 扩展 | The latency of a second request on the connection the first opened, without the connect and handshakes, as Mihomo's `unified-delay`; a sail extension. |
 | `timeout` | duration | 未设置 | sail 扩展 | How long a test may take before its member counts as failed; 5s. Also how close together `max_failed_times` failures must come, as urltest's. |
 | `max_failed_times` | number | 未设置 | sail 扩展 | How many failed connections, within `timeout` of the first, have the members tested again; 5, as urltest's. |
 | `lazy` | bool | `true` | sail 扩展 | Tests only while the group is in use: not when it was not used since the last ones. |
@@ -594,6 +596,7 @@ Rust 定义：[`SmartOutboundOptions`](https://github.com/peakpassvpn/sail/blob/
 | `interval` | duration | 未设置 | sail 扩展 | How often members nothing told of lately are probed; 5 minutes. |
 | `timeout` | duration | 未设置 | sail 扩展 | How long a probe, or a connection attempt that has a member left to try, may take before its member counts as failed; 5 seconds. |
 | `idle_timeout` | duration | 未设置 | sail 扩展 | Probes pause once the group has not been used for this long; 30 minutes. |
+| `unified_delay` | bool | `false` | sail 扩展 | The latency of a second request on the connection the first opened, without the connect and handshakes, as Mihomo's `unified-delay`; a sail extension. |
 | `tolerance` | number | `30` | sail 扩展 | Milliseconds: a member whose score is within this of the best may be picked. |
 | `tolerance_ratio` | number | `0.2` | sail 扩展 | A member whose score is within this fraction of the best may be picked too, whichever of the two is the wider. |
 | `policy_priority` | 数组，元素为 对象 → [[]](#outbounds-smart-policy-priority) | `[]` | sail 扩展 | Factors of the scores of the members whose names match a regular expression, the first that matches: below 1 prefers them, above 1 avoids them. 1 for the others. |
@@ -834,6 +837,7 @@ Rust 定义：[`UrlTestOutboundOptions`](https://github.com/peakpassvpn/sail/blo
 | `max_failed_times` | number | 未设置 | sail 扩展 | How many failed connections, within `timeout` of the first, have the members tested again; 5, as Mihomo's `max-failed-times`. One whose member's server cannot be reached has them tested at once. |
 | `expected_status` | string | 未设置 | sail 扩展 | The HTTP statuses a test must be answered with to pass, as Mihomo's `expected-status`: codes and ranges, `200/204/401-429`; any when unset. |
 | `lazy` | bool | `true` | sail 扩展 | `false`: tests never pause, used or not, as Mihomo's `lazy: false`; `idle_timeout` is then a mistake. |
+| `unified_delay` | bool | `false` | sail 扩展 | The latency of a second request on the connection the first opened, without the connect and handshakes, as Mihomo's `unified-delay`; a sail extension. |
 | `disable_udp` | — | — | sail 扩展 | The group carries TCP alone, whatever member it picks (Mihomo's disable-udp) |
 
 <a id="outbounds-vless"></a>

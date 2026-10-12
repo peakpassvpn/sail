@@ -146,6 +146,10 @@ pub struct HttpProbe {
     path: String,
     #[cfg(feature = "outbound-tls")]
     tls: Option<crate::transport::tls::outbound::StreamHandler>,
+    /// Whether the latency is that of a second request on the connection
+    /// the first opened, without the connect and handshakes: Mihomo's
+    /// `unified-delay`.
+    unified: bool,
 }
 
 impl HttpProbe {
@@ -234,7 +238,15 @@ impl HttpProbe {
             path,
             #[cfg(feature = "outbound-tls")]
             tls,
+            unified: false,
         })
+    }
+
+    /// The probe, timing a second request on the first's connection when
+    /// `unified` (Mihomo's `unified-delay`).
+    pub fn unified(mut self, unified: bool) -> Self {
+        self.unified = unified;
+        self
     }
 
     /// The probe, passing only the statuses `expected`.
@@ -255,17 +267,21 @@ impl HttpProbe {
     /// Whether it tests as `other` does: the same URL, the same statuses
     /// passing.
     pub fn tests_as(&self, other: &HttpProbe) -> bool {
-        self.url == other.url && self.expected == other.expected
+        self.url == other.url && self.expected == other.expected && self.unified == other.unified
     }
 
     /// The time the request through `handler` took to be answered with a
-    /// status expected.
+    /// status expected, within `timeout`, which the caller holds it to:
+    /// what a unified delay's second request does fits in it. `timeout`
+    /// must be the very one the caller wraps the test in: a longer one
+    /// lets the second request outlive the test.
     pub async fn run(
         &self,
         dns_client: SyncDnsClient,
         handler: &AnyOutboundHandler,
+        timeout: Duration,
     ) -> anyhow::Result<Duration> {
-        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::io::AsyncWriteExt;
 
         let sess = Session {
             destination: self.destination.clone(),
@@ -286,43 +302,45 @@ impl HttpProbe {
         #[cfg(not(feature = "outbound-tls"))]
         let mut stream = stream;
         let request = format!(
-            "GET {} HTTP/1.1\r\nHost: {}\r\nUser-Agent: sail\r\nConnection: close\r\n\r\n",
-            self.path, self.host
+            "GET {} HTTP/1.1\r\nHost: {}\r\nUser-Agent: sail\r\nConnection: {}\r\n\r\n",
+            self.path,
+            self.host,
+            if self.unified { "keep-alive" } else { "close" }
         );
         stream.write_all(request.as_bytes()).await?;
-        // The status line is enough: the rest of the response says nothing
-        // more about the path to the server.
-        let mut buf = Vec::with_capacity(64);
-        let mut chunk = [0u8; 64];
-        while !buf.contains(&b'\n') {
-            let n = stream.read(&mut chunk).await?;
-            if n == 0 {
-                return Err(anyhow!(
-                    "EOF before an HTTP response through [{}]",
-                    handler.tag()
-                ));
+        // Timed to the status line, unified or not.
+        let (status, mut head) = read_head(&mut stream, handler).await?;
+        let mut elapsed = Instant::now().duration_since(start);
+        self.check(status, handler)?;
+        // Unified, as Mihomo's (adapter/adapter.go, `URLTest`): the same
+        // request again on the connection, timed alone. It never fails a
+        // test the first request passed: where it cannot be made (a head
+        // too long, a body of a length not known or too long, the
+        // connection closed), fails, or takes longer than the first did (a
+        // second at least) or than what is left of `timeout`, the first
+        // request's time stands.
+        // What is left of `timeout`, less a margin for the caller to see the
+        // answer before it fires.
+        let left = timeout
+            .saturating_sub(start.elapsed())
+            .saturating_sub(Duration::from_millis(50));
+        if self.unified && !left.is_zero() {
+            let budget = elapsed.max(Duration::from_secs(1)).min(left);
+            let again = async {
+                rest_of_head(&mut stream, &mut head).await?;
+                self.again(&mut stream, &head, &request, handler).await
+            };
+            if let Ok(Some(again)) = tokio::time::timeout(budget, again).await {
+                elapsed = again;
             }
-            if buf.len() > 1024 {
-                return Err(anyhow!("no HTTP response through [{}]", handler.tag()));
-            }
-            buf.extend_from_slice(&chunk[..n]);
         }
-        let elapsed = Instant::now().duration_since(start);
         let _ = stream.shutdown().await;
-        let status = buf
-            .strip_prefix(b"HTTP/1.")
-            .and_then(|rest| rest.get(1..5))
-            .filter(|code| code[0] == b' ' && code[1..].iter().all(u8::is_ascii_digit))
-            .and_then(|code| std::str::from_utf8(&code[1..]).ok()?.parse::<u16>().ok());
-        let Some(status) = status else {
-            return Err(anyhow!(
-                "not an HTTP response through [{}]: {}",
-                handler.tag(),
-                String::from_utf8_lossy(&buf[..buf.len().min(32)])
-            ));
-        };
-        // A status not expected fails the test, as in Mihomo
-        // (adapter/adapter.go, `URLTest`).
+        Ok(elapsed)
+    }
+
+    /// Fails a test whose `status` is not one expected, as in Mihomo
+    /// (adapter/adapter.go, `URLTest`).
+    fn check(&self, status: u16, handler: &AnyOutboundHandler) -> anyhow::Result<()> {
         if !self.expected.check(status) {
             return Err(anyhow!(
                 "status {} through [{}] is not one expected ({})",
@@ -331,13 +349,293 @@ impl HttpProbe {
                 self.expected
             ));
         }
-        Ok(elapsed)
+        Ok(())
     }
+
+    /// The time `request`, sent again on `stream` once the body of the
+    /// response whose head is `head` is read, took to be answered with a
+    /// status expected; none where that cannot be told.
+    async fn again(
+        &self,
+        stream: &mut (impl tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin),
+        head: &[u8],
+        request: &str,
+        handler: &AnyOutboundHandler,
+    ) -> Option<Duration> {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let (end, length) = body_length(head)?;
+        // A probe's URL answers with none, or little: more is no probe's.
+        if length > MAX_BODY {
+            return None;
+        }
+        // What came after the head belongs to the body.
+        let mut left = length.checked_sub(head.len() - end)?;
+        let mut chunk = [0u8; 1024];
+        while left > 0 {
+            let n = stream.read(&mut chunk[..left.min(1024)]).await.ok()?;
+            if n == 0 {
+                return None;
+            }
+            left -= n;
+        }
+        let start = Instant::now();
+        stream.write_all(request.as_bytes()).await.ok()?;
+        let (status, _) = read_head(stream, handler).await.ok()?;
+        let elapsed = Instant::now().duration_since(start);
+        self.check(status, handler).ok()?;
+        Some(elapsed)
+    }
+}
+
+/// The longest body `again` reads to go on on a connection.
+const MAX_BODY: usize = 64 * 1024;
+
+/// Reads the rest of the head whose start is `head` from `stream`; none
+/// where it is too long or the stream ends first.
+async fn rest_of_head(
+    stream: &mut (impl tokio::io::AsyncRead + Unpin),
+    head: &mut Vec<u8>,
+) -> Option<()> {
+    use tokio::io::AsyncReadExt;
+
+    let mut chunk = [0u8; 256];
+    while !head.windows(4).any(|w| w == b"\r\n\r\n") {
+        if head.len() > 8192 {
+            return None;
+        }
+        let n = stream.read(&mut chunk).await.ok()?;
+        if n == 0 {
+            return None;
+        }
+        head.extend_from_slice(&chunk[..n]);
+    }
+    Some(())
+}
+
+/// Reads a response from `stream` up to its status line: its status, and
+/// what was read.
+async fn read_head(
+    stream: &mut (impl tokio::io::AsyncRead + Unpin),
+    handler: &AnyOutboundHandler,
+) -> anyhow::Result<(u16, Vec<u8>)> {
+    use tokio::io::AsyncReadExt;
+
+    // The status line is enough to time it: the rest of the response says
+    // nothing more about the path to the server.
+    let done = |buf: &[u8]| buf.contains(&b'\n');
+    let mut buf = Vec::with_capacity(64);
+    let mut chunk = [0u8; 64];
+    while !done(&buf) {
+        let n = stream.read(&mut chunk).await?;
+        if n == 0 {
+            return Err(anyhow!(
+                "EOF before an HTTP response through [{}]",
+                handler.tag()
+            ));
+        }
+        if buf.len() > 1024 {
+            return Err(anyhow!("no HTTP response through [{}]", handler.tag()));
+        }
+        buf.extend_from_slice(&chunk[..n]);
+    }
+    let status = buf
+        .strip_prefix(b"HTTP/1.")
+        .and_then(|rest| rest.get(1..5))
+        .filter(|code| code[0] == b' ' && code[1..].iter().all(u8::is_ascii_digit))
+        .and_then(|code| std::str::from_utf8(&code[1..]).ok()?.parse::<u16>().ok());
+    let Some(status) = status else {
+        return Err(anyhow!(
+            "not an HTTP response through [{}]: {}",
+            handler.tag(),
+            String::from_utf8_lossy(&buf[..buf.len().min(32)])
+        ));
+    };
+    Ok((status, buf))
+}
+
+/// Where the head `head` ends, and how long the body after it is: none
+/// when that is not known (chunked, or until the connection closes), or
+/// the server closes the connection after it.
+fn body_length(head: &[u8]) -> Option<(usize, usize)> {
+    let end = head.windows(4).position(|w| w == b"\r\n\r\n")? + 4;
+    let text = std::str::from_utf8(&head[..end]).ok()?;
+    let status: u16 = text.get(9..12)?.parse().ok()?;
+    let mut length = None;
+    for line in text.split("\r\n").skip(1) {
+        let Some((name, value)) = line.split_once(':') else {
+            continue;
+        };
+        let value = value.trim();
+        match name.trim().to_ascii_lowercase().as_str() {
+            "content-length" => length = Some(value.parse::<usize>().ok()?),
+            "transfer-encoding" => return None,
+            "connection" if value.eq_ignore_ascii_case("close") => return None,
+            _ => {}
+        }
+    }
+    // No body: 1xx, 204 and 304 (RFC 9112, 6.3). An interim 1xx, which a
+    // final response follows, is not told apart: what probes ask for is
+    // answered without one.
+    if status == 204 || status == 304 || (100..200).contains(&status) {
+        return Some((end, 0));
+    }
+    Some((end, length?))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_body_s_length_is_read_where_the_connection_can_go_on() {
+        let len = |head: &str| body_length(head.as_bytes()).map(|(_, n)| n);
+        assert_eq!(len("HTTP/1.1 204 No Content\r\n\r\n"), Some(0));
+        assert_eq!(
+            len("HTTP/1.1 200 OK\r\nContent-Length: 12\r\n\r\n"),
+            Some(12)
+        );
+        assert_eq!(
+            len("HTTP/1.1 200 OK\r\ncontent-length:3\r\n\r\nabc"),
+            Some(3)
+        );
+        // Not told, chunked, or the connection closing: it cannot go on.
+        assert_eq!(len("HTTP/1.1 200 OK\r\n\r\n"), None);
+        assert_eq!(
+            len("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"),
+            None
+        );
+        assert_eq!(
+            len("HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n"),
+            None
+        );
+        assert_eq!(len("HTTP/1.1 204 No Content\r\n"), None);
+    }
+
+    /// A server whose first answer on a connection takes `first`, and the
+    /// next ones on it none: what a connect and a handshake cost, which a
+    /// unified delay leaves out.
+    #[cfg(feature = "outbound-direct")]
+    #[allow(clippy::disallowed_methods)] // A test's server, outside any instance.
+    async fn slow_first(first: Duration) -> u16 {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    let mut buf = [0u8; 1024];
+                    let mut answered = 0;
+                    while let Ok(n) = stream.read(&mut buf).await {
+                        if n == 0 {
+                            break;
+                        }
+                        if answered == 0 {
+                            tokio::time::sleep(first).await;
+                        }
+                        answered += 1;
+                        let _ = stream.write_all(b"HTTP/1.1 204 No Content\r\n\r\n").await;
+                    }
+                });
+            }
+        });
+        port
+    }
+
+    #[cfg(feature = "outbound-direct")]
+    fn direct() -> AnyOutboundHandler {
+        let config = crate::config::Config::from_json(
+            r#"{ "outbounds": [{ "type": "direct", "tag": "d" }] }"#,
+        )
+        .unwrap();
+        let dial = crate::net::DialDefaults::default();
+        crate::app::outbound::manager::OutboundManager::with_endpoints(
+            &config.outbounds,
+            &config.endpoints,
+            #[cfg(feature = "outbound-provider")]
+            Default::default(),
+            &dial,
+            &Default::default(),
+            dns(),
+        )
+        .unwrap()
+        .get("d")
+        .unwrap()
+    }
+
+    /// A server that answers the first request on a connection at once,
+    /// and never the next ones.
+    #[cfg(feature = "outbound-direct")]
+    #[allow(clippy::disallowed_methods)] // A test's server, outside any instance.
+    async fn first_only(after: Duration) -> u16 {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    let mut buf = [0u8; 1024];
+                    if matches!(stream.read(&mut buf).await, Ok(n) if n > 0) {
+                        tokio::time::sleep(after).await;
+                        let _ = stream.write_all(b"HTTP/1.1 204 No Content\r\n\r\n").await;
+                    }
+                    // Holds the connection, answering nothing more.
+                    tokio::time::sleep(Duration::from_secs(30)).await;
+                });
+            }
+        });
+        port
+    }
+
+    /// Unified, a second request that is never answered leaves the first's
+    /// time, the test passing within its timeout: the second's budget is
+    /// what is left of it, however slow the first was.
+    #[cfg(feature = "outbound-direct")]
+    #[tokio::test]
+    async fn a_second_request_not_answered_leaves_the_first_time() {
+        for (first, timeout) in [(Duration::ZERO, 5), (Duration::from_millis(1200), 2)] {
+            let port = first_only(first).await;
+            let url = format!("http://127.0.0.1:{}/generate_204", port);
+            let probe = HttpProbe::new(&url, dns(), &Default::default())
+                .unwrap()
+                .unified(true);
+            let timeout = Duration::from_secs(timeout);
+            let started = Instant::now();
+            let took = tokio::time::timeout(timeout, probe.run(dns(), &direct(), timeout))
+                .await
+                .expect("within the timeout")
+                .unwrap();
+            assert!(
+                took >= first && took < first + Duration::from_secs(1),
+                "{:?}",
+                took
+            );
+            assert!(started.elapsed() < timeout, "{:?}", started.elapsed());
+        }
+    }
+
+    /// Unified, the latency is the second request's, on the connection
+    /// the first opened; else it is the first's, connect and all.
+    #[cfg(feature = "outbound-direct")]
+    #[tokio::test]
+    async fn a_unified_delay_leaves_the_first_answer_out() {
+        let first = Duration::from_millis(400);
+        let port = slow_first(first).await;
+        let url = format!("http://127.0.0.1:{}/generate_204", port);
+        let handler = direct();
+        let plain = HttpProbe::new(&url, dns(), &Default::default()).unwrap();
+        let took = plain
+            .run(dns(), &handler, Duration::from_secs(5))
+            .await
+            .unwrap();
+        assert!(took >= first, "{:?}", took);
+        let unified = plain.unified(true);
+        let took = unified
+            .run(dns(), &handler, Duration::from_secs(5))
+            .await
+            .unwrap();
+        assert!(took < first / 2, "{:?}", took);
+    }
 
     fn dns() -> SyncDnsClient {
         crate::app::dns_client::DnsClient::new(

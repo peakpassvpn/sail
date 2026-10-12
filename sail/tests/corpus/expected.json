@@ -7,22 +7,22 @@
   "clash/0002.yaml": {
     "check": "ok",
     "ok": true,
-    "warnings": 15
+    "warnings": 14
   },
   "clash/0003.yaml": {
     "check": "ok",
     "ok": true,
-    "warnings": 15
+    "warnings": 14
   },
   "clash/0004.yaml": {
     "check": "ok",
     "ok": true,
-    "warnings": 14
+    "warnings": 13
   },
   "clash/0005.yaml": {
     "check": "ok",
     "ok": true,
-    "warnings": 35
+    "warnings": 34
   },
   "clash/0006.yaml": {
     "error": "proxy-groups[1].proxies: a group of no proxies and no providers"
@@ -50,12 +50,12 @@
         "warnings": 9
       }
     },
-    "warnings": 6
+    "warnings": 5
   },
   "clash/0011.yaml": {
     "check": "ok",
     "ok": true,
-    "warnings": 1
+    "warnings": 0
   },
   "clash/0012.yaml": {
     "error": "proxy-groups[0].type: sail does not implement \"relay\" groups yet"
@@ -70,12 +70,12 @@
         "warnings": 11
       }
     },
-    "warnings": 8
+    "warnings": 7
   },
   "clash/0014.yaml": {
     "check": "[Proxy 9] outbound: transport: path: must start with /",
     "ok": true,
-    "warnings": 12
+    "warnings": 11
   },
   "clash/0015.yaml": {
     "check": "ok",
@@ -104,7 +104,7 @@
   "clash/0021.yaml": {
     "check": "[Proxy 5] outbound: transport: path: must start with /",
     "ok": true,
-    "warnings": 2
+    "warnings": 1
   },
   "clash/0022.yaml": {
     "error": "proxy-groups[158].proxies[1]: Proxy 1 is a dns proxy, which sail takes in rules alone"
@@ -132,7 +132,7 @@
   "clash/0029.yaml": {
     "check": "ok",
     "ok": true,
-    "warnings": 25
+    "warnings": 24
   },
   "clash/0030.yaml": {
     "error": "[Proxy 1] outbound: tls.reality.public_key: neither hex nor base64url"
@@ -172,7 +172,7 @@
   "clash/0039.yaml": {
     "check": "ok",
     "ok": true,
-    "warnings": 4
+    "warnings": 3
   },
   "clash/0040.yaml": {
     "error": "outbound_providers[0]: url: (a URL not shown) is not an http(s) URL"
@@ -195,7 +195,7 @@
   "clash/0044.yaml": {
     "check": "dns.servers[https://192.0.2.1/dns-query#Proxy 1]: [https://192.0.2.1/dns-query#Proxy 1] dns server: bind_interface: there is no interface \"Proxy 1\"",
     "ok": true,
-    "warnings": 7
+    "warnings": 6
   },
   "clash/0045.yaml": {
     "check": "ok",
@@ -207,7 +207,7 @@
         "warnings": 10
       }
     },
-    "warnings": 7
+    "warnings": 6
   },
   "clash/0046.yaml": {
     "check": "ok",
@@ -227,12 +227,12 @@
         "warnings": 10
       }
     },
-    "warnings": 7
+    "warnings": 6
   },
   "clash/0049.yaml": {
     "check": "ok",
     "ok": true,
-    "warnings": 7
+    "warnings": 6
   },
   "clash/0050.yaml": {
     "check": "ok",
@@ -247,7 +247,7 @@
   "clash/0052.yaml": {
     "check": "ok",
     "ok": true,
-    "warnings": 6
+    "warnings": 5
   },
   "clash/0053.yaml": {
     "check": "ok",
@@ -293,7 +293,7 @@
   "clash/0062.yaml": {
     "check": "outbound_providers[0]: [provider-1]: path: <data_dir>/./path-1.yaml: No such file or directory (os error 2)",
     "ok": true,
-    "warnings": 6
+    "warnings": 5
   },
   "clash/0063.yaml": {
     "error": "proxies[2].type: sail does not implement \"snell\" yet"
@@ -432,7 +432,7 @@
   "clash/0093.yaml": {
     "check": "ok",
     "ok": true,
-    "warnings": 2
+    "warnings": 1
   },
   "clash/0094.yaml": {
     "check": "ok",
@@ -483,7 +483,7 @@
         "warnings": 8
       }
     },
-    "warnings": 8
+    "warnings": 7
   },
   "clash/0104.yaml": {
     "check": "ok",
@@ -493,7 +493,7 @@
   "clash/0105.yaml": {
     "check": "route.rules[5].ip_cidr: invalid CIDR \"198.18.0.1/16\": host part of address was not zero",
     "ok": true,
-    "warnings": 14
+    "warnings": 13
   },
   "clash/0106.yaml": {
     "check": "ok",
@@ -588,7 +588,7 @@
   "clash/0127.yaml": {
     "check": "ok",
     "ok": true,
-    "warnings": 4
+    "warnings": 3
   },
   "clash/0128.yaml": {
     "error": "proxy-groups[7].proxies[3]: no proxy or group is named \"Proxy 1\""
@@ -709,7 +709,7 @@
         "warnings": 14
       }
     },
-    "warnings": 12
+    "warnings": 11
   },
   "clash/0157.yaml": {
     "error": "rules[16]: no policy to send what it matches to"
@@ -787,7 +787,7 @@
         "warnings": 9
       }
     },
-    "warnings": 6
+    "warnings": 5
   },
   "clash/0170.yaml": {
     "check": "ok",
@@ -871,7 +871,7 @@
         "warnings": 8
       }
     },
-    "warnings": 4
+    "warnings": 3
   },
   "clash/0189.yaml": {
     "error": "rules[0]: no proxy or group is named \"Proxy 1\""

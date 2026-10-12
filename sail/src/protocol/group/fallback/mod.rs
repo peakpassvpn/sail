@@ -97,6 +97,11 @@ struct FallbackOutboundOptions {
     /// any when unset. Each URL's answer must be one.
     #[serde(default)]
     expected_status: Option<String>,
+    /// The latency of a second request on the connection the first
+    /// opened, without the connect and handshakes, as Mihomo's
+    /// `unified-delay`; a sail extension.
+    #[serde(default)]
+    unified_delay: bool,
     #[serde(default, with = "crate::config::model::duration")]
     interval: Option<Duration>,
     /// How long a test may take before its member counts as failed; 5s,
@@ -633,7 +638,11 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         .iter()
         .map(|url| {
             HttpProbe::new(url, ctx.dns_client.clone(), ctx.env)
-                .map(|probe| probe.expecting(expected.clone()))
+                .map(|probe| {
+                    probe
+                        .expecting(expected.clone())
+                        .unified(options.unified_delay)
+                })
                 .map_err(|e| anyhow!("[{}] outbound: url: {}", ctx.tag, e))
         })
         .collect::<Result<Vec<_>>>()?;

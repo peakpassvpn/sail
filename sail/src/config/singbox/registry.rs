@@ -1436,6 +1436,11 @@ const EXTENSIONS: &[(&str, &str, &str)] = &[
         "The HTTP statuses a test must get to pass (Mihomo's expected-status)",
     ),
     (
+        "outbounds[urltest|fallback|load-balance|smart].unified_delay",
+        "true",
+        "A member's latency is that of a second request on the connection the first opened, without the connect and handshakes (Mihomo's unified-delay)",
+    ),
+    (
         "outbounds[selector|urltest|fallback|load-balance|smart].disable_udp",
         "true",
         "The group carries TCP alone, whatever member it picks (Mihomo's disable-udp)",
