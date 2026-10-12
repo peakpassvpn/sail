@@ -350,14 +350,11 @@ impl Lab {
         let e_udp = in_netns(&self.e, || UdpSocket::bind("172.31.97.1:7").unwrap());
         let config = {
             let ports = in_netns(&self.s, || {
-                // Free in s, which has nothing else.
-                [0; 3].map(|_| {
-                    TcpListener::bind("127.0.0.1:0")
-                        .unwrap()
-                        .local_addr()
-                        .unwrap()
-                        .port()
-                })
+                // Free in s, which has nothing else. All three are held at
+                // once: bound and dropped one by one, the kernel may hand
+                // the same port out twice.
+                let held = [(); 3].map(|()| TcpListener::bind("127.0.0.1:0").unwrap());
+                held.map(|listener| listener.local_addr().unwrap().port())
             });
             (ports, self.sail_config(ports[0], ports[1], ports[2]))
         };
