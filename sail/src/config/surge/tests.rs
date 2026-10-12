@@ -1397,3 +1397,25 @@ fn a_policy_path_read_from_text_stays_in_the_data_directory() {
     }
     assert!(parse(&group("a.list")).is_ok());
 }
+
+/// `block-quic = all` refuses every QUIC connection, sniffed before any
+/// rule; `all-proxy`, which hangs on the policy taken, is warned of.
+#[test]
+fn block_quic_all_refuses_quic_before_every_rule() {
+    let config = load("[General]\nblock-quic = all\n[Rule]\nFINAL,DIRECT\n");
+    let first = rules(&config);
+    assert_eq!(first[0]["action"], "sniff");
+    assert_eq!(first[0]["network"], json!(["udp"]));
+    assert_eq!(first[0]["sniffer"], json!(["quic"]));
+    assert_eq!(first[1]["protocol"], json!(["quic"]));
+    assert_eq!(first[1]["action"], "reject");
+    assert!(config.warnings.is_empty(), "{:?}", config.warnings);
+
+    let config = load("[General]\nblock-quic = all-proxy\n[Rule]\nFINAL,DIRECT\n");
+    assert!(rules(&config).iter().all(|r| r["action"] != "reject"));
+    assert!(
+        config.warnings.iter().any(|w| w.contains("block-quic")),
+        "{:?}",
+        config.warnings
+    );
+}

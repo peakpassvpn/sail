@@ -69,7 +69,7 @@ Surge 手册（manual.nssurge.com of 2026-09-22）列出的全部字段，以及
 | `General.always-raw-tcp-keywords` | 静默忽略 |  |
 | `General.always-real-ip` | 支持 |  |
 | `General.auto-suspend` | 静默忽略 |  |
-| `General.block-quic` | 警告 | block-quic: sail does not block QUIC; ignored, and QUIC goes where the rules say |
+| `General.block-quic` | 警告 | block-quic: sail does not block QUIC by the policy it takes; ignored, and QUIC goes where the rules say (`all` blocks it whatever the policy) |
 | `General.compatibility-mode` | 静默忽略 |  |
 | `General.debug-cpu-usage` | 静默忽略 |  |
 | `General.debug-memory-usage` | 静默忽略 |  |

@@ -69,7 +69,7 @@ A deliberate difference: a `#!include`'s download is not redirected from https t
 | `General.always-raw-tcp-keywords` | Ignored silently |  |
 | `General.always-real-ip` | Supported |  |
 | `General.auto-suspend` | Ignored silently |  |
-| `General.block-quic` | Warned | block-quic: sail does not block QUIC; ignored, and QUIC goes where the rules say |
+| `General.block-quic` | Warned | block-quic: sail does not block QUIC by the policy it takes; ignored, and QUIC goes where the rules say (`all` blocks it whatever the policy) |
 | `General.compatibility-mode` | Ignored silently |  |
 | `General.debug-cpu-usage` | Ignored silently |  |
 | `General.debug-memory-usage` | Ignored silently |  |

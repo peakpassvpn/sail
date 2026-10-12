@@ -165,8 +165,18 @@ pub fn lower(lines: Vec<Line>, out: &mut Lowered, warnings: &mut Vec<String>) ->
     if let Some((value, at)) = p.take_at("block-quic") {
         match value.to_ascii_lowercase().as_str() {
             "per-policy" | "always-allow" => {}
-            "all-proxy" | "all" => warnings.push(format!(
-                "{}: sail does not block QUIC; ignored, and QUIC goes where the rules say",
+            // Every QUIC connection refused, whatever policy it would
+            // take: the app goes on over TCP. Before every rule, a UDP
+            // connection's first packet is sniffed for it.
+            "all" => general.rules.extend([
+                json!({ "network": ["udp"], "action": "sniff", "sniffer": ["quic"] }),
+                json!({ "protocol": ["quic"], "action": "reject" }),
+            ]),
+            // Which policy a connection takes is known once the rules
+            // have chosen it, and a rule cannot match on it.
+            "all-proxy" => warnings.push(format!(
+                "{}: sail does not block QUIC by the policy it takes; ignored, and QUIC goes \
+                 where the rules say (`all` blocks it whatever the policy)",
                 at
             )),
             _ => warnings.push(format!(
