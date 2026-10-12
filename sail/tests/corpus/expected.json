@@ -7,22 +7,22 @@
   "clash/0002.yaml": {
     "check": "ok",
     "ok": true,
-    "warnings": 27
+    "warnings": 25
   },
   "clash/0003.yaml": {
     "check": "ok",
     "ok": true,
-    "warnings": 18
+    "warnings": 16
   },
   "clash/0004.yaml": {
     "check": "ok",
     "ok": true,
-    "warnings": 18
+    "warnings": 15
   },
   "clash/0005.yaml": {
     "check": "ok",
     "ok": true,
-    "warnings": 39
+    "warnings": 36
   },
   "clash/0006.yaml": {
     "error": "proxy-groups[1].proxies: a group of no proxies and no providers"
@@ -50,7 +50,7 @@
         "warnings": 9
       }
     },
-    "warnings": 9
+    "warnings": 7
   },
   "clash/0011.yaml": {
     "check": "ok",
@@ -70,12 +70,12 @@
         "warnings": 11
       }
     },
-    "warnings": 11
+    "warnings": 9
   },
   "clash/0014.yaml": {
     "check": "[Proxy 9] outbound: transport: path: must start with /",
     "ok": true,
-    "warnings": 15
+    "warnings": 13
   },
   "clash/0015.yaml": {
     "check": "ok",
@@ -132,7 +132,7 @@
   "clash/0029.yaml": {
     "check": "ok",
     "ok": true,
-    "warnings": 27
+    "warnings": 26
   },
   "clash/0030.yaml": {
     "error": "[Proxy 1] outbound: tls.reality.public_key: neither hex nor base64url"
@@ -207,7 +207,7 @@
         "warnings": 10
       }
     },
-    "warnings": 10
+    "warnings": 7
   },
   "clash/0046.yaml": {
     "check": "ok",
@@ -227,7 +227,7 @@
         "warnings": 10
       }
     },
-    "warnings": 10
+    "warnings": 8
   },
   "clash/0049.yaml": {
     "check": "ok",
@@ -247,7 +247,7 @@
   "clash/0052.yaml": {
     "check": "ok",
     "ok": true,
-    "warnings": 8
+    "warnings": 7
   },
   "clash/0053.yaml": {
     "check": "ok",
@@ -709,7 +709,7 @@
         "warnings": 14
       }
     },
-    "warnings": 14
+    "warnings": 13
   },
   "clash/0157.yaml": {
     "error": "rules[16]: no policy to send what it matches to"
@@ -787,7 +787,7 @@
         "warnings": 9
       }
     },
-    "warnings": 9
+    "warnings": 7
   },
   "clash/0170.yaml": {
     "check": "ok",
@@ -871,7 +871,7 @@
         "warnings": 8
       }
     },
-    "warnings": 8
+    "warnings": 5
   },
   "clash/0189.yaml": {
     "error": "rules[0]: no proxy or group is named \"Proxy 1\""

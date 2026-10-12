@@ -335,6 +335,43 @@ fn a_reject_proxy_is_a_block() {
     assert_eq!(outbound(&config, "直连").protocol, "direct");
 }
 
+#[test]
+fn mihomo_s_tcp_keepalive_is_every_dial_s_and_listener_s() {
+    let config = load(
+        r#"
+mixed-port: 7890
+keep-alive-idle: 600
+keep-alive-interval: 30
+proxies:
+  - { name: ss, type: ss, server: s.example.com, port: 1, cipher: aes-128-gcm, password: p }
+  - { name: d, type: direct }
+proxy-groups:
+  - { name: G, type: select, proxies: [ss, d] }
+rules: ["MATCH,G"]
+"#,
+    );
+    for tag in ["ss", "d"] {
+        let o = serde_json::to_value(outbound(&config, tag)).unwrap();
+        assert_eq!(o["tcp_keep_alive"], "600s", "{}", tag);
+        assert_eq!(o["tcp_keep_alive_interval"], "30s", "{}", tag);
+    }
+    let g = serde_json::to_value(outbound(&config, "G")).unwrap();
+    assert!(g.get("tcp_keep_alive").is_none());
+    assert_eq!(
+        config.inbounds[0].tcp_keep_alive,
+        Some(std::time::Duration::from_secs(600))
+    );
+    assert!(config.warnings.is_empty(), "{:?}", config.warnings);
+
+    let config = load(
+        "disable-keep-alive: true\nkeep-alive-idle: 600\n\
+         proxies: [{ name: d, type: direct }]\nrules: [\"MATCH,d\"]\n",
+    );
+    let d = serde_json::to_value(outbound(&config, "d")).unwrap();
+    assert_eq!(d["disable_tcp_keep_alive"], true);
+    assert!(d.get("tcp_keep_alive").is_none());
+}
+
 const KEY: &str = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=";
 
 #[test]

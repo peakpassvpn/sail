@@ -30,7 +30,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `dns` | 33 | 28 | 5 | 0 |
 | `experimental` | 5 | 0 | 5 | 0 |
 | `external-controller-cors` | 3 | 3 | 0 | 0 |
-| `general` | 48 | 25 | 21 | 2 |
+| `general` | 48 | 28 | 18 | 2 |
 | `geox-url` | 5 | 0 | 5 | 0 |
 | `iptables` | 5 | 0 | 0 | 5 |
 | `listeners[anytls]` | 45 | 0 | 0 | 45 |
@@ -89,7 +89,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `tls` | 7 | 0 | 7 | 0 |
 | `tuic-server` | 13 | 0 | 0 | 13 |
 | `tun` | 50 | 33 | 10 | 7 |
-| **All** | **2077** | **487** | **143** | **1447** |
+| **All** | **2077** | **490** | **140** | **1447** |
 
 
 ## `general`
@@ -112,7 +112,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 
 | 字段 | sail | sail 的说明 |
 |---|---|---|
-| `disable-keep-alive` | 警告 | disable-keep-alive: sail does not implement this field; ignored |
+| `disable-keep-alive` | 支持 |  |
 
 ## `dns`
 
@@ -237,8 +237,8 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | 字段 | sail | sail 的说明 |
 |---|---|---|
 | `ipv6` | 支持 |  |
-| `keep-alive-idle` | 警告 | keep-alive-idle: sail does not implement this field; ignored |
-| `keep-alive-interval` | 警告 | keep-alive-interval: sail does not implement this field; ignored |
+| `keep-alive-idle` | 支持 |  |
+| `keep-alive-interval` | 支持 |  |
 | `lan-allowed-ips` | 支持 | lan-allowed-ips[0]: "x" is not an IP prefix |
 | `lan-disallowed-ips` | 支持 | lan-disallowed-ips[0]: "x" is not an IP prefix |
 

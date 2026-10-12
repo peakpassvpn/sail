@@ -22,9 +22,6 @@ pub const TOP: &[(&str, Tier)] = &[
     // How connections are made and timed, not where they go.
     ("unified-delay", Ignored),
     ("tcp-concurrent", Ignored),
-    ("keep-alive-idle", Ignored),
-    ("keep-alive-interval", Ignored),
-    ("disable-keep-alive", Ignored),
     ("inbound-tfo", Ignored),
     ("inbound-mptcp", Ignored),
     ("find-process-mode", Ignored),
@@ -62,11 +59,37 @@ pub fn lower(doc: &mut Fields, out: &mut Lowered, warnings: &mut Vec<String>) ->
     mode(doc, out)?;
     controller(doc, out, warnings)?;
     profile(doc, out, warnings)?;
+    keep_alive(doc, out)?;
     if let Some(name) = doc.string("interface-name")? {
         out.route.insert("default_interface".into(), json!(name));
     }
     if let Some(mark) = doc.int::<u32>("routing-mark")? {
         out.route.insert("default_mark".into(), json!(mark));
+    }
+    Ok(())
+}
+
+/// The TCP keepalive Mihomo sets on every connection it makes and takes:
+/// `keep-alive-idle` and `keep-alive-interval` in seconds, or none with
+/// `disable-keep-alive`. As sail's dial and listen fields, which each
+/// outbound and listener gets (`Lowered::apply_keep_alive`); one not given
+/// is sail's default.
+fn keep_alive(doc: &mut Fields, out: &mut Lowered) -> Result<()> {
+    let idle = doc.int::<u64>("keep-alive-idle")?;
+    let interval = doc.int::<u64>("keep-alive-interval")?;
+    if doc.bool("disable-keep-alive")?.unwrap_or(false) {
+        out.keep_alive
+            .insert("disable_tcp_keep_alive".into(), json!(true));
+        return Ok(());
+    }
+    for (seconds, field) in [
+        (idle, "tcp_keep_alive"),
+        (interval, "tcp_keep_alive_interval"),
+    ] {
+        if let Some(seconds) = seconds.filter(|s| *s > 0) {
+            out.keep_alive
+                .insert(field.into(), json!(format!("{}s", seconds)));
+        }
     }
     Ok(())
 }

@@ -72,6 +72,7 @@ pub fn parse_in(s: &str, home: Option<&std::path::Path>) -> Result<Config> {
         out.rules.insert(0, rule);
     }
     out.rule_sets.extend(sets.into_geo_sets());
+    out.apply_keep_alive(&mut warnings);
     doc.finish(general::TOP, |key| holders.contains(key), &mut warnings)?;
 
     let value = out.into_json();
@@ -143,9 +144,41 @@ pub struct Lowered {
     /// `lan-allowed-ips`, unless it allows everyone.
     pub lan_allowed: Option<Vec<String>>,
     pub lan_disallowed: Vec<String>,
+    /// The TCP keepalive fields every outbound that dials and every
+    /// listener takes: `keep-alive-idle` and the like.
+    pub keep_alive: Map<String, Value>,
 }
 
 impl Lowered {
+    /// Sets `keep_alive` on each outbound that dials (a direct one, or one
+    /// with a server) and each inbound that listens, where it sets none of
+    /// its own. A provider's proxies, read as it runs, keep sail's
+    /// default, which `warnings` tells.
+    fn apply_keep_alive(&mut self, warnings: &mut Vec<String>) {
+        if self.keep_alive.is_empty() {
+            return;
+        }
+        let dials = |o: &Value| o.get("server").is_some() || o["type"] == "direct";
+        let listens = |i: &Value| i.get("listen_port").is_some();
+        let outbounds = self.outbounds.iter_mut().filter(|o| dials(o));
+        let inbounds = self.inbounds.iter_mut().filter(|i| listens(i));
+        for item in outbounds.chain(inbounds) {
+            let Some(item) = item.as_object_mut() else {
+                continue;
+            };
+            for (field, value) in &self.keep_alive {
+                item.entry(field.clone()).or_insert_with(|| value.clone());
+            }
+        }
+        if !self.outbound_providers.is_empty() {
+            warnings.push(
+                "keep-alive-idle, keep-alive-interval, disable-keep-alive: the proxies of \
+                 proxy-providers keep sail's TCP keepalive"
+                    .to_string(),
+            );
+        }
+    }
+
     pub(in crate::config) fn into_json(self) -> Value {
         let mut route = self.route;
         route.insert("rules".into(), Value::Array(self.rules));
