@@ -1,0 +1,171 @@
+name: perf-desktop
+
+# The desktop cell (tools/perf/desktop): sail against sing-box as a local client
+# on a Windows and a macOS runner, by hand only. Every other throughput and
+# CPU number of sail's is Linux's.
+#
+# Runners are noisy and differ from run to run, so both clients run in the
+# same job, turn about, and the report's ratios are what to read; the
+# absolute numbers are that runner's, that hour.
+#
+# The default is Windows alone: macOS is asked for by name.
+#
+# sail is built natively, at the profile a release ships (dist), with the
+# BoringSSL ci.yml's jobs link. A release's Windows file is the gnu cross
+# build; this one is MSVC, as windows-msvc in ci.yml.
+on:
+  workflow_dispatch:
+    inputs:
+      os:
+        description: the runners to measure on
+        type: choice
+        options: [windows, macos, both]
+        default: windows
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  SING_BOX_VERSION: 1.14.2
+
+jobs:
+  cell:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(inputs.os == 'both' && '["windows-latest","macos-15"]' || inputs.os == 'macos' && '["macos-15"]' || '["windows-latest"]') }}
+    name: cell (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      CARGO_INCREMENTAL: 0
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: LF checkout
+        run: git config --global core.autocrlf false
+
+      - name: checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      # The version is rust-toolchain.toml's; keep them in step.
+      - name: install rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+
+      # bindgen's libclang, from the runner's LLVM, as windows-msvc in ci.yml.
+      - name: libclang (Windows)
+        if: runner.os == 'Windows'
+        run: printf '%s\n' 'LIBCLANG_PATH=C:\Program Files\LLVM\bin' >> "$GITHUB_ENV"
+
+      # The fork's BoringSSL, as ci.yml's header says.
+      - name: prebuilt BoringSSL
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/prebuilt-boringssl.sh "$(rustc -vV | sed -n 's/^host:[[:space:]]*//p')"
+
+      - name: cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: perf-desktop
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+
+      # What a release ships: the dist profile (release, with line tables).
+      - name: build sail
+        run: cargo build --locked --profile dist -p sail-cli
+
+      # BoringSSL without its assembly would be several times slower at
+      # AES-GCM and ChaCha20, and the cell would measure that: the prebuilt
+      # library defines the assembly's functions (as ci.yml checks). One
+      # compiled here, when there was no prebuilt one, is only told.
+      - name: BoringSSL has its assembly (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          path=${BORING_BSSL_PATH_x86_64_pc_windows_msvc:-}
+          if [ -z "$path" ]; then
+            echo "::warning title=BoringSSL from source::its assembly is not checked; compare the numbers with care"
+            exit 0
+          fi
+          # Read once: grep -q ending a pipe early fails it under pipefail.
+          syms=$(llvm-nm "$path/lib/crypto.lib" | tr -d '\r')
+          for f in gcm_ghash_avx ChaCha20_ctr32_avx2; do
+            grep -qE " T $f\$" <<<"$syms" || { echo "$path/lib/crypto.lib does not define $f"; exit 1; }
+          done
+
+      - name: install go
+        uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: false
+
+      - name: build netgen
+        run: |
+          mkdir -p bin
+          (cd scripts/netem/netgen && CGO_ENABLED=0 go build -o ../../../bin/ .)
+          ls -l bin
+
+      - name: install python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # The release's own archive, checked against the hash written here
+      # (of the files of v1.14.2, downloaded and hashed 2026-10-12).
+      - name: sing-box
+        run: |
+          case "$RUNNER_OS-$RUNNER_ARCH" in
+          Windows-X64)
+            name=sing-box-$SING_BOX_VERSION-windows-amd64 ext=zip
+            sha256=c2d8bfff918755808781dfdeeb8581b6c91eb3a243d9a7b55483cfc0c0684d32
+            ;;
+          macOS-ARM64)
+            name=sing-box-$SING_BOX_VERSION-darwin-arm64 ext=tar.gz
+            sha256=925c5382eca8492b0150f868a6db20b18290a38700e621724b3703fd453e032d
+            ;;
+          # macos-15 is arm64. For an Intel runner, darwin-amd64.tar.gz is
+          # b0bfb0dc70a5fc708710b9f5ea98b9ee76d40fa4169928d25d73edc4331df2fe.
+          *)
+            echo "no sing-box archive is pinned for $RUNNER_OS-$RUNNER_ARCH"
+            exit 1
+            ;;
+          esac
+          curl -fsSL --retry 3 -o "$name.$ext" \
+            "https://github.com/SagerNet/sing-box/releases/download/v$SING_BOX_VERSION/$name.$ext"
+          python - "$name.$ext" "$sha256" <<'EOF'
+          import hashlib, shutil, sys
+          archive, pinned = sys.argv[1:]
+          actual = hashlib.sha256(open(archive, "rb").read()).hexdigest()
+          if actual != pinned:
+              sys.exit(f"{archive}: sha256 {actual}, not the pinned {pinned}")
+          shutil.unpack_archive(archive, "sing-box-release")
+          EOF
+          mkdir -p bin
+          # Windows' has a DLL beside it.
+          cp "sing-box-release/$name"/* bin/
+          chmod +x bin/sing-box*
+          bin/sing-box version
+
+      - name: psutil
+        run: python -m pip install psutil
+
+      - name: measure
+        run: |
+          python tools/perf/desktop/run.py --sail target/dist/sail --sing-box bin/sing-box \
+            --netgen bin/netgen --work cell-work --out results.json
+
+      # The numbers, and the logs of a cell that failed. Not the keys.
+      - name: upload
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-desktop-${{ matrix.os }}
+          path: |
+            results.json
+            cell-work/**/*.log
+            cell-work/**/*.json
+          if-no-files-found: warn
