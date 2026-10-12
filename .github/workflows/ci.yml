@@ -103,6 +103,7 @@ jobs:
   # - bindings: the bindings, the C ABI, sail::embed, the JSON snapshot the
   #   models are checked against, the Swift package's manifest;
   # - tun-macos: the TUN, platform and teardown code, and the macOS scripts;
+  # - tun-windows: the TUN, platform and teardown code, and its test;
   # - netns-linux: the same on Linux, the netstack, the runtime, WireGuard
   #   and the netns scripts and tests;
   # - fuzz: the fuzz workspaces, a Cargo manifest or the lock file, the
@@ -126,6 +127,7 @@ jobs:
       bindings: ${{ steps.paths.outputs.bindings }}
       android_emulator: ${{ steps.paths.outputs.android_emulator }}
       tun_macos: ${{ steps.paths.outputs.tun_macos }}
+      tun_windows: ${{ steps.paths.outputs.tun_windows }}
       netns_linux: ${{ steps.paths.outputs.netns_linux }}
       fuzz: ${{ steps.paths.outputs.fuzz }}
       check_32bit: ${{ steps.paths.outputs.check_32bit }}
@@ -147,6 +149,7 @@ jobs:
           declare -A filters=(
             [bindings]='^(bindings/|sail-ffi/|sail/src/embed|sail/src/control/json_snapshot\.json$|Package\.swift$)'
             [tun_macos]='^(sail/src/protocol/tun/|sail/src/platform/|sail/src/runtime/teardown\.rs|sail/src/fault\.rs|sail/tests/test_teardown\.rs|sail/tests/test_tun_integrity_macos\.rs|sail/tests/test_split_dns_macos\.rs|sail/tests/test_owner_macos\.rs|sail/src/app/owner|sail/src/app/dns/client/system|sail/tests/test_tun_replaced_macos\.rs|sail/tests/scripts/macos_)'
+            [tun_windows]='^(sail/src/protocol/tun/|sail/src/platform/|sail/src/runtime/teardown\.rs|sail/tests/test_tun_windows\.rs)'
             [netns_linux]='^(sail/src/protocol/tun/|sail/src/net/netstack/|sail/src/platform/|sail/src/runtime/|sail/src/fault\.rs|sail/src/protocol/wireguard/|sail/tests/test_wireguard_(interop|kernel)\.rs|sail/tests/scripts/[a-z_]+_netns\.sh|sail/tests/test_[a-z_]+_linux\.rs|sail/tests/test_teardown\.rs)'
             [fuzz]='^(fuzz/|sail-netstack/fuzz/|fuzz-config/|scripts/prebuilt-boringssl\.sh$|tools/fuzz-check\.sh$)|(^|/)Cargo\.(toml|lock)$'
             [website_scripts]='^website/scripts/'
@@ -821,9 +824,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: scripts/prebuilt-boringssl.sh x86_64-pc-windows-msvc
 
+      # Shared with tun-windows, which only reads it.
       - name: cache
         uses: Swatinem/rust-cache@v2
         with:
+          shared-key: windows-msvc
           save-if: ${{ github.ref == 'refs/heads/master' }}
 
       - name: tools
@@ -910,6 +915,70 @@ jobs:
           cargo test --locked -p sail --features fault-injection --target x86_64-pc-windows-msvc --test test_split_dns_windows -- --ignored --test-threads 1 --nocapture
           if ($LASTEXITCODE -ne 0) { $status = $LASTEXITCODE }
           exit $status
+
+  # L3: real traffic through a Wintun adapter (tests/test_tun_windows.rs),
+  # as tun-macos and the Android emulator show of theirs: DNS, TCP and UDP
+  # over IPv4 and IPv6, a stop and a start, no integrity event, nothing
+  # left. On master, by hand, and on branches the `changes` job says reach
+  # the TUN or the platform code. The runner is administrator; the cache
+  # is windows-msvc's, which master saves.
+  tun-windows:
+    needs: changes
+    if: needs.changes.outputs.tun_windows == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
+      CARGO_INCREMENTAL: 0
+      # bindgen's libclang, from the runner's LLVM.
+      LIBCLANG_PATH: C:\Program Files\LLVM\bin
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: LF checkout
+        run: git config --global core.autocrlf false
+
+      - name: checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: install rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+          targets: x86_64-pc-windows-msvc
+
+      - name: prebuilt BoringSSL
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/prebuilt-boringssl.sh x86_64-pc-windows-msvc
+
+      - name: cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: windows-msvc
+          save-if: false
+
+      - name: build the test
+        run: cargo test --locked -p sail --features fault-injection --target x86_64-pc-windows-msvc --test test_tun_windows --no-run
+
+      # wintun.dll, release.yml's pinned one, goes beside the test.
+      - name: traffic through the TUN
+        shell: pwsh
+        env:
+          WINTUN_VERSION: 0.14.1
+          WINTUN_SHA256: 07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51
+        run: |
+          $zip = "$env:RUNNER_TEMP\wintun.zip"
+          Invoke-WebRequest "https://www.wintun.net/builds/wintun-$env:WINTUN_VERSION.zip" -OutFile $zip
+          if ((Get-FileHash $zip -Algorithm SHA256).Hash -ne $env:WINTUN_SHA256) { throw "wintun zip: not the pinned hash" }
+          Expand-Archive $zip "$env:RUNNER_TEMP\wintun"
+          $deps = "target\x86_64-pc-windows-msvc\debug\deps"
+          Copy-Item "$env:RUNNER_TEMP\wintun\wintun\bin\amd64\wintun.dll" $deps
+          cargo test --locked -p sail --features fault-injection --target x86_64-pc-windows-msvc --test test_tun_windows -- --ignored --test-threads 1 --nocapture
+          exit $LASTEXITCODE
 
   # L3: the Kotlin binding's tests, on a desktop JVM, against libsail_jni
   # built for this host (jni/build-host.sh). On master, by hand, and on

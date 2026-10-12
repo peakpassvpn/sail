@@ -77,7 +77,11 @@ or a platform that only its own runner has:
   utun's names and routes, and real DNS, TCP and UDP traffic through it
   over IPv4 and IPv6), `test_teardown`, `test_tun_integrity_macos`,
   `test_tun_replaced_macos`, `platform::route_socket`;
-- Windows, as administrator with wintun.dll: `test_teardown`;
+- Windows, as administrator with wintun.dll: `test_tun_windows` (real
+  DNS, TCP and UDP traffic through a Wintun adapter over IPv4 and IPv6,
+  a stop and a start, no integrity event, nothing left),
+  `test_teardown`, `test_tun_integrity_windows`,
+  `test_split_dns_windows`;
 - the bindings: the Kotlin binding on a desktop JVM, the Swift binding on
   macOS.
 
@@ -153,6 +157,7 @@ Start low: a check that L1 can make does not wait for L3's runner.
 | `check-32bit`: clippy for armv7 musl, BoringSSL from source | — | when dependencies, toolchain or cross scripts change | always |
 | `netns-linux` | L3 | when the change reaches it | always |
 | `tun-macos` | L3 | when the change reaches it | always |
+| `tun-windows` | L3 | when the change reaches it | always |
 | `bindings-kotlin`, `bindings-swift` | L3 | when the change reaches them | always |
 | `cross (<target>)` | L4 | no | always |
 | `test-aarch64` | L4 | no | always |
