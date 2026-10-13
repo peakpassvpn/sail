@@ -30,7 +30,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `dns` | 33 | 29 | 4 | 0 |
 | `experimental` | 5 | 0 | 5 | 0 |
 | `external-controller-cors` | 3 | 3 | 0 | 0 |
-| `general` | 48 | 30 | 16 | 2 |
+| `general` | 48 | 32 | 14 | 2 |
 | `geox-url` | 5 | 0 | 5 | 0 |
 | `iptables` | 5 | 0 | 0 | 5 |
 | `listeners[anytls]` | 45 | 0 | 0 | 45 |
@@ -89,7 +89,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `tls` | 7 | 0 | 7 | 0 |
 | `tuic-server` | 13 | 0 | 0 | 13 |
 | `tun` | 50 | 34 | 9 | 7 |
-| **All** | **2077** | **495** | **135** | **1447** |
+| **All** | **2077** | **497** | **133** | **1447** |
 
 
 ## `general`
@@ -195,8 +195,8 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `external-ui-name` | 支持 |  |
 | `external-ui-url` | 支持 |  |
 | `find-process-mode` | 警告 | find-process-mode: sail does not implement this field; ignored |
-| `geo-auto-update` | 警告 | geo-auto-update: sail does not implement this field; ignored |
-| `geo-update-interval` | 警告 | geo-update-interval: sail does not implement this field; ignored |
+| `geo-auto-update` | 支持 |  |
+| `geo-update-interval` | 支持 |  |
 | `geodata-loader` | 警告 | geodata-loader: sail does not implement this field; ignored |
 | `geodata-mode` | 警告 | geodata-mode: sail does not implement this field; ignored |
 | `geosite-matcher` | 警告 | geosite-matcher: sail does not implement this field; ignored |

@@ -2,27 +2,27 @@
   "clash/0001.yaml": {
     "check": "route.rule_set[0]: [set-1]: <data_dir>/./path-1.yaml: No such file or directory (os error 2)",
     "ok": true,
-    "warnings": 4
+    "warnings": 3
   },
   "clash/0002.yaml": {
     "check": "ok",
     "ok": true,
-    "warnings": 13
+    "warnings": 11
   },
   "clash/0003.yaml": {
     "check": "ok",
     "ok": true,
-    "warnings": 13
+    "warnings": 11
   },
   "clash/0004.yaml": {
     "check": "ok",
     "ok": true,
-    "warnings": 12
+    "warnings": 10
   },
   "clash/0005.yaml": {
     "check": "ok",
     "ok": true,
-    "warnings": 33
+    "warnings": 31
   },
   "clash/0006.yaml": {
     "error": "proxy-groups[1].proxies: a group of no proxies and no providers"
@@ -493,7 +493,7 @@
   "clash/0105.yaml": {
     "check": "route.rules[5].ip_cidr: invalid CIDR \"198.18.0.1/16\": host part of address was not zero",
     "ok": true,
-    "warnings": 13
+    "warnings": 11
   },
   "clash/0106.yaml": {
     "check": "ok",

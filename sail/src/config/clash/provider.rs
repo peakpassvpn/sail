@@ -140,19 +140,24 @@ impl Sets {
         Ok(())
     }
 
-    /// The rule-sets of the GEOSITE and GEOIP rules, downloaded directly.
-    pub fn into_geo_sets(self) -> Vec<Value> {
+    /// The rule-sets of the GEOSITE and GEOIP rules, downloaded directly,
+    /// and again every `update`, or as a rule-set is unset.
+    pub fn into_geo_sets(self, update: Option<std::time::Duration>) -> Vec<Value> {
         self.geo
             .into_iter()
             .map(|(tag, (url, behavior))| {
-                json!({
+                let mut set = json!({
                     "type": "remote",
                     "tag": tag,
                     "format": "mrs",
                     "behavior": behavior,
                     "url": url,
                     "download_detour": "DIRECT",
-                })
+                });
+                if let Some(update) = update {
+                    set["update_interval"] = json!(format!("{}s", update.as_secs()));
+                }
+                set
             })
             .collect()
     }

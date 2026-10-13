@@ -30,7 +30,7 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 | `dns` | 33 | 29 | 4 | 0 |
 | `experimental` | 5 | 0 | 5 | 0 |
 | `external-controller-cors` | 3 | 3 | 0 | 0 |
-| `general` | 48 | 30 | 16 | 2 |
+| `general` | 48 | 32 | 14 | 2 |
 | `geox-url` | 5 | 0 | 5 | 0 |
 | `iptables` | 5 | 0 | 0 | 5 |
 | `listeners[anytls]` | 45 | 0 | 0 | 45 |
@@ -89,7 +89,7 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 | `tls` | 7 | 0 | 7 | 0 |
 | `tuic-server` | 13 | 0 | 0 | 13 |
 | `tun` | 50 | 34 | 9 | 7 |
-| **All** | **2077** | **495** | **135** | **1447** |
+| **All** | **2077** | **497** | **133** | **1447** |
 
 
 ## `general`
@@ -195,8 +195,8 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 | `external-ui-name` | Supported |  |
 | `external-ui-url` | Supported |  |
 | `find-process-mode` | Warned | find-process-mode: sail does not implement this field; ignored |
-| `geo-auto-update` | Warned | geo-auto-update: sail does not implement this field; ignored |
-| `geo-update-interval` | Warned | geo-update-interval: sail does not implement this field; ignored |
+| `geo-auto-update` | Supported |  |
+| `geo-update-interval` | Supported |  |
 | `geodata-loader` | Warned | geodata-loader: sail does not implement this field; ignored |
 | `geodata-mode` | Warned | geodata-mode: sail does not implement this field; ignored |
 | `geosite-matcher` | Warned | geosite-matcher: sail does not implement this field; ignored |
