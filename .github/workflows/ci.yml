@@ -399,6 +399,7 @@ jobs:
             config-surge,inbound-mixed,outbound-direct \
             outbound-provider,outbound-select,outbound-direct,inbound-socks \
             api,outbound-direct \
+            dns-h3,dns-doh,outbound-direct \
             outbound-fallback,outbound-direct \
             config-clash,outbound-fallback,outbound-direct \
             inbound-tun,outbound-direct,fault-injection

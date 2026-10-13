@@ -178,7 +178,9 @@ impl BoundInterface {
             feature = "mux",
             feature = "outbound-anytls",
             feature = "outbound-amux",
-            feature = "quic"
+            feature = "outbound-quic",
+            feature = "outbound-hysteria2",
+            feature = "outbound-tuic"
         )),
         allow(dead_code)
     )]
