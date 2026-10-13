@@ -40,6 +40,17 @@ name: perf-desktop
 #                  there is no prebuilt BoringSSL for windows-gnu, and its
 #                  MinGW is not the one a release is built with.
 #
+# `profile`: Windows only, whatever `os` says. One build, one round of
+# Hysteria2 and of Trojan, and every download sampled by xperf (the Windows
+# Performance Toolkit's: the whole system, a sample a millisecond, with
+# stacks). The summary says where each client's process spent its CPU: by
+# what it was doing, in CPU seconds per GiB (profile.py's markers, an
+# approximation), by module, by function and by stack; the artifact has
+# every stack with its count. sail's frames have their names from the build's PDB (dist has line
+# tables), Windows' own from Microsoft's symbol server; sing-box's, a Go
+# program without a PDB, have none. The run's tables are of sampled
+# transfers: not ones to compare with another run's.
+#
 # macOS has its one native build: started the same four ways with `buffers`
 # (its UDP buffers are small too), and once, over all three protocols, with
 # `allocators`.
@@ -59,9 +70,9 @@ on:
         options: [windows, macos, both]
         default: windows
       builds:
-        description: "plain: one build, all protocols; buffers: one build, four socket buffer sizes, Hysteria2; allocators: three builds (Windows), all protocols"
+        description: "plain: one build, all protocols; buffers: one build, four socket buffer sizes, Hysteria2; allocators: three builds (Windows), all protocols; profile: where the CPU goes (Windows only), Hysteria2 and Trojan"
         type: choice
-        options: [plain, buffers, allocators]
+        options: [plain, buffers, allocators, profile]
         default: plain
 
 permissions:
@@ -122,10 +133,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJSON(inputs.os == 'both' && '["windows-latest","macos-15"]' || inputs.os == 'macos' && '["macos-15"]' || '["windows-latest"]') }}
+        # `profile` is Windows alone, whatever was asked for.
+        os: ${{ fromJSON(inputs.builds != 'profile' && inputs.os == 'both' && '["windows-latest","macos-15"]' || inputs.builds != 'profile' && inputs.os == 'macos' && '["macos-15"]' || '["windows-latest"]') }}
     name: cell (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    timeout-minutes: ${{ inputs.builds == 'profile' && 90 || 60 }}
     env:
       CARGO_INCREMENTAL: 0
       EXE: ${{ startsWith(matrix.os, 'windows') && '.exe' || '' }}
@@ -307,6 +319,7 @@ jobs:
       # its QUIC sockets ask for, over Hysteria2, and five rounds of it: the
       # four are closer to each other than builds are.
       - name: measure
+        if: inputs.builds != 'profile'
         env:
           BUILDS: ${{ inputs.builds }}
         run: |
@@ -373,6 +386,74 @@ jobs:
           python tools/perf/desktop/run.py "${builds[@]}" --sing-box bin/sing-box \
             --netgen bin/netgen --work cell-work --out results.json
 
+      # xperf is the Windows Performance Toolkit's, a part of the Windows
+      # SDK that the image may have without it.
+      - name: xperf (profile)
+        if: inputs.builds == 'profile' && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $wpt = "${env:ProgramFiles(x86)}\Windows Kits\10\Windows Performance Toolkit"
+          if (-not (Test-Path "$wpt\xperf.exe")) {
+            choco install windows-performance-toolkit -y --no-progress
+          }
+          if (-not (Test-Path "$wpt\xperf.exe")) { throw "no xperf.exe in $wpt" }
+          Add-Content $env:GITHUB_PATH $wpt
+          & "$wpt\xperf.exe" -help start | Select-Object -First 3
+
+      # One round, both clients, each download in a trace of its own (the
+      # uploads too with run.py's --profile-directions up,down). More bytes
+      # than the cell's 256 MiB a stream, for the samples: Trojan is several
+      # times as fast as Hysteria2, so it gets as many times the bytes.
+      - name: profile
+        if: inputs.builds == 'profile' && runner.os == 'Windows'
+        run: |
+          variants/sail.exe --version
+          ls -l target/dist/sail.pdb
+          {
+            echo "One build of this commit, at the dist profile. Every download below was"
+            echo "sampled by xperf, which costs CPU: read the profiles, not these tables."
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
+          failed=0
+          cell() {
+            python tools/perf/desktop/run.py --sail variants/sail --sing-box bin/sing-box \
+              --netgen bin/netgen --work cell-work --rounds 1 --profile profile \
+              --protocols "$1" --bytes "$2" --out "results-$1.json" || failed=1
+          }
+          cell hysteria2 $((512 << 20))
+          cell trojan $((2048 << 20))
+          ls -l profile
+          exit $failed
+
+      # sail's PDB is beside the build; Windows' own are fetched once. The
+      # traces and their text are large and stay here: what is uploaded is
+      # the reports and the stacks with their counts.
+      - name: profile, read
+        if: ${{ !cancelled() && inputs.builds == 'profile' && runner.os == 'Windows' }}
+        run: |
+          pdbs=$(cygpath -w "$PWD/target/dist")
+          temp=$(cygpath -w "$RUNNER_TEMP")
+          export _NT_SYMBOL_PATH="$pdbs;srv*$temp\\symbols*https://msdl.microsoft.com/download/symbols"
+          export _NT_SYMCACHE_PATH="$temp\\symcache"
+          shopt -s nullglob
+          for etl in profile/*.etl; do
+            name=${etl%.etl}
+            echo "::group::$name"
+            xperf -i "$(cygpath -w "$etl")" -a tracestats > "$name.stats.txt" 2>&1 || true
+            cat "$name.stats.txt"
+            if xperf -i "$(cygpath -w "$etl")" -o "$(cygpath -w "$name.txt")" -symbols -a dumper \
+              > "$name.xperf.log" 2>&1; then
+              python tools/perf/desktop/profile.py "$name.txt" --roles "$name.json" --out "$name" \
+                >> "$GITHUB_STEP_SUMMARY" || echo "::warning title=profile::$name was not read"
+            else
+              echo "::warning title=profile::xperf made no text of $name"
+            fi
+            tail -n 20 "$name.xperf.log"
+            ls -l "$name".*
+            rm -f "$name.txt" "$etl"
+            echo "::endgroup::"
+          done
+
       # The numbers, and the logs of a cell that failed. Not the keys.
       - name: upload
         if: ${{ !cancelled() }}
@@ -380,7 +461,12 @@ jobs:
         with:
           name: perf-desktop-${{ matrix.os }}
           path: |
-            results.json
+            results*.json
             cell-work/**/*.log
             cell-work/**/*.json
+            profile/*.md
+            profile/*.json
+            profile/*.folded
+            profile/*.stats.txt
+            profile/*.xperf.log
           if-no-files-found: warn

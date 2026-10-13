@@ -13,6 +13,7 @@ children's too) is read before and after each transfer.
     python3 tools/perf/desktop/run.py --sail PATH --sing-box PATH --netgen PATH --work DIR \\
         [--protocols trojan,reality,hysteria2] [--streams 4] [--bytes 268435456] \\
         [--rounds 3] [--out results.json] [--sail-args NAME=ARGS ...]
+        [--profile DIR [--profile-directions up,down]]
 
 Several builds of sail are compared in one run by naming each:
 `--sail NAME=PATH`, as often as there are builds (a bare PATH is named
@@ -20,6 +21,14 @@ Several builds of sail are compared in one run by naming each:
 One build serves several of them when they differ by sail's arguments:
 `--sail-args NAME=ARGS` appends ARGS, split as a shell would, to that
 one's command line, as in `--sail-args "big=--set quic.udp_receive_buffer=7168"`.
+
+`--profile DIR`, on Windows: every download (`--profile-directions up,down`
+for both ways) is sampled by xperf
+(the Windows Performance Toolkit's, the whole system, with stacks), and its
+trace is left in DIR as PROTOCOL-CLIENT-DIRECTION.etl with a .json of the
+same name, which says whose process was which. profile.py reads them. A
+sampled transfer costs more CPU than one that is not, so the tables of such
+a run are not ones to compare with another's.
 
 It prints a Markdown table for each build of sail (medians, the range in
 brackets, and that build against the sing-box of the same round as
@@ -189,6 +198,43 @@ class RssPeak(threading.Thread):
         return self.peak
 
 
+# ------------------------------------------------------------- profiling
+def xperf(args, *argv):
+    done = subprocess.run([args.xperf, *argv], capture_output=True, text=True,
+                          stdin=subprocess.DEVNULL)
+    if done.returncode != 0:
+        raise RuntimeError(f"xperf {' '.join(argv)}: "
+                           + (done.stderr.strip() or done.stdout.strip()
+                              or f"exit {done.returncode}")[-300:])
+
+
+def profile_start(args):
+    """The kernel's sampling profiler, every CPU, at its default of a
+    sample a millisecond, with the stack of each sample. Processes and
+    images are in the trace for the names."""
+    # A session that a failed transfer left would refuse this one.
+    subprocess.run([args.xperf, "-stop"], capture_output=True, stdin=subprocess.DEVNULL)
+    xperf(args, "-on", "PROC_THREAD+LOADER+PROFILE", "-stackwalk", "Profile",
+          "-BufferSize", "1024", "-MinBuffers", "128", "-MaxBuffers", "512",
+          "-f", os.path.join(args.profile, "kernel.etl"))
+
+
+def profile_stop(args, sample):
+    """Ends the session and merges it into the transfer's trace, whose path
+    without the suffix is returned."""
+    name = os.path.join(args.profile,
+                        f"{sample['protocol']}-{sample['client']}-{sample['direction']}")
+    if sample["round"] > 1:
+        name += f"-{sample['round']}"
+    xperf(args, "-d", name + ".etl")
+    try:
+        # What the session wrote, which the merge leaves beside the trace.
+        os.remove(os.path.join(args.profile, "kernel.etl"))
+    except OSError:
+        pass
+    return name
+
+
 # ------------------------------------------------------------- keys
 def generate(sing_box, *args):
     return subprocess.run([sing_box, "generate", *args], check=True,
@@ -313,7 +359,7 @@ def bulk(args, socks_port, target_port, direction, size):
     return res
 
 
-def run_client(args, proto, rnd, client, keys, server, server_port, target_port, work):
+def run_client(args, proto, rnd, client, keys, server, target, server_port, target_port, work):
     """One client's turn: start, warm up, up and down, stop. Returns its
     samples. `client` is REFERENCE or the name of a build of sail."""
     socks_port = free_port()
@@ -337,12 +383,17 @@ def run_client(args, proto, rnd, client, keys, server, server_port, target_port,
             sample = {"protocol": proto, "round": rnd, "client": client, "direction": direction}
             rss = RssPeak(proc)
             rss.start()
+            profiled = args.profile and direction in args.profile_directions
+            if profiled:
+                profile_start(args)
             server_cpu = server.cpu_seconds()
             cpu = proc.cpu_seconds()
             res = bulk(args, socks_port, target_port, direction, args.bytes)
             cpu = proc.cpu_seconds() - cpu
             server_cpu = server.cpu_seconds() - server_cpu
             sample["rss_peak_mib"] = round(rss.finish() / (1 << 20), 1)
+            if profiled:
+                trace = profile_stop(args, sample)
             if "_error" in res:
                 sample["error"] = res["_error"]
             elif not proc.alive():
@@ -352,6 +403,11 @@ def run_client(args, proto, rnd, client, keys, server, server_port, target_port,
                 sample.update(mbps=round(res["mbps"], 1), seconds=round(res["seconds"], 3),
                               cpu_s=round(cpu, 3), cpu_s_per_gib=round(cpu / gib, 3),
                               server_cpu_s_per_gib=round(server_cpu / gib, 3))
+            if profiled:
+                # Whose process had which part, and the bytes, for profile.py.
+                roles = {"client": proc, "server": server, "target": target}
+                write_json(trace + ".json", dict(sample, bytes=res.get("bytes", 0), pids={
+                    role: [p.pid for p in of.family()] for role, of in roles.items()}))
             samples.append(sample)
             print(f"  {proto} round {rnd} {client} {direction}: "
                   + (sample.get("error") or f"{sample['mbps']} Mbit/s, "
@@ -367,7 +423,7 @@ def run_client(args, proto, rnd, client, keys, server, server_port, target_port,
     return samples
 
 
-def run_protocol(args, proto, keys, target_port):
+def run_protocol(args, proto, keys, target, target_port):
     work = os.path.join(args.work, proto)
     os.makedirs(work, exist_ok=True)
     udp = proto == "hysteria2"
@@ -396,8 +452,8 @@ def run_protocol(args, proto, keys, target_port):
             for client in clients[first:] + clients[:first]:
                 if not server.alive():
                     raise RuntimeError(f"the server exited with {server.p.returncode}: see {server.log_path}")
-                samples += run_client(args, proto, rnd, client, keys, server, server_port,
-                                      target_port, work)
+                samples += run_client(args, proto, rnd, client, keys, server, target,
+                                      server_port, target_port, work)
     except RuntimeError as e:
         print(f"  {proto}: {e}", file=sys.stderr, flush=True)
         samples.append({"protocol": proto, "error": str(e)})
@@ -580,6 +636,11 @@ def main():
     ap.add_argument("--out", default="results.json")
     ap.add_argument("--transfer-timeout", type=int, default=600,
                     help="seconds one transfer may take before it counts as failed")
+    ap.add_argument("--profile", metavar="DIR",
+                    help="Windows: sample every measured transfer with xperf; the traces go to DIR")
+    ap.add_argument("--profile-directions", default="down", metavar="up,down",
+                    help="the transfers --profile samples: down (the default), up, or both")
+    ap.add_argument("--xperf", default="xperf", help="xperf, when it is not on the PATH")
     args = ap.parse_args()
     for stream in (sys.stdout, sys.stderr):
         # A Windows runner's pipe is not UTF-8 by default.
@@ -598,6 +659,14 @@ def main():
     args.netgen = executable(args.netgen)
     args.work = os.path.abspath(args.work)
     os.makedirs(args.work, exist_ok=True)
+    if args.profile:
+        if not WINDOWS:
+            ap.error("--profile: xperf is Windows'; no other system is profiled here")
+        args.profile_directions = [d for d in args.profile_directions.split(",") if d]
+        if not args.profile_directions or set(args.profile_directions) - set(DIRECTIONS):
+            ap.error(f"--profile-directions: of {', '.join(DIRECTIONS)}")
+        args.profile = os.path.abspath(args.profile)
+        os.makedirs(args.profile, exist_ok=True)
 
     meta = {"system": platform.system(), "release": platform.release(),
             "machine": platform.machine(), "cpus": os.cpu_count(),
@@ -615,7 +684,7 @@ def main():
     try:
         wait_port(target_port, target)
         for proto in protocols:
-            samples += run_protocol(args, proto, keys, target_port)
+            samples += run_protocol(args, proto, keys, target, target_port)
     finally:
         target.stop()
 

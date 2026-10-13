@@ -106,6 +106,32 @@ three builds of the commit, all at the dist profile:
 Between builds, compare their ratios to sing-box, or their own columns of
 the same run.
 
+`profile`: Windows only, whatever `os` says. One build at the dist profile,
+one round of Hysteria2 and of Trojan, and every download sampled by xperf
+(`run.py --profile DIR`: the whole system, a sample a millisecond, with
+stacks; `--profile-directions up,down` samples the uploads too).
+`profile.py` reads each trace, and the summary has, for each transfer, the
+system's samples by process and the client's by what it was doing, by
+module, by function (its own samples, and those it is on the stack of) and
+by stack; the artifact has every stack of the client with its count
+(`*.client.folded`, outermost frame first). sail's frames are named from
+the build's PDB and Windows' own from Microsoft's symbol server; sing-box
+is a Go program without a PDB, so its own frames have no names. Sampling
+costs CPU: such a run's tables are not ones to compare with another's.
+
+The table of what a client was doing puts every sample in one row, in CPU
+seconds per GiB, so sail's is set beside sing-box's row by row: waking a
+thread, waiting, asking the completion port, mio's polls of AFD, sending
+and receiving on UDP and TCP, the kernel's other work, and the program's
+own code by crate. A row is found by the frames that mark it on a sample's
+stack (`MARKERS` in `profile.py`), which is an approximation: Windows' own
+frames are the same under any program, but where a sample has only the
+program's side of a call, the Go client's sends and receives look alike for
+both kinds of socket and count as TCP's; its own code is one row, as it has
+no names; and a send on loopback includes the receiver's side of the stack.
+BoringSSL has no debug information with MSVC, so its functions are one row
+too, and their names in the other tables are the nearest exported one's.
+
 ## Reading it
 
 Each cell is the median of the rounds, with the smallest and largest in
