@@ -15,6 +15,16 @@ pub fn now() -> SystemTime {
     corrected(SystemTime::now(), TaskScope::current_clock_offset())
 }
 
+/// [`now`], where the instance corrects it; none where it is the system's
+/// own, which whoever reads the clock itself is not to be told.
+#[cfg(feature = "tls")]
+pub(crate) fn corrected_now() -> Option<SystemTime> {
+    match TaskScope::current_clock_offset() {
+        0 => None,
+        nanos => Some(corrected(SystemTime::now(), nanos)),
+    }
+}
+
 /// `time`, `nanos` later; earlier when negative.
 fn corrected(time: SystemTime, nanos: i64) -> SystemTime {
     let by = Duration::from_nanos(nanos.unsigned_abs());
@@ -45,5 +55,16 @@ mod tests {
         let outside = now();
         let ahead = within.duration_since(outside).unwrap();
         assert!(ahead > Duration::from_secs(3_599), "{:?}", ahead);
+    }
+
+    #[cfg(feature = "tls")]
+    #[tokio::test]
+    async fn the_time_is_corrected_only_by_an_offset() {
+        let scope = TaskScope::default();
+        assert_eq!(scope.enter(async { corrected_now() }).await, None);
+        scope.set_clock_offset(-3_600_000_000_000);
+        let within = scope.enter(async { corrected_now() }).await.unwrap();
+        let behind = SystemTime::now().duration_since(within).unwrap();
+        assert!(behind > Duration::from_secs(3_599), "{:?}", behind);
     }
 }

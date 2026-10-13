@@ -27,7 +27,7 @@ Sail 不认识的字段会报错。Sail 尚未实现的 sing-box 字段，如果
 | `outbound_providers` | 下载或集中给出、供策略组使用的出站（扩展） | 空 |
 | `user_limits` | 跨入站的按用户限制（扩展） | 空 |
 
-sing-box 的 `ntp` 段会被丢弃并给出警告；其 `services`、`certificate_providers` 和 `network_namespaces` 大多会报错。
+sing-box 的 `ntp` 段会被读取：测得的时间用于各协议的时间校验以及 TLS 与 QUIC 的证书有效期校验，系统时钟不会被修改。sing-box 的 `services`、`certificate_providers` 和 `network_namespaces` 大多会报错。
 
 每个入站、出站和端点都有 `type`，并可设置 `tag`。省略标签时默认使用协议类型；配置中有多个条目后，建议显式命名。
 

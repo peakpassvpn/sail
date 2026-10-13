@@ -24,7 +24,7 @@ Rust 定义：[`Config`](https://github.com/peakpassvpn/sail/blob/master/sail/sr
 | `$schema` | string | — | 支持 | — |
 | `log` | object → [对象](#log) | 各字段取默认值 | 支持 | — |
 | `dns` | object → [对象](/sail/zh/reference/dns/#dns) | 各字段取默认值 | 支持 | — |
-| `ntp` | object → [对象](#ntp) | 未设置 | 支持 | The time the protocols that check it go by, measured against an NTP server; the system's clock is never set. |
+| `ntp` | object → [对象](#ntp) | 未设置 | 支持 | The time the protocols that check it go by, and certificates are verified at, measured against an NTP server; the system's clock is never set. |
 | `certificate` | object → [对象](#certificate) | 未设置 | 支持 | The root certificates servers are checked against; the system's when unset. |
 | `certificate_providers` | array → [[]](#certificate-providers), [[acme]](#certificate-providers-missing), [[cloudflare-origin-ca]](#certificate-providers-missing), [[tailscale]](#certificate-providers-missing) | — | 报错：Certificates from ACME and other providers: the inbounds would serve none | — |
 | `http_clients` | array → [[]](#http-clients) | `[]` | 支持 | How sail fetches over HTTP, rule-sets for one, by tag. |

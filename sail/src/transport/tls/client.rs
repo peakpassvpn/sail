@@ -127,6 +127,7 @@ impl TlsClient {
             builder.set_verify(SslVerifyMode::NONE);
         } else {
             builder.set_verify(SslVerifyMode::PEER);
+            super::verify_at_instance_time(&mut builder);
             match certificate {
                 Some(certificate) => builder.set_cert_store(trust_store(certificate)?),
                 None => builder.set_cert_store_ref(roots.store()),

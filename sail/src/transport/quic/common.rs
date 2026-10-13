@@ -52,6 +52,10 @@ pub fn client_crypto(
     if insecure {
         crypto.verify_peer(false);
     } else {
+        crate::transport::tls::configure_quic(
+            &mut crypto,
+            crate::transport::tls::verify_at_instance_time,
+        );
         let certs = match certificate {
             Some(certificate) => load_certificates(certificate)?,
             None => roots.certs().to_vec(),
@@ -1379,6 +1383,39 @@ mod tests {
             .expect("the handshake fails, not hangs");
             assert!(refused.is_err(), "insecure {}: {:?}", insecure, refused);
         }
+    }
+
+    // As over TCP, a certificate's validity is checked at the instance's
+    // time: the handshake is run by the tasks quinn spawns, which are the
+    // instance's (`ScopedRuntime`).
+    #[tokio::test]
+    async fn a_certificate_is_valid_at_the_instance_s_time() {
+        use crate::transport::tls::tests::{scope_at, valid_in_2100, IN_2100};
+        let (pem, key) = valid_in_2100();
+        let server = endpoint(
+            std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap(),
+            Some(server_config(server_crypto(&pem, &key, &[]).unwrap()).unwrap()),
+            Default::default(),
+        )
+        .unwrap();
+        let roots = crate::transport::tls::tests::test_roots();
+        let crypto = || client_crypto(Some(&pem), false, &[], &roots).unwrap();
+        let today = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            dial(&server, crypto(), "localhost"),
+        )
+        .await
+        .expect("the handshake fails, not hangs");
+        assert!(today.is_err(), "{:?}", today);
+        // The client's endpoint is made in the scope: what quinn spawns
+        // for it is the scope's.
+        let then = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            scope_at(IN_2100).enter(dial(&server, crypto(), "localhost")),
+        )
+        .await
+        .expect("the handshake ends");
+        assert_eq!(then.unwrap(), Some("localhost".into()));
     }
 
     // Pinned certificates take a server as over TCP: the leaf's for any

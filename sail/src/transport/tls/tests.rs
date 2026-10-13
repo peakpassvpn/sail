@@ -881,6 +881,11 @@ pub(crate) fn certificate_pin(der: &[u8]) -> String {
 }
 
 pub(crate) fn cert_chain() -> CertChain {
+    cert_chain_with(|_| {})
+}
+
+/// `cert_chain`, `validity` run on what the leaf is made from.
+fn cert_chain_with(validity: impl FnOnce(&mut rcgen::CertificateParams)) -> CertChain {
     let ca = |name: &str| {
         let mut params = rcgen::CertificateParams::new(Vec::<String>::new()).unwrap();
         params.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
@@ -902,6 +907,7 @@ pub(crate) fn cert_chain() -> CertChain {
     params
         .distinguished_name
         .push(rcgen::DnType::CommonName, "localhost");
+    validity(&mut params);
     let leaf = params
         .signed_by(&leaf_key, &intermediate, &intermediate_key)
         .unwrap();
@@ -1058,6 +1064,89 @@ async fn test_certificate_pin_of_a_ca() {
     assert!(connects(&short, false, None, &options, "localhost")
         .await
         .is_err());
+}
+
+/// A day in the one year `in_2100` makes a certificate valid for:
+/// 2100-04-11, in seconds since 1970.
+pub(crate) const IN_2100: u64 = 4_102_444_800 + 100 * 86_400;
+
+/// Makes the certificate of `params` valid through the year 2100 alone.
+fn in_2100(params: &mut rcgen::CertificateParams) {
+    params.not_before = rcgen::date_time_ymd(2100, 1, 1);
+    params.not_after = rcgen::date_time_ymd(2101, 1, 1);
+}
+
+/// A self-signed certificate for `localhost`, valid through the year 2100
+/// alone, and its key; PEM.
+pub(crate) fn valid_in_2100() -> (String, String) {
+    let mut params = rcgen::CertificateParams::new(vec!["localhost".into()]).unwrap();
+    in_2100(&mut params);
+    let key = rcgen::KeyPair::generate().unwrap();
+    let cert = params.self_signed(&key).unwrap();
+    (cert.pem(), key.serialize_pem())
+}
+
+/// A scope whose time is `then`, in seconds since 1970, as an instance's
+/// whose NTP server says so.
+pub(crate) fn scope_at(then: u64) -> crate::runtime::scope::TaskScope {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let scope = crate::runtime::scope::TaskScope::default();
+    scope.set_clock_offset((then as i64 - now as i64) * 1_000_000_000);
+    scope
+}
+
+// A certificate's validity is checked at the instance's time (`ntp`), not
+// by the system's clock: one valid in 2100 alone verifies in an instance
+// whose time is then, and nowhere else; one valid today does not verify in
+// an instance whose time is 1971.
+#[tokio::test]
+async fn a_certificate_is_valid_at_the_instance_s_time() {
+    let (cert, key) = valid_in_2100();
+    let server = server_presenting(&[&cert], &key);
+    let client = TlsClient::new(&[], Some(&cert), false, None, &test_roots()).unwrap();
+    let (c, _) = pair(&server, &client, "localhost", None, None).await;
+    assert!(c.is_err(), "the certificate is not valid yet");
+    let (c, s) = scope_at(IN_2100)
+        .enter(pair(&server, &client, "localhost", None, None))
+        .await;
+    assert!(s.is_ok(), "the server");
+    assert!(c.is_ok(), "{:?}", c.err());
+    // The offset is the instance's, not the client's: none outside it.
+    let (c, _) = pair(&server, &client, "localhost", None, None).await;
+    assert!(c.is_err(), "the certificate is not valid yet");
+
+    let server = self::server();
+    let client = TlsClient::new(&[], Some(&server.cert_pem), false, None, &test_roots()).unwrap();
+    let (c, _) = scope_at(365 * 86_400)
+        .enter(pair(&server, &client, "localhost", None, None))
+        .await;
+    assert!(c.is_err(), "the certificate is not valid in 1971");
+    let (c, s) = pair(&server, &client, "localhost", None, None).await;
+    assert!(c.is_ok() && s.is_ok());
+}
+
+// As is one a pinned CA's certificate verifies.
+#[tokio::test]
+async fn a_pinned_ca_verifies_at_the_instance_s_time() {
+    let chain = cert_chain_with(in_2100);
+    let server = server_presenting(
+        &[&chain.leaf, &chain.intermediate, &chain.root],
+        &chain.leaf_key,
+    );
+    for pin in [&chain.intermediate_pin, &chain.root_pin] {
+        let options = pinning_certificates(&[pin]);
+        let err = connects(&server, false, None, &options, "localhost")
+            .await
+            .unwrap_err();
+        assert!(err.contains("certificate is not yet valid"), "{}", err);
+        let result = scope_at(IN_2100)
+            .enter(connects(&server, false, None, &options, "localhost"))
+            .await;
+        assert_eq!(result, Ok(()));
+    }
 }
 
 // A certificate pinned that the server does not send fails the handshake,

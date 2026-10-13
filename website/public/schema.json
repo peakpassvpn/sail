@@ -16,7 +16,7 @@
   },
   "ntp": {
    "$ref": "#/$defs/ntp",
-   "description": "The time the protocols that check it go by, measured against an NTP server; the system's clock is never set."
+   "description": "The time the protocols that check it go by, and certificates are verified at, measured against an NTP server; the system's clock is never set."
   },
   "certificate": {
    "$ref": "#/$defs/certificate",

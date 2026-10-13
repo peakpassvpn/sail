@@ -24,7 +24,7 @@ Rust: [`Config`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config
 | `$schema` | string | — | Supported | — |
 | `log` | object → [object](#log) | each field's default | Supported | — |
 | `dns` | object → [object](/sail/reference/dns/#dns) | each field's default | Supported | — |
-| `ntp` | object → [object](#ntp) | unset | Supported | The time the protocols that check it go by, measured against an NTP server; the system's clock is never set. |
+| `ntp` | object → [object](#ntp) | unset | Supported | The time the protocols that check it go by, and certificates are verified at, measured against an NTP server; the system's clock is never set. |
 | `certificate` | object → [object](#certificate) | unset | Supported | The root certificates servers are checked against; the system's when unset. |
 | `certificate_providers` | array → [[]](#certificate-providers), [[acme]](#certificate-providers-missing), [[cloudflare-origin-ca]](#certificate-providers-missing), [[tailscale]](#certificate-providers-missing) | — | Error: Certificates from ACME and other providers: the inbounds would serve none | — |
 | `http_clients` | array → [[]](#http-clients) | `[]` | Supported | How sail fetches over HTTP, rule-sets for one, by tag. |

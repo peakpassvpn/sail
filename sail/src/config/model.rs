@@ -162,8 +162,9 @@ pub struct Config {
     pub clash_api: Option<ClashApi>,
     #[serde(default, skip_serializing_if = "Experimental::is_default")]
     pub experimental: Experimental,
-    /// The time the protocols that check it go by, measured against an
-    /// NTP server; the system's clock is never set.
+    /// The time the protocols that check it go by, and certificates are
+    /// verified at, measured against an NTP server; the system's clock is
+    /// never set.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ntp: Option<Ntp>,
     /// The root certificates servers are checked against; the system's
@@ -215,10 +216,10 @@ const HTTP_CLIENT_DIAL: &[&str] = &[
 
 /// sing-box's `ntp`: the offset of the system's clock from an NTP
 /// server's, measured every `interval`, which the instance's protocols
-/// correct the time they check by (vmess, Shadowsocks 2022, REALITY). Not
-/// TLS certificates' validity yet, nor WireGuard's handshakes, which want
-/// a time that only goes on, not an exact one. Read as the instance
-/// starts: a reload keeps the service it started with.
+/// correct the time they check by: vmess, Shadowsocks 2022, REALITY, and
+/// the validity of the certificates TLS and QUIC verify. Not WireGuard's
+/// handshakes, which want a time that only goes on, not an exact one. Read
+/// as the instance starts: a reload keeps the service it started with.
 #[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Ntp {

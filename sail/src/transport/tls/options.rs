@@ -338,7 +338,8 @@ impl CertificatePins {
 
 /// Verifies `leaf` with `anchor` as the only certificate trusted and
 /// `intermediates` in between, as BoringSSL verifies a server's: for TLS
-/// servers, by `param`, which holds the name to verify.
+/// servers, by `param`, which holds the name to verify, at the instance's
+/// time.
 fn verify_by(
     anchor: &X509,
     leaf: &X509,
@@ -366,6 +367,8 @@ fn verify_by(
                 return Err(ErrorStack::get());
             }
             context.verify_param_mut().copy_from(param)?;
+            // At the instance's time, as every verification.
+            super::at_instance_time(context.verify_param_mut());
             // The anchor may be an intermediate, not self-signed.
             context
                 .verify_param_mut()
@@ -421,16 +424,7 @@ impl Pins {
     /// `apply`, to a QUIC client configuration.
     #[cfg(feature = "quic")]
     pub fn apply_quic(&self, crypto: &mut quinn_btls::ClientConfig) {
-        use foreign_types::ForeignType;
-        let ctx = crypto.ctx_mut().as_ptr();
-        // SAFETY: the builder takes a reference of its own to the context,
-        // given back when it drops. The context is not in use yet: nothing
-        // configures it at the same time.
-        unsafe {
-            btls_sys::SSL_CTX_up_ref(ctx);
-            let mut builder = SslContextBuilder::from_ptr(ctx);
-            self.apply(&mut builder);
-        }
+        super::configure_quic(crypto, |builder| self.apply(builder));
     }
 }
 
