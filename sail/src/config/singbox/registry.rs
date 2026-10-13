@@ -1103,6 +1103,11 @@ const EXTENSIONS: &[(&str, &str, &str)] = &[
         "The EDNS Client Subnet its queries carry (Mihomo's ecs)",
     ),
     (
+        "dns.servers[https].prefer_h3",
+        "true",
+        "Queries go over HTTP/3 beside HTTP/2, and over HTTP/3 alone once it answers (Mihomo's prefer-h3)",
+    ),
+    (
         "dns.servers[tls|quic|https|h3].tls.certificate_sha256",
         r#"["abababababababababababababababababababababababababababababababab"]"#,
         "As an outbound's `tls.certificate_sha256`",

@@ -27,7 +27,7 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 | Section | Fields | Supported | Warned | Error |
 |---|--:|--:|--:|--:|
 | `clash-for-android` | 3 | 0 | 3 | 0 |
-| `dns` | 33 | 28 | 5 | 0 |
+| `dns` | 33 | 29 | 4 | 0 |
 | `experimental` | 5 | 0 | 5 | 0 |
 | `external-controller-cors` | 3 | 3 | 0 | 0 |
 | `general` | 48 | 30 | 16 | 2 |
@@ -89,7 +89,7 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 | `tls` | 7 | 0 | 7 | 0 |
 | `tuic-server` | 13 | 0 | 0 | 13 |
 | `tun` | 50 | 34 | 9 | 7 |
-| **All** | **2077** | **494** | **136** | **1447** |
+| **All** | **2077** | **495** | **135** | **1447** |
 
 
 ## `general`
@@ -145,7 +145,7 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 | `dns.listen-routing-mark` | Warned | dns.listen-routing-mark: sail does not implement this field; ignored |
 | `dns.nameserver` | Supported |  |
 | `dns.nameserver-policy` | Supported |  |
-| `dns.prefer-h3` | Warned | dns.prefer-h3: sail does not implement this field; ignored |
+| `dns.prefer-h3` | Supported |  |
 | `dns.proxy-server-nameserver` | Supported |  |
 | `dns.proxy-server-nameserver-policy` | Supported |  |
 | `dns.respect-rules` | Supported | dns.proxy-server-nameserver: missing, which Mihomo requires with respect-rules |

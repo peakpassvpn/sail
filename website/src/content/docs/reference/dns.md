@@ -208,6 +208,7 @@ Rust: [`RemoteOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/src
 | `domain_strategy` | string | unset | Supported (deprecated in sing-box) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
 | `respect_rules` | bool | `false` | sail extension | A sail extension, as Mihomo's `respect-rules`: the connections go through the outbound the routing rules pick for them, as for a connection from the inbound `dnsclient` to the server, its domain known. |
 | `client_subnet` | object → [object](/sail/reference/shared/#client-subnet) | unset | sail extension | A sail extension: the EDNS Client Subnet its queries carry, over any they have, as Mihomo's `ecs` with `ecs-override`. |
+| `prefer_h3` | bool | `false` | sail extension | `https`: a sail extension, as Mihomo's `prefer-h3`: queries go over HTTP/3 beside HTTP/2, and over HTTP/3 alone once it answers; over HTTP/2 for a while once it fails. |
 
 <a id="dns-servers-https-tls"></a>
 

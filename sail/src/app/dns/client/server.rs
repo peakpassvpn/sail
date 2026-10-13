@@ -187,6 +187,11 @@ struct RemoteOptions {
     /// host the requests name.
     #[serde(default)]
     headers: std::collections::BTreeMap<String, crate::config::model::HeaderValues>,
+    /// `https`: a sail extension, as Mihomo's `prefer-h3`: queries go over
+    /// HTTP/3 beside HTTP/2, and over HTTP/3 alone once it answers; over
+    /// HTTP/2 for a while once it fails.
+    #[serde(default)]
+    prefer_h3: bool,
 }
 
 #[derive(Deserialize, Debug, Default)]
@@ -457,12 +462,15 @@ impl Server {
                 };
                 let tls = o.tls.take();
                 let headers = std::mem::take(&mut o.headers);
+                let prefer_h3 = o.prefer_h3;
                 let (address, dialer) =
                     address_and_dialer(o, protocol.default_port(), tag, defaults).map_err(err)?;
                 Kind::Upstream(Arc::new(
                     Upstream::new(protocol, address, dialer, path, &headers, tls.as_ref(), env)
                         .map_err(err)?
-                        .with_get(get),
+                        .with_get(get)
+                        .with_prefer_h3(prefer_h3)
+                        .map_err(err)?,
                 ))
             }
             "local" => {

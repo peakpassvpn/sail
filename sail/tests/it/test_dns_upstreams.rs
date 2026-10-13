@@ -48,6 +48,11 @@ pub(crate) fn cert() -> Cert {
 
 /// Answers `query` with `ANSWER`; `None` when it is not a query.
 fn answer(query: &[u8]) -> Option<Vec<u8>> {
+    answer_with(query, ResponseCode::NoError)
+}
+
+/// `answer`, with `rcode`, and no records but with NOERROR.
+fn answer_with(query: &[u8], rcode: ResponseCode) -> Option<Vec<u8>> {
     let query = Message::from_vec(query).ok()?;
     let mut resp = Message::new(
         query.metadata.id,
@@ -56,10 +61,10 @@ fn answer(query: &[u8]) -> Option<Vec<u8>> {
     );
     resp.metadata.recursion_desired = query.metadata.recursion_desired;
     resp.metadata.recursion_available = true;
-    resp.metadata.response_code = ResponseCode::NoError;
+    resp.metadata.response_code = rcode;
     for q in &query.queries {
         resp.add_query(q.clone());
-        if q.query_type() == RecordType::A {
+        if q.query_type() == RecordType::A && rcode == ResponseCode::NoError {
             resp.add_answer(Record::from_rdata(
                 q.name().clone(),
                 60,
@@ -185,6 +190,14 @@ fn quic_server_endpoint_with(
     alpn: &[u8],
     client_ca: Option<&Cert>,
 ) -> (u16, quinn::Endpoint) {
+    let server_config = quic_server_config(cert, alpn, client_ca);
+    let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+    let port = socket.local_addr().unwrap().port();
+    (port, quic_endpoint_on(server_config, socket))
+}
+
+/// The QUIC server configuration of `quic_server_endpoint_with`.
+fn quic_server_config(cert: &Cert, alpn: &[u8], client_ca: Option<&Cert>) -> quinn::ServerConfig {
     use btls::pkey::PKey;
     use btls::x509::X509;
     use quinn_btls::QuicSslContext;
@@ -205,17 +218,21 @@ fn quic_server_endpoint_with(
     if client_ca.is_some() {
         crypto.verify_peer(true);
     }
-    let server_config = quinn_btls::helpers::server_config(Arc::new(crypto)).unwrap();
-    let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
-    let port = socket.local_addr().unwrap().port();
-    let endpoint = quinn::Endpoint::new(
+    quinn_btls::helpers::server_config(Arc::new(crypto)).unwrap()
+}
+
+/// A QUIC server endpoint of `server_config` on `socket`.
+fn quic_endpoint_on(
+    server_config: quinn::ServerConfig,
+    socket: std::net::UdpSocket,
+) -> quinn::Endpoint {
+    quinn::Endpoint::new(
         quinn_btls::helpers::default_endpoint_config(),
         Some(server_config),
         socket,
         Arc::new(quinn::TokioRuntime),
     )
-    .unwrap();
-    (port, endpoint)
+    .unwrap()
 }
 
 /// A DoQ server, and its port: a stream per query, as RFC 9250 has it.
@@ -262,6 +279,11 @@ fn start_doq_server_with(cert: &Cert, client_ca: Option<&Cert>) -> (u16, Arc<Cou
 /// A DoH3 server, and its port, answering POSTs to `path`.
 fn start_h3_server(cert: &Cert, path: &'static str) -> (u16, Arc<Counters>) {
     let (port, endpoint) = quic_server_endpoint(cert, b"h3");
+    (port, serve_h3(endpoint, path, ResponseCode::NoError))
+}
+
+/// A DoH3 server on `endpoint`, answering with `rcode`.
+fn serve_h3(endpoint: quinn::Endpoint, path: &'static str, rcode: ResponseCode) -> Arc<Counters> {
     let counters = Arc::new(Counters::default());
     let c = counters.clone();
     tokio::spawn(async move {
@@ -293,7 +315,7 @@ fn start_h3_server(cert: &Cert, path: &'static str) -> (u16, Arc<Counters>) {
                             && req.uri().path() == path
                             && req.headers().get("content-type").map(|v| v.as_bytes())
                                 == Some(b"application/dns-message");
-                        let resp = if ok { answer(&query) } else { None };
+                        let resp = if ok { answer_with(&query, rcode) } else { None };
                         if resp.is_some() {
                             c.count(&query);
                         }
@@ -315,7 +337,7 @@ fn start_h3_server(cert: &Cert, path: &'static str) -> (u16, Arc<Counters>) {
             });
         }
     });
-    (port, counters)
+    counters
 }
 
 /// A server of type `kind` on 127.0.0.1, whose certificate is checked
@@ -795,6 +817,18 @@ mod doh {
     /// the connection kept alive. On HTTP/1.1 an oversized answer is sent
     /// chunked.
     pub(super) fn start_server(cert: &Cert, alpn: &[&str], kind: Reply) -> (u16, Arc<Counters>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        (port, start_server_on(cert, alpn, kind, listener))
+    }
+
+    /// `start_server`, on `listener`.
+    fn start_server_on(
+        cert: &Cert,
+        alpn: &[&str],
+        kind: Reply,
+        listener: TcpListener,
+    ) -> Arc<Counters> {
         let handler = Arc::new(
             Handler::new(
                 cert.cert_pem.clone(),
@@ -804,8 +838,6 @@ mod doh {
             )
             .unwrap(),
         );
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let port = listener.local_addr().unwrap().port();
         listener.set_nonblocking(true).unwrap();
         let listener = tokio::net::TcpListener::from_std(listener).unwrap();
         let counters = Arc::new(Counters::default());
@@ -829,7 +861,7 @@ mod doh {
                 });
             }
         });
-        (port, counters)
+        counters
     }
 
     async fn serve_h2(stream: sail::adapter::AnyStream, c: Arc<Counters>, kind: Reply) {
@@ -1037,5 +1069,152 @@ mod doh {
             vec![IpAddr::V4(ANSWER)]
         );
         assert_eq!(counters.queries.load(Ordering::SeqCst), 1);
+    }
+
+    /// `prefer_h3`, against a DoH server and a DoH3 one on one port, as a
+    /// server that offers both has them.
+    #[cfg(feature = "dns-h3")]
+    mod prefer_h3 {
+        use super::*;
+
+        struct Both {
+            port: u16,
+            h2: Arc<Counters>,
+            /// None: nothing answers on UDP.
+            h3: Option<(Arc<Counters>, quinn::Endpoint)>,
+        }
+
+        /// The servers; a DoH3 one, answering `rcode`, with `h3`.
+        fn both(cert: &Cert, h3: Option<ResponseCode>) -> Both {
+            for _ in 0..20 {
+                let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+                let port = listener.local_addr().unwrap().port();
+                let socket = match h3 {
+                    None => None,
+                    Some(_) => match std::net::UdpSocket::bind(("127.0.0.1", port)) {
+                        Ok(socket) => Some(socket),
+                        Err(_) => continue,
+                    },
+                };
+                let h2 = start_server_on(cert, &["h2"], Reply::Answer, listener);
+                let h3 = socket.zip(h3).map(|(socket, rcode)| {
+                    let endpoint = quic_endpoint_on(quic_server_config(cert, b"h3", None), socket);
+                    (serve_h3(endpoint.clone(), "/dns-query", rcode), endpoint)
+                });
+                return Both { port, h2, h3 };
+            }
+            panic!("no port free for both TCP and UDP")
+        }
+
+        fn client_of(both: &Both, cert: &Cert) -> Arc<DnsClient> {
+            let mut server = server("https", both.port, None);
+            server["prefer_h3"] = true.into();
+            client(&[server], Some(cert)).into_arc()
+        }
+
+        fn queries(c: &Counters) -> usize {
+            c.queries.load(Ordering::SeqCst)
+        }
+
+        /// Asks names never asked before, so that none is answered from
+        /// the cache, until two in a row are answered without HTTP/2:
+        /// HTTP/3 has been taken. (One alone could be a race HTTP/3 won,
+        /// HTTP/2's query still on its way.) The names asked, for the next.
+        async fn until_h3(client: &DnsClient, both: &Both) -> usize {
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+            let mut in_a_row = 0;
+            for n in 0.. {
+                assert!(tokio::time::Instant::now() < deadline, "HTTP/3 never taken");
+                let before = queries(&both.h2);
+                let _ = lookup(client, &format!("n{}.example", n)).await;
+                if queries(&both.h2) == before {
+                    in_a_row += 1;
+                    if in_a_row == 2 {
+                        return n + 1;
+                    }
+                } else {
+                    in_a_row = 0;
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                }
+            }
+            unreachable!()
+        }
+
+        #[tokio::test(flavor = "multi_thread")]
+        async fn with_http3_dead_the_answer_comes_over_http2() {
+            let cert = cert();
+            let both = both(&cert, None);
+            let client = client_of(&both, &cert);
+            assert_eq!(
+                lookup(&client, "a.example").await.unwrap(),
+                vec![IpAddr::V4(ANSWER)]
+            );
+            assert_eq!(queries(&both.h2), 1);
+        }
+
+        /// With HTTP/2's connection kept, HTTP/3 is taken all the same, and
+        /// the queries go over it alone.
+        #[tokio::test(flavor = "multi_thread")]
+        async fn http3_is_taken_once_it_answers() {
+            let cert = cert();
+            let both = both(&cert, Some(ResponseCode::NoError));
+            let client = client_of(&both, &cert);
+            let asked = until_h3(&client, &both).await;
+            let (h3, _) = both.h3.as_ref().unwrap();
+            let (h2_before, h3_before) = (queries(&both.h2), queries(h3));
+            for n in asked..asked + 3 {
+                assert_eq!(
+                    lookup(&client, &format!("n{}.example", n)).await.unwrap(),
+                    vec![IpAddr::V4(ANSWER)]
+                );
+            }
+            assert_eq!(queries(&both.h2), h2_before);
+            assert_eq!(queries(h3), h3_before + 3);
+        }
+
+        /// HTTP/3 taken, then gone: the same query is answered over HTTP/2.
+        #[tokio::test(flavor = "multi_thread")]
+        async fn a_query_http3_fails_is_answered_over_http2() {
+            let cert = cert();
+            let both = both(&cert, Some(ResponseCode::NoError));
+            let client = client_of(&both, &cert);
+            let asked = until_h3(&client, &both).await;
+            let (_, endpoint) = both.h3.as_ref().unwrap();
+            endpoint.close(0u32.into(), b"gone");
+            let before = queries(&both.h2);
+            assert_eq!(
+                lookup(&client, &format!("n{}.example", asked))
+                    .await
+                    .unwrap(),
+                vec![IpAddr::V4(ANSWER)]
+            );
+            assert_eq!(queries(&both.h2), before + 1);
+        }
+
+        /// A SERVFAIL over HTTP/3 is an answer: HTTP/3 is taken.
+        #[tokio::test(flavor = "multi_thread")]
+        async fn an_answer_of_any_rcode_takes_http3() {
+            let cert = cert();
+            let both = both(&cert, Some(ResponseCode::ServFail));
+            let client = client_of(&both, &cert);
+            until_h3(&client, &both).await;
+        }
+
+        /// A network move: the queries are answered on the network there
+        /// is now.
+        #[tokio::test(flavor = "multi_thread")]
+        async fn a_network_move_starts_over() {
+            let cert = cert();
+            let both = both(&cert, Some(ResponseCode::NoError));
+            let client = client_of(&both, &cert);
+            let asked = until_h3(&client, &both).await;
+            client.network_changed().await;
+            assert_eq!(
+                lookup(&client, &format!("n{}.example", asked))
+                    .await
+                    .unwrap(),
+                vec![IpAddr::V4(ANSWER)]
+            );
+        }
     }
 }

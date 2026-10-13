@@ -552,7 +552,14 @@ struct Lowering<'a, 'b> {
 
 impl Lowering<'_, '_> {
     fn lower(&mut self, f: &mut Fields, ipv6: bool, out: &mut Lowered) -> Result<()> {
-        self.ignored(f, "prefer-h3", |v| v.as_bool() == Some(true));
+        // Each https server's `prefer_h3`, where the build has HTTP/3; told
+        // and passed over where not, as Clash configurations run as they are.
+        let prefer_h3 = if cfg!(all(feature = "dns-doh", feature = "dns-h3")) {
+            f.bool("prefer-h3")?.unwrap_or(false)
+        } else {
+            self.ignored(f, "prefer-h3", |v| v.as_bool() == Some(true));
+            false
+        };
         // Read with `hosts`, see the hosts module.
         if f.bool("use-hosts")? == Some(false) {
             self.warnings.push(format!(
@@ -733,6 +740,16 @@ impl Lowering<'_, '_> {
 
         // 4. The rest.
         let mut dns = Map::new();
+        if prefer_h3 {
+            for server in self
+                .servers
+                .list
+                .iter_mut()
+                .filter(|s| s["type"] == "https")
+            {
+                server["prefer_h3"] = json!(true);
+            }
+        }
         dns.insert("servers".into(), Value::Array(self.servers.list.clone()));
         dns.insert(
             "rules".into(),

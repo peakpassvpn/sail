@@ -3113,6 +3113,7 @@ sail 接受而 sing-box 没有的字段和类型。
 | `dns.servers[sequential].prefer_for` | How long a member that answered in place of the first is asked first |
 | `dns.servers[udp|tcp|tls|quic|https|h3].respect_rules` | Queries go through the outbound the routing rules pick (Mihomo's respect-rules) |
 | `dns.servers[udp|tcp|tls|quic|https|h3].client_subnet` | The EDNS Client Subnet its queries carry (Mihomo's ecs) |
+| `dns.servers[https].prefer_h3` | Queries go over HTTP/3 beside HTTP/2, and over HTTP/3 alone once it answers (Mihomo's prefer-h3) |
 | `dns.servers[tls|quic|https|h3].tls.certificate_sha256` | As an outbound's `tls.certificate_sha256` |
 | `dns.rules[].geosite` | Domains of a geosite category |
 | `dns.rules[].external` | Domains or addresses from a geosite or mmdb file |

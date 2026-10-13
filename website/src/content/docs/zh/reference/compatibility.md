@@ -38,7 +38,7 @@ sail 直接读取 sing-box、Clash / Mihomo 与 Surge 的配置。每种格式�
 | 部分 | 字段 | 支持 | 警告 | 报错 |
 |---|--:|--:|--:|--:|
 | `clash-for-android` | 3 | 0 | 3 | 0 |
-| `dns` | 33 | 28 | 5 | 0 |
+| `dns` | 33 | 29 | 4 | 0 |
 | `experimental` | 5 | 0 | 5 | 0 |
 | `external-controller-cors` | 3 | 3 | 0 | 0 |
 | `general` | 48 | 30 | 16 | 2 |
@@ -100,7 +100,7 @@ sail 直接读取 sing-box、Clash / Mihomo 与 Surge 的配置。每种格式�
 | `tls` | 7 | 0 | 7 | 0 |
 | `tuic-server` | 13 | 0 | 0 | 13 |
 | `tun` | 50 | 34 | 9 | 7 |
-| **All** | **2077** | **494** | **136** | **1447** |
+| **All** | **2077** | **495** | **135** | **1447** |
 
 ## Surge
 

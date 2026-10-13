@@ -9,7 +9,6 @@
 //! connection and open a stream per query on it.
 
 use std::fmt;
-#[cfg(feature = "tls")]
 use std::sync::Arc;
 #[cfg(feature = "tls")]
 use std::time::Duration;
@@ -27,6 +26,8 @@ use crate::transport::layers::OutboundTls;
 mod doh;
 #[cfg(feature = "tls")]
 mod dot;
+#[cfg(all(feature = "dns-doh", feature = "dns-h3"))]
+mod hybrid;
 #[cfg(feature = "quic")]
 mod quic;
 
@@ -226,6 +227,9 @@ enum State {
     Quic(quic::Pool),
     #[cfg(feature = "dns-h3")]
     H3(quic::Pool),
+    /// `https` with `prefer_h3`.
+    #[cfg(all(feature = "dns-doh", feature = "dns-h3"))]
+    Hybrid(hybrid::Hybrid),
 }
 
 impl fmt::Debug for Upstream {
@@ -423,6 +427,8 @@ impl Upstream {
             State::Quic(pool) => pool.clear().await,
             #[cfg(feature = "dns-h3")]
             State::H3(pool) => pool.clear().await,
+            #[cfg(all(feature = "dns-doh", feature = "dns-h3"))]
+            State::Hybrid(hybrid) => hybrid.clear().await,
         }
     }
 
@@ -489,6 +495,39 @@ impl Upstream {
     pub(super) fn with_get(mut self, get: bool) -> Self {
         self.get = get;
         self
+    }
+
+    /// `prefer_h3`, a sail extension, as Mihomo's: an `https` server asked
+    /// over HTTP/3 beside HTTP/2, and kept to HTTP/3 once that answers
+    /// (see `hybrid`).
+    pub(super) fn with_prefer_h3(self, prefer: bool) -> Result<Self> {
+        if !prefer {
+            return Ok(self);
+        }
+        if self.protocol != Protocol::Https {
+            return Err(anyhow!(
+                "prefer_h3: only https servers take it, not {}",
+                self.protocol.scheme()
+            ));
+        }
+        #[cfg(all(feature = "dns-doh", feature = "dns-h3"))]
+        {
+            let mut this = self;
+            // As an h3 server's: QUIC is TLS 1.3 only, and sends the SNI.
+            if this.disable_sni {
+                return Err(anyhow!("prefer_h3: tls.disable_sni is not over QUIC yet"));
+            }
+            this.tls_options
+                .versions
+                .require_tls13("prefer_h3's HTTP/3")
+                .map_err(|e| anyhow!("tls.{}", e))?;
+            this.state = State::Hybrid(hybrid::Hybrid::default());
+            Ok(this)
+        }
+        #[cfg(not(all(feature = "dns-doh", feature = "dns-h3")))]
+        Err(anyhow!(
+            "prefer_h3: needs the dns-doh and dns-h3 features, which are not both compiled in"
+        ))
     }
 
     /// Whether queries are GETs, with no body.
@@ -635,7 +674,7 @@ impl super::DnsClient {
     #[cfg(any(feature = "tls", feature = "quic", feature = "dns-h3"))]
     pub(super) async fn exchange_upstream(
         &self,
-        upstream: &Upstream,
+        upstream: &Arc<Upstream>,
         request: &[u8],
     ) -> Result<Vec<u8>> {
         let id = Upstream::message_id(request)?;
@@ -649,6 +688,11 @@ impl super::DnsClient {
             State::Quic(pool) => self.exchange_quic(upstream, pool, addr, request).await?,
             #[cfg(feature = "dns-h3")]
             State::H3(pool) => self.exchange_quic(upstream, pool, addr, request).await?,
+            #[cfg(all(feature = "dns-doh", feature = "dns-h3"))]
+            State::Hybrid(hybrid) => {
+                self.exchange_hybrid(upstream, hybrid, addr, request)
+                    .await?
+            }
         };
         if response.len() < 12 {
             return Err(anyhow!("dns response too short"));
@@ -664,7 +708,7 @@ impl super::DnsClient {
     #[cfg(not(any(feature = "tls", feature = "quic", feature = "dns-h3")))]
     pub(super) async fn exchange_upstream(
         &self,
-        upstream: &Upstream,
+        upstream: &Arc<Upstream>,
         _request: &[u8],
     ) -> Result<Vec<u8>> {
         match upstream.state {}

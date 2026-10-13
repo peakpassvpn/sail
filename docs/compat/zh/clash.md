@@ -27,7 +27,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | 部分 | 字段 | 支持 | 警告 | 报错 |
 |---|--:|--:|--:|--:|
 | `clash-for-android` | 3 | 0 | 3 | 0 |
-| `dns` | 33 | 28 | 5 | 0 |
+| `dns` | 33 | 29 | 4 | 0 |
 | `experimental` | 5 | 0 | 5 | 0 |
 | `external-controller-cors` | 3 | 3 | 0 | 0 |
 | `general` | 48 | 30 | 16 | 2 |
@@ -89,7 +89,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `tls` | 7 | 0 | 7 | 0 |
 | `tuic-server` | 13 | 0 | 0 | 13 |
 | `tun` | 50 | 34 | 9 | 7 |
-| **All** | **2077** | **494** | **136** | **1447** |
+| **All** | **2077** | **495** | **135** | **1447** |
 
 
 ## `general`
@@ -145,7 +145,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `dns.listen-routing-mark` | 警告 | dns.listen-routing-mark: sail does not implement this field; ignored |
 | `dns.nameserver` | 支持 |  |
 | `dns.nameserver-policy` | 支持 |  |
-| `dns.prefer-h3` | 警告 | dns.prefer-h3: sail does not implement this field; ignored |
+| `dns.prefer-h3` | 支持 |  |
 | `dns.proxy-server-nameserver` | 支持 |  |
 | `dns.proxy-server-nameserver-policy` | 支持 |  |
 | `dns.respect-rules` | 支持 | dns.proxy-server-nameserver: missing, which Mihomo requires with respect-rules |

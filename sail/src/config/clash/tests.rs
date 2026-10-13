@@ -1313,10 +1313,23 @@ fn what_sail_does_not_implement_of_dns_is_warned_of() {
          \x20 listen: 0.0.0.0:53\n  ipv6-timeout: 100\n  cache-algorithm: arc\n\
          \x20 fallback-lazy-query: false\n  cache-max-size: 1000\n  cache: true\n",
     );
+    // prefer-h3 where the build has HTTP/3, on each https server.
+    let h3 = cfg!(all(feature = "dns-doh", feature = "dns-h3"));
+    let mut warnings = config.warnings.clone();
+    if !h3 {
+        assert_eq!(
+            warnings.remove(0),
+            "dns.prefer-h3: sail does not implement this field; ignored"
+        );
+    }
+    let servers = dns_json(&config)["servers"].clone();
+    for server in servers.as_array().unwrap() {
+        let https = server["type"] == "https";
+        assert_eq!(server.get("prefer_h3").is_some(), h3 && https, "{}", server);
+    }
     assert_eq!(
-        config.warnings,
+        warnings,
         [
-            "dns.prefer-h3: sail does not implement this field; ignored",
             "dns.cache-algorithm: sail does not implement this field; ignored",
             "tls://1.1.1.1#disable-reuse=true&x=1: disable-reuse: sail does not implement this \
              parameter; ignored",

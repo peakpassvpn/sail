@@ -3647,6 +3647,10 @@
      "$ref": "#/$defs/dns.servers%5Bhttps%5D.client_subnet",
      "description": "A sail extension: the EDNS Client Subnet its queries carry, over any they have, as Mihomo's `ecs` with `ecs-override`."
     },
+    "prefer_h3": {
+     "type": "boolean",
+     "description": "`https`: a sail extension, as Mihomo's `prefer-h3`: queries go over HTTP/3 beside HTTP/2, and over HTTP/3 alone once it answers; over HTTP/2 for a while once it fails."
+    },
     "type": {
      "const": "https"
     }
