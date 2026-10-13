@@ -2779,14 +2779,14 @@ mod tests {
         let buffers = |env: &super::runtime::RuntimeEnv| {
             super::dial_defaults(&config, env).unwrap().env.quic_buffers
         };
-        assert_eq!(buffers(&env), Default::default());
+        assert_eq!(buffers(&env), env.options.quic.udp_buffers());
         env.options
-            .set_all(["quic.udp_receive_buffer=7168", "quic.udp_send_buffer=1024"])
+            .set_all(["quic.udp_receive_buffer=2048", "quic.udp_send_buffer=1024"])
             .unwrap();
         assert_eq!(
             buffers(&env),
             super::runtime::options::UdpBuffers {
-                receive: 7168 << 10,
+                receive: 2 << 20,
                 send: 1 << 20,
             }
         );

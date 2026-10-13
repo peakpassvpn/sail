@@ -284,12 +284,14 @@ pub struct Quic {
     /// beyond. Zero leaves the system's, 64 KiB on Windows and about
     /// 200 KiB on Linux. The system may give less than is asked: Linux
     /// keeps twice the number for its own bookkeeping and stops at
-    /// `net.core.rmem_max`. sing-box's QUIC (quic-go) asks for 7 MiB,
-    /// Chromium for 1 MiB.
+    /// `net.core.rmem_max`, past which sail is given more only with
+    /// CAP_NET_ADMIN. sing-box's QUIC (quic-go) asks for 7 MiB, Chromium
+    /// for 1 MiB.
     pub udp_receive_buffer: usize,
     /// The send buffer (`SO_SNDBUF`) of the same sockets, in KiB; zero
     /// leaves the system's. On Linux, twice the number and no more than
-    /// `net.core.wmem_max`. quic-go asks for 7 MiB here too.
+    /// `net.core.wmem_max` unless sail has CAP_NET_ADMIN. quic-go asks
+    /// for 7 MiB here too.
     pub udp_send_buffer: usize,
 }
 
@@ -487,9 +489,15 @@ impl RuntimeOptions {
                 hysteria2_receive_window: 64 << 10,
                 hysteria2_stream_window: 8 << 10,
                 hysteria2_send_window: 16 << 10,
-                // The system's, until sizes are measured where it matters
-                // (Windows keeps 64 KiB).
-                udp_receive_buffer: 0,
+                // 7 MiB to receive, quic-go's. In Linux's 208 KiB a sender
+                // at some hundred Mbit/s on a path of 50 or 150 ms lost
+                // every fourth batch of datagrams, and a Hysteria2
+                // download ran at a third of what it does with 7 MiB
+                // (measured, with the 1 MiB that still lost 1 to 5%); a
+                // larger send buffer changed nothing. 2 MiB lost nothing
+                // either, and 4 to 16 MiB did the same: 7 rather than 2
+                // is a judgment, for margin.
+                udp_receive_buffer: 7168,
                 udp_send_buffer: 0,
             },
             ws: Ws { half_close: false },
@@ -546,6 +554,9 @@ impl RuntimeOptions {
                 quic: Quic {
                     max_concurrent_streams: 256,
                     hysteria2_receive_window: 32 << 10,
+                    // A judgment: a phone's links are not those the
+                    // 7 MiB was measured for, and its memory is short.
+                    udp_receive_buffer: 1024,
                     ..desktop.quic
                 },
                 mux: Mux {
@@ -616,6 +627,8 @@ impl RuntimeOptions {
                     // alone, at 250 ms, carried 20 to 30% less (measured,
                     // two noisy rounds).
                     hysteria2_stream_window: 4 << 10,
+                    // As mobile's.
+                    udp_receive_buffer: 1024,
                     ..desktop.quic
                 },
                 // As mobile's: with the kernel's TCP buffers of a 256 or
@@ -805,17 +818,28 @@ mod tests {
         assert!(err.to_string().contains("expected key=value"), "{}", err);
     }
 
+    /// A QUIC socket asks for room to receive in, more where the links
+    /// are fast, and keeps the system's to send from.
     #[test]
-    fn quic_socket_buffers_are_the_systems_unless_set() {
-        for profile in [
-            Profile::Mobile,
-            Profile::Desktop,
-            Profile::Server,
-            Profile::Router,
+    fn quic_sockets_ask_for_a_receive_buffer_by_profile() {
+        for (profile, receive) in [
+            (Profile::Mobile, 1 << 20),
+            (Profile::Desktop, 7 << 20),
+            (Profile::Server, 7 << 20),
+            (Profile::Router, 1 << 20),
         ] {
             let quic = RuntimeOptions::profile(profile).quic;
-            assert_eq!(quic.udp_buffers(), UdpBuffers::default(), "{:?}", profile);
+            assert_eq!(
+                quic.udp_buffers(),
+                UdpBuffers { receive, send: 0 },
+                "{:?}",
+                profile
+            );
         }
+        // Zero still leaves the system's.
+        let mut options = RuntimeOptions::default();
+        options.set("quic.udp_receive_buffer", "0").unwrap();
+        assert_eq!(options.quic.udp_buffers(), UdpBuffers::default());
         let mut options = RuntimeOptions::default();
         options
             .set_all(["quic.udp_receive_buffer=7168", "quic.udp_send_buffer=1024"])

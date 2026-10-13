@@ -533,8 +533,9 @@ pub fn wrap_socket(
 
 /// Asks the system for `buffers` on `socket`, a zero leaving what it has.
 /// What the system gives is its own to decide (Linux doubles the number
-/// and stops at `net.core.rmem_max` and `wmem_max` without an error), so
-/// it is read back and logged; a refusal is no reason not to connect.
+/// and stops at `net.core.rmem_max` and `wmem_max` without an error, past
+/// which only a privileged process is given more), so it is read back and
+/// logged; a refusal is no reason not to connect.
 ///
 /// The buffers and no more. Windows' receive coalescing (URO,
 /// `UDP_RECV_MAX_COALESCED_SIZE`) is left out on purpose: on some
@@ -573,6 +574,17 @@ fn size_buffers(socket: &std::net::UdpSocket, buffers: UdpBuffers) {
             });
             continue;
         }
+        // Linux stops a plain request at `net.core.rmem_max` or `wmem_max`
+        // without an error; a process with CAP_NET_ADMIN may go past them.
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        if let Some(reported) = get(&socket).ok().filter(|got| cut_short(asked, *got)) {
+            if let Err(e) = force_buffer(&socket, which == "receive", asked) {
+                // Said once, and where it is seen: what is lost to a
+                // buffer too small shows nowhere else.
+                static SAID: std::sync::Once = std::sync::Once::new();
+                SAID.call_once(|| tracing::info!("{}", held_short(which, asked, reported, &e)));
+            }
+        }
         match get(&socket) {
             Ok(got) => tracing::debug!(
                 "quic: UDP {} buffer: asked {} bytes, the system reports {}",
@@ -587,6 +599,64 @@ fn size_buffers(socket: &std::net::UdpSocket, buffers: UdpBuffers) {
                 e
             ),
         }
+    }
+}
+
+/// Whether Linux kept less than the `asked` bytes of a buffer: it reports
+/// twice what it kept, the half being its own bookkeeping.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn cut_short(asked: usize, reported: usize) -> bool {
+    reported < asked.saturating_mul(2)
+}
+
+/// What is said of a buffer the system's limit kept short of the `asked`
+/// bytes, `e` being why sail could not pass the limit.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn held_short(which: &str, asked: usize, reported: usize, e: &io::Error) -> String {
+    format!(
+        "quic: the UDP {} buffer is {} KiB of the {} asked, the system's limit (net.core.{}), \
+         and sail may not pass it ({}); raise the limit for links of some hundred Mbit/s",
+        which,
+        reported / 2 / 1024,
+        asked / 1024,
+        if which == "receive" {
+            "rmem_max"
+        } else {
+            "wmem_max"
+        },
+        e
+    )
+}
+
+/// Sets `socket`'s receive or send buffer to `bytes` past the system's
+/// limit (`SO_RCVBUFFORCE`, `SO_SNDBUFFORCE`), as quic-go does for its
+/// sockets. It takes CAP_NET_ADMIN, which a server run as root or a client
+/// that sets up a TUN has; without it the buffer stays as the plain
+/// request left it, at `net.core.rmem_max` or `wmem_max`.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn force_buffer(socket: &socket2::SockRef<'_>, receive: bool, bytes: usize) -> io::Result<()> {
+    use std::os::fd::AsRawFd;
+    let name = if receive {
+        libc::SO_RCVBUFFORCE
+    } else {
+        libc::SO_SNDBUFFORCE
+    };
+    let value = libc::c_int::try_from(bytes).unwrap_or(libc::c_int::MAX);
+    // SAFETY: the descriptor is the socket's, open for as long as the
+    // reference; the option takes an int, and its size is passed.
+    let done = unsafe {
+        libc::setsockopt(
+            socket.as_raw_fd(),
+            libc::SOL_SOCKET,
+            name,
+            &value as *const libc::c_int as *const libc::c_void,
+            std::mem::size_of::<libc::c_int>() as libc::socklen_t,
+        )
+    };
+    if done == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
     }
 }
 
@@ -821,6 +891,67 @@ mod tests {
             system
         );
         assert_eq!(sized.0, system.0, "the receive buffer was not asked for");
+    }
+
+    /// Linux reports twice what it kept: a request it stopped at its
+    /// limit shows as less than twice what was asked.
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[test]
+    fn a_request_the_system_cut_short_is_told_from_one_kept() {
+        assert!(cut_short(7168 << 10, 2 * 212_992));
+        assert!(cut_short(300 << 10, 2 * 212_992));
+        assert!(!cut_short(7168 << 10, 2 * (7168 << 10)));
+        assert!(!cut_short(100 << 10, 2 * (100 << 10)));
+    }
+
+    /// A buffer held short names what it is, what was asked and the
+    /// limit to raise, in KiB as the option is set.
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[test]
+    fn a_buffer_held_short_names_the_limit_to_raise() {
+        let e = io::Error::from_raw_os_error(libc::EPERM);
+        let said = held_short("receive", 7168 << 10, 2 * 212_992, &e);
+        assert!(
+            said.contains("receive buffer is 208 KiB of the 7168 asked"),
+            "{}",
+            said
+        );
+        assert!(said.contains("net.core.rmem_max"), "{}", said);
+        let said = held_short("send", 1 << 20, 2 * 212_992, &e);
+        assert!(said.contains("net.core.wmem_max"), "{}", said);
+    }
+
+    /// Past `net.core.rmem_max` a plain request is cut short; with
+    /// CAP_NET_ADMIN the socket gets what was asked all the same, and
+    /// without it what the limit allows.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_receive_buffer_past_the_systems_limit_is_forced_where_permitted() {
+        // Only the initial network namespace shows the limit.
+        let Some(limit) = std::fs::read_to_string("/proc/sys/net/core/rmem_max")
+            .ok()
+            .and_then(|text| text.trim().parse::<usize>().ok())
+        else {
+            return;
+        };
+        let asked = limit * 4;
+        let bind = || std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let probe = bind();
+        let permitted = force_buffer(&socket2::SockRef::from(&probe), true, asked).is_ok();
+        let sized = bind();
+        size_buffers(
+            &sized,
+            UdpBuffers {
+                receive: asked,
+                send: 0,
+            },
+        );
+        let reported = socket2::SockRef::from(&sized).recv_buffer_size().unwrap();
+        if permitted {
+            assert!(!cut_short(asked, reported), "{} of {}", reported, asked);
+        } else {
+            assert_eq!(reported, limit * 2);
+        }
     }
 
     #[test]

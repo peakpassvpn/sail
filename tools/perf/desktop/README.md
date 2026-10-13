@@ -81,14 +81,15 @@ on another, the same image and the same builds.
 three rounds. It is the run to repeat when a distribution is wanted.
 
 `buffers`: one build at the dist profile, started four ways,
-over Hysteria2 alone and for five rounds. sail leaves the UDP sockets of
-QUIC the system's buffers unless told otherwise, and Windows' are 64 KiB:
+over Hysteria2 alone and for five rounds. sail asks 7168 KiB to receive in
+for the UDP sockets of QUIC and leaves the send buffer the system's, and
+Windows' are 64 KiB:
 
-- `sail`: as it ships, the system's buffers;
+- `sail`: as it ships;
 - `sail-buf1m`: `quic.udp_receive_buffer` and `quic.udp_send_buffer` at
   1024 KiB, as Chromium asks;
 - `sail-buf7m`: both at 7168 KiB, as sing-box's QUIC asks;
-- `sail-rcv7m`: the receive buffer alone at 7168 KiB.
+- `sail-sys`: the system's buffers both ways.
 
 The summary also says what the runner gives a socket that asks for those
 sizes. The buffers are all that is varied: Windows' UDP receive offload

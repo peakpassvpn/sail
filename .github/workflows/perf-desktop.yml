@@ -16,13 +16,13 @@ name: perf-desktop
 #
 # `buffers`, the default: one build, started four ways, over Hysteria2 alone
 # (the other two protocols have no UDP socket). The UDP sockets of QUIC keep
-# the system's buffers unless `quic.udp_receive_buffer` and
-# `quic.udp_send_buffer` are set, and Windows' are 64 KiB:
+# what `quic.udp_receive_buffer` and `quic.udp_send_buffer` say, the
+# system's at 0, and Windows' are 64 KiB:
 #
-#   sail        as it ships: the system's buffers;
+#   sail        as it ships: 7168 KiB to receive in, the system's to send from;
 #   sail-buf1m  both at 1024 KiB, as Chromium asks;
 #   sail-buf7m  both at 7168 KiB, as sing-box's QUIC (quic-go) asks;
-#   sail-rcv7m  the receive buffer alone at 7168 KiB.
+#   sail-sys    the system's buffers both ways.
 #
 # What the runner gives a socket that asks for those sizes is in the summary.
 # Nothing else of the socket is varied, and Windows' receive offload (URO)
@@ -371,19 +371,19 @@ jobs:
               --sail sail=variants/sail
               --sail sail-buf1m=variants/sail
               --sail sail-buf7m=variants/sail
-              --sail sail-rcv7m=variants/sail
+              --sail sail-sys=variants/sail
               --sail-args "sail-buf1m=--set $receive=1024 --set $send=1024"
               --sail-args "sail-buf7m=--set $receive=7168 --set $send=7168"
-              --sail-args "sail-rcv7m=--set $receive=7168"
+              --sail-args "sail-sys=--set $receive=0 --set $send=0"
               --protocols hysteria2 --rounds 5
             )
             "variants/sail$EXE" --version
             {
-              echo "One build of this commit, at the dist profile, started four ways: \`sail\` with"
-              echo "the system's UDP socket buffers, as it ships; \`sail-buf1m\` asking for 1024 KiB"
-              echo "both ways; \`sail-buf7m\` for 7168 KiB both ways, as sing-box's QUIC does;"
-              echo "\`sail-rcv7m\` for 7168 KiB to receive alone. Hysteria2 only: the other"
-              echo "protocols have no UDP socket."
+              echo "One build of this commit, at the dist profile, started four ways: \`sail\` as it"
+              echo "ships, asking 7168 KiB to receive in and the system's to send from;"
+              echo "\`sail-buf1m\` asking for 1024 KiB both ways; \`sail-buf7m\` for 7168 KiB both"
+              echo "ways, as sing-box's QUIC does; \`sail-sys\` with the system's both ways."
+              echo "Hysteria2 only: the other protocols have no UDP socket."
               echo
               echo "What this runner gives a UDP socket (receive / send, bytes):"
               echo
