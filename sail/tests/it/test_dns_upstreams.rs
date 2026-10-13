@@ -1084,11 +1084,16 @@ mod doh {
             h3: Option<(Arc<Counters>, quinn::Endpoint)>,
         }
 
-        /// The servers; a DoH3 one, answering `rcode`, with `h3`.
+        /// The servers; a DoH3 one, answering `rcode`, with `h3`. On a port
+        /// `free_port` hands out, free for both TCP and UDP: one the
+        /// system gives TCP is often refused UDP on Windows (an excluded
+        /// range, or WSAEACCES).
         fn both(cert: &Cert, h3: Option<ResponseCode>) -> Both {
             for _ in 0..20 {
-                let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-                let port = listener.local_addr().unwrap().port();
+                let port = crate::common::free_port();
+                let Ok(listener) = TcpListener::bind(("127.0.0.1", port)) else {
+                    continue;
+                };
                 let socket = match h3 {
                     None => None,
                     Some(_) => match std::net::UdpSocket::bind(("127.0.0.1", port)) {
