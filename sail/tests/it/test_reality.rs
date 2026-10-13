@@ -578,10 +578,13 @@ struct Progress {
     returned: AtomicUsize,
     /// Read back by the test.
     echoed: AtomicUsize,
+    /// Why the echo server stopped serving the connection, once it has.
+    ended: std::sync::Mutex<Option<String>>,
 }
 
 /// A TCP echo server on `listener` that counts in `progress` what it reads
-/// and what it has written back.
+/// and what the system has taken of what it writes back, and says there
+/// why it stopped serving a connection.
 async fn counting_echo(listener: tokio::net::TcpListener, progress: std::sync::Arc<Progress>) {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -592,19 +595,149 @@ async fn counting_echo(listener: tokio::net::TcpListener, progress: std::sync::A
         let progress = progress.clone();
         tokio::spawn(async move {
             let mut buf = vec![0u8; 16 * 1024];
-            loop {
+            let ended = 'serving: loop {
                 let n = match stream.read(&mut buf).await {
-                    Ok(n) if n > 0 => n,
-                    _ => return,
+                    Ok(0) => break "its client closed".to_string(),
+                    Ok(n) => n,
+                    Err(e) => break format!("reading failed: {}", e),
                 };
                 progress.reached.fetch_add(n, Ordering::Relaxed);
-                if stream.write_all(&buf[..n]).await.is_err() {
-                    return;
+                let mut written = 0;
+                while written < n {
+                    match stream.write(&buf[written..n]).await {
+                        Ok(0) => break 'serving "writing took nothing".to_string(),
+                        Ok(taken) => {
+                            written += taken;
+                            progress.returned.fetch_add(taken, Ordering::Relaxed);
+                        }
+                        Err(e) => break 'serving format!("writing failed: {}", e),
+                    }
                 }
-                progress.returned.fetch_add(n, Ordering::Relaxed);
-            }
+            };
+            *progress.ended.lock().unwrap_or_else(|e| e.into_inner()) = Some(ended);
         });
     }
+}
+
+/// What a TCP echo that stands still leaves to be seen, for the next one
+/// that does to say where: what each instance counted on the connections
+/// it holds (read from where they go, and written there), what the system
+/// holds for this process's TCP sockets and what its TCP counted, and what
+/// each thread waits in. Linux tells the last three; elsewhere they are
+/// left out.
+fn stall_report(ids: &[sail::RuntimeId]) -> String {
+    let mut out = String::new();
+    for id in ids {
+        let Some(manager) = sail::runtime_managers().get(id).cloned() else {
+            out.push_str(&format!("instance {}: not running\n", id));
+            continue;
+        };
+        let connections = manager.stat_manager().connections();
+        out.push_str(&format!(
+            "instance {}: {} connection(s)\n",
+            id,
+            connections.len()
+        ));
+        for c in connections {
+            out.push_str(&format!(
+                "  [{}] to {}: {} bytes read from there{}, {} written there{}\n",
+                c.sess.inbound_tag,
+                c.sess.destination,
+                c.bytes_recvd(),
+                if c.recv_completed() { " (ended)" } else { "" },
+                c.bytes_sent(),
+                if c.send_completed() { " (ended)" } else { "" },
+            ));
+        }
+    }
+    if !cfg!(target_os = "linux") {
+        return out;
+    }
+    // What each thread waits in (its system call's number) and has run for,
+    // now and half a second on: one that spins, or stands in a call that is
+    // not its runtime's wait, shows.
+    let threads = || {
+        let mut threads = Vec::new();
+        for entry in std::fs::read_dir("/proc/self/task")
+            .into_iter()
+            .flatten()
+            .flatten()
+        {
+            let read =
+                |file: &str| std::fs::read_to_string(entry.path().join(file)).unwrap_or_default();
+            let stat = read("stat");
+            let fields: Vec<&str> = stat
+                .rsplit_once(')')
+                .map(|(_, rest)| rest.split_whitespace().collect())
+                .unwrap_or_default();
+            threads.push(format!(
+                "{} {} state {} run {}+{} ticks, in call {}",
+                entry.file_name().to_string_lossy(),
+                read("comm").trim(),
+                fields.first().unwrap_or(&"?"),
+                fields.get(11).unwrap_or(&"?"),
+                fields.get(12).unwrap_or(&"?"),
+                read("syscall").split_whitespace().next().unwrap_or("?"),
+            ));
+        }
+        threads.sort();
+        threads
+    };
+    let before = threads();
+    std::thread::sleep(Duration::from_millis(500));
+    out.push_str("threads, and half a second on where they differ:\n");
+    for (was, is) in before.iter().zip(&threads()) {
+        match was == is {
+            true => out.push_str(&format!("  {}\n", was)),
+            false => out.push_str(&format!("  {} | {}\n", was, is)),
+        }
+    }
+    let said = |program: &str, args: &[&str]| match std::process::Command::new(program)
+        .args(args)
+        .output()
+    {
+        Ok(output) => String::from_utf8_lossy(&output.stdout).into_owned(),
+        Err(e) => format!("{}: {}\n", program, e),
+    };
+    // The sockets of this process, each with the line of what it holds.
+    let sockets = said("ss", &["-tnepmio"]);
+    let lines: Vec<&str> = sockets.lines().collect();
+    let ours = format!("pid={},", std::process::id());
+    out.push_str("this process's TCP sockets:\n");
+    for (i, line) in lines.iter().enumerate() {
+        if !line.contains(&ours) {
+            continue;
+        }
+        out.push_str(&format!("  {}\n", line.trim_end()));
+        if let Some(held) = lines
+            .get(i + 1)
+            .filter(|l| l.starts_with(char::is_whitespace))
+        {
+            out.push_str(&format!("    {}\n", held.trim()));
+        }
+    }
+    out.push_str("the system's TCP counted:");
+    for line in said("nstat", &["-az"]).lines() {
+        let mut fields = line.split_whitespace();
+        let (Some(name), Some(count)) = (fields.next(), fields.next()) else {
+            continue;
+        };
+        let wanted = [
+            "ZeroWindow",
+            "RcvQDrop",
+            "Prune",
+            "Pressure",
+            "Collapsed",
+            "TCPTimeouts",
+            "RetransSegs",
+            "WinProbe",
+        ];
+        if count != "0" && wanted.iter().any(|w| name.contains(w)) {
+            out.push_str(&format!(" {}={}", name, count));
+        }
+    }
+    out.push('\n');
+    out
 }
 
 /// Runs `configs` and, through the socks server on `socks_port`, echoes
@@ -662,24 +795,52 @@ fn transfer(configs: Vec<String>, socks_port: u16, inner_tls: bool) -> anyhow::R
             Ok::<_, anyhow::Error>(())
         };
         // An echo that stands still says where: the next one that does is
-        // then known for the way there or the way back, and for how far in.
-        timeout(Duration::from_secs(60), reading)
-            .await
-            .map_err(|_| {
-                anyhow::anyhow!(
-                    "TCP echo timed out: of {} bytes, {} reached the echo server, \
-                     {} left it again and {} came back; the writer {}",
-                    data.len(),
+        // then known for the way there or the way back, for how far in, for
+        // the instance and the socket it stood at, and for whether the
+        // instances still served.
+        let outcome = timeout(Duration::from_secs(60), reading).await;
+        if outcome.is_err() {
+            let counted = || {
+                format!(
+                    "{} reached the echo server, {} left it again and {} came back",
                     progress.reached.load(Ordering::Relaxed),
                     progress.returned.load(Ordering::Relaxed),
                     progress.echoed.load(Ordering::Relaxed),
-                    if writer.is_finished() {
-                        "had written all of them"
-                    } else {
-                        "was still writing"
-                    },
                 )
-            })??;
+            };
+            let stood = format!(
+                "TCP echo timed out: of {} bytes, {}; the writer {}; the echo server {}",
+                data.len(),
+                counted(),
+                if writer.is_finished() {
+                    "had written all of them"
+                } else {
+                    "was still writing"
+                },
+                match &*progress.ended.lock().unwrap_or_else(|e| e.into_inner()) {
+                    Some(why) => format!("had stopped ({})", why),
+                    None => "still served".to_string(),
+                },
+            );
+            let report = stall_report(&ids);
+            // A connection of its own, through the same instances.
+            let probe = timeout(Duration::from_secs(5), async {
+                let mut probe =
+                    common::new_socks_stream("127.0.0.1", socks_port, &sess, None, None).await?;
+                probe.write_all(b"ping").await?;
+                let mut pong = [0u8; 4];
+                probe.read_exact(&mut pong).await?;
+                anyhow::Ok(())
+            })
+            .await;
+            let probe = match probe {
+                Ok(Ok(())) => "a new connection echoed".to_string(),
+                Ok(Err(e)) => format!("a new connection failed ({:#})", e),
+                Err(_) => "a new connection stood still too".to_string(),
+            };
+            anyhow::bail!("{}\n{}then {}, and {}", stood, report, probe, counted());
+        }
+        outcome.expect("timed out above")?;
         let _w = writer.await??;
         anyhow::ensure!(echoed == data, "TCP echo differs");
 
