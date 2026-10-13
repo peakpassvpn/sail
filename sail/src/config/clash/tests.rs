@@ -791,6 +791,41 @@ fn rule_providers_are_rule_sets() {
     assert!(config.warnings.is_empty(), "{:?}", config.warnings);
 }
 
+/// The GEO rule-sets are downloaded again as `geo-update-interval` says,
+/// with `geo-auto-update`; as any rule-set is without it.
+#[test]
+fn the_geo_sets_update_as_geo_update_interval_says() {
+    let interval = |general: &str| {
+        let config = load(&format!("{}\nrules: [\"GEOSITE,cn,DIRECT\"]", general));
+        assert!(config.warnings.is_empty(), "{:?}", config.warnings);
+        let set = config
+            .route
+            .rule_set
+            .iter()
+            .find(|s| s.tag.iter().any(|t| t == "geosite:cn"))
+            .expect("the GEOSITE set");
+        set.update_interval
+    };
+    let hours = |h: u64| Some(std::time::Duration::from_secs(h * 3600));
+    assert_eq!(
+        interval("geo-auto-update: true\ngeo-update-interval: 168"),
+        hours(168)
+    );
+    assert_eq!(interval("geo-auto-update: true"), hours(24));
+    assert_eq!(
+        interval("geo-auto-update: false\ngeo-update-interval: 168"),
+        None
+    );
+    assert_eq!(interval("geo-update-interval: 168"), None);
+    let e = parse("geo-auto-update: true\ngeo-update-interval: 0\nrules: [\"MATCH,DIRECT\"]")
+        .unwrap_err();
+    assert!(
+        format!("{:#}", e).contains("geo-update-interval: must be more than 0"),
+        "{:#}",
+        e
+    );
+}
+
 #[test]
 fn rule_provider_mistakes_name_the_field() {
     for (yaml, message) in [

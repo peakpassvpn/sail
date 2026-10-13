@@ -28,10 +28,9 @@ pub const TOP: &[(&str, Tier)] = &[
     ("experimental", Ignored),
     ("ntp", Ignored),
     ("clash-for-android", Ignored),
-    // Where the GEO databases come from, for the rules that name them.
+    // Where the GEO databases come from, for the rules that name them:
+    // sail reads GEOIP and GEOSITE as MetaCubeX's rule-sets, not these.
     ("geox-url", Ignored),
-    ("geo-auto-update", Ignored),
-    ("geo-update-interval", Ignored),
     ("geodata-mode", Ignored),
     ("geodata-loader", Ignored),
     ("geosite-matcher", Ignored),
@@ -59,12 +58,32 @@ pub fn lower(doc: &mut Fields, out: &mut Lowered, warnings: &mut Vec<String>) ->
     profile(doc, out, warnings)?;
     keep_alive(doc, out)?;
     out.unified_delay = doc.bool("unified-delay")?.unwrap_or(false);
+    geo_update(doc, out)?;
     if let Some(name) = doc.string("interface-name")? {
         out.route.insert("default_interface".into(), json!(name));
     }
     if let Some(mark) = doc.int::<u32>("routing-mark")? {
         out.route.insert("default_mark".into(), json!(mark));
     }
+    Ok(())
+}
+
+/// `geo-auto-update` and `geo-update-interval`, in hours, 24 unset: how
+/// often the GEOIP and GEOSITE rule-sets are downloaded again, as Mihomo
+/// downloads its databases. Without `geo-auto-update`, Mihomo never does
+/// once it has them, where sail's rule-sets keep their daily default.
+fn geo_update(doc: &mut Fields, out: &mut Lowered) -> Result<()> {
+    let at = doc.at("geo-update-interval");
+    let hours = doc.int::<u64>("geo-update-interval")?;
+    if !doc.bool("geo-auto-update")?.unwrap_or(false) {
+        return Ok(());
+    }
+    let hours = match hours {
+        Some(0) => return Err(anyhow!("{}: must be more than 0", at)),
+        Some(h) => h,
+        None => 24,
+    };
+    out.geo_update = Some(std::time::Duration::from_secs(hours * 3600));
     Ok(())
 }
 

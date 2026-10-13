@@ -201,7 +201,7 @@ impl Sets {
     /// The rule-sets of the files, and of the GEOIP rules.
     pub fn into_rule_sets(self) -> Vec<Value> {
         let mut sets: Vec<Value> = self.files.into_values().map(|(_, set)| set).collect();
-        sets.extend(self.geo.into_geo_sets());
+        sets.extend(self.geo.into_geo_sets(None));
         sets
     }
 }

@@ -71,7 +71,7 @@ pub fn parse_in(s: &str, home: Option<&std::path::Path>) -> Result<Config> {
     if let Some(rule) = listeners::lan_rule(&out) {
         out.rules.push_front(rule);
     }
-    out.rule_sets.extend(sets.into_geo_sets());
+    out.rule_sets.extend(sets.into_geo_sets(out.geo_update));
     out.apply_keep_alive(&mut warnings);
     doc.finish(general::TOP, |key| holders.contains(key), &mut warnings)?;
 
@@ -146,6 +146,9 @@ pub struct Lowered {
     /// The TCP keepalive fields every outbound that dials and every
     /// listener takes: `keep-alive-idle` and the like.
     pub keep_alive: Map<String, Value>,
+    /// How often the GEOIP and GEOSITE rule-sets are downloaded again:
+    /// `geo-update-interval`, with `geo-auto-update`.
+    pub geo_update: Option<std::time::Duration>,
     /// The dial fields every outbound that dials takes besides:
     /// `tcp-concurrent`.
     pub outbound_dial: Map<String, Value>,
