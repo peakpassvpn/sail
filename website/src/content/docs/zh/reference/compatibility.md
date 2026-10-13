@@ -16,7 +16,7 @@ sail 直接读取 sing-box、Clash / Mihomo 与 Surge 的配置。每种格式�
 | `$schema` | 1 | 1 | 0 | 0 |
 | `log` | 5 | 5 | 0 | 0 |
 | `dns` | 578 | 367 | 67 | 144 |
-| `ntp` | 35 | 0 | 35 | 0 |
+| `ntp` | 35 | 35 | 0 | 0 |
 | `certificate` | 5 | 5 | 0 | 0 |
 | `certificate_providers` | 212 | 0 | 0 | 212 |
 | `http_clients` | 80 | 30 | 11 | 39 |
@@ -27,7 +27,7 @@ sail 直接读取 sing-box、Clash / Mihomo 与 Surge 的配置。每种格式�
 | `route` | 268 | 174 | 41 | 53 |
 | `services` | 751 | 1 | 166 | 584 |
 | `experimental` | 34 | 16 | 17 | 1 |
-| **全部** | **5003** | **1927** | **575** | **2501** |
+| **全部** | **5003** | **1962** | **540** | **2501** |
 
 ## Clash / Mihomo
 
@@ -63,7 +63,7 @@ sail 直接读取 sing-box、Clash / Mihomo 与 Surge 的配置。每种格式�
 | `listeners[tunnel]` | 8 | 0 | 0 | 8 |
 | `listeners[vless]` | 93 | 0 | 0 | 93 |
 | `listeners[vmess]` | 116 | 0 | 0 | 116 |
-| `ntp` | 7 | 0 | 7 | 0 |
+| `ntp` | 7 | 7 | 0 | 0 |
 | `profile` | 3 | 3 | 0 | 0 |
 | `proxies[anytls]` | 38 | 22 | 4 | 12 |
 | `proxies[direct]` | 7 | 5 | 2 | 0 |
@@ -100,7 +100,7 @@ sail 直接读取 sing-box、Clash / Mihomo 与 Surge 的配置。每种格式�
 | `tls` | 7 | 0 | 7 | 0 |
 | `tuic-server` | 13 | 0 | 0 | 13 |
 | `tun` | 50 | 34 | 9 | 7 |
-| **All** | **2077** | **497** | **133** | **1447** |
+| **All** | **2077** | **504** | **126** | **1447** |
 
 ## Surge
 

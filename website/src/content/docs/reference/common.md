@@ -24,7 +24,7 @@ Rust: [`Config`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config
 | `$schema` | string | — | Supported | — |
 | `log` | object → [object](#log) | each field's default | Supported | — |
 | `dns` | object → [object](/sail/reference/dns/#dns) | each field's default | Supported | — |
-| `ntp` | object → [object](#ntp) | — | Warned: sail keeps the system's clock | — |
+| `ntp` | object → [object](#ntp) | unset | Supported | The time the protocols that check it go by, measured against an NTP server; the system's clock is never set. |
 | `certificate` | object → [object](#certificate) | unset | Supported | The root certificates servers are checked against; the system's when unset. |
 | `certificate_providers` | array → [[]](#certificate-providers), [[acme]](#certificate-providers-missing), [[cloudflare-origin-ca]](#certificate-providers-missing), [[tailscale]](#certificate-providers-missing) | — | Error: Certificates from ACME and other providers: the inbounds would serve none | — |
 | `http_clients` | array → [[]](#http-clients) | `[]` | Supported | How sail fetches over HTTP, rule-sets for one, by tag. |
@@ -130,49 +130,37 @@ Rust: [`HttpClient`](https://github.com/peakpassvpn/sail/blob/master/sail/src/co
 
 ## `ntp`
 
-| Field | Type | Default | Status | Description |
-| --- | --- | --- | --- | --- |
-| `enabled` | bool | — | Warned: sail keeps the system's clock | — |
-| `interval` | duration | — | Warned: sail keeps the system's clock | — |
-| `write_to_system` | bool | — | Warned: sail keeps the system's clock | — |
-| `server` | string | — | Warned: sail keeps the system's clock | — |
-| `server_port` | number | — | Warned: sail keeps the system's clock | — |
-| `detour` | string | — | Warned: sail keeps the system's clock | — |
-| `bind_interface` | string | — | Warned: sail keeps the system's clock | — |
-| `inet4_bind_address` | string | — | Warned: sail keeps the system's clock | — |
-| `inet6_bind_address` | string | — | Warned: sail keeps the system's clock | — |
-| `bind_address_no_port` | bool | — | Warned: sail keeps the system's clock | — |
-| `protect_path` | string | — | Warned: sail keeps the system's clock | — |
-| `routing_mark` | number\|string | — | Warned: sail keeps the system's clock | — |
-| `reuse_addr` | bool | — | Warned: sail keeps the system's clock | — |
-| `netns` | string | — | Warned: sail keeps the system's clock | — |
-| `connect_timeout` | duration | — | Warned: sail keeps the system's clock | — |
-| `tcp_fast_open` | bool | — | Warned: sail keeps the system's clock | — |
-| `tcp_multi_path` | bool | — | Warned: sail keeps the system's clock | — |
-| `disable_tcp_keep_alive` | bool | — | Warned: sail keeps the system's clock | — |
-| `tcp_keep_alive` | duration | — | Warned: sail keeps the system's clock | — |
-| `tcp_keep_alive_interval` | duration | — | Warned: sail keeps the system's clock | — |
-| `udp_fragment` | bool | — | Warned: sail keeps the system's clock | — |
-| `domain_resolver` | string\|object → [object](#ntp-domain-resolver) | — | Warned: sail keeps the system's clock | — |
-| `network_strategy` | string, one of `default`, `fallback`, `hybrid` | — | Warned: sail keeps the system's clock | — |
-| `network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Warned: sail keeps the system's clock | — |
-| `fallback_network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Warned: sail keeps the system's clock | — |
-| `fallback_delay` | duration | — | Warned: sail keeps the system's clock | — |
-| `domain_strategy` | string | — | Warned: sail keeps the system's clock (deprecated in sing-box) | — |
-
-<a id="ntp-domain-resolver"></a>
-
-### `ntp.domain_resolver`
+Rust: [`Ntp`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
-| `server` | string | required | Warned: sail keeps the system's clock | — |
-| `timeout` | duration | — | Warned: sail keeps the system's clock | — |
-| `strategy` | string, one of `as_is`, `prefer_ipv4`, `prefer_ipv6`, `ipv4_only`, `ipv6_only` | — | Warned: sail keeps the system's clock | — |
-| `disable_cache` | bool | — | Warned: sail keeps the system's clock | — |
-| `disable_optimistic_cache` | bool | — | Warned: sail keeps the system's clock | — |
-| `rewrite_ttl` | number | — | Warned: sail keeps the system's clock | — |
-| `client_subnet` | string | — | Warned: sail keeps the system's clock | — |
+| `enabled` | bool | `false` | Supported | — |
+| `interval` | duration | unset | Supported | How often the offset is measured again; 30m when unset. |
+| `write_to_system` | bool | `false` | Supported | Setting the system's clock, which sail never does: an error. |
+| `server` | string | unset | Supported | The server's name or address. |
+| `server_port` | number | unset | Supported | 123 when unset. |
+| `detour` | string | unset | Supported | The outbound to dial through, in place of a socket of its own. |
+| `bind_interface` | string | unset | Supported | The interface to send through, by name. Loopback destinations still go over loopback, where sing-box applies the bind to them as well. |
+| `inet4_bind_address` | string | unset | Supported | The local address for IPv4 destinations, loopback ones aside: as `bind_interface`. |
+| `inet6_bind_address` | string | unset | Supported | The local address for IPv6 destinations, loopback ones aside: as `bind_interface`. |
+| `bind_address_no_port` | bool | `false` | Supported | `IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address, so that the port is picked at connect: Linux only. |
+| `protect_path` | string | unset | Supported | A Unix socket each socket's descriptor is handed to, with `SCM_RIGHTS`, before it binds or connects, for the process there to protect it (from its VPN, say); it answers one byte. Besides what the host protects. Unix only. |
+| `routing_mark` | number\|string | unset | Supported | `SO_MARK`, Linux only. |
+| `reuse_addr` | bool | `false` | Supported | `SO_REUSEADDR`, and `SO_REUSEPORT` on Unix, on UDP sockets. |
+| `netns` | string | unset | Supported | Not implemented yet. |
+| `connect_timeout` | duration | unset | Supported | How long a TCP connect to one address may take; 5s when unset. |
+| `tcp_fast_open` | bool | `false` | Supported | TCP Fast Open: the first data written goes with the SYN. Its addresses are then tried one by one, not raced. |
+| `tcp_multi_path` | bool | unset | Supported | Not implemented yet. |
+| `disable_tcp_keep_alive` | bool | `false` | Supported | No TCP keepalive at all. |
+| `tcp_keep_alive` | duration | unset | Supported | How long a TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
+| `udp_fragment` | bool | unset | Supported | Whether UDP datagrams may be fragmented on the way; unset, as the place says, see `udp_fragment_default`. |
+| `domain_resolver` | string\|object → [object](/sail/reference/shared/#domain-resolver-default-domain-resolver) | unset | Supported | The DNS server that resolves the names dialled. |
+| `network_strategy` | string, one of `default`, `fallback`, `hybrid` | unset | Supported | Which of the host's interfaces a connection goes out of, and how they race; `default` where only types are given. Only where the host lists its interfaces (`NetworkState::interfaces`). |
+| `network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | `[]` | Supported | The types of interface the strategy goes out of first. |
+| `fallback_network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | `[]` | Supported | The types it falls back to, with `fallback`. |
+| `fallback_delay` | duration | unset | Supported | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs), and the first interfaces before the fallback ones; 300ms when unset. |
+| `domain_strategy` | string | unset | Supported (deprecated in sing-box) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
 
 <a id="experimental"></a>
 

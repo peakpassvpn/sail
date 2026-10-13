@@ -109,6 +109,9 @@ struct Inner {
     /// The instance's log: what its tasks log goes there, on whatever
     /// thread they run (a host's runtime's too).
     log: std::sync::OnceLock<Arc<crate::app::logger::InstanceLog>>,
+    /// What the system's clock is behind the instance's NTP server, in
+    /// nanoseconds (`crate::clock`).
+    clock: portable_atomic::AtomicI64,
 }
 
 /// An instance's tasks. Cheap to clone; every clone the same.
@@ -149,7 +152,22 @@ impl TaskScope {
             events,
             report: Mutex::new(None),
             log: std::sync::OnceLock::new(),
+            clock: portable_atomic::AtomicI64::new(0),
         }))
+    }
+
+    /// What the system's clock is behind the instance's NTP server, in
+    /// nanoseconds; 0 without one.
+    pub(crate) fn clock_offset(&self) -> i64 {
+        self.0.clock.load(portable_atomic::Ordering::Relaxed)
+    }
+
+    /// Takes `nanos` as what the system's clock is behind, for the time the
+    /// instance's protocols go by.
+    pub(crate) fn set_clock_offset(&self, nanos: i64) {
+        self.0
+            .clock
+            .store(nanos, portable_atomic::Ordering::Relaxed);
     }
 
     /// Makes `log` the log of what the scope's tasks log: the threads they
@@ -176,6 +194,16 @@ impl TaskScope {
             .try_with(|s| s.clone())
             .ok()
             .or_else(|| BUILDING.with(|b| b.borrow().clone()))
+    }
+
+    /// `current()`'s clock offset, read without cloning the scope: the
+    /// time is read per datagram, on every core.
+    pub(crate) fn current_clock_offset() -> i64 {
+        CURRENT
+            .try_with(|s| s.clock_offset())
+            .ok()
+            .or_else(|| BUILDING.with(|b| b.borrow().as_ref().map(|s| s.clock_offset())))
+            .unwrap_or(0)
     }
 
     /// Marks this thread as building this scope's instance, until the

@@ -52,7 +52,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `listeners[tunnel]` | 8 | 0 | 0 | 8 |
 | `listeners[vless]` | 93 | 0 | 0 | 93 |
 | `listeners[vmess]` | 116 | 0 | 0 | 116 |
-| `ntp` | 7 | 0 | 7 | 0 |
+| `ntp` | 7 | 7 | 0 | 0 |
 | `profile` | 3 | 3 | 0 | 0 |
 | `proxies[anytls]` | 38 | 22 | 4 | 12 |
 | `proxies[direct]` | 7 | 5 | 2 | 0 |
@@ -89,7 +89,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `tls` | 7 | 0 | 7 | 0 |
 | `tuic-server` | 13 | 0 | 0 | 13 |
 | `tun` | 50 | 34 | 9 | 7 |
-| **All** | **2077** | **497** | **133** | **1447** |
+| **All** | **2077** | **504** | **126** | **1447** |
 
 
 ## `general`
@@ -540,13 +540,13 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 
 | 字段 | sail | sail 的说明 |
 |---|---|---|
-| `ntp` | 警告 | ntp: sail does not implement this field; ignored |
-| `ntp.dialer-proxy` | 警告 | ntp: sail does not implement this field; ignored |
-| `ntp.enable` | 警告 | ntp: sail does not implement this field; ignored |
-| `ntp.interval` | 警告 | ntp: sail does not implement this field; ignored |
-| `ntp.port` | 警告 | ntp: sail does not implement this field; ignored |
-| `ntp.server` | 警告 | ntp: sail does not implement this field; ignored |
-| `ntp.write-to-system` | 警告 | ntp: sail does not implement this field; ignored |
+| `ntp` | 支持 |  |
+| `ntp.dialer-proxy` | 支持 |  |
+| `ntp.enable` | 支持 |  |
+| `ntp.interval` | 支持 |  |
+| `ntp.port` | 支持 |  |
+| `ntp.server` | 支持 |  |
+| `ntp.write-to-system` | 支持 |  |
 
 ## `general`
 

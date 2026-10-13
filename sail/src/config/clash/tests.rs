@@ -375,6 +375,35 @@ rules: ["MATCH,G"]
     assert!(d.get("tcp_keep_alive").is_none());
 }
 
+/// `ntp` is sing-box's, with Mihomo's defaults; `write-to-system` is
+/// passed over.
+#[test]
+fn ntp_is_sing_box_s_with_mihomo_s_defaults() {
+    let config = load(
+        "ntp: { enable: true, server: time.example, port: 1123, interval: 60, \
+         dialer-proxy: d, write-to-system: true }\n\
+         proxies: [{ name: d, type: direct }]\nrules: [\"MATCH,d\"]\n",
+    );
+    let ntp = config.ntp.as_ref().expect("ntp");
+    assert!(ntp.enabled);
+    assert_eq!(ntp.server.as_deref(), Some("time.example"));
+    assert_eq!(ntp.server_port, Some(1123));
+    assert_eq!(ntp.interval, Some(std::time::Duration::from_secs(3600)));
+    assert_eq!(ntp.dial.detour.as_deref(), Some("d"));
+    assert!(!ntp.write_to_system);
+    assert_eq!(
+        config.warnings,
+        ["ntp.write-to-system: sail never sets the system's clock; ignored"]
+    );
+    let config = load("ntp: { enable: true }\nrules: [\"MATCH,DIRECT\"]\n");
+    let ntp = config.ntp.as_ref().expect("ntp");
+    assert_eq!(ntp.server.as_deref(), Some("time.apple.com"));
+    assert_eq!(ntp.server_port, Some(123));
+    assert_eq!(ntp.interval, Some(std::time::Duration::from_secs(1800)));
+    let config = load("ntp: { enable: false, server: time.example }\nrules: [\"MATCH,DIRECT\"]\n");
+    assert!(config.ntp.is_none());
+}
+
 const KEY: &str = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=";
 
 #[test]

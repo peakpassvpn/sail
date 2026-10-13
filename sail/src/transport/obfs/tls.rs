@@ -280,7 +280,7 @@ fn generate_tls_request(host: &[u8], payload: &[u8]) -> Vec<u8> {
 
     hello.0.len = (total_len as u16 - 5).to_be();
     hello.0.handshake_len_2 = (total_len as u16 - 9).to_be();
-    hello.0.random_unix_time = (SystemTime::now()
+    hello.0.random_unix_time = (crate::clock::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs() as u32)

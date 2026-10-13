@@ -26,7 +26,6 @@ pub const TOP: &[(&str, Tier)] = &[
     ("global-ua", Ignored),
     ("etag-support", Ignored),
     ("experimental", Ignored),
-    ("ntp", Ignored),
     ("clash-for-android", Ignored),
     // Where the GEO databases come from, for the rules that name them:
     // sail reads GEOIP and GEOSITE as MetaCubeX's rule-sets, not these.
@@ -57,6 +56,7 @@ pub fn lower(doc: &mut Fields, out: &mut Lowered, warnings: &mut Vec<String>) ->
     controller(doc, out, warnings)?;
     profile(doc, out, warnings)?;
     keep_alive(doc, out)?;
+    ntp(doc, out, warnings)?;
     out.unified_delay = doc.bool("unified-delay")?.unwrap_or(false);
     geo_update(doc, out)?;
     if let Some(name) = doc.string("interface-name")? {
@@ -84,6 +84,46 @@ fn geo_update(doc: &mut Fields, out: &mut Lowered) -> Result<()> {
         None => 24,
     };
     out.geo_update = Some(std::time::Duration::from_secs(hours * 3600));
+    Ok(())
+}
+
+/// `ntp`, as sing-box's, with Mihomo's defaults: `interval` in minutes,
+/// `dialer-proxy` the proxy it goes through. `write-to-system` is told and
+/// passed over: sail never sets the system's clock, but corrects the time
+/// its protocols check.
+fn ntp(doc: &mut Fields, out: &mut Lowered, warnings: &mut Vec<String>) -> Result<()> {
+    let Some(mut f) = doc.map("ntp")? else {
+        return Ok(());
+    };
+    let enabled = f.bool("enable")?.unwrap_or(false);
+    let server = f.string("server")?.filter(|s| !s.is_empty());
+    let port = f.int::<u16>("port")?;
+    let at = f.at("interval");
+    let minutes = f.int::<u64>("interval")?;
+    let detour = f.string("dialer-proxy")?.filter(|p| !p.is_empty());
+    if f.bool("write-to-system")? == Some(true) {
+        warnings.push(format!(
+            "{}: sail never sets the system's clock; ignored",
+            f.at("write-to-system")
+        ));
+    }
+    f.finish(&[], |_| false, warnings)?;
+    if !enabled {
+        return Ok(());
+    }
+    let mut ntp = json!({
+        "enabled": true,
+        "server": server.unwrap_or_else(|| "time.apple.com".into()),
+        "server_port": port.unwrap_or(123),
+        "interval": format!("{}m", minutes.unwrap_or(30)),
+    });
+    if minutes == Some(0) {
+        return Err(anyhow!("{}: must be more than 0", at));
+    }
+    if let Some(detour) = detour {
+        ntp["detour"] = json!(detour);
+    }
+    out.ntp = Some(ntp);
     Ok(())
 }
 

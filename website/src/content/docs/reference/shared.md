@@ -78,7 +78,7 @@ Used at: `inbounds[anytls].tls.reality.handshake.domain_resolver`, `route.rule_s
 
 ## `domain_resolver / default_domain_resolver`
 
-Used at: `http_clients[].domain_resolver`, `dns.servers[h3, https, quic, tcp, tls, udp].domain_resolver`, `inbounds[http, hysteria2, trojan, tuic, vless, vmess].tls.reality.handshake.domain_resolver`, `inbounds[shadowtls].handshake.domain_resolver`, `outbounds[anytls, direct, http, hysteria2, shadowsocks, shadowtls, socks, trojan, tuic, vless, vmess].domain_resolver`, `endpoints[wireguard].domain_resolver`, `route.default_domain_resolver`
+Used at: `http_clients[].domain_resolver`, `ntp.domain_resolver`, `dns.servers[h3, https, quic, tcp, tls, udp].domain_resolver`, `inbounds[http, hysteria2, trojan, tuic, vless, vmess].tls.reality.handshake.domain_resolver`, `inbounds[shadowtls].handshake.domain_resolver`, `outbounds[anytls, direct, http, hysteria2, shadowsocks, shadowtls, socks, trojan, tuic, vless, vmess].domain_resolver`, `endpoints[wireguard].domain_resolver`, `route.default_domain_resolver`
 
 Rust: [`DomainResolver`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 

@@ -33,6 +33,7 @@ pub mod adapter;
 pub mod alloc_stats;
 pub mod app;
 pub mod assets;
+pub mod clock;
 pub mod common;
 pub mod config;
 pub mod control;

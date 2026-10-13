@@ -16,8 +16,7 @@
   },
   "ntp": {
    "$ref": "#/$defs/ntp",
-   "deprecated": true,
-   "description": "sail ignores this field, with a warning: sail keeps the system's clock"
+   "description": "The time the protocols that check it go by, measured against an NTP server; the system's clock is never set."
   },
   "certificate": {
    "$ref": "#/$defs/certificate",
@@ -13637,59 +13636,47 @@
    "type": "object",
    "properties": {
     "enabled": {
-     "type": "boolean",
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: sail keeps the system's clock"
+     "type": "boolean"
     },
     "interval": {
      "type": "string",
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: sail keeps the system's clock"
+     "description": "How often the offset is measured again; 30m when unset."
     },
     "write_to_system": {
      "type": "boolean",
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: sail keeps the system's clock"
+     "description": "Setting the system's clock, which sail never does: an error."
     },
     "server": {
      "type": "string",
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: sail keeps the system's clock"
+     "description": "The server's name or address."
     },
     "server_port": {
      "type": "number",
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: sail keeps the system's clock"
+     "description": "123 when unset."
     },
     "detour": {
      "type": "string",
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: sail keeps the system's clock"
+     "description": "The outbound to dial through, in place of a socket of its own."
     },
     "bind_interface": {
      "type": "string",
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: sail keeps the system's clock"
+     "description": "The interface to send through, by name. Loopback destinations still go over loopback, where sing-box applies the bind to them as well."
     },
     "inet4_bind_address": {
      "type": "string",
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: sail keeps the system's clock"
+     "description": "The local address for IPv4 destinations, loopback ones aside: as `bind_interface`."
     },
     "inet6_bind_address": {
      "type": "string",
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: sail keeps the system's clock"
+     "description": "The local address for IPv6 destinations, loopback ones aside: as `bind_interface`."
     },
     "bind_address_no_port": {
      "type": "boolean",
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: sail keeps the system's clock"
+     "description": "`IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address, so that the port is picked at connect: Linux only."
     },
     "protect_path": {
      "type": "string",
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: sail keeps the system's clock"
+     "description": "A Unix socket each socket's descriptor is handed to, with `SCM_RIGHTS`, before it binds or connects, for the process there to protect it (from its VPN, say); it answers one byte. Besides what the host protects. Unix only."
     },
     "routing_mark": {
      "anyOf": [
@@ -13700,53 +13687,43 @@
        "type": "string"
       }
      ],
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: sail keeps the system's clock"
+     "description": "`SO_MARK`, Linux only."
     },
     "reuse_addr": {
      "type": "boolean",
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: sail keeps the system's clock"
+     "description": "`SO_REUSEADDR`, and `SO_REUSEPORT` on Unix, on UDP sockets."
     },
     "netns": {
      "type": "string",
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: sail keeps the system's clock"
+     "description": "Not implemented yet."
     },
     "connect_timeout": {
      "type": "string",
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: sail keeps the system's clock"
+     "description": "How long a TCP connect to one address may take; 5s when unset."
     },
     "tcp_fast_open": {
      "type": "boolean",
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: sail keeps the system's clock"
+     "description": "TCP Fast Open: the first data written goes with the SYN. Its addresses are then tried one by one, not raced."
     },
     "tcp_multi_path": {
      "type": "boolean",
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: sail keeps the system's clock"
+     "description": "Not implemented yet."
     },
     "disable_tcp_keep_alive": {
      "type": "boolean",
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: sail keeps the system's clock"
+     "description": "No TCP keepalive at all."
     },
     "tcp_keep_alive": {
      "type": "string",
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: sail keeps the system's clock"
+     "description": "How long a TCP connection is idle before keepalive probes it; 5m when unset."
     },
     "tcp_keep_alive_interval": {
      "type": "string",
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: sail keeps the system's clock"
+     "description": "Between keepalive probes; 75s when unset."
     },
     "udp_fragment": {
      "type": "boolean",
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: sail keeps the system's clock"
+     "description": "Whether UDP datagrams may be fragmented on the way; unset, as the place says, see `udp_fragment_default`."
     },
     "domain_resolver": {
      "anyOf": [
@@ -13757,70 +13734,83 @@
        "$ref": "#/$defs/ntp.domain_resolver"
       }
      ],
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: sail keeps the system's clock"
+     "description": "The DNS server that resolves the names dialled."
     },
     "network_strategy": {
      "type": "string",
-     "examples": [
+     "enum": [
       "default",
-      "fallback",
-      "hybrid"
+      "hybrid",
+      "fallback"
      ],
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: sail keeps the system's clock"
+     "description": "Which of the host's interfaces a connection goes out of, and how they race; `default` where only types are given. Only where the host lists its interfaces (`NetworkState::interfaces`)."
     },
     "network_type": {
      "anyOf": [
       {
-       "type": "string"
+       "type": "string",
+       "enum": [
+        "wifi",
+        "cellular",
+        "ethernet",
+        "other"
+       ]
       },
       {
        "type": "array",
        "items": {
-        "type": "string"
+        "type": "string",
+        "enum": [
+         "wifi",
+         "cellular",
+         "ethernet",
+         "other"
+        ]
        }
       }
      ],
-     "examples": [
-      "cellular",
-      "ethernet",
-      "other",
-      "wifi"
-     ],
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: sail keeps the system's clock"
+     "description": "The types of interface the strategy goes out of first."
     },
     "fallback_network_type": {
      "anyOf": [
       {
-       "type": "string"
+       "type": "string",
+       "enum": [
+        "wifi",
+        "cellular",
+        "ethernet",
+        "other"
+       ]
       },
       {
        "type": "array",
        "items": {
-        "type": "string"
+        "type": "string",
+        "enum": [
+         "wifi",
+         "cellular",
+         "ethernet",
+         "other"
+        ]
        }
       }
      ],
-     "examples": [
-      "cellular",
-      "ethernet",
-      "other",
-      "wifi"
-     ],
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: sail keeps the system's clock"
+     "description": "The types it falls back to, with `fallback`."
     },
     "fallback_delay": {
      "type": "string",
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: sail keeps the system's clock"
+     "description": "How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs), and the first interfaces before the fallback ones; 300ms when unset."
     },
     "domain_strategy": {
      "type": "string",
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: sail keeps the system's clock"
+     "enum": [
+      "prefer_ipv4",
+      "prefer_ipv6",
+      "ipv4_only",
+      "ipv6_only"
+     ],
+     "description": "sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before.",
+     "deprecated": true
     }
    },
    "additionalProperties": false
@@ -13829,49 +13819,37 @@
    "type": "object",
    "properties": {
     "server": {
-     "type": "string",
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: sail keeps the system's clock"
+     "type": "string"
     },
     "timeout": {
-     "type": "string",
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: sail keeps the system's clock"
+     "type": "string"
     },
     "strategy": {
      "type": "string",
-     "examples": [
-      "as_is",
+     "enum": [
       "prefer_ipv4",
       "prefer_ipv6",
       "ipv4_only",
       "ipv6_only"
-     ],
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: sail keeps the system's clock"
+     ]
     },
     "disable_cache": {
-     "type": "boolean",
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: sail keeps the system's clock"
+     "type": "boolean"
     },
     "disable_optimistic_cache": {
-     "type": "boolean",
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: sail keeps the system's clock"
+     "type": "boolean"
     },
     "rewrite_ttl": {
-     "type": "number",
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: sail keeps the system's clock"
+     "type": "number"
     },
     "client_subnet": {
-     "type": "string",
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: sail keeps the system's clock"
+     "type": "string"
     }
    },
-   "additionalProperties": false
+   "additionalProperties": false,
+   "required": [
+    "server"
+   ]
   },
   "outbound_providers[]": {
    "type": "object",

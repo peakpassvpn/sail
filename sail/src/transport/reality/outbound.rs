@@ -8,7 +8,7 @@
 
 use std::io;
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::UNIX_EPOCH;
 
 use aes_gcm::aead::AeadInPlace;
 use aes_gcm::{Aes256Gcm, KeyInit};
@@ -213,7 +213,7 @@ unsafe fn seal_client_hello(
     let Some(auth) = ssl.ex_data(auth_index()) else {
         return 0;
     };
-    let now = SystemTime::now()
+    let now = crate::clock::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs() as u32)
         .unwrap_or(0);

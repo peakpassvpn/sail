@@ -36,6 +36,8 @@ pub struct Instance {
     /// What the instance dials with where the dial fields leave off, which
     /// a reload replaces.
     pub(crate) dial_defaults: SharedDialDefaults,
+    /// `ntp`'s service, until the start runs it.
+    ntp: Option<crate::app::ntp::NtpService>,
     /// Controls the TUN inbound's stack once it is started.
     #[cfg(feature = "inbound-tun")]
     pub(crate) tun_control: Option<crate::net::netstack::NativeRuntimeControl>,
@@ -154,6 +156,16 @@ impl Instance {
         let nat_manager = Arc::new(NatManager::new(dispatcher.clone(), &inbounds));
         // Inbounds outlive a reload, and follow the defaults it brings.
         let shared_dial_defaults: SharedDialDefaults = Arc::new(ArcSwap::new(dial_defaults));
+        let ntp = match &config.ntp {
+            Some(ntp) => crate::app::ntp::NtpService::new(
+                ntp,
+                &InstanceDial {
+                    defaults: shared_dial_defaults.clone(),
+                    dns: dns_client.clone(),
+                },
+            )?,
+            None => None,
+        };
         let inbound_manager = Arc::new(std::sync::Mutex::new(InboundManager::new(
             &config.inbounds,
             &env,
@@ -192,6 +204,7 @@ impl Instance {
             inbound_manager,
             nat_manager,
             dial_defaults: shared_dial_defaults,
+            ntp,
             #[cfg(feature = "inbound-tun")]
             tun_control: None,
             #[cfg(all(
@@ -215,6 +228,7 @@ impl Instance {
             StatManager::store_task(self.stat_manager.clone(), self.env.cache_file.clone()),
             self.env.users.expiry_task(),
         ];
+        runners.extend(self.ntp.take().map(|ntp| ntp.runner()));
         let inbound_manager = self.inbound_manager.clone();
         let mut inbounds = inbound_manager.lock().unwrap_or_else(|e| e.into_inner());
         inbounds.start_network_listeners()?;

@@ -25,7 +25,7 @@ Windows 无法实现的拨号字段在 Windows 上报错。已知缺口是 `tcp_
 | `$schema` | 1 | 1 | 0 | 0 |
 | `log` | 5 | 5 | 0 | 0 |
 | `dns` | 578 | 367 | 67 | 144 |
-| `ntp` | 35 | 0 | 35 | 0 |
+| `ntp` | 35 | 35 | 0 | 0 |
 | `certificate` | 5 | 5 | 0 | 0 |
 | `certificate_providers` | 212 | 0 | 0 | 212 |
 | `http_clients` | 80 | 30 | 11 | 39 |
@@ -36,7 +36,7 @@ Windows 无法实现的拨号字段在 Windows 上报错。已知缺口是 `tcp_
 | `route` | 268 | 174 | 41 | 53 |
 | `services` | 751 | 1 | 166 | 584 |
 | `experimental` | 34 | 16 | 17 | 1 |
-| **全部** | **5003** | **1927** | **575** | **2501** |
+| **全部** | **5003** | **1962** | **540** | **2501** |
 
 ## `$schema`
 
@@ -672,7 +672,41 @@ Windows 无法实现的拨号字段在 Windows 上报错。已知缺口是 `tcp_
 
 | 字段 | 处理 | 说明 |
 |---|---|---|
-| `ntp` | 警告 | sail keeps the system's clock (含其下 34 个字段) |
+| `ntp` | 支持 |  |
+| `enabled` | 支持 |  |
+| `interval` | 支持 |  |
+| `write_to_system` | 支持 |  |
+| `server` | 支持 |  |
+| `server_port` | 支持 |  |
+| `detour` | 支持 |  |
+| `bind_interface` | 支持 |  |
+| `inet4_bind_address` | 支持 |  |
+| `inet6_bind_address` | 支持 |  |
+| `bind_address_no_port` | 支持 |  |
+| `protect_path` | 支持 |  |
+| `routing_mark` | 支持 |  |
+| `reuse_addr` | 支持 |  |
+| `netns` | 支持 |  |
+| `connect_timeout` | 支持 |  |
+| `tcp_fast_open` | 支持 |  |
+| `tcp_multi_path` | 支持 |  |
+| `disable_tcp_keep_alive` | 支持 |  |
+| `tcp_keep_alive` | 支持 |  |
+| `tcp_keep_alive_interval` | 支持 |  |
+| `udp_fragment` | 支持 |  |
+| `domain_resolver` | 支持 |  |
+| `domain_resolver.server` | 支持 |  |
+| `domain_resolver.timeout` | 支持 |  |
+| `domain_resolver.strategy` | 支持 |  |
+| `domain_resolver.disable_cache` | 支持 |  |
+| `domain_resolver.disable_optimistic_cache` | 支持 |  |
+| `domain_resolver.rewrite_ttl` | 支持 |  |
+| `domain_resolver.client_subnet` | 支持 |  |
+| `network_strategy` | 支持 |  |
+| `network_type` | 支持 |  |
+| `fallback_network_type` | 支持 |  |
+| `fallback_delay` | 支持 |  |
+| `domain_strategy` (已弃用) | 支持 |  |
 
 ## `certificate`
 

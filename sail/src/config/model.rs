@@ -162,6 +162,10 @@ pub struct Config {
     pub clash_api: Option<ClashApi>,
     #[serde(default, skip_serializing_if = "Experimental::is_default")]
     pub experimental: Experimental,
+    /// The time the protocols that check it go by, measured against an
+    /// NTP server; the system's clock is never set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ntp: Option<Ntp>,
     /// The root certificates servers are checked against; the system's
     /// when unset.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -208,6 +212,34 @@ const HTTP_CLIENT_DIAL: &[&str] = &[
     "fallback_network_type",
     "fallback_delay",
 ];
+
+/// sing-box's `ntp`: the offset of the system's clock from an NTP
+/// server's, measured every `interval`, which the instance's protocols
+/// correct the time they check by (vmess, Shadowsocks 2022, REALITY). Not
+/// TLS certificates' validity yet, nor WireGuard's handshakes, which want
+/// a time that only goes on, not an exact one. Read as the instance
+/// starts: a reload keeps the service it started with.
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct Ntp {
+    #[serde(default)]
+    pub enabled: bool,
+    /// The server's name or address.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server: Option<String>,
+    /// 123 when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server_port: Option<u16>,
+    /// How often the offset is measured again; 30m when unset.
+    #[serde(default, with = "duration", skip_serializing_if = "Option::is_none")]
+    pub interval: Option<std::time::Duration>,
+    /// Setting the system's clock, which sail never does: an error.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub write_to_system: bool,
+    /// How it connects, `detour` among them.
+    #[serde(flatten)]
+    pub dial: crate::net::dial::DialFields,
+}
 
 /// An HTTP client: the outbound it fetches through, or, with none, the
 /// dial fields it connects with itself.

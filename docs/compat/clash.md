@@ -52,7 +52,7 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 | `listeners[tunnel]` | 8 | 0 | 0 | 8 |
 | `listeners[vless]` | 93 | 0 | 0 | 93 |
 | `listeners[vmess]` | 116 | 0 | 0 | 116 |
-| `ntp` | 7 | 0 | 7 | 0 |
+| `ntp` | 7 | 7 | 0 | 0 |
 | `profile` | 3 | 3 | 0 | 0 |
 | `proxies[anytls]` | 38 | 22 | 4 | 12 |
 | `proxies[direct]` | 7 | 5 | 2 | 0 |
@@ -89,7 +89,7 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 | `tls` | 7 | 0 | 7 | 0 |
 | `tuic-server` | 13 | 0 | 0 | 13 |
 | `tun` | 50 | 34 | 9 | 7 |
-| **All** | **2077** | **497** | **133** | **1447** |
+| **All** | **2077** | **504** | **126** | **1447** |
 
 
 ## `general`
@@ -540,13 +540,13 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 
 | Field | sail | What sail says |
 |---|---|---|
-| `ntp` | Warned | ntp: sail does not implement this field; ignored |
-| `ntp.dialer-proxy` | Warned | ntp: sail does not implement this field; ignored |
-| `ntp.enable` | Warned | ntp: sail does not implement this field; ignored |
-| `ntp.interval` | Warned | ntp: sail does not implement this field; ignored |
-| `ntp.port` | Warned | ntp: sail does not implement this field; ignored |
-| `ntp.server` | Warned | ntp: sail does not implement this field; ignored |
-| `ntp.write-to-system` | Warned | ntp: sail does not implement this field; ignored |
+| `ntp` | Supported |  |
+| `ntp.dialer-proxy` | Supported |  |
+| `ntp.enable` | Supported |  |
+| `ntp.interval` | Supported |  |
+| `ntp.port` | Supported |  |
+| `ntp.server` | Supported |  |
+| `ntp.write-to-system` | Supported |  |
 
 ## `general`
 

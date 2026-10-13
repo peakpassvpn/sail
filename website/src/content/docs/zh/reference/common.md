@@ -24,7 +24,7 @@ Rust 定义：[`Config`](https://github.com/peakpassvpn/sail/blob/master/sail/sr
 | `$schema` | string | — | 支持 | — |
 | `log` | object → [对象](#log) | 各字段取默认值 | 支持 | — |
 | `dns` | object → [对象](/sail/zh/reference/dns/#dns) | 各字段取默认值 | 支持 | — |
-| `ntp` | object → [对象](#ntp) | — | 警告：sail keeps the system's clock | — |
+| `ntp` | object → [对象](#ntp) | 未设置 | 支持 | The time the protocols that check it go by, measured against an NTP server; the system's clock is never set. |
 | `certificate` | object → [对象](#certificate) | 未设置 | 支持 | The root certificates servers are checked against; the system's when unset. |
 | `certificate_providers` | array → [[]](#certificate-providers), [[acme]](#certificate-providers-missing), [[cloudflare-origin-ca]](#certificate-providers-missing), [[tailscale]](#certificate-providers-missing) | — | 报错：Certificates from ACME and other providers: the inbounds would serve none | — |
 | `http_clients` | array → [[]](#http-clients) | `[]` | 支持 | How sail fetches over HTTP, rule-sets for one, by tag. |
@@ -130,49 +130,37 @@ Rust 定义：[`HttpClient`](https://github.com/peakpassvpn/sail/blob/master/sai
 
 ## `ntp`
 
-| 字段 | 类型 | 默认 | 状态 | 说明 |
-| --- | --- | --- | --- | --- |
-| `enabled` | bool | — | 警告：sail keeps the system's clock | — |
-| `interval` | duration | — | 警告：sail keeps the system's clock | — |
-| `write_to_system` | bool | — | 警告：sail keeps the system's clock | — |
-| `server` | string | — | 警告：sail keeps the system's clock | — |
-| `server_port` | number | — | 警告：sail keeps the system's clock | — |
-| `detour` | string | — | 警告：sail keeps the system's clock | — |
-| `bind_interface` | string | — | 警告：sail keeps the system's clock | — |
-| `inet4_bind_address` | string | — | 警告：sail keeps the system's clock | — |
-| `inet6_bind_address` | string | — | 警告：sail keeps the system's clock | — |
-| `bind_address_no_port` | bool | — | 警告：sail keeps the system's clock | — |
-| `protect_path` | string | — | 警告：sail keeps the system's clock | — |
-| `routing_mark` | number\|string | — | 警告：sail keeps the system's clock | — |
-| `reuse_addr` | bool | — | 警告：sail keeps the system's clock | — |
-| `netns` | string | — | 警告：sail keeps the system's clock | — |
-| `connect_timeout` | duration | — | 警告：sail keeps the system's clock | — |
-| `tcp_fast_open` | bool | — | 警告：sail keeps the system's clock | — |
-| `tcp_multi_path` | bool | — | 警告：sail keeps the system's clock | — |
-| `disable_tcp_keep_alive` | bool | — | 警告：sail keeps the system's clock | — |
-| `tcp_keep_alive` | duration | — | 警告：sail keeps the system's clock | — |
-| `tcp_keep_alive_interval` | duration | — | 警告：sail keeps the system's clock | — |
-| `udp_fragment` | bool | — | 警告：sail keeps the system's clock | — |
-| `domain_resolver` | string\|object → [对象](#ntp-domain-resolver) | — | 警告：sail keeps the system's clock | — |
-| `network_strategy` | string, 取值 `default`, `fallback`, `hybrid` | — | 警告：sail keeps the system's clock | — |
-| `network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 警告：sail keeps the system's clock | — |
-| `fallback_network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 警告：sail keeps the system's clock | — |
-| `fallback_delay` | duration | — | 警告：sail keeps the system's clock | — |
-| `domain_strategy` | string | — | 警告：sail keeps the system's clock (sing-box 已弃用) | — |
-
-<a id="ntp-domain-resolver"></a>
-
-### `ntp.domain_resolver`
+Rust 定义：[`Ntp`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs)
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
-| `server` | string | 必填 | 警告：sail keeps the system's clock | — |
-| `timeout` | duration | — | 警告：sail keeps the system's clock | — |
-| `strategy` | string, 取值 `as_is`, `prefer_ipv4`, `prefer_ipv6`, `ipv4_only`, `ipv6_only` | — | 警告：sail keeps the system's clock | — |
-| `disable_cache` | bool | — | 警告：sail keeps the system's clock | — |
-| `disable_optimistic_cache` | bool | — | 警告：sail keeps the system's clock | — |
-| `rewrite_ttl` | number | — | 警告：sail keeps the system's clock | — |
-| `client_subnet` | string | — | 警告：sail keeps the system's clock | — |
+| `enabled` | bool | `false` | 支持 | — |
+| `interval` | duration | 未设置 | 支持 | How often the offset is measured again; 30m when unset. |
+| `write_to_system` | bool | `false` | 支持 | Setting the system's clock, which sail never does: an error. |
+| `server` | string | 未设置 | 支持 | The server's name or address. |
+| `server_port` | number | 未设置 | 支持 | 123 when unset. |
+| `detour` | string | 未设置 | 支持 | The outbound to dial through, in place of a socket of its own. |
+| `bind_interface` | string | 未设置 | 支持 | The interface to send through, by name. Loopback destinations still go over loopback, where sing-box applies the bind to them as well. |
+| `inet4_bind_address` | string | 未设置 | 支持 | The local address for IPv4 destinations, loopback ones aside: as `bind_interface`. |
+| `inet6_bind_address` | string | 未设置 | 支持 | The local address for IPv6 destinations, loopback ones aside: as `bind_interface`. |
+| `bind_address_no_port` | bool | `false` | 支持 | `IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address, so that the port is picked at connect: Linux only. |
+| `protect_path` | string | 未设置 | 支持 | A Unix socket each socket's descriptor is handed to, with `SCM_RIGHTS`, before it binds or connects, for the process there to protect it (from its VPN, say); it answers one byte. Besides what the host protects. Unix only. |
+| `routing_mark` | number\|string | 未设置 | 支持 | `SO_MARK`, Linux only. |
+| `reuse_addr` | bool | `false` | 支持 | `SO_REUSEADDR`, and `SO_REUSEPORT` on Unix, on UDP sockets. |
+| `netns` | string | 未设置 | 支持 | Not implemented yet. |
+| `connect_timeout` | duration | 未设置 | 支持 | How long a TCP connect to one address may take; 5s when unset. |
+| `tcp_fast_open` | bool | `false` | 支持 | TCP Fast Open: the first data written goes with the SYN. Its addresses are then tried one by one, not raced. |
+| `tcp_multi_path` | bool | 未设置 | 支持 | Not implemented yet. |
+| `disable_tcp_keep_alive` | bool | `false` | 支持 | No TCP keepalive at all. |
+| `tcp_keep_alive` | duration | 未设置 | 支持 | How long a TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | 未设置 | 支持 | Between keepalive probes; 75s when unset. |
+| `udp_fragment` | bool | 未设置 | 支持 | Whether UDP datagrams may be fragmented on the way; unset, as the place says, see `udp_fragment_default`. |
+| `domain_resolver` | string\|object → [对象](/sail/zh/reference/shared/#domain-resolver-default-domain-resolver) | 未设置 | 支持 | The DNS server that resolves the names dialled. |
+| `network_strategy` | string, 取值 `default`, `fallback`, `hybrid` | 未设置 | 支持 | Which of the host's interfaces a connection goes out of, and how they race; `default` where only types are given. Only where the host lists its interfaces (`NetworkState::interfaces`). |
+| `network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | `[]` | 支持 | The types of interface the strategy goes out of first. |
+| `fallback_network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | `[]` | 支持 | The types it falls back to, with `fallback`. |
+| `fallback_delay` | duration | 未设置 | 支持 | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs), and the first interfaces before the fallback ones; 300ms when unset. |
+| `domain_strategy` | string | 未设置 | 支持 (sing-box 已弃用) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
 
 <a id="experimental"></a>
 

@@ -15,7 +15,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io;
 use std::sync::Mutex;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, UNIX_EPOCH};
 
 use anyhow::{anyhow, Result};
 use base64::Engine;
@@ -142,7 +142,7 @@ pub fn psk_hash(psk: &[u8]) -> [u8; EIH_LEN] {
 }
 
 pub fn now_secs() -> u64 {
-    SystemTime::now()
+    crate::clock::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or_default()

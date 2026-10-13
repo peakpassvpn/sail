@@ -25,7 +25,7 @@ The dial fields Windows cannot take are refused there. A known gap is `tcp_fast_
 | `$schema` | 1 | 1 | 0 | 0 |
 | `log` | 5 | 5 | 0 | 0 |
 | `dns` | 578 | 367 | 67 | 144 |
-| `ntp` | 35 | 0 | 35 | 0 |
+| `ntp` | 35 | 35 | 0 | 0 |
 | `certificate` | 5 | 5 | 0 | 0 |
 | `certificate_providers` | 212 | 0 | 0 | 212 |
 | `http_clients` | 80 | 30 | 11 | 39 |
@@ -36,7 +36,7 @@ The dial fields Windows cannot take are refused there. A known gap is `tcp_fast_
 | `route` | 268 | 174 | 41 | 53 |
 | `services` | 751 | 1 | 166 | 584 |
 | `experimental` | 34 | 16 | 17 | 1 |
-| **All** | **5003** | **1927** | **575** | **2501** |
+| **All** | **5003** | **1962** | **540** | **2501** |
 
 ## `$schema`
 
@@ -672,7 +672,41 @@ The dial fields Windows cannot take are refused there. A known gap is `tcp_fast_
 
 | Field | Tier | Note |
 |---|---|---|
-| `ntp` | Warned | sail keeps the system's clock (and the 34 fields in it) |
+| `ntp` | Supported |  |
+| `enabled` | Supported |  |
+| `interval` | Supported |  |
+| `write_to_system` | Supported |  |
+| `server` | Supported |  |
+| `server_port` | Supported |  |
+| `detour` | Supported |  |
+| `bind_interface` | Supported |  |
+| `inet4_bind_address` | Supported |  |
+| `inet6_bind_address` | Supported |  |
+| `bind_address_no_port` | Supported |  |
+| `protect_path` | Supported |  |
+| `routing_mark` | Supported |  |
+| `reuse_addr` | Supported |  |
+| `netns` | Supported |  |
+| `connect_timeout` | Supported |  |
+| `tcp_fast_open` | Supported |  |
+| `tcp_multi_path` | Supported |  |
+| `disable_tcp_keep_alive` | Supported |  |
+| `tcp_keep_alive` | Supported |  |
+| `tcp_keep_alive_interval` | Supported |  |
+| `udp_fragment` | Supported |  |
+| `domain_resolver` | Supported |  |
+| `domain_resolver.server` | Supported |  |
+| `domain_resolver.timeout` | Supported |  |
+| `domain_resolver.strategy` | Supported |  |
+| `domain_resolver.disable_cache` | Supported |  |
+| `domain_resolver.disable_optimistic_cache` | Supported |  |
+| `domain_resolver.rewrite_ttl` | Supported |  |
+| `domain_resolver.client_subnet` | Supported |  |
+| `network_strategy` | Supported |  |
+| `network_type` | Supported |  |
+| `fallback_network_type` | Supported |  |
+| `fallback_delay` | Supported |  |
+| `domain_strategy` (deprecated) | Supported |  |
 
 ## `certificate`
 

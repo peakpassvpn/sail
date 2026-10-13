@@ -56,7 +56,7 @@ use std::io;
 use std::pin::Pin;
 use std::sync::{Mutex, OnceLock};
 use std::task::{Context, Poll};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, UNIX_EPOCH};
 
 use aes_gcm::aead::AeadInPlace;
 use aes_gcm::{Aes256Gcm, KeyInit};
@@ -327,7 +327,10 @@ impl Handler {
             return None;
         }
         if let Some(max) = self.max_time_difference {
-            let now = SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_secs();
+            let now = crate::clock::now()
+                .duration_since(UNIX_EPOCH)
+                .ok()?
+                .as_secs();
             if now.abs_diff(time) > max.as_secs() {
                 return None;
             }

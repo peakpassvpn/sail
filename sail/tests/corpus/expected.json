@@ -7,22 +7,22 @@
   "clash/0002.yaml": {
     "check": "ok",
     "ok": true,
-    "warnings": 11
+    "warnings": 10
   },
   "clash/0003.yaml": {
     "check": "ok",
     "ok": true,
-    "warnings": 11
+    "warnings": 10
   },
   "clash/0004.yaml": {
     "check": "ok",
     "ok": true,
-    "warnings": 10
+    "warnings": 9
   },
   "clash/0005.yaml": {
     "check": "ok",
     "ok": true,
-    "warnings": 31
+    "warnings": 30
   },
   "clash/0006.yaml": {
     "error": "proxy-groups[1].proxies: a group of no proxies and no providers"
@@ -207,7 +207,7 @@
         "warnings": 10
       }
     },
-    "warnings": 5
+    "warnings": 4
   },
   "clash/0046.yaml": {
     "check": "ok",
@@ -757,7 +757,7 @@
   "clash/0164.yaml": {
     "check": "route.rule_set[0]: [set-1]: <data_dir>/./path-3.yaml: No such file or directory (os error 2)",
     "ok": true,
-    "warnings": 3
+    "warnings": 4
   },
   "clash/0165.yaml": {
     "check": "ok",
@@ -1220,7 +1220,7 @@
   "sing-box/0063.json": {
     "check": "dns.servers[dns-1]: domain_resolver: the server is an address, with nothing to resolve",
     "ok": true,
-    "warnings": 1
+    "warnings": 0
   },
   "sing-box/0064.json": {
     "error": "dns.rules[2].geoip: sail does not implement this field yet"
@@ -1352,7 +1352,7 @@
     "error": "dns.fakeip: unknown field `fakeip`, expected one of `servers`, `rules`, `final`, `strategy`, `client_strategy`, `disable_cache`, `disable_expire`, `cache_capacity`, `optimistic`, `timeout`, `reverse_mapping`, `client_subnet`"
   },
   "sing-box/0101.json": {
-    "error": "providers: unknown field `providers`, expected one of `log`, `dns`, `inbounds`, `outbounds`, `endpoints`, `route`, `api`, `clash_api`, `experimental`, `certificate`, `http_clients`, `outbound_providers`, `user_limits`"
+    "error": "providers: unknown field `providers`, expected one of `log`, `dns`, `inbounds`, `outbounds`, `endpoints`, `route`, `api`, `clash_api`, `experimental`, `ntp`, `certificate`, `http_clients`, `outbound_providers`, `user_limits`"
   },
   "sing-box/0102.json": {
     "error": "route.rule_set[0]: url: several tags need {tag} in it"
@@ -1414,7 +1414,7 @@
   "sing-box/0117.json": {
     "check": "[Proxy 1] outbound: unknown protocol \"naive\" (not supported, or not compiled into this build)",
     "ok": true,
-    "warnings": 2
+    "warnings": 1
   },
   "sing-box/0118.json": {
     "check": "dns.servers[dns-4]: inet4_range: invalid range \"28.0.0.1/8\": host part of address was not zero",
@@ -1502,7 +1502,7 @@
   "sing-box/0141.json": {
     "check": "[Group 5] outbound: depends on [Proxy 2], which does not exist",
     "ok": true,
-    "warnings": 1
+    "warnings": 0
   },
   "sing-box/0142.json": {
     "error": "dns.fakeip: unknown field `fakeip`, expected one of `servers`, `rules`, `final`, `strategy`, `client_strategy`, `disable_cache`, `disable_expire`, `cache_capacity`, `optimistic`, `timeout`, `reverse_mapping`, `client_subnet`"

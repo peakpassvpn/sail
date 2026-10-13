@@ -10,7 +10,7 @@
 
 use std::collections::HashSet;
 use std::io;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, UNIX_EPOCH};
 
 #[cfg(any(feature = "outbound-vmess", test))]
 use aes::cipher::BlockEncrypt;
@@ -66,7 +66,7 @@ pub fn cmd_key(uuid: &[u8; 16]) -> [u8; 16] {
 }
 
 fn now() -> u64 {
-    SystemTime::now()
+    crate::clock::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0)

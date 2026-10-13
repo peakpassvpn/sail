@@ -103,7 +103,6 @@ const LISTEN: &str = "Where and how an inbound listens: it would take connection
 
 pub const GROUPS: &[Group] = &[
     // Top level.
-    g("sail keeps the system's clock", Ignored, &["ntp"]),
     g(
         "Certificates from ACME and other providers: the inbounds would serve none",
         Unsupported,

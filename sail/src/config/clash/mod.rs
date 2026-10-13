@@ -152,6 +152,8 @@ pub struct Lowered {
     /// The dial fields every outbound that dials takes besides:
     /// `tcp-concurrent`.
     pub outbound_dial: Map<String, Value>,
+    /// `ntp`, enabled.
+    pub ntp: Option<Value>,
     /// `unified-delay`, for the groups that test their members.
     pub unified_delay: bool,
 }
@@ -207,6 +209,9 @@ impl Lowered {
         config.insert("inbounds".into(), Value::Array(self.inbounds));
         config.insert("outbounds".into(), Value::Array(self.outbounds));
         config.insert("route".into(), Value::Object(route));
+        if let Some(ntp) = self.ntp {
+            config.insert("ntp".into(), ntp);
+        }
         if !self.endpoints.is_empty() {
             config.insert("endpoints".into(), Value::Array(self.endpoints));
         }
