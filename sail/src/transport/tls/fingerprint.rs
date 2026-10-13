@@ -468,10 +468,22 @@ impl CertificateCompressor for Zstd {
     where
         W: Write,
     {
-        let decoder = ruzstd::decoding::StreamingDecoder::new(input)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
-        drain(decoder, output)
+        drain(zstd_decoder(input)?, output)
     }
+}
+
+/// The largest window a compressed certificate may ask of the decoder,
+/// which allocates it: what a zstd decoder is to support at least
+/// (RFC 8878, 3.1.1.1.2), and more than a certificate chain needs. The
+/// peer is not trusted, and the decoder's own limit is 128 MiB a
+/// handshake.
+const ZSTD_CERTIFICATE_WINDOW: u64 = 8 << 20;
+
+/// A decoder of the zstd frame `input`, refused if it asks for a window
+/// over `ZSTD_CERTIFICATE_WINDOW`.
+fn zstd_decoder(input: &[u8]) -> io::Result<impl Read + '_> {
+    ruzstd::decoding::StreamingDecoder::new_with_max_window_size(input, ZSTD_CERTIFICATE_WINDOW)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))
 }
 
 /// Brotli certificate decompression, which Chrome and Firefox offer.
@@ -487,5 +499,24 @@ impl CertificateCompressor for Brotli {
         W: Write,
     {
         drain(brotli_decompressor::Decompressor::new(input, 4096), output)
+    }
+}
+
+#[cfg(test)]
+mod zstd_tests {
+    use super::*;
+
+    /// A zstd frame header and no more: the magic number, no flags, and
+    /// a window of 2^(10 + `exponent`) bytes.
+    fn zstd_header(exponent: u8) -> [u8; 6] {
+        [0x28, 0xB5, 0x2F, 0xFD, 0x00, exponent << 3]
+    }
+
+    #[test]
+    fn a_compressed_certificate_may_not_ask_for_a_large_window() {
+        // 8 MiB is taken, 16 MiB refused before anything is decoded.
+        assert!(zstd_decoder(&zstd_header(13)).is_ok());
+        let refused = zstd_decoder(&zstd_header(14)).err().unwrap();
+        assert_eq!(refused.kind(), io::ErrorKind::InvalidData);
     }
 }
