@@ -255,45 +255,64 @@ impl Groups {
     }
 }
 
-/// Domains by how they are compared.
+/// Domains by how they are compared: a few as a list gone through, more
+/// in sets. A rule of one domain, as a profile of thousands of lines has
+/// them, keeps a list of one, not three tables.
+pub(crate) struct DomainIndex(Domains);
+
+enum Domains {
+    /// At most `DomainIndex::FEW`, none twice, allocated to fit.
+    Few(Vec<(Compared, Box<str>)>),
+    Many(Box<DomainSets>),
+}
+
+/// How a domain is compared with one of a rule's.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Compared {
+    /// The same.
+    Full,
+    /// The same, or a subdomain of it.
+    Suffix,
+    /// A subdomain of it: a suffix written with a leading dot, as sing-box
+    /// reads it.
+    Subdomain,
+    /// Containing it.
+    Keyword,
+}
+
 #[derive(Default)]
-pub(crate) struct DomainIndex {
+struct DomainSets {
     full: HashSet<String>,
     /// A domain matches when it is one of these or a subdomain of one.
     suffix: HashSet<String>,
-    /// A domain matches when it is a subdomain of one of these: a suffix
-    /// written with a leading dot, as sing-box reads it.
+    /// A domain matches when it is a subdomain of one of these.
     subdomain: HashSet<String>,
     keyword: Vec<String>,
 }
 
-impl DomainIndex {
-    pub(crate) fn insert(&mut self, kind: DomainKind, value: &str) {
-        let value = value.to_ascii_lowercase();
-        match kind {
-            DomainKind::Full => {
+impl Default for DomainIndex {
+    fn default() -> Self {
+        DomainIndex(Domains::Few(Vec::new()))
+    }
+}
+
+impl DomainSets {
+    fn insert(&mut self, compared: Compared, value: String) {
+        match compared {
+            Compared::Full => {
                 self.full.insert(value);
             }
-            DomainKind::Suffix => match value.strip_prefix('.') {
-                Some(parent) => {
-                    self.subdomain.insert(parent.to_string());
-                }
-                None => {
-                    self.suffix.insert(value);
-                }
-            },
-            DomainKind::Keyword => self.keyword.push(value),
+            Compared::Suffix => {
+                self.suffix.insert(value);
+            }
+            Compared::Subdomain => {
+                self.subdomain.insert(value);
+            }
+            Compared::Keyword => self.keyword.push(value),
         }
     }
 
-    pub(crate) fn is_empty(&self) -> bool {
-        self.full.is_empty()
-            && self.suffix.is_empty()
-            && self.subdomain.is_empty()
-            && self.keyword.is_empty()
-    }
-
-    pub(crate) fn matches(&self, domain: &str) -> bool {
+    fn matches(&self, domain: &str) -> bool {
         if self.full.contains(domain) {
             return true;
         }
@@ -312,6 +331,77 @@ impl DomainIndex {
             }
         }
         self.keyword.iter().any(|k| domain.contains(k.as_str()))
+    }
+}
+
+impl DomainIndex {
+    /// Past this many, sets: a list is gone through for every connection.
+    const FEW: usize = 8;
+
+    pub(crate) fn insert(&mut self, kind: DomainKind, value: &str) {
+        let value = value.to_ascii_lowercase();
+        let (compared, value) = match kind {
+            DomainKind::Full => (Compared::Full, value),
+            DomainKind::Suffix => match value.strip_prefix('.') {
+                Some(parent) => (Compared::Subdomain, parent.to_string()),
+                None => (Compared::Suffix, value),
+            },
+            DomainKind::Keyword => (Compared::Keyword, value),
+        };
+        match &mut self.0 {
+            Domains::Few(few) => {
+                // A keyword twice is kept twice, as the sets keep it.
+                let twice = compared != Compared::Keyword
+                    && few.iter().any(|(c, v)| *c == compared && **v == *value);
+                if twice {
+                    return;
+                }
+                if few.len() < Self::FEW {
+                    few.reserve_exact(1);
+                    few.push((compared, value.into()));
+                } else {
+                    let mut sets = DomainSets::default();
+                    for (compared, value) in few.drain(..) {
+                        sets.insert(compared, value.into());
+                    }
+                    sets.insert(compared, value);
+                    self.0 = Domains::Many(Box::new(sets));
+                }
+            }
+            Domains::Many(sets) => sets.insert(compared, value),
+        }
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// How many domains, suffixes and keywords it has.
+    pub(crate) fn len(&self) -> usize {
+        match &self.0 {
+            Domains::Few(few) => few.len(),
+            Domains::Many(sets) => {
+                sets.full.len() + sets.suffix.len() + sets.subdomain.len() + sets.keyword.len()
+            }
+        }
+    }
+
+    pub(crate) fn matches(&self, domain: &str) -> bool {
+        // Whether `domain` is a subdomain of `of`.
+        let under = |of: &str| {
+            domain
+                .strip_suffix(of)
+                .is_some_and(|rest| rest.ends_with('.'))
+        };
+        match &self.0 {
+            Domains::Few(few) => few.iter().any(|(compared, value)| match compared {
+                Compared::Full => domain == &**value,
+                Compared::Suffix => domain == &**value || under(value),
+                Compared::Subdomain => under(value),
+                Compared::Keyword => domain.contains(&**value),
+            }),
+            Domains::Many(sets) => sets.matches(domain),
+        }
     }
 }
 
@@ -699,21 +789,25 @@ impl Needs {
     }
 }
 
+/// A logical rule's rules and how they combine.
+pub(crate) struct Logical {
+    /// `and`; `or` otherwise.
+    pub(crate) all: bool,
+    pub(crate) rules: Vec<Condition>,
+    pub(crate) invert: bool,
+    /// Its rules' conditions on addresses never need them resolved.
+    pub(crate) no_resolve: bool,
+    /// A DNS rule's own `match_response`, within a logical one.
+    pub(crate) response: Option<model::ResponseRef>,
+}
+
 /// A rule's conditions, compiled.
 pub(crate) enum Condition {
     /// A default rule: conditions of its own.
     Default(Box<Conditions>),
-    /// A logical rule: others, combined.
-    Logical {
-        /// `and`; `or` otherwise.
-        all: bool,
-        rules: Vec<Condition>,
-        invert: bool,
-        /// Its rules' conditions on addresses never need them resolved.
-        no_resolve: bool,
-        /// A DNS rule's own `match_response`, within a logical one.
-        response: Option<model::ResponseRef>,
-    },
+    /// A logical rule: others, combined. Boxed, as a default rule's are:
+    /// a rule-set of thousands of rules keeps a pointer for each.
+    Logical(Box<Logical>),
 }
 
 impl Condition {
@@ -751,13 +845,13 @@ impl Condition {
                         Self::compile_at(r, &at(path, &format!("rules[{}]", i)), ctx, depth + 1)
                     })
                     .collect::<Result<_>>()?;
-                Ok(Condition::Logical {
+                Ok(Condition::Logical(Box::new(Logical {
                     all,
                     rules,
                     invert: rule.invert,
                     no_resolve: rule.no_resolve,
                     response: rule.match_response.clone(),
-                })
+                })))
             }
         }
     }
@@ -767,13 +861,14 @@ impl Condition {
     pub(crate) fn matches(&self, facts: &Facts, ip_match_source: bool) -> bool {
         match self {
             Condition::Default(conditions) => conditions.matches(facts, ip_match_source),
-            Condition::Logical {
-                all,
-                rules,
-                invert,
-                response,
-                ..
-            } => {
+            Condition::Logical(logical) => {
+                let Logical {
+                    all,
+                    rules,
+                    invert,
+                    response,
+                    ..
+                } = &**logical;
                 // On a response it names, which it matches only inverted
                 // without, as in sing-box.
                 let switched;
@@ -803,12 +898,11 @@ impl Condition {
     pub(crate) fn needs(&self, ip_match_source: bool) -> Needs {
         match self {
             Condition::Default(c) => c.needs(ip_match_source),
-            Condition::Logical {
-                rules, no_resolve, ..
-            } => rules
+            Condition::Logical(l) => l
+                .rules
                 .iter()
                 .fold(Needs::default(), |n, r| n.or(r.needs(ip_match_source)))
-                .resolving(*no_resolve),
+                .resolving(l.no_resolve),
         }
     }
 
@@ -817,7 +911,7 @@ impl Condition {
     pub(crate) fn names_rule_sets(&self) -> bool {
         match self {
             Condition::Default(c) => c.has_rule_sets(),
-            Condition::Logical { rules, .. } => rules.iter().any(Condition::names_rule_sets),
+            Condition::Logical(l) => l.rules.iter().any(Condition::names_rule_sets),
         }
     }
 
@@ -827,7 +921,7 @@ impl Condition {
     pub(crate) fn ip_ranges(&self, out: &mut Vec<(IpAddr, IpAddr)>) {
         match self {
             Condition::Default(c) => out.extend(c.ip_cidr_ranges()),
-            Condition::Logical { rules, .. } => rules.iter().for_each(|r| r.ip_ranges(out)),
+            Condition::Logical(l) => l.rules.iter().for_each(|r| r.ip_ranges(out)),
         }
     }
 
@@ -837,7 +931,8 @@ impl Condition {
     pub(crate) fn domain_count(&self) -> Option<usize> {
         match self {
             Condition::Default(c) => c.domain_count(),
-            Condition::Logical { rules, .. } => rules
+            Condition::Logical(l) => l
+                .rules
                 .iter()
                 .try_fold(0, |n, r| r.domain_count().map(|m| n + m)),
         }
@@ -849,10 +944,10 @@ impl Condition {
     fn narrow_rule_set(&self, facts: &Facts) -> Option<std::sync::Arc<str>> {
         match self {
             Condition::Default(c) => c.narrow_rule_set(facts),
-            Condition::Logical { rules, invert, .. } if !invert => {
-                rules.iter().find_map(|r| r.narrow_rule_set(facts))
+            Condition::Logical(l) if !l.invert => {
+                l.rules.iter().find_map(|r| r.narrow_rule_set(facts))
             }
-            Condition::Logical { .. } => None,
+            Condition::Logical(_) => None,
         }
     }
 
@@ -967,11 +1062,11 @@ enum Item {
     AuthUsers(Box<[String]>),
     Protocols(Box<[SniffedProtocol]>),
     Domains(DomainIndex),
-    Succinct(SuccinctSet),
+    Succinct(Box<SuccinctSet>),
     DomainRegex(Box<[Pattern]>),
-    SourceIpCidr(CidrIndex),
+    SourceIpCidr(Box<CidrIndex>),
     SourceIpIsPrivate,
-    IpCidr(CidrIndex),
+    IpCidr(Box<CidrIndex>),
     Mmdbs(Box<[Mmdb]>),
     Asns(Asns),
     IpIsPrivate,
@@ -1278,17 +1373,17 @@ impl Conditions {
             items.push(Item::Domains(p.domains));
         }
         if let Some(set) = p.succinct {
-            items.push(Item::Succinct(set));
+            items.push(Item::Succinct(Box::new(set)));
         }
         list(p.domain_regex, Item::DomainRegex, &mut items);
         if !p.source_ip_cidr.is_empty() {
-            items.push(Item::SourceIpCidr(p.source_ip_cidr));
+            items.push(Item::SourceIpCidr(Box::new(p.source_ip_cidr)));
         }
         if p.source_ip_is_private {
             items.push(Item::SourceIpIsPrivate);
         }
         if !p.ip_cidr.is_empty() {
-            items.push(Item::IpCidr(p.ip_cidr));
+            items.push(Item::IpCidr(Box::new(p.ip_cidr)));
         }
         list(p.mmdbs, Item::Mmdbs, &mut items);
         if let Some(asns) = p.asns {
@@ -1360,9 +1455,7 @@ impl Conditions {
         let mut count = 0;
         for item in self.items.iter() {
             match item {
-                Item::Domains(d) => {
-                    count += d.full.len() + d.suffix.len() + d.subdomain.len() + d.keyword.len()
-                }
+                Item::Domains(d) => count += d.len(),
                 Item::Succinct(s) => count += s.len(),
                 Item::DomainRegex(r) => count += r.len(),
                 Item::SourceIpCidr(_) | Item::SourceIpIsPrivate => return None,
@@ -2644,11 +2737,78 @@ pub(crate) mod tests {
 
     /// A default rule keeps only the conditions it has: an inline rule of
     /// one condition, as Clash and Surge conversions write thousands of,
-    /// keeps at most 352 bytes of them (its Conditions and one item, before
-    /// what the item's sets hold), where it kept 1,288.
+    /// keeps at most 112 bytes of them (its Conditions and one item, before
+    /// what the item holds), where it kept 240, and 1,288 before that; and
+    /// a pointer in the rule that has them.
     #[test]
     fn a_rule_keeps_only_the_conditions_it_has() {
         let one = std::mem::size_of::<Conditions>() + std::mem::size_of::<Item>();
-        assert!(one <= 352, "{} bytes", one);
+        println!(
+            "SIZE Conditions {} Item {} DomainIndex {} CidrIndex {} Condition {}",
+            std::mem::size_of::<Conditions>(),
+            std::mem::size_of::<Item>(),
+            std::mem::size_of::<DomainIndex>(),
+            std::mem::size_of::<CidrIndex>(),
+            std::mem::size_of::<Condition>()
+        );
+        assert!(one <= 112, "{} bytes", one);
+        assert_eq!(std::mem::size_of::<Condition>(), 16);
+    }
+
+    /// A few domains are a list gone through, more are sets: either way
+    /// the same domains match, and as many are counted.
+    #[test]
+    fn a_few_domains_match_as_many_do() {
+        let entries = [
+            (DomainKind::Full, "full.example"),
+            (DomainKind::Suffix, "suffix.example"),
+            (DomainKind::Suffix, ".sub.example"),
+            (DomainKind::Keyword, "keyw"),
+            (DomainKind::Suffix, "Upper.Example"),
+            // Twice: counted once.
+            (DomainKind::Full, "full.example"),
+        ];
+        let mut few = DomainIndex::default();
+        let mut many = DomainIndex::default();
+        for (kind, value) in entries {
+            few.insert(kind, value);
+            many.insert(kind, value);
+        }
+        // Past `FEW`, with others that match none of the probes.
+        for i in 0..DomainIndex::FEW {
+            many.insert(DomainKind::Full, &format!("filler{}.invalid", i));
+        }
+        assert!(matches!(few.0, Domains::Few(_)) && matches!(many.0, Domains::Many(_)));
+        assert_eq!(few.len(), 5);
+        assert_eq!(many.len(), 5 + DomainIndex::FEW);
+        for probe in [
+            "full.example",
+            "a.full.example",
+            "xfull.example",
+            "suffix.example",
+            "a.suffix.example",
+            "a.b.suffix.example",
+            "xsuffix.example",
+            "sub.example",
+            "a.sub.example",
+            "xsub.example",
+            "upper.example",
+            "a.upper.example",
+            "has-keyw-in.it",
+            "keyw",
+            "example",
+            "",
+            ".",
+            "suffix.example.",
+        ] {
+            assert_eq!(few.matches(probe), many.matches(probe), "{:?}", probe);
+        }
+        assert!(few.matches("a.suffix.example") && !few.matches("sub.example"));
+        assert!(few.matches("a.sub.example") && few.matches("has-keyw-in.it"));
+        assert!(!few.matches("a.full.example") && !few.matches("xsuffix.example"));
+        // A list of one is allocated for one.
+        let mut one = DomainIndex::default();
+        one.insert(DomainKind::Suffix, "a.example");
+        assert!(matches!(&one.0, Domains::Few(few) if few.capacity() == 1));
     }
 }

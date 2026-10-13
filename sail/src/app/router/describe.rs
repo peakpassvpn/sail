@@ -71,17 +71,71 @@ pub(crate) struct About {
     pub matched: Arc<str>,
     /// Mihomo's type of it: `DomainSuffix`, `IPCIDR`, `RuleSet`, `AND`,
     /// `Match`; a condition Mihomo has no type for goes by sing-box's
-    /// field name.
-    pub clash_type: String,
+    /// field name. Mihomo's own are not kept a copy a rule.
+    pub clash_type: std::borrow::Cow<'static, str>,
     /// Mihomo's payload of it: `a.com,b.com`, `((DomainSuffix,a.com) &&
     /// (Network,udp))`.
-    pub clash_payload: String,
-    /// Mihomo's proxy of it: the outbound it routes to, `REJECT` or
-    /// `REJECT-DROP`, or else its action (`sniff`).
-    pub clash_proxy: String,
+    pub clash_payload: Box<str>,
+    /// Mihomo's proxy of it.
+    pub clash_proxy: Proxy,
     /// The rule-sets it names, whose rules Mihomo counts as its `size`.
-    pub rule_sets: Vec<String>,
+    pub rule_sets: Box<[String]>,
 }
+
+/// Mihomo's proxy of a rule: the outbound it routes to, `REJECT` or
+/// `REJECT-DROP`, or else its action (`sniff`). The outbound is the
+/// rule's own, not kept again here.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(not(feature = "clash-api"), allow(dead_code))]
+pub(crate) enum Proxy {
+    Outbound,
+    Reject,
+    RejectDrop,
+    Action(Box<str>),
+}
+
+impl Proxy {
+    /// As Mihomo lists it, of a rule that routes to `outbound`.
+    #[cfg_attr(not(feature = "clash-api"), allow(dead_code))]
+    pub(crate) fn told<'a>(&'a self, outbound: Option<&'a str>) -> &'a str {
+        match self {
+            Proxy::Outbound => outbound.unwrap_or_default(),
+            Proxy::Reject => "REJECT",
+            Proxy::RejectDrop => "REJECT-DROP",
+            Proxy::Action(action) => action,
+        }
+    }
+}
+
+/// Mihomo's types, and what sail lists as one: a rule's is one of these,
+/// or a field's name.
+const TYPES: &[&str] = &[
+    "Domain",
+    "DomainSuffix",
+    "DomainKeyword",
+    "DomainRegex",
+    "GeoSite",
+    "GeoIP",
+    "SrcGeoIP",
+    "IPCIDR",
+    "SrcIPCIDR",
+    "IPASN",
+    "DstPort",
+    "SrcPort",
+    "InName",
+    "InUser",
+    "ProcessName",
+    "ProcessPath",
+    "ProcessNameRegex",
+    "ProcessPathRegex",
+    "RuleSet",
+    "Network",
+    "Uid",
+    "AND",
+    "OR",
+    "NOT",
+    "Match",
+];
 
 impl About {
     pub(crate) fn of(rule: &model::Rule) -> Self {
@@ -93,11 +147,15 @@ impl About {
             matched.push('…');
         }
         let (clash_type, clash_payload) = mihomo(rule);
+        let clash_type = match TYPES.iter().find(|known| **known == clash_type) {
+            Some(known) => std::borrow::Cow::Borrowed(*known),
+            None => std::borrow::Cow::Owned(clash_type),
+        };
         About {
             clash_proxy: clash_proxy(rule, &action),
             matched: matched.into(),
             clash_type,
-            clash_payload,
+            clash_payload: clash_payload.into(),
             rule_sets: rule.rule_set.iter().cloned().collect(),
         }
     }
@@ -207,14 +265,14 @@ fn payload_of(field: &str, value: &Value) -> String {
 
 /// Mihomo's proxy of a rule: the outbound it routes to, `REJECT` or
 /// `REJECT-DROP`, or else `action`, as sail tells it.
-fn clash_proxy(rule: &model::Rule, action: &str) -> String {
+fn clash_proxy(rule: &model::Rule, action: &str) -> Proxy {
     match (rule.action(), &rule.outbound) {
-        (model::RuleAction::Route | model::RuleAction::Bypass, Some(outbound)) => outbound.clone(),
+        (model::RuleAction::Route | model::RuleAction::Bypass, Some(_)) => Proxy::Outbound,
         (model::RuleAction::Reject, _) => match rule.method {
-            Some(model::RejectMethod::Drop) => "REJECT-DROP".into(),
-            _ => "REJECT".into(),
+            Some(model::RejectMethod::Drop) => Proxy::RejectDrop,
+            _ => Proxy::Reject,
         },
-        _ => action.to_string(),
+        _ => Proxy::Action(action.into()),
     }
 }
 
@@ -341,8 +399,13 @@ mod tests {
     #[test]
     fn a_rule_is_listed_as_mihomo_lists_it() {
         let listed = |json: &str| {
-            let about = About::of(&rule(json));
-            (about.clash_type, about.clash_payload, about.clash_proxy)
+            let rule = rule(json);
+            let about = About::of(&rule);
+            (
+                about.clash_type.to_string(),
+                about.clash_payload.to_string(),
+                about.clash_proxy.told(rule.outbound.as_deref()).to_string(),
+            )
         };
         let row = |t: &str, p: &str, x: &str| (t.to_string(), p.to_string(), x.to_string());
         assert_eq!(
@@ -394,8 +457,18 @@ mod tests {
             row("clash_mode", "Global", "proxy")
         );
         assert_eq!(
-            About::of(&rule(r#"{ "rule_set": ["a", "b"], "outbound": "x" }"#)).rule_sets,
+            *About::of(&rule(r#"{ "rule_set": ["a", "b"], "outbound": "x" }"#)).rule_sets,
             ["a", "b"]
         );
+        // Mihomo's own types are not a copy a rule; a field's name is.
+        let kind = |json: &str| About::of(&rule(json)).clash_type;
+        assert!(matches!(
+            kind(r#"{ "domain": "a.com", "outbound": "x" }"#),
+            std::borrow::Cow::Borrowed("Domain")
+        ));
+        assert!(matches!(
+            kind(r#"{ "clash_mode": "Global", "outbound": "x" }"#),
+            std::borrow::Cow::Owned(_)
+        ));
     }
 }

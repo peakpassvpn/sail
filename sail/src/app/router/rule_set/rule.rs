@@ -7,7 +7,9 @@ use std::net::IpAddr;
 use anyhow::{anyhow, Result};
 
 use super::SuccinctSet;
-use crate::app::router::matcher::{query_type, Condition, Conditions, Context, Extras, MAX_DEPTH};
+use crate::app::router::matcher::{
+    query_type, Condition, Conditions, Context, Extras, Logical, MAX_DEPTH,
+};
 use crate::config::model;
 use crate::config::rule_set::HeadlessRule;
 use crate::runtime::RuntimeEnv;
@@ -76,13 +78,13 @@ fn compile(rule: &HeadlessRule, path: &str, depth: usize, env: &RuntimeEnv) -> R
                 .enumerate()
                 .map(|(i, r)| compile(r, &format!("{}.rules[{}]", path, i), depth + 1, env))
                 .collect::<Result<_>>()?;
-            Ok(Condition::Logical {
+            Ok(Condition::Logical(Box::new(Logical {
                 all,
                 rules,
                 invert: rule.invert,
                 no_resolve: rule.no_resolve,
                 response: None,
-            })
+            })))
         }
         Some(other) => Err(anyhow!("{}.type: unknown rule type \"{}\"", path, other)),
     }

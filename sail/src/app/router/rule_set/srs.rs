@@ -10,7 +10,7 @@ use super::reader::Reader;
 use super::rule::Parts;
 use super::succinct::Succinct;
 use super::SuccinctSet;
-use crate::app::router::matcher::Condition;
+use crate::app::router::matcher::{Condition, Logical};
 use crate::config::rule_set::MAX_VERSION;
 use crate::runtime::RuntimeEnv;
 
@@ -115,13 +115,13 @@ fn read_rule(reader: &mut Reader, path: &str, depth: usize, env: &RuntimeEnv) ->
                 .map(|i| read_rule(reader, &format!("{}.rules[{}]", path, i), depth + 1, env))
                 .collect::<Result<_>>()?;
             let invert = reader.bool()?;
-            Ok(Condition::Logical {
+            Ok(Condition::Logical(Box::new(Logical {
                 all,
                 rules,
                 invert,
                 no_resolve: false,
                 response: None,
-            })
+            })))
         }
         kind => Err(anyhow!("{}: unknown rule type {}", path, kind)),
     }

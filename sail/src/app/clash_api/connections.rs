@@ -67,7 +67,10 @@ async fn snapshot(rm: &RuntimeManager) -> Value {
         .map(|about| {
             (
                 about.matched.to_string(),
-                (about.clash_type.clone(), about.clash_payload.clone()),
+                (
+                    about.clash_type.to_string(),
+                    about.clash_payload.to_string(),
+                ),
             )
         })
         .collect();
@@ -201,7 +204,7 @@ pub(super) async fn rules(State(clash): State<Arc<Clash>>) -> Json<Value> {
     let rules: Vec<Value> = router
         .rules_with_stats()
         .enumerate()
-        .map(|(index, (about, stats))| {
+        .map(|(index, (about, proxy, stats))| {
             let size = if about.clash_type == "RuleSet" {
                 about
                     .rule_sets
@@ -215,7 +218,7 @@ pub(super) async fn rules(State(clash): State<Arc<Clash>>) -> Json<Value> {
                 "index": index,
                 "type": about.clash_type,
                 "payload": about.clash_payload,
-                "proxy": about.clash_proxy,
+                "proxy": proxy,
                 "size": size,
                 // Mihomo's, but for the misses, which sail does not count.
                 "extra": {

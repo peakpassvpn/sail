@@ -222,7 +222,10 @@ impl Sniffer for NoSniffer {
 
 /// The route options of a `route` or `route-options` rule.
 #[derive(Default)]
-struct Options {
+struct Options(Option<Box<OptionsSet>>);
+
+/// The route options a rule sets, when it sets any.
+struct OptionsSet {
     override_address: Option<SocksAddr>,
     override_port: Option<u16>,
     udp_disable_domain_unmapping: bool,
@@ -268,7 +271,7 @@ impl Options {
         } else {
             None
         };
-        Ok(Options {
+        let set = OptionsSet {
             override_address,
             override_port: rule.override_port,
             udp_disable_domain_unmapping: rule.udp_disable_domain_unmapping,
@@ -279,12 +282,38 @@ impl Options {
             // Zero is unset, as in sing-box (route/route.go:646).
             fallback_delay: rule.fallback_delay.filter(|d| !d.is_zero()),
             override_destination: rule.override_destination(),
-        })
+        };
+        // Most rules set none: those keep nothing.
+        let none = set.override_address.is_none()
+            && set.override_port.is_none()
+            && !set.udp_disable_domain_unmapping
+            && !set.udp_connect
+            && set.udp_timeout.is_none()
+            && set.tls_fragment.is_none()
+            && set.network_strategy.is_none()
+            && set.fallback_delay.is_none()
+            && set.override_destination.is_none();
+        Ok(Options((!none).then(|| Box::new(set))))
     }
 
     /// Sets the options in `sess`, as sing-box's `matchRule` does: an
     /// override changes the destination the next rules match, and those
     /// rules can set other options still.
+    fn apply(&self, sess: &mut Session) {
+        if let Some(set) = &self.0 {
+            set.apply(sess);
+        }
+    }
+
+    /// Whether it sets another address to go to.
+    fn overrides_address(&self) -> bool {
+        self.0
+            .as_ref()
+            .is_some_and(|set| set.override_address.is_some())
+    }
+}
+
+impl OptionsSet {
     fn apply(&self, sess: &mut Session) {
         if self.override_address.is_some() || self.override_port.is_some() {
             if sess.route.original_destination.is_none() {
@@ -380,14 +409,16 @@ enum Action {
     /// there is one, and is skipped when there is not.
     Bypass(Option<(String, Options)>),
     RouteOptions(Options),
-    Reject(Reject),
+    // Boxed, the few rules that have them: every rule is as large as the
+    // largest action.
+    Reject(Box<Reject>),
     HijackDns,
-    Sniff(SniffAction),
-    Resolve(Resolve),
+    Sniff(Box<SniffAction>),
+    Resolve(Box<Resolve>),
     /// `on_demand` sniff: taken when a later rule needs it.
-    ArmSniff(SniffAction),
+    ArmSniff(Box<SniffAction>),
     /// `on_demand` resolve, likewise.
-    ArmResolve(Resolve),
+    ArmResolve(Box<Resolve>),
     /// sing-box 1.14.1's `direct`, which does nothing.
     Direct,
 }
@@ -591,18 +622,18 @@ impl Rule {
                         path
                     ));
                 }
-                Action::Reject(Reject {
+                Action::Reject(Box::new(Reject {
                     method,
                     no_drop: rule.no_drop,
                     recent: Default::default(),
-                })
+                }))
             }
             RuleAction::HijackDns => Action::HijackDns,
             RuleAction::Direct => {
                 check_direct(rule, path, dial)?;
                 Action::Direct
             }
-            RuleAction::Resolve => Action::Resolve(Resolve {
+            RuleAction::Resolve => Action::Resolve(Box::new(Resolve {
                 server: rule.server.clone(),
                 strategy: rule.strategy,
                 timeout: rule.timeout,
@@ -613,7 +644,7 @@ impl Rule {
                     rewrite_ttl: rule.rewrite_ttl,
                     client_subnet: rule.client_subnet,
                 },
-            }),
+            })),
             RuleAction::Sniff => {
                 if !cfg!(feature = "btls") && rule.sniffer.contains(&model::Sniffer::Quic) {
                     return Err(anyhow!(
@@ -622,7 +653,7 @@ impl Rule {
                     ));
                 }
                 let protocols = crate::sniff::Protocols::of(&rule.sniffer);
-                Action::Sniff(SniffAction {
+                Action::Sniff(Box::new(SniffAction {
                     protocols,
                     timeout: rule.timeout.unwrap_or(Duration::from_millis(300)),
                     override_destination: rule.override_destination(),
@@ -637,7 +668,7 @@ impl Rule {
                             })
                             .collect::<Result<_>>()?,
                     ),
-                })
+                }))
             }
         };
         let action = match action {
@@ -870,10 +901,12 @@ impl Router {
         self.rules.iter().map(|rule| &rule.about)
     }
 
-    /// The rules, told, in order, with what the Clash API sets and reads
-    /// of them.
+    /// The rules, told, in order, each with its proxy as Mihomo lists it
+    /// and what the Clash API sets and reads of it.
     #[cfg(feature = "clash-api")]
-    pub(crate) fn rules_with_stats(&self) -> impl Iterator<Item = (&describe::About, RuleStats)> {
+    pub(crate) fn rules_with_stats(
+        &self,
+    ) -> impl Iterator<Item = (&describe::About, &str, RuleStats)> {
         use std::sync::atomic::Ordering::Relaxed;
         self.rules.iter().map(|rule| {
             let stats = RuleStats {
@@ -881,7 +914,11 @@ impl Router {
                 hits: rule.state.hits.load(Relaxed),
                 hit_at: rule.state.hit_at.load(Relaxed),
             };
-            (&rule.about, stats)
+            let outbound = match &rule.action {
+                Action::Route(tag, _) | Action::Bypass(Some((tag, _))) => Some(tag.as_str()),
+                _ => None,
+            };
+            (&rule.about, rule.about.clash_proxy.told(outbound), stats)
         })
     }
 
@@ -1124,7 +1161,7 @@ impl Router {
                 Action::Bypass(None) => {}
                 Action::RouteOptions(options) => {
                     debug!("rule {} sets route options", i);
-                    if options.override_address.is_some() {
+                    if options.overrides_address() {
                         resolved.clear();
                         resolve_taken = false;
                     }
@@ -1913,9 +1950,77 @@ mod tests {
         );
         let stats: Vec<(bool, u64, bool)> = router
             .rules_with_stats()
-            .map(|(_, s)| (s.disabled, s.hits, s.hit_at > 0))
+            .map(|(_, _, s)| (s.disabled, s.hits, s.hit_at > 0))
             .collect();
         assert_eq!(stats, [(false, 1, true), (false, 1, true)]);
+    }
+
+    /// What every rule keeps, whatever it has: a profile of thousands of
+    /// one-condition rules keeps this much a rule, before its condition.
+    /// It was 344 bytes, with the route options of the few rules that set
+    /// any, and the reject, sniff and resolve actions' own, in each.
+    #[test]
+    fn a_rule_is_no_larger_than_the_common_one_needs() {
+        use std::mem::size_of;
+        println!(
+            "SIZE Rule {} Action {} About {} Matcher {} Options {}",
+            size_of::<Rule>(),
+            size_of::<Action>(),
+            size_of::<describe::About>(),
+            size_of::<Matcher>(),
+            size_of::<Options>()
+        );
+        assert!(size_of::<Action>() <= 40, "{}", size_of::<Action>());
+        assert!(size_of::<Rule>() <= 200, "{}", size_of::<Rule>());
+    }
+
+    /// A rule that sets no route option keeps none, and one that does has
+    /// them applied as before.
+    #[test]
+    fn route_options_are_kept_only_when_set() {
+        let rule =
+            |json: serde_json::Value| -> model::Rule { serde_json::from_value(json).unwrap() };
+        let none = Options::new(&rule(serde_json::json!({ "outbound": "a" })), "r").unwrap();
+        assert!(none.0.is_none() && !none.overrides_address());
+        let some = Options::new(
+            &rule(serde_json::json!({ "outbound": "a", "override_port": 53, "udp_connect": true })),
+            "r",
+        )
+        .unwrap();
+        assert!(some.0.is_some() && !some.overrides_address());
+        let mut sess = Session {
+            destination: SocksAddr::Domain("a.example".into(), 443),
+            ..Default::default()
+        };
+        none.apply(&mut sess);
+        assert_eq!(sess.destination.port(), 443);
+        some.apply(&mut sess);
+        assert_eq!(sess.destination.port(), 53);
+        assert!(sess.route.udp_connect);
+        let address = Options::new(
+            &rule(serde_json::json!({ "outbound": "a", "override_address": "b.example" })),
+            "r",
+        )
+        .unwrap();
+        assert!(address.overrides_address());
+    }
+
+    /// The Clash API lists a rule's proxy as Mihomo does: the outbound it
+    /// routes to, which the rule itself has, or what it does.
+    #[cfg(feature = "clash-api")]
+    #[tokio::test]
+    async fn a_rule_s_proxy_is_listed_from_what_it_does() {
+        let router = router(serde_json::json!([
+            { "port": [80], "outbound": "a" },
+            { "port": [81], "action": "reject" },
+            { "port": [82], "action": "reject", "method": "drop" },
+            { "action": "sniff" },
+        ]));
+        let proxies: Vec<&str> = router
+            .rules_with_stats()
+            .map(|(_, proxy, _)| proxy)
+            .collect();
+        assert_eq!(proxies, ["a", "REJECT", "REJECT-DROP", "sniff"]);
     }
 
     /// A rule's index is its place in `route.rules` as written: a logical
