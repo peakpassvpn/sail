@@ -154,6 +154,9 @@ pub struct Lowered {
     pub outbound_dial: Map<String, Value>,
     /// `ntp`, enabled.
     pub ntp: Option<Value>,
+    /// The listen fields every inbound that listens takes besides:
+    /// `inbound-tfo`.
+    pub inbound_listen: Map<String, Value>,
     /// `unified-delay`, for the groups that test their members.
     pub unified_delay: bool,
 }
@@ -164,7 +167,10 @@ impl Lowered {
     /// its own. A provider's proxies, read as it runs, keep sail's
     /// default, which `warnings` tells.
     fn apply_keep_alive(&mut self, warnings: &mut Vec<String>) {
-        if self.keep_alive.is_empty() && self.outbound_dial.is_empty() {
+        if self.keep_alive.is_empty()
+            && self.outbound_dial.is_empty()
+            && self.inbound_listen.is_empty()
+        {
             return;
         }
         let dials = |o: &Value| o.get("server").is_some() || o["type"] == "direct";
@@ -182,6 +188,7 @@ impl Lowered {
         }
         for inbound in self.inbounds.iter_mut().filter(|i| listens(i)) {
             set(inbound, &self.keep_alive);
+            set(inbound, &self.inbound_listen);
         }
         if !self.outbound_providers.is_empty() {
             warnings.push(

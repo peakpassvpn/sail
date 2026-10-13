@@ -33,6 +33,94 @@ pub fn supports_tcp_fast_open() -> Result<(), &'static str> {
     }
 }
 
+/// Whether a listener can take TCP Fast Open here (see `listen_fast_open`).
+#[cfg_attr(not(feature = "config-clash"), allow(dead_code))]
+pub const SUPPORTS_LISTEN_FAST_OPEN: bool = cfg!(any(
+    target_os = "linux",
+    target_os = "android",
+    target_os = "macos",
+    target_os = "ios",
+    windows
+));
+
+/// TCP Fast Open on a listening socket: data a SYN carries, from a client
+/// that has the server's cookie, is taken before the handshake ends, for
+/// up to `queue` connections at once. Linux's and Darwin's `TCP_FASTOPEN`,
+/// as Windows' (which takes on and off alone). Linux and Windows take it
+/// before `listen`, Darwin only once listening (`listens_first`).
+pub fn listen_fast_open(socket: &SockRef<'_>, queue: i32) -> io::Result<()> {
+    let named = |e: io::Error| io::Error::new(e.kind(), format!("TCP_FASTOPEN: {}", e));
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    return {
+        server_fast_open_enabled();
+        set_int(socket, libc::IPPROTO_TCP, libc::TCP_FASTOPEN, queue).map_err(named)
+    };
+    // Darwin takes on and off; the queue is the system's.
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    return {
+        let _ = queue;
+        set_int(socket, libc::IPPROTO_TCP, libc::TCP_FASTOPEN, 1).map_err(named)
+    };
+    #[cfg(windows)]
+    return {
+        use std::os::windows::io::AsRawSocket;
+        use windows_sys::Win32::Networking::WinSock;
+        let _ = queue;
+        let value: u32 = 1;
+        let ret = unsafe {
+            WinSock::setsockopt(
+                socket.as_raw_socket() as WinSock::SOCKET,
+                WinSock::IPPROTO_TCP,
+                WinSock::TCP_FASTOPEN,
+                &value as *const u32 as *const u8,
+                std::mem::size_of::<u32>() as i32,
+            )
+        };
+        if ret != 0 {
+            return Err(named(io::Error::last_os_error()));
+        }
+        Ok(())
+    };
+    #[cfg(not(any(
+        target_os = "linux",
+        target_os = "android",
+        target_os = "macos",
+        target_os = "ios",
+        windows
+    )))]
+    {
+        let _ = (socket, queue, named);
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "tcp_fast_open: not supported on this platform",
+        ))
+    }
+}
+
+/// Whether `listen_fast_open` is called once the socket listens: Darwin
+/// refuses `TCP_FASTOPEN` on a socket that does not listen yet.
+pub const LISTENS_FIRST: bool = cfg!(any(target_os = "macos", target_os = "ios"));
+
+/// Linux takes the option whatever `net.ipv4.tcp_fastopen` says, but takes
+/// SYN data on a listener only with its server bit (2): said once if it is
+/// off, as the default (1, the client's alone) has it.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn server_fast_open_enabled() {
+    static TOLD: std::sync::Once = std::sync::Once::new();
+    let enabled = std::fs::read_to_string("/proc/sys/net/ipv4/tcp_fastopen")
+        .ok()
+        .and_then(|v| v.trim().parse::<u32>().ok());
+    if let Some(value) = enabled.filter(|v| v & 2 == 0) {
+        TOLD.call_once(|| {
+            tracing::warn!(
+                "tcp_fast_open: net.ipv4.tcp_fastopen is {}, without the server bit (2): \
+                 listeners take no data with a SYN until it is set (3 for both)",
+                value
+            )
+        });
+    }
+}
+
 /// Sets an integer socket option.
 #[cfg(unix)]
 fn set_int(
@@ -429,6 +517,53 @@ mod tests {
         assert_eq!(&got, b"back");
         // Keepalive applies to it as to any.
         assert!(SockRef::from(&dialled).keepalive().unwrap());
+    }
+
+    /// A listener with Fast Open has the option set, on Linux for as many
+    /// connections in their Fast Open handshake as wait to be accepted,
+    /// and what a Fast Open connection writes first reaches it. Whether
+    /// the data came with the SYN is the system's (`tcp_fastopen`'s server
+    /// bit on Linux): the test shows the option set, not that.
+    #[tokio::test]
+    async fn a_fast_open_listener_has_the_option_and_takes_connections() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener =
+            crate::net::TcpListener::bind_with(&"127.0.0.1:0".parse().unwrap(), true).unwrap();
+        {
+            let socket = SockRef::from(listener.io());
+            #[cfg(target_os = "linux")]
+            assert_eq!(
+                get_int(&socket, libc::IPPROTO_TCP, libc::TCP_FASTOPEN).unwrap(),
+                crate::net::backlog::max_listener_backlog()
+            );
+            #[cfg(target_os = "macos")]
+            assert_ne!(
+                get_int(&socket, libc::IPPROTO_TCP, libc::TCP_FASTOPEN).unwrap(),
+                0
+            );
+            let _ = socket;
+        }
+        let addr = listener.io().local_addr().unwrap();
+        let dialer = dialer(serde_json::json!({ "tcp_fast_open": true }));
+        let mut dialled = dialer.tcp_to(addr).await.unwrap();
+        dialled.write_all(b"hello").await.unwrap();
+        let (mut accepted, _) = listener.io().accept().await.unwrap();
+        let mut got = [0; 5];
+        accepted.read_exact(&mut got).await.unwrap();
+        assert_eq!(&got, b"hello");
+        // Without it, none.
+        let plain = crate::net::TcpListener::bind_now(&"127.0.0.1:0".parse().unwrap()).unwrap();
+        #[cfg(target_os = "linux")]
+        assert_eq!(
+            get_int(
+                &SockRef::from(plain.io()),
+                libc::IPPROTO_TCP,
+                libc::TCP_FASTOPEN
+            )
+            .unwrap(),
+            0
+        );
+        drop(plain);
     }
 
     /// Where nothing listens, a Fast Open connection fails, if not at

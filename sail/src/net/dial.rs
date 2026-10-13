@@ -14,7 +14,7 @@ mod happy;
 mod networks;
 #[cfg(unix)]
 mod protect;
-mod sockopt;
+pub(crate) mod sockopt;
 mod spec;
 
 pub use detour::Outbounds;

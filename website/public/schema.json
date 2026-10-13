@@ -6671,8 +6671,7 @@
     },
     "tcp_fast_open": {
      "type": "boolean",
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: Socket tuning: connections go the same way without it"
+     "description": "TCP Fast Open on the TCP port it listens on: what a client that has the server's cookie sends with its SYN is taken at once. On Linux, only with the server bit of `net.ipv4.tcp_fastopen` (2; 3 for client and server), which the default (1) leaves off."
     },
     "tcp_multi_path": {
      "type": "boolean",
@@ -7175,8 +7174,7 @@
     },
     "tcp_fast_open": {
      "type": "boolean",
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: Socket tuning: connections go the same way without it"
+     "description": "TCP Fast Open on the TCP port it listens on: what a client that has the server's cookie sends with its SYN is taken at once. On Linux, only with the server bit of `net.ipv4.tcp_fastopen` (2; 3 for client and server), which the default (1) leaves off."
     },
     "tcp_multi_path": {
      "type": "boolean",
@@ -7276,6 +7274,10 @@
     "disable_tcp_keep_alive": {
      "type": "boolean"
     },
+    "tcp_fast_open": {
+     "type": "boolean",
+     "description": "TCP Fast Open on the TCP port it listens on: what a client that has the server's cookie sends with its SYN is taken at once. On Linux, only with the server bit of `net.ipv4.tcp_fastopen` (2; 3 for client and server), which the default (1) leaves off."
+    },
     "path": {
      "type": "string"
     },
@@ -7336,8 +7338,7 @@
     },
     "tcp_fast_open": {
      "type": "boolean",
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: Socket tuning: connections go the same way without it"
+     "description": "TCP Fast Open on the TCP port it listens on: what a client that has the server's cookie sends with its SYN is taken at once. On Linux, only with the server bit of `net.ipv4.tcp_fastopen` (2; 3 for client and server), which the default (1) leaves off."
     },
     "tcp_multi_path": {
      "type": "boolean",
@@ -7885,8 +7886,7 @@
     },
     "tcp_fast_open": {
      "type": "boolean",
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: Socket tuning: connections go the same way without it"
+     "description": "TCP Fast Open on the TCP port it listens on: what a client that has the server's cookie sends with its SYN is taken at once. On Linux, only with the server bit of `net.ipv4.tcp_fastopen` (2; 3 for client and server), which the default (1) leaves off."
     },
     "tcp_multi_path": {
      "type": "boolean",
@@ -8990,8 +8990,7 @@
     },
     "tcp_fast_open": {
      "type": "boolean",
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: Socket tuning: connections go the same way without it"
+     "description": "TCP Fast Open on the TCP port it listens on: what a client that has the server's cookie sends with its SYN is taken at once. On Linux, only with the server bit of `net.ipv4.tcp_fastopen` (2; 3 for client and server), which the default (1) leaves off."
     },
     "tcp_multi_path": {
      "type": "boolean",
@@ -9409,6 +9408,10 @@
     "disable_tcp_keep_alive": {
      "type": "boolean"
     },
+    "tcp_fast_open": {
+     "type": "boolean",
+     "description": "TCP Fast Open on the TCP port it listens on: what a client that has the server's cookie sends with its SYN is taken at once. On Linux, only with the server bit of `net.ipv4.tcp_fastopen` (2; 3 for client and server), which the default (1) leaves off."
+    },
     "type": {
      "const": "mptp"
     }
@@ -9451,6 +9454,10 @@
     },
     "disable_tcp_keep_alive": {
      "type": "boolean"
+    },
+    "tcp_fast_open": {
+     "type": "boolean",
+     "description": "TCP Fast Open on the TCP port it listens on: what a client that has the server's cookie sends with its SYN is taken at once. On Linux, only with the server bit of `net.ipv4.tcp_fastopen` (2; 3 for client and server), which the default (1) leaves off."
     },
     "driver_name": {
      "type": "string"
@@ -9515,8 +9522,7 @@
     },
     "tcp_fast_open": {
      "type": "boolean",
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: Socket tuning: connections go the same way without it"
+     "description": "TCP Fast Open on the TCP port it listens on: what a client that has the server's cookie sends with its SYN is taken at once. On Linux, only with the server bit of `net.ipv4.tcp_fastopen` (2; 3 for client and server), which the default (1) leaves off."
     },
     "tcp_multi_path": {
      "type": "boolean",
@@ -9594,8 +9600,7 @@
     },
     "tcp_fast_open": {
      "type": "boolean",
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: Socket tuning: connections go the same way without it"
+     "description": "TCP Fast Open on the TCP port it listens on: what a client that has the server's cookie sends with its SYN is taken at once. On Linux, only with the server bit of `net.ipv4.tcp_fastopen` (2; 3 for client and server), which the default (1) leaves off."
     },
     "tcp_multi_path": {
      "type": "boolean",
@@ -9786,8 +9791,7 @@
     },
     "tcp_fast_open": {
      "type": "boolean",
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: Socket tuning: connections go the same way without it"
+     "description": "TCP Fast Open on the TCP port it listens on: what a client that has the server's cookie sends with its SYN is taken at once. On Linux, only with the server bit of `net.ipv4.tcp_fastopen` (2; 3 for client and server), which the default (1) leaves off."
     },
     "tcp_multi_path": {
      "type": "boolean",
@@ -10128,8 +10132,7 @@
     },
     "tcp_fast_open": {
      "type": "boolean",
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: Socket tuning: connections go the same way without it"
+     "description": "TCP Fast Open on the TCP port it listens on: what a client that has the server's cookie sends with its SYN is taken at once. On Linux, only with the server bit of `net.ipv4.tcp_fastopen` (2; 3 for client and server), which the default (1) leaves off."
     },
     "tcp_multi_path": {
      "type": "boolean",
@@ -10264,8 +10267,7 @@
     },
     "tcp_fast_open": {
      "type": "boolean",
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: Socket tuning: connections go the same way without it"
+     "description": "TCP Fast Open on the TCP port it listens on: what a client that has the server's cookie sends with its SYN is taken at once. On Linux, only with the server bit of `net.ipv4.tcp_fastopen` (2; 3 for client and server), which the default (1) leaves off."
     },
     "tcp_multi_path": {
      "type": "boolean",
@@ -10384,8 +10386,7 @@
     },
     "tcp_fast_open": {
      "type": "boolean",
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: Socket tuning: connections go the same way without it"
+     "description": "TCP Fast Open on the TCP port it listens on: what a client that has the server's cookie sends with its SYN is taken at once. On Linux, only with the server bit of `net.ipv4.tcp_fastopen` (2; 3 for client and server), which the default (1) leaves off."
     },
     "tcp_multi_path": {
      "type": "boolean",
@@ -11129,8 +11130,7 @@
     },
     "tcp_fast_open": {
      "type": "boolean",
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: Socket tuning: connections go the same way without it"
+     "description": "TCP Fast Open on the TCP port it listens on: what a client that has the server's cookie sends with its SYN is taken at once. On Linux, only with the server bit of `net.ipv4.tcp_fastopen` (2; 3 for client and server), which the default (1) leaves off."
     },
     "tcp_multi_path": {
      "type": "boolean",
@@ -12124,8 +12124,7 @@
     },
     "tcp_fast_open": {
      "type": "boolean",
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: Socket tuning: connections go the same way without it"
+     "description": "TCP Fast Open on the TCP port it listens on: what a client that has the server's cookie sends with its SYN is taken at once. On Linux, only with the server bit of `net.ipv4.tcp_fastopen` (2; 3 for client and server), which the default (1) leaves off."
     },
     "tcp_multi_path": {
      "type": "boolean",
@@ -12888,8 +12887,7 @@
     },
     "tcp_fast_open": {
      "type": "boolean",
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: Socket tuning: connections go the same way without it"
+     "description": "TCP Fast Open on the TCP port it listens on: what a client that has the server's cookie sends with its SYN is taken at once. On Linux, only with the server bit of `net.ipv4.tcp_fastopen` (2; 3 for client and server), which the default (1) leaves off."
     },
     "tcp_multi_path": {
      "type": "boolean",

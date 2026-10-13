@@ -17,12 +17,12 @@
   "clash/0004.yaml": {
     "check": "ok",
     "ok": true,
-    "warnings": 9
+    "warnings": 8
   },
   "clash/0005.yaml": {
     "check": "ok",
     "ok": true,
-    "warnings": 30
+    "warnings": 11
   },
   "clash/0006.yaml": {
     "error": "proxy-groups[1].proxies: a group of no proxies and no providers"
@@ -164,7 +164,7 @@
   "clash/0037.yaml": {
     "check": "ok",
     "ok": true,
-    "warnings": 11
+    "warnings": 10
   },
   "clash/0038.yaml": {
     "error": "proxy-groups[1].proxies: a group of no proxies and no providers"

@@ -135,13 +135,14 @@ impl InboundManager {
 
         let mut network_listeners: HashMap<String, NetworkInboundListener> = HashMap::new();
         for (inbound, address) in plan_listeners(inbounds, &handlers, &dependencies)? {
-            let listener = NetworkInboundListener::new(
+            let mut listener = NetworkInboundListener::new(
                 address,
                 inbound.tcp_keep_alive(),
                 handlers[&inbound.tag].clone(),
                 dispatcher.clone(),
                 nat_manager.clone(),
             );
+            listener.fast_open = inbound.tcp_fast_open;
             network_listeners.insert(inbound.tag.clone(), listener);
         }
 
@@ -437,13 +438,14 @@ impl InboundManager {
         };
         let planned = plan_listeners(std::slice::from_ref(inbound), &handlers, &dependencies)?;
         if let Some((_, address)) = planned.first() {
-            let listener = NetworkInboundListener::new(
+            let mut listener = NetworkInboundListener::new(
                 *address,
                 inbound.tcp_keep_alive(),
                 handlers[&inbound.tag].clone(),
                 self.dispatcher.clone(),
                 self.nat_manager.clone(),
             );
+            listener.fast_open = inbound.tcp_fast_open;
             let runners = listener.listen()?;
             self.network_listeners.insert(inbound.tag.clone(), listener);
             self.run(inbound.tag.clone(), runners);
@@ -559,6 +561,7 @@ pub(crate) fn plan_listeners<'a>(
                     inbound.tcp_keep_alive_interval.is_some(),
                 ),
                 ("disable_tcp_keep_alive", inbound.disable_tcp_keep_alive),
+                ("tcp_fast_open", inbound.tcp_fast_open),
                 (
                     "udp_timeout",
                     inbound.udp_timeout.is_some() && inbound.protocol != "tun",

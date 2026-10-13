@@ -229,6 +229,7 @@ const NO_DIAL: &[(&str, Tier)] = &[
 
 /// The dial fields every proxy takes but a direct one's server.
 const DIAL: &[(&str, Tier)] = &[
+    // Read by `dial`; of a proxy that dials nothing, passed over.
     ("tfo", Ignored),
     ("mptcp", Ignored),
     ("ip-version", Ignored),
@@ -328,6 +329,16 @@ fn dial(
     }
     if let Some(mark) = f.int::<u32>("routing-mark")? {
         o.insert("routing_mark".into(), json!(mark));
+    }
+    // Where sail dials with Fast Open; told and passed over where not, as
+    // Clash configurations run as they are.
+    if f.bool("tfo")? == Some(true) {
+        match crate::net::dial::sockopt::supports_tcp_fast_open() {
+            Ok(()) => {
+                o.insert("tcp_fast_open".into(), json!(true));
+            }
+            Err(why) => w.push(format!("{}: {}; ignored", f.at("tfo"), why)),
+        }
     }
     if let Some(version) = f.string("ip-version")? {
         let strategy = match version.to_ascii_lowercase().as_str() {

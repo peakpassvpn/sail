@@ -20,7 +20,6 @@ pub const TOP: &[(&str, Tier)] = &[
     ("external-doh-server", Ignored),
     ("tls", Ignored),
     // How connections are made and timed, not where they go.
-    ("inbound-tfo", Ignored),
     ("inbound-mptcp", Ignored),
     ("find-process-mode", Ignored),
     ("global-ua", Ignored),
@@ -57,6 +56,20 @@ pub fn lower(doc: &mut Fields, out: &mut Lowered, warnings: &mut Vec<String>) ->
     profile(doc, out, warnings)?;
     keep_alive(doc, out)?;
     ntp(doc, out, warnings)?;
+    // TCP Fast Open on each port it listens on, where sail listens with
+    // it; told and passed over where not, as Clash configurations run as
+    // they are. Windows, before 10 1607, refuses it as an inbound starts.
+    if doc.bool("inbound-tfo")? == Some(true) {
+        if crate::net::dial::sockopt::SUPPORTS_LISTEN_FAST_OPEN && !cfg!(windows) {
+            out.inbound_listen
+                .insert("tcp_fast_open".into(), json!(true));
+        } else {
+            warnings.push(format!(
+                "{}: not on this platform; ignored",
+                doc.at("inbound-tfo")
+            ));
+        }
+    }
     out.unified_delay = doc.bool("unified-delay")?.unwrap_or(false);
     geo_update(doc, out)?;
     if let Some(name) = doc.string("interface-name")? {

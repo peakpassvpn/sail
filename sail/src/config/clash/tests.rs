@@ -404,6 +404,39 @@ fn ntp_is_sing_box_s_with_mihomo_s_defaults() {
     assert!(config.ntp.is_none());
 }
 
+/// A proxy's `tfo` is its Fast Open where sail dials with it, and
+/// `inbound-tfo` every listener's.
+#[test]
+fn tfo_is_a_proxy_s_fast_open_and_inbound_tfo_every_listener_s() {
+    let config = load(
+        r#"
+mixed-port: 7890
+inbound-tfo: true
+proxies:
+  - { name: ss, type: ss, server: s.example.com, port: 1, cipher: aes-128-gcm, password: p, tfo: true }
+  - { name: plain, type: ss, server: s.example.com, port: 2, cipher: aes-128-gcm, password: p }
+proxy-groups:
+  - { name: G, type: select, proxies: [ss, plain] }
+rules: ["MATCH,G"]
+"#,
+    );
+    let dials = crate::net::dial::sockopt::supports_tcp_fast_open().is_ok();
+    let ss = serde_json::to_value(outbound(&config, "ss")).unwrap();
+    assert_eq!(ss.get("tcp_fast_open").is_some(), dials);
+    // inbound-tfo is passed over on Windows, as tfo where sail does not
+    // dial with Fast Open.
+    let listens = !cfg!(windows);
+    assert_eq!(
+        config.warnings.len(),
+        usize::from(!dials) + usize::from(!listens),
+        "{:?}",
+        config.warnings
+    );
+    let plain = serde_json::to_value(outbound(&config, "plain")).unwrap();
+    assert!(plain.get("tcp_fast_open").is_none());
+    assert!(config.inbounds.iter().all(|i| i.tcp_fast_open == listens));
+}
+
 const KEY: &str = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=";
 
 #[test]

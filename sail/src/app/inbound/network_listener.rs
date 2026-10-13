@@ -373,6 +373,8 @@ pub struct NetworkInboundListener {
     pub address: SocketAddr,
     /// Of the TCP connections it accepts.
     pub keepalive: Option<crate::net::TcpKeepAlive>,
+    /// TCP Fast Open on its TCP port.
+    pub fast_open: bool,
     pub handler: AnyInboundHandler,
     pub dispatcher: Arc<Dispatcher>,
     pub nat_manager: Arc<NatManager>,
@@ -421,6 +423,7 @@ impl NetworkInboundListener {
         NetworkInboundListener {
             address,
             keepalive,
+            fast_open: false,
             handler,
             dispatcher,
             nat_manager,
@@ -445,7 +448,7 @@ impl NetworkInboundListener {
         };
         let mut runners: Vec<Runner> = Vec::new();
         if self.handler.stream().is_ok() {
-            let listener = crate::net::TcpListener::bind_now(&listen_addr)
+            let listener = crate::net::TcpListener::bind_with(&listen_addr, self.fast_open)
                 .map_err(|e| bind_failed("tcp", e))?
                 .abort_on_close(self.dispatcher.env().options.inbound.tcp_abort_on_close)
                 .send_buffer(self.dispatcher.env().options.inbound.tcp_send_buffer * 1024)

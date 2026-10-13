@@ -346,7 +346,6 @@ pub const GROUPS: &[Group] = &[
         Ignored,
         &[
             "inbounds.*.reuse_addr",
-            "inbounds.*.tcp_fast_open",
             "inbounds.*.tcp_multi_path",
             "inbounds.*.udp_fragment",
         ],

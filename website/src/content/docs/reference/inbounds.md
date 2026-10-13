@@ -41,7 +41,7 @@ Rust: [`AnyTlsInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/s
 | `disable_tcp_keep_alive` | bool | `false` | Supported | — |
 | `tcp_keep_alive` | duration | unset | Supported | How long an accepted TCP connection is idle before keepalive probes it; 5m when unset. |
 | `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
-| `tcp_fast_open` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `tcp_fast_open` | bool | `false` | Supported | TCP Fast Open on the TCP port it listens on: what a client that has the server's cookie sends with its SYN is taken at once. On Linux, only with the server bit of `net.ipv4.tcp_fastopen` (2; 3 for client and server), which the default (1) leaves off. |
 | `tcp_multi_path` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
 | `udp_fragment` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
 | `udp_timeout` | number\|duration | unset | Supported | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
@@ -154,7 +154,7 @@ Rust: [`DirectInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/s
 | `disable_tcp_keep_alive` | bool | `false` | Supported | — |
 | `tcp_keep_alive` | duration | unset | Supported | How long an accepted TCP connection is idle before keepalive probes it; 5m when unset. |
 | `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
-| `tcp_fast_open` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `tcp_fast_open` | bool | `false` | Supported | TCP Fast Open on the TCP port it listens on: what a client that has the server's cookie sends with its SYN is taken at once. On Linux, only with the server bit of `net.ipv4.tcp_fastopen` (2; 3 for client and server), which the default (1) leaves off. |
 | `tcp_multi_path` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
 | `udp_fragment` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
 | `udp_timeout` | number\|duration | unset | Supported | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
@@ -178,6 +178,7 @@ Rust: [`HcInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/
 | `tcp_keep_alive` | duration | unset | sail extension | How long an accepted TCP connection is idle before keepalive probes it; 5m when unset. |
 | `tcp_keep_alive_interval` | duration | unset | sail extension | Between keepalive probes; 75s when unset. |
 | `disable_tcp_keep_alive` | bool | `false` | sail extension | — |
+| `tcp_fast_open` | bool | `false` | sail extension | TCP Fast Open on the TCP port it listens on: what a client that has the server's cookie sends with its SYN is taken at once. On Linux, only with the server bit of `net.ipv4.tcp_fastopen` (2; 3 for client and server), which the default (1) leaves off. |
 | `path` | string | required | sail extension | — |
 | `request` | string | `""` | sail extension | — |
 | `response` | string | required | sail extension | — |
@@ -200,7 +201,7 @@ Rust: [`HttpInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sai
 | `disable_tcp_keep_alive` | bool | `false` | Supported | — |
 | `tcp_keep_alive` | duration | unset | Supported | How long an accepted TCP connection is idle before keepalive probes it; 5m when unset. |
 | `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
-| `tcp_fast_open` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `tcp_fast_open` | bool | `false` | Supported | TCP Fast Open on the TCP port it listens on: what a client that has the server's cookie sends with its SYN is taken at once. On Linux, only with the server bit of `net.ipv4.tcp_fastopen` (2; 3 for client and server), which the default (1) leaves off. |
 | `tcp_multi_path` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
 | `udp_fragment` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
 | `udp_timeout` | number\|duration | unset | Supported | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
@@ -240,7 +241,7 @@ Rust: [`Hysteria2InboundOptions`](https://github.com/peakpassvpn/sail/blob/maste
 | `disable_tcp_keep_alive` | bool | `false` | Supported | — |
 | `tcp_keep_alive` | duration | unset | Supported | How long an accepted TCP connection is idle before keepalive probes it; 5m when unset. |
 | `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
-| `tcp_fast_open` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `tcp_fast_open` | bool | `false` | Supported | TCP Fast Open on the TCP port it listens on: what a client that has the server's cookie sends with its SYN is taken at once. On Linux, only with the server bit of `net.ipv4.tcp_fastopen` (2; 3 for client and server), which the default (1) leaves off. |
 | `tcp_multi_path` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
 | `udp_fragment` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
 | `udp_timeout` | number\|duration | unset | Supported | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
@@ -307,7 +308,7 @@ Rust: [`MixedInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sa
 | `disable_tcp_keep_alive` | bool | `false` | Supported | — |
 | `tcp_keep_alive` | duration | unset | Supported | How long an accepted TCP connection is idle before keepalive probes it; 5m when unset. |
 | `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
-| `tcp_fast_open` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `tcp_fast_open` | bool | `false` | Supported | TCP Fast Open on the TCP port it listens on: what a client that has the server's cookie sends with its SYN is taken at once. On Linux, only with the server bit of `net.ipv4.tcp_fastopen` (2; 3 for client and server), which the default (1) leaves off. |
 | `tcp_multi_path` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
 | `udp_fragment` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
 | `udp_timeout` | number\|duration | unset | Supported | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
@@ -441,6 +442,7 @@ Rust: [`MptpInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sai
 | `tcp_keep_alive` | duration | unset | sail extension | How long an accepted TCP connection is idle before keepalive probes it; 5m when unset. |
 | `tcp_keep_alive_interval` | duration | unset | sail extension | Between keepalive probes; 75s when unset. |
 | `disable_tcp_keep_alive` | bool | `false` | sail extension | — |
+| `tcp_fast_open` | bool | `false` | sail extension | TCP Fast Open on the TCP port it listens on: what a client that has the server's cookie sends with its SYN is taken at once. On Linux, only with the server bit of `net.ipv4.tcp_fastopen` (2; 3 for client and server), which the default (1) leaves off. |
 
 <a id="inbounds-nf"></a>
 
@@ -457,6 +459,7 @@ Rust: [`NfInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/
 | `tcp_keep_alive` | duration | unset | sail extension | How long an accepted TCP connection is idle before keepalive probes it; 5m when unset. |
 | `tcp_keep_alive_interval` | duration | unset | sail extension | Between keepalive probes; 75s when unset. |
 | `disable_tcp_keep_alive` | bool | `false` | sail extension | — |
+| `tcp_fast_open` | bool | `false` | sail extension | TCP Fast Open on the TCP port it listens on: what a client that has the server's cookie sends with its SYN is taken at once. On Linux, only with the server bit of `net.ipv4.tcp_fastopen` (2; 3 for client and server), which the default (1) leaves off. |
 | `driver_name` | string | required | sail extension | — |
 | `nfapi` | string | `"nfapi.dll"` | sail extension | — |
 | `fake_dns_exclude` | array of string | `[]` | sail extension | — |
@@ -480,7 +483,7 @@ Rust: [`RedirectInboundOptions`](https://github.com/peakpassvpn/sail/blob/master
 | `disable_tcp_keep_alive` | bool | `false` | Supported | — |
 | `tcp_keep_alive` | duration | unset | Supported | How long an accepted TCP connection is idle before keepalive probes it; 5m when unset. |
 | `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
-| `tcp_fast_open` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `tcp_fast_open` | bool | `false` | Supported | TCP Fast Open on the TCP port it listens on: what a client that has the server's cookie sends with its SYN is taken at once. On Linux, only with the server bit of `net.ipv4.tcp_fastopen` (2; 3 for client and server), which the default (1) leaves off. |
 | `tcp_multi_path` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
 | `udp_fragment` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
 | `udp_timeout` | number\|duration | unset | Supported | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
@@ -504,7 +507,7 @@ Rust: [`ShadowsocksInboundOptions`](https://github.com/peakpassvpn/sail/blob/mas
 | `disable_tcp_keep_alive` | bool | `false` | Supported | — |
 | `tcp_keep_alive` | duration | unset | Supported | How long an accepted TCP connection is idle before keepalive probes it; 5m when unset. |
 | `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
-| `tcp_fast_open` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `tcp_fast_open` | bool | `false` | Supported | TCP Fast Open on the TCP port it listens on: what a client that has the server's cookie sends with its SYN is taken at once. On Linux, only with the server bit of `net.ipv4.tcp_fastopen` (2; 3 for client and server), which the default (1) leaves off. |
 | `tcp_multi_path` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
 | `udp_fragment` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
 | `udp_timeout` | number\|duration | unset | Supported | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
@@ -557,7 +560,7 @@ Rust: [`ShadowTlsInboundOptions`](https://github.com/peakpassvpn/sail/blob/maste
 | `disable_tcp_keep_alive` | bool | `false` | Supported | — |
 | `tcp_keep_alive` | duration | unset | Supported | How long an accepted TCP connection is idle before keepalive probes it; 5m when unset. |
 | `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
-| `tcp_fast_open` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `tcp_fast_open` | bool | `false` | Supported | TCP Fast Open on the TCP port it listens on: what a client that has the server's cookie sends with its SYN is taken at once. On Linux, only with the server bit of `net.ipv4.tcp_fastopen` (2; 3 for client and server), which the default (1) leaves off. |
 | `tcp_multi_path` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
 | `udp_fragment` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
 | `udp_timeout` | number\|duration | unset | Supported | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
@@ -633,7 +636,7 @@ Rust: [`SocksInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sa
 | `disable_tcp_keep_alive` | bool | `false` | Supported | — |
 | `tcp_keep_alive` | duration | unset | Supported | How long an accepted TCP connection is idle before keepalive probes it; 5m when unset. |
 | `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
-| `tcp_fast_open` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `tcp_fast_open` | bool | `false` | Supported | TCP Fast Open on the TCP port it listens on: what a client that has the server's cookie sends with its SYN is taken at once. On Linux, only with the server bit of `net.ipv4.tcp_fastopen` (2; 3 for client and server), which the default (1) leaves off. |
 | `tcp_multi_path` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
 | `udp_fragment` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
 | `udp_timeout` | number\|duration | unset | Supported | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
@@ -670,7 +673,7 @@ Rust: [`TproxyInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/s
 | `disable_tcp_keep_alive` | bool | `false` | Supported | — |
 | `tcp_keep_alive` | duration | unset | Supported | How long an accepted TCP connection is idle before keepalive probes it; 5m when unset. |
 | `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
-| `tcp_fast_open` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `tcp_fast_open` | bool | `false` | Supported | TCP Fast Open on the TCP port it listens on: what a client that has the server's cookie sends with its SYN is taken at once. On Linux, only with the server bit of `net.ipv4.tcp_fastopen` (2; 3 for client and server), which the default (1) leaves off. |
 | `tcp_multi_path` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
 | `udp_fragment` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
 | `udp_timeout` | number\|duration | unset | Supported | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
@@ -698,7 +701,7 @@ Rust: [`TrojanInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/s
 | `disable_tcp_keep_alive` | bool | `false` | Supported | — |
 | `tcp_keep_alive` | duration | unset | Supported | How long an accepted TCP connection is idle before keepalive probes it; 5m when unset. |
 | `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
-| `tcp_fast_open` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `tcp_fast_open` | bool | `false` | Supported | TCP Fast Open on the TCP port it listens on: what a client that has the server's cookie sends with its SYN is taken at once. On Linux, only with the server bit of `net.ipv4.tcp_fastopen` (2; 3 for client and server), which the default (1) leaves off. |
 | `tcp_multi_path` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
 | `udp_fragment` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
 | `udp_timeout` | number\|duration | unset | Supported | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
@@ -750,7 +753,7 @@ Rust: [`TuicInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sai
 | `disable_tcp_keep_alive` | bool | `false` | Supported | — |
 | `tcp_keep_alive` | duration | unset | Supported | How long an accepted TCP connection is idle before keepalive probes it; 5m when unset. |
 | `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
-| `tcp_fast_open` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `tcp_fast_open` | bool | `false` | Supported | TCP Fast Open on the TCP port it listens on: what a client that has the server's cookie sends with its SYN is taken at once. On Linux, only with the server bit of `net.ipv4.tcp_fastopen` (2; 3 for client and server), which the default (1) leaves off. |
 | `tcp_multi_path` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
 | `udp_fragment` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
 | `udp_timeout` | number\|duration | unset | Supported | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
@@ -869,7 +872,7 @@ Rust: [`VlessInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sa
 | `disable_tcp_keep_alive` | bool | `false` | Supported | — |
 | `tcp_keep_alive` | duration | unset | Supported | How long an accepted TCP connection is idle before keepalive probes it; 5m when unset. |
 | `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
-| `tcp_fast_open` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `tcp_fast_open` | bool | `false` | Supported | TCP Fast Open on the TCP port it listens on: what a client that has the server's cookie sends with its SYN is taken at once. On Linux, only with the server bit of `net.ipv4.tcp_fastopen` (2; 3 for client and server), which the default (1) leaves off. |
 | `tcp_multi_path` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
 | `udp_fragment` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
 | `udp_timeout` | number\|duration | unset | Supported | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
@@ -911,7 +914,7 @@ Rust: [`VMessInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sa
 | `disable_tcp_keep_alive` | bool | `false` | Supported | — |
 | `tcp_keep_alive` | duration | unset | Supported | How long an accepted TCP connection is idle before keepalive probes it; 5m when unset. |
 | `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
-| `tcp_fast_open` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `tcp_fast_open` | bool | `false` | Supported | TCP Fast Open on the TCP port it listens on: what a client that has the server's cookie sends with its SYN is taken at once. On Linux, only with the server bit of `net.ipv4.tcp_fastopen` (2; 3 for client and server), which the default (1) leaves off. |
 | `tcp_multi_path` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
 | `udp_fragment` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
 | `udp_timeout` | number\|duration | unset | Supported | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |

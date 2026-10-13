@@ -22,12 +22,12 @@ sail 直接读取 sing-box、Clash / Mihomo 与 Surge 的配置。每种格式�
 | `http_clients` | 80 | 30 | 11 | 39 |
 | `network_namespaces` | 6 | 0 | 0 | 6 |
 | `endpoints` | 433 | 48 | 13 | 372 |
-| `inbounds` | 1367 | 595 | 150 | 622 |
+| `inbounds` | 1367 | 609 | 133 | 625 |
 | `outbounds` | 1228 | 685 | 75 | 468 |
 | `route` | 268 | 174 | 41 | 53 |
 | `services` | 751 | 1 | 166 | 584 |
 | `experimental` | 34 | 16 | 17 | 1 |
-| **全部** | **5003** | **1962** | **540** | **2501** |
+| **全部** | **5003** | **1976** | **523** | **2504** |
 
 ## Clash / Mihomo
 
@@ -41,7 +41,7 @@ sail 直接读取 sing-box、Clash / Mihomo 与 Surge 的配置。每种格式�
 | `dns` | 33 | 29 | 4 | 0 |
 | `experimental` | 5 | 0 | 5 | 0 |
 | `external-controller-cors` | 3 | 3 | 0 | 0 |
-| `general` | 48 | 32 | 14 | 2 |
+| `general` | 48 | 33 | 13 | 2 |
 | `geox-url` | 5 | 0 | 5 | 0 |
 | `iptables` | 5 | 0 | 0 | 5 |
 | `listeners[anytls]` | 45 | 0 | 0 | 45 |
@@ -65,13 +65,13 @@ sail 直接读取 sing-box、Clash / Mihomo 与 Surge 的配置。每种格式�
 | `listeners[vmess]` | 116 | 0 | 0 | 116 |
 | `ntp` | 7 | 7 | 0 | 0 |
 | `profile` | 3 | 3 | 0 | 0 |
-| `proxies[anytls]` | 38 | 22 | 4 | 12 |
-| `proxies[direct]` | 7 | 5 | 2 | 0 |
+| `proxies[anytls]` | 38 | 23 | 3 | 12 |
+| `proxies[direct]` | 7 | 6 | 1 | 0 |
 | `proxies[dns]` | 7 | 1 | 6 | 0 |
 | `proxies[easytier]` | 37 | 0 | 0 | 37 |
 | `proxies[gost-relay]` | 22 | 0 | 0 | 22 |
-| `proxies[http]` | 19 | 16 | 2 | 1 |
-| `proxies[hysteria2]` | 50 | 24 | 10 | 16 |
+| `proxies[http]` | 19 | 17 | 1 | 1 |
+| `proxies[hysteria2]` | 50 | 25 | 9 | 16 |
 | `proxies[hysteria]` | 35 | 0 | 0 | 35 |
 | `proxies[masque]` | 29 | 0 | 0 | 29 |
 | `proxies[mieru]` | 17 | 0 | 0 | 17 |
@@ -80,18 +80,18 @@ sail 直接读取 sing-box、Clash / Mihomo 与 Surge 的配置。每种格式�
 | `proxies[rematch]` | 9 | 0 | 0 | 9 |
 | `proxies[shadowquic]` | 27 | 0 | 0 | 27 |
 | `proxies[snell]` | 17 | 0 | 0 | 17 |
-| `proxies[socks5]` | 18 | 14 | 2 | 2 |
-| `proxies[ss]` | 93 | 24 | 3 | 66 |
+| `proxies[socks5]` | 18 | 15 | 1 | 2 |
+| `proxies[ss]` | 93 | 25 | 2 | 66 |
 | `proxies[ssh]` | 15 | 0 | 0 | 15 |
 | `proxies[ssr]` | 16 | 0 | 0 | 16 |
 | `proxies[sudoku]` | 31 | 0 | 0 | 31 |
 | `proxies[tailscale]` | 16 | 0 | 0 | 16 |
-| `proxies[trojan]` | 56 | 38 | 2 | 16 |
+| `proxies[trojan]` | 56 | 39 | 1 | 16 |
 | `proxies[trusttunnel]` | 32 | 0 | 0 | 32 |
-| `proxies[tuic]` | 41 | 26 | 12 | 3 |
-| `proxies[vless]` | 137 | 45 | 2 | 90 |
-| `proxies[vmess]` | 128 | 46 | 2 | 80 |
-| `proxies[wireguard]` | 64 | 27 | 6 | 31 |
+| `proxies[tuic]` | 41 | 27 | 11 | 3 |
+| `proxies[vless]` | 137 | 46 | 1 | 90 |
+| `proxies[vmess]` | 128 | 47 | 1 | 80 |
+| `proxies[wireguard]` | 64 | 28 | 5 | 31 |
 | `proxies[zerotier]` | 30 | 0 | 0 | 30 |
 | `proxy-groups` | 23 | 19 | 4 | 0 |
 | `proxy-providers` | 39 | 28 | 8 | 3 |
@@ -100,7 +100,7 @@ sail 直接读取 sing-box、Clash / Mihomo 与 Surge 的配置。每种格式�
 | `tls` | 7 | 0 | 7 | 0 |
 | `tuic-server` | 13 | 0 | 0 | 13 |
 | `tun` | 50 | 34 | 9 | 7 |
-| **All** | **2077** | **504** | **126** | **1447** |
+| **All** | **2077** | **516** | **114** | **1447** |
 
 ## Surge
 

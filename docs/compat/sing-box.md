@@ -31,12 +31,12 @@ The dial fields Windows cannot take are refused there. A known gap is `tcp_fast_
 | `http_clients` | 80 | 30 | 11 | 39 |
 | `network_namespaces` | 6 | 0 | 0 | 6 |
 | `endpoints` | 433 | 48 | 13 | 372 |
-| `inbounds` | 1367 | 595 | 150 | 622 |
+| `inbounds` | 1367 | 609 | 133 | 625 |
 | `outbounds` | 1228 | 685 | 75 | 468 |
 | `route` | 268 | 174 | 41 | 53 |
 | `services` | 751 | 1 | 166 | 584 |
 | `experimental` | 34 | 16 | 17 | 1 |
-| **All** | **5003** | **1962** | **540** | **2501** |
+| **All** | **5003** | **1976** | **523** | **2504** |
 
 ## `$schema`
 
@@ -904,7 +904,7 @@ The dial fields Windows cannot take are refused there. A known gap is `tcp_fast_
 | `disable_tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive_interval` | Supported |  |
-| `tcp_fast_open` | Warned | Socket tuning: connections go the same way without it |
+| `tcp_fast_open` | Supported |  |
 | `tcp_multi_path` | Warned | Socket tuning: connections go the same way without it |
 | `udp_fragment` | Warned | Socket tuning: connections go the same way without it |
 | `udp_timeout` | Supported |  |
@@ -988,7 +988,7 @@ The dial fields Windows cannot take are refused there. A known gap is `tcp_fast_
 | `disable_tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive_interval` | Supported |  |
-| `tcp_fast_open` | Warned | Socket tuning: connections go the same way without it |
+| `tcp_fast_open` | Supported |  |
 | `tcp_multi_path` | Warned | Socket tuning: connections go the same way without it |
 | `udp_fragment` | Warned | Socket tuning: connections go the same way without it |
 | `udp_timeout` | Supported |  |
@@ -1011,7 +1011,7 @@ The dial fields Windows cannot take are refused there. A known gap is `tcp_fast_
 | `disable_tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive_interval` | Supported |  |
-| `tcp_fast_open` | Warned | Socket tuning: connections go the same way without it |
+| `tcp_fast_open` | Supported |  |
 | `tcp_multi_path` | Warned | Socket tuning: connections go the same way without it |
 | `udp_fragment` | Warned | Socket tuning: connections go the same way without it |
 | `udp_timeout` | Supported |  |
@@ -1096,7 +1096,7 @@ The dial fields Windows cannot take are refused there. A known gap is `tcp_fast_
 | `disable_tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive_interval` | Supported |  |
-| `tcp_fast_open` | Warned | Socket tuning: connections go the same way without it |
+| `tcp_fast_open` | Supported |  |
 | `tcp_multi_path` | Warned | Socket tuning: connections go the same way without it |
 | `udp_fragment` | Warned | Socket tuning: connections go the same way without it |
 | `udp_timeout` | Supported |  |
@@ -1199,7 +1199,7 @@ The dial fields Windows cannot take are refused there. A known gap is `tcp_fast_
 | `disable_tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive_interval` | Supported |  |
-| `tcp_fast_open` | Warned | Socket tuning: connections go the same way without it |
+| `tcp_fast_open` | Supported |  |
 | `tcp_multi_path` | Warned | Socket tuning: connections go the same way without it |
 | `udp_fragment` | Warned | Socket tuning: connections go the same way without it |
 | `udp_timeout` | Supported |  |
@@ -1225,7 +1225,7 @@ The dial fields Windows cannot take are refused there. A known gap is `tcp_fast_
 | `disable_tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive_interval` | Supported |  |
-| `tcp_fast_open` | Warned | Socket tuning: connections go the same way without it |
+| `tcp_fast_open` | Supported |  |
 | `tcp_multi_path` | Warned | Socket tuning: connections go the same way without it |
 | `udp_fragment` | Warned | Socket tuning: connections go the same way without it |
 | `udp_timeout` | Supported |  |
@@ -1245,7 +1245,7 @@ The dial fields Windows cannot take are refused there. A known gap is `tcp_fast_
 | `disable_tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive_interval` | Supported |  |
-| `tcp_fast_open` | Warned | Socket tuning: connections go the same way without it |
+| `tcp_fast_open` | Supported |  |
 | `tcp_multi_path` | Warned | Socket tuning: connections go the same way without it |
 | `udp_fragment` | Warned | Socket tuning: connections go the same way without it |
 | `udp_timeout` | Supported |  |
@@ -1280,7 +1280,7 @@ The dial fields Windows cannot take are refused there. A known gap is `tcp_fast_
 | `disable_tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive_interval` | Supported |  |
-| `tcp_fast_open` | Warned | Socket tuning: connections go the same way without it |
+| `tcp_fast_open` | Supported |  |
 | `tcp_multi_path` | Warned | Socket tuning: connections go the same way without it |
 | `udp_fragment` | Warned | Socket tuning: connections go the same way without it |
 | `udp_timeout` | Supported |  |
@@ -1340,7 +1340,7 @@ The dial fields Windows cannot take are refused there. A known gap is `tcp_fast_
 | `disable_tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive_interval` | Supported |  |
-| `tcp_fast_open` | Warned | Socket tuning: connections go the same way without it |
+| `tcp_fast_open` | Supported |  |
 | `tcp_multi_path` | Warned | Socket tuning: connections go the same way without it |
 | `udp_fragment` | Warned | Socket tuning: connections go the same way without it |
 | `udp_timeout` | Supported |  |
@@ -1364,7 +1364,7 @@ The dial fields Windows cannot take are refused there. A known gap is `tcp_fast_
 | `disable_tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive_interval` | Supported |  |
-| `tcp_fast_open` | Warned | Socket tuning: connections go the same way without it |
+| `tcp_fast_open` | Supported |  |
 | `tcp_multi_path` | Warned | Socket tuning: connections go the same way without it |
 | `udp_fragment` | Warned | Socket tuning: connections go the same way without it |
 | `udp_timeout` | Supported |  |
@@ -1388,7 +1388,7 @@ The dial fields Windows cannot take are refused there. A known gap is `tcp_fast_
 | `disable_tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive_interval` | Supported |  |
-| `tcp_fast_open` | Warned | Socket tuning: connections go the same way without it |
+| `tcp_fast_open` | Supported |  |
 | `tcp_multi_path` | Warned | Socket tuning: connections go the same way without it |
 | `udp_fragment` | Warned | Socket tuning: connections go the same way without it |
 | `udp_timeout` | Supported |  |
@@ -1501,7 +1501,7 @@ The dial fields Windows cannot take are refused there. A known gap is `tcp_fast_
 | `disable_tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive_interval` | Supported |  |
-| `tcp_fast_open` | Warned | Socket tuning: connections go the same way without it |
+| `tcp_fast_open` | Supported |  |
 | `tcp_multi_path` | Warned | Socket tuning: connections go the same way without it |
 | `udp_fragment` | Warned | Socket tuning: connections go the same way without it |
 | `udp_timeout` | Supported |  |
@@ -1642,7 +1642,7 @@ The dial fields Windows cannot take are refused there. A known gap is `tcp_fast_
 | `disable_tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive_interval` | Supported |  |
-| `tcp_fast_open` | Warned | Socket tuning: connections go the same way without it |
+| `tcp_fast_open` | Supported |  |
 | `tcp_multi_path` | Warned | Socket tuning: connections go the same way without it |
 | `udp_fragment` | Warned | Socket tuning: connections go the same way without it |
 | `udp_timeout` | Supported |  |
@@ -1752,7 +1752,7 @@ The dial fields Windows cannot take are refused there. A known gap is `tcp_fast_
 | `disable_tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive_interval` | Supported |  |
-| `tcp_fast_open` | Warned | Socket tuning: connections go the same way without it |
+| `tcp_fast_open` | Supported |  |
 | `tcp_multi_path` | Warned | Socket tuning: connections go the same way without it |
 | `udp_fragment` | Warned | Socket tuning: connections go the same way without it |
 | `udp_timeout` | Supported |  |

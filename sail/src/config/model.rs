@@ -1745,6 +1745,12 @@ pub struct Inbound {
     pub tcp_keep_alive_interval: Option<std::time::Duration>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub disable_tcp_keep_alive: bool,
+    /// TCP Fast Open on the TCP port it listens on: what a client that
+    /// has the server's cookie sends with its SYN is taken at once. On
+    /// Linux, only with the server bit of `net.ipv4.tcp_fastopen` (2; 3 for
+    /// client and server), which the default (1) leaves off.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub tcp_fast_open: bool,
     #[serde(flatten)]
     pub options: Options,
 }
@@ -1804,6 +1810,7 @@ impl Endpoint {
             tcp_keep_alive: None,
             tcp_keep_alive_interval: None,
             disable_tcp_keep_alive: false,
+            tcp_fast_open: false,
             options: Options::new(),
         }
     }

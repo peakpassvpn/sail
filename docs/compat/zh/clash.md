@@ -30,7 +30,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `dns` | 33 | 29 | 4 | 0 |
 | `experimental` | 5 | 0 | 5 | 0 |
 | `external-controller-cors` | 3 | 3 | 0 | 0 |
-| `general` | 48 | 32 | 14 | 2 |
+| `general` | 48 | 33 | 13 | 2 |
 | `geox-url` | 5 | 0 | 5 | 0 |
 | `iptables` | 5 | 0 | 0 | 5 |
 | `listeners[anytls]` | 45 | 0 | 0 | 45 |
@@ -54,13 +54,13 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `listeners[vmess]` | 116 | 0 | 0 | 116 |
 | `ntp` | 7 | 7 | 0 | 0 |
 | `profile` | 3 | 3 | 0 | 0 |
-| `proxies[anytls]` | 38 | 22 | 4 | 12 |
-| `proxies[direct]` | 7 | 5 | 2 | 0 |
+| `proxies[anytls]` | 38 | 23 | 3 | 12 |
+| `proxies[direct]` | 7 | 6 | 1 | 0 |
 | `proxies[dns]` | 7 | 1 | 6 | 0 |
 | `proxies[easytier]` | 37 | 0 | 0 | 37 |
 | `proxies[gost-relay]` | 22 | 0 | 0 | 22 |
-| `proxies[http]` | 19 | 16 | 2 | 1 |
-| `proxies[hysteria2]` | 50 | 24 | 10 | 16 |
+| `proxies[http]` | 19 | 17 | 1 | 1 |
+| `proxies[hysteria2]` | 50 | 25 | 9 | 16 |
 | `proxies[hysteria]` | 35 | 0 | 0 | 35 |
 | `proxies[masque]` | 29 | 0 | 0 | 29 |
 | `proxies[mieru]` | 17 | 0 | 0 | 17 |
@@ -69,18 +69,18 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `proxies[rematch]` | 9 | 0 | 0 | 9 |
 | `proxies[shadowquic]` | 27 | 0 | 0 | 27 |
 | `proxies[snell]` | 17 | 0 | 0 | 17 |
-| `proxies[socks5]` | 18 | 14 | 2 | 2 |
-| `proxies[ss]` | 93 | 24 | 3 | 66 |
+| `proxies[socks5]` | 18 | 15 | 1 | 2 |
+| `proxies[ss]` | 93 | 25 | 2 | 66 |
 | `proxies[ssh]` | 15 | 0 | 0 | 15 |
 | `proxies[ssr]` | 16 | 0 | 0 | 16 |
 | `proxies[sudoku]` | 31 | 0 | 0 | 31 |
 | `proxies[tailscale]` | 16 | 0 | 0 | 16 |
-| `proxies[trojan]` | 56 | 38 | 2 | 16 |
+| `proxies[trojan]` | 56 | 39 | 1 | 16 |
 | `proxies[trusttunnel]` | 32 | 0 | 0 | 32 |
-| `proxies[tuic]` | 41 | 26 | 12 | 3 |
-| `proxies[vless]` | 137 | 45 | 2 | 90 |
-| `proxies[vmess]` | 128 | 46 | 2 | 80 |
-| `proxies[wireguard]` | 64 | 27 | 6 | 31 |
+| `proxies[tuic]` | 41 | 27 | 11 | 3 |
+| `proxies[vless]` | 137 | 46 | 1 | 90 |
+| `proxies[vmess]` | 128 | 47 | 1 | 80 |
+| `proxies[wireguard]` | 64 | 28 | 5 | 31 |
 | `proxies[zerotier]` | 30 | 0 | 0 | 30 |
 | `proxy-groups` | 23 | 19 | 4 | 0 |
 | `proxy-providers` | 39 | 28 | 8 | 3 |
@@ -89,7 +89,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `tls` | 7 | 0 | 7 | 0 |
 | `tuic-server` | 13 | 0 | 0 | 13 |
 | `tun` | 50 | 34 | 9 | 7 |
-| **All** | **2077** | **504** | **126** | **1447** |
+| **All** | **2077** | **516** | **114** | **1447** |
 
 
 ## `general`
@@ -219,7 +219,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `global-ua` | 警告 | global-ua: sail does not implement this field; ignored |
 | `hosts` | 支持 |  |
 | `inbound-mptcp` | 警告 | inbound-mptcp: sail does not implement this field; ignored |
-| `inbound-tfo` | 警告 | inbound-tfo: sail does not implement this field; ignored |
+| `inbound-tfo` | 支持 |  |
 | `interface-name` | 支持 |  |
 
 ## `iptables`
@@ -602,7 +602,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `proxies[anytls].shadow-tls-opts.version` | 报错 | proxies[0].shadow-tls-opts: sail does not implement this field yet |
 | `proxies[anytls].skip-cert-verify` | 支持 |  |
 | `proxies[anytls].sni` | 支持 |  |
-| `proxies[anytls].tfo` | 警告 | proxies[0].tfo: sail does not implement this field; ignored |
+| `proxies[anytls].tfo` | 支持 |  |
 | `proxies[anytls].udp` | 支持 |  |
 
 ## `proxies[direct]`
@@ -615,7 +615,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `proxies[direct].mptcp` | 警告 | proxies[0].mptcp: sail does not implement this field; ignored |
 | `proxies[direct].name` | 支持 |  |
 | `proxies[direct].routing-mark` | 支持 |  |
-| `proxies[direct].tfo` | 警告 | proxies[0].tfo: sail does not implement this field; ignored |
+| `proxies[direct].tfo` | 支持 |  |
 
 ## `proxies[dns]`
 
@@ -661,7 +661,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `proxies[http].server` | 支持 |  |
 | `proxies[http].skip-cert-verify` | 支持 |  |
 | `proxies[http].sni` | 支持 |  |
-| `proxies[http].tfo` | 警告 | proxies[0].tfo: sail does not implement this field; ignored |
+| `proxies[http].tfo` | 支持 |  |
 | `proxies[http].tls` | 支持 |  |
 | `proxies[http].username` | 支持 |  |
 
@@ -716,7 +716,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `proxies[hysteria2].server` | 支持 |  |
 | `proxies[hysteria2].skip-cert-verify` | 支持 |  |
 | `proxies[hysteria2].sni` | 支持 |  |
-| `proxies[hysteria2].tfo` | 警告 | proxies[0].tfo: sail does not implement this field; ignored |
+| `proxies[hysteria2].tfo` | 支持 |  |
 | `proxies[hysteria2].udp-mtu` | 警告 | proxies[0].udp-mtu: sail does not implement this field; ignored |
 | `proxies[hysteria2].up` | 支持 | proxies[0].up: "x" is not a rate |
 
@@ -792,7 +792,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `proxies[socks5].routing-mark` | 支持 |  |
 | `proxies[socks5].server` | 支持 |  |
 | `proxies[socks5].skip-cert-verify` | 支持 |  |
-| `proxies[socks5].tfo` | 警告 | proxies[0].tfo: sail does not implement this field; ignored |
+| `proxies[socks5].tfo` | 支持 |  |
 | `proxies[socks5].tls` | 报错 | proxies[0].tls: sail does not implement SOCKS5 over TLS yet |
 | `proxies[socks5].udp` | 支持 |  |
 | `proxies[socks5].username` | 支持 |  |
@@ -890,7 +890,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `proxies[ss].port` | 支持 |  |
 | `proxies[ss].routing-mark` | 支持 |  |
 | `proxies[ss].server` | 支持 |  |
-| `proxies[ss].tfo` | 警告 | proxies[0].tfo: sail does not implement this field; ignored |
+| `proxies[ss].tfo` | 支持 |  |
 | `proxies[ss].udp` | 支持 |  |
 | `proxies[ss].udp-over-tcp` | 支持 |  |
 | `proxies[ss].udp-over-tcp-version` | 支持 |  |
@@ -970,7 +970,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `proxies[trojan].ss-opts.enabled` | 报错 | proxies[0].ss-opts: sail does not implement this field yet |
 | `proxies[trojan].ss-opts.method` | 报错 | proxies[0].ss-opts: sail does not implement this field yet |
 | `proxies[trojan].ss-opts.password` | 报错 | proxies[0].ss-opts: sail does not implement this field yet |
-| `proxies[trojan].tfo` | 警告 | proxies[0].tfo: sail does not implement this field; ignored |
+| `proxies[trojan].tfo` | 支持 |  |
 | `proxies[trojan].udp` | 支持 |  |
 | `proxies[trojan].ws-opts` | 支持 |  |
 | `proxies[trojan].ws-opts.early-data-header-name` | 支持 |  |
@@ -1025,7 +1025,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `proxies[tuic].server` | 支持 |  |
 | `proxies[tuic].skip-cert-verify` | 支持 |  |
 | `proxies[tuic].sni` | 支持 |  |
-| `proxies[tuic].tfo` | 警告 | proxies[0].tfo: sail does not implement this field; ignored |
+| `proxies[tuic].tfo` | 支持 |  |
 | `proxies[tuic].token` | 报错 | proxies[0].token: TUIC v4, which sail does not implement; v5 takes uuid and password |
 | `proxies[tuic].udp-over-stream` | 支持 |  |
 | `proxies[tuic].udp-over-stream-version` | 支持 |  |
@@ -1089,7 +1089,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `proxies[vless].shadow-tls-opts.password` | 报错 | proxies[0].shadow-tls-opts: sail does not implement this field yet |
 | `proxies[vless].shadow-tls-opts.version` | 报错 | proxies[0].shadow-tls-opts: sail does not implement this field yet |
 | `proxies[vless].skip-cert-verify` | 支持 |  |
-| `proxies[vless].tfo` | 警告 | proxies[0].tfo: sail does not implement this field; ignored |
+| `proxies[vless].tfo` | 支持 |  |
 | `proxies[vless].tls` | 支持 |  |
 | `proxies[vless].udp` | 支持 |  |
 | `proxies[vless].uuid` | 支持 |  |
@@ -1263,7 +1263,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `proxies[vmess].shadow-tls-opts.password` | 报错 | proxies[0].shadow-tls-opts: sail does not implement this field yet |
 | `proxies[vmess].shadow-tls-opts.version` | 报错 | proxies[0].shadow-tls-opts: sail does not implement this field yet |
 | `proxies[vmess].skip-cert-verify` | 支持 |  |
-| `proxies[vmess].tfo` | 警告 | proxies[0].tfo: sail does not implement this field; ignored |
+| `proxies[vmess].tfo` | 支持 |  |
 | `proxies[vmess].tls` | 支持 |  |
 | `proxies[vmess].tlsmirror-opts` | 报错 | proxies[0].tlsmirror-opts: sail does not implement this field yet |
 | `proxies[vmess].tlsmirror-opts.connection-enrolment` | 报错 | proxies[0].tlsmirror-opts: sail does not implement this field yet |
@@ -1372,7 +1372,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `proxies[wireguard].reserved` | 支持 | proxies[0].reserved: not a list of bytes |
 | `proxies[wireguard].routing-mark` | 支持 |  |
 | `proxies[wireguard].server` | 支持 |  |
-| `proxies[wireguard].tfo` | 警告 | proxies[0].tfo: sail does not implement this field; ignored |
+| `proxies[wireguard].tfo` | 支持 |  |
 | `proxies[wireguard].udp` | 支持 |  |
 | `proxies[wireguard].workers` | 支持 |  |
 

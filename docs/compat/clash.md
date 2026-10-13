@@ -30,7 +30,7 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 | `dns` | 33 | 29 | 4 | 0 |
 | `experimental` | 5 | 0 | 5 | 0 |
 | `external-controller-cors` | 3 | 3 | 0 | 0 |
-| `general` | 48 | 32 | 14 | 2 |
+| `general` | 48 | 33 | 13 | 2 |
 | `geox-url` | 5 | 0 | 5 | 0 |
 | `iptables` | 5 | 0 | 0 | 5 |
 | `listeners[anytls]` | 45 | 0 | 0 | 45 |
@@ -54,13 +54,13 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 | `listeners[vmess]` | 116 | 0 | 0 | 116 |
 | `ntp` | 7 | 7 | 0 | 0 |
 | `profile` | 3 | 3 | 0 | 0 |
-| `proxies[anytls]` | 38 | 22 | 4 | 12 |
-| `proxies[direct]` | 7 | 5 | 2 | 0 |
+| `proxies[anytls]` | 38 | 23 | 3 | 12 |
+| `proxies[direct]` | 7 | 6 | 1 | 0 |
 | `proxies[dns]` | 7 | 1 | 6 | 0 |
 | `proxies[easytier]` | 37 | 0 | 0 | 37 |
 | `proxies[gost-relay]` | 22 | 0 | 0 | 22 |
-| `proxies[http]` | 19 | 16 | 2 | 1 |
-| `proxies[hysteria2]` | 50 | 24 | 10 | 16 |
+| `proxies[http]` | 19 | 17 | 1 | 1 |
+| `proxies[hysteria2]` | 50 | 25 | 9 | 16 |
 | `proxies[hysteria]` | 35 | 0 | 0 | 35 |
 | `proxies[masque]` | 29 | 0 | 0 | 29 |
 | `proxies[mieru]` | 17 | 0 | 0 | 17 |
@@ -69,18 +69,18 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 | `proxies[rematch]` | 9 | 0 | 0 | 9 |
 | `proxies[shadowquic]` | 27 | 0 | 0 | 27 |
 | `proxies[snell]` | 17 | 0 | 0 | 17 |
-| `proxies[socks5]` | 18 | 14 | 2 | 2 |
-| `proxies[ss]` | 93 | 24 | 3 | 66 |
+| `proxies[socks5]` | 18 | 15 | 1 | 2 |
+| `proxies[ss]` | 93 | 25 | 2 | 66 |
 | `proxies[ssh]` | 15 | 0 | 0 | 15 |
 | `proxies[ssr]` | 16 | 0 | 0 | 16 |
 | `proxies[sudoku]` | 31 | 0 | 0 | 31 |
 | `proxies[tailscale]` | 16 | 0 | 0 | 16 |
-| `proxies[trojan]` | 56 | 38 | 2 | 16 |
+| `proxies[trojan]` | 56 | 39 | 1 | 16 |
 | `proxies[trusttunnel]` | 32 | 0 | 0 | 32 |
-| `proxies[tuic]` | 41 | 26 | 12 | 3 |
-| `proxies[vless]` | 137 | 45 | 2 | 90 |
-| `proxies[vmess]` | 128 | 46 | 2 | 80 |
-| `proxies[wireguard]` | 64 | 27 | 6 | 31 |
+| `proxies[tuic]` | 41 | 27 | 11 | 3 |
+| `proxies[vless]` | 137 | 46 | 1 | 90 |
+| `proxies[vmess]` | 128 | 47 | 1 | 80 |
+| `proxies[wireguard]` | 64 | 28 | 5 | 31 |
 | `proxies[zerotier]` | 30 | 0 | 0 | 30 |
 | `proxy-groups` | 23 | 19 | 4 | 0 |
 | `proxy-providers` | 39 | 28 | 8 | 3 |
@@ -89,7 +89,7 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 | `tls` | 7 | 0 | 7 | 0 |
 | `tuic-server` | 13 | 0 | 0 | 13 |
 | `tun` | 50 | 34 | 9 | 7 |
-| **All** | **2077** | **504** | **126** | **1447** |
+| **All** | **2077** | **516** | **114** | **1447** |
 
 
 ## `general`
@@ -219,7 +219,7 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 | `global-ua` | Warned | global-ua: sail does not implement this field; ignored |
 | `hosts` | Supported |  |
 | `inbound-mptcp` | Warned | inbound-mptcp: sail does not implement this field; ignored |
-| `inbound-tfo` | Warned | inbound-tfo: sail does not implement this field; ignored |
+| `inbound-tfo` | Supported |  |
 | `interface-name` | Supported |  |
 
 ## `iptables`
@@ -602,7 +602,7 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 | `proxies[anytls].shadow-tls-opts.version` | Error | proxies[0].shadow-tls-opts: sail does not implement this field yet |
 | `proxies[anytls].skip-cert-verify` | Supported |  |
 | `proxies[anytls].sni` | Supported |  |
-| `proxies[anytls].tfo` | Warned | proxies[0].tfo: sail does not implement this field; ignored |
+| `proxies[anytls].tfo` | Supported |  |
 | `proxies[anytls].udp` | Supported |  |
 
 ## `proxies[direct]`
@@ -615,7 +615,7 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 | `proxies[direct].mptcp` | Warned | proxies[0].mptcp: sail does not implement this field; ignored |
 | `proxies[direct].name` | Supported |  |
 | `proxies[direct].routing-mark` | Supported |  |
-| `proxies[direct].tfo` | Warned | proxies[0].tfo: sail does not implement this field; ignored |
+| `proxies[direct].tfo` | Supported |  |
 
 ## `proxies[dns]`
 
@@ -661,7 +661,7 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 | `proxies[http].server` | Supported |  |
 | `proxies[http].skip-cert-verify` | Supported |  |
 | `proxies[http].sni` | Supported |  |
-| `proxies[http].tfo` | Warned | proxies[0].tfo: sail does not implement this field; ignored |
+| `proxies[http].tfo` | Supported |  |
 | `proxies[http].tls` | Supported |  |
 | `proxies[http].username` | Supported |  |
 
@@ -716,7 +716,7 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 | `proxies[hysteria2].server` | Supported |  |
 | `proxies[hysteria2].skip-cert-verify` | Supported |  |
 | `proxies[hysteria2].sni` | Supported |  |
-| `proxies[hysteria2].tfo` | Warned | proxies[0].tfo: sail does not implement this field; ignored |
+| `proxies[hysteria2].tfo` | Supported |  |
 | `proxies[hysteria2].udp-mtu` | Warned | proxies[0].udp-mtu: sail does not implement this field; ignored |
 | `proxies[hysteria2].up` | Supported | proxies[0].up: "x" is not a rate |
 
@@ -792,7 +792,7 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 | `proxies[socks5].routing-mark` | Supported |  |
 | `proxies[socks5].server` | Supported |  |
 | `proxies[socks5].skip-cert-verify` | Supported |  |
-| `proxies[socks5].tfo` | Warned | proxies[0].tfo: sail does not implement this field; ignored |
+| `proxies[socks5].tfo` | Supported |  |
 | `proxies[socks5].tls` | Error | proxies[0].tls: sail does not implement SOCKS5 over TLS yet |
 | `proxies[socks5].udp` | Supported |  |
 | `proxies[socks5].username` | Supported |  |
@@ -890,7 +890,7 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 | `proxies[ss].port` | Supported |  |
 | `proxies[ss].routing-mark` | Supported |  |
 | `proxies[ss].server` | Supported |  |
-| `proxies[ss].tfo` | Warned | proxies[0].tfo: sail does not implement this field; ignored |
+| `proxies[ss].tfo` | Supported |  |
 | `proxies[ss].udp` | Supported |  |
 | `proxies[ss].udp-over-tcp` | Supported |  |
 | `proxies[ss].udp-over-tcp-version` | Supported |  |
@@ -970,7 +970,7 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 | `proxies[trojan].ss-opts.enabled` | Error | proxies[0].ss-opts: sail does not implement this field yet |
 | `proxies[trojan].ss-opts.method` | Error | proxies[0].ss-opts: sail does not implement this field yet |
 | `proxies[trojan].ss-opts.password` | Error | proxies[0].ss-opts: sail does not implement this field yet |
-| `proxies[trojan].tfo` | Warned | proxies[0].tfo: sail does not implement this field; ignored |
+| `proxies[trojan].tfo` | Supported |  |
 | `proxies[trojan].udp` | Supported |  |
 | `proxies[trojan].ws-opts` | Supported |  |
 | `proxies[trojan].ws-opts.early-data-header-name` | Supported |  |
@@ -1025,7 +1025,7 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 | `proxies[tuic].server` | Supported |  |
 | `proxies[tuic].skip-cert-verify` | Supported |  |
 | `proxies[tuic].sni` | Supported |  |
-| `proxies[tuic].tfo` | Warned | proxies[0].tfo: sail does not implement this field; ignored |
+| `proxies[tuic].tfo` | Supported |  |
 | `proxies[tuic].token` | Error | proxies[0].token: TUIC v4, which sail does not implement; v5 takes uuid and password |
 | `proxies[tuic].udp-over-stream` | Supported |  |
 | `proxies[tuic].udp-over-stream-version` | Supported |  |
@@ -1089,7 +1089,7 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 | `proxies[vless].shadow-tls-opts.password` | Error | proxies[0].shadow-tls-opts: sail does not implement this field yet |
 | `proxies[vless].shadow-tls-opts.version` | Error | proxies[0].shadow-tls-opts: sail does not implement this field yet |
 | `proxies[vless].skip-cert-verify` | Supported |  |
-| `proxies[vless].tfo` | Warned | proxies[0].tfo: sail does not implement this field; ignored |
+| `proxies[vless].tfo` | Supported |  |
 | `proxies[vless].tls` | Supported |  |
 | `proxies[vless].udp` | Supported |  |
 | `proxies[vless].uuid` | Supported |  |
@@ -1263,7 +1263,7 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 | `proxies[vmess].shadow-tls-opts.password` | Error | proxies[0].shadow-tls-opts: sail does not implement this field yet |
 | `proxies[vmess].shadow-tls-opts.version` | Error | proxies[0].shadow-tls-opts: sail does not implement this field yet |
 | `proxies[vmess].skip-cert-verify` | Supported |  |
-| `proxies[vmess].tfo` | Warned | proxies[0].tfo: sail does not implement this field; ignored |
+| `proxies[vmess].tfo` | Supported |  |
 | `proxies[vmess].tls` | Supported |  |
 | `proxies[vmess].tlsmirror-opts` | Error | proxies[0].tlsmirror-opts: sail does not implement this field yet |
 | `proxies[vmess].tlsmirror-opts.connection-enrolment` | Error | proxies[0].tlsmirror-opts: sail does not implement this field yet |
@@ -1372,7 +1372,7 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 | `proxies[wireguard].reserved` | Supported | proxies[0].reserved: not a list of bytes |
 | `proxies[wireguard].routing-mark` | Supported |  |
 | `proxies[wireguard].server` | Supported |  |
-| `proxies[wireguard].tfo` | Warned | proxies[0].tfo: sail does not implement this field; ignored |
+| `proxies[wireguard].tfo` | Supported |  |
 | `proxies[wireguard].udp` | Supported |  |
 | `proxies[wireguard].workers` | Supported |  |
 

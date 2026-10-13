@@ -1691,6 +1691,7 @@ mod tests {
             tcp_keep_alive: None,
             tcp_keep_alive_interval: None,
             disable_tcp_keep_alive: false,
+            tcp_fast_open: false,
             options: options.as_object().unwrap().clone(),
         }
     }

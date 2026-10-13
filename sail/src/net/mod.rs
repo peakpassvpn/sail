@@ -46,6 +46,12 @@ impl TcpListener {
     /// Binds right away, so that a failure is known before anything starts.
     /// Must be called from within a Tokio runtime.
     pub fn bind_now(addr: &SocketAddr) -> io::Result<Self> {
+        Self::bind_with(addr, false)
+    }
+
+    /// `bind_now`, with TCP Fast Open if `fast_open`: as many connections
+    /// may be in their Fast Open handshake at once as wait to be accepted.
+    pub fn bind_with(addr: &SocketAddr, fast_open: bool) -> io::Result<Self> {
         let socket = Socket::new(Domain::for_address(*addr), Type::STREAM, None)?;
         dual_stack(SockRef::from(&socket), addr)?;
         // As tokio's own bind does: lets a restarted process listen again
@@ -53,7 +59,18 @@ impl TcpListener {
         #[cfg(not(windows))]
         socket.set_reuse_address(true)?;
         socket.bind(&(*addr).into())?;
-        socket.listen(backlog::max_listener_backlog())?;
+        let queue = backlog::max_listener_backlog();
+        let fast_open = |socket: &Socket| match fast_open {
+            true => dial::sockopt::listen_fast_open(&SockRef::from(socket), queue),
+            false => Ok(()),
+        };
+        if !dial::sockopt::LISTENS_FIRST {
+            fast_open(&socket)?;
+        }
+        socket.listen(queue)?;
+        if dial::sockopt::LISTENS_FIRST {
+            fast_open(&socket)?;
+        }
         socket.set_nonblocking(true)?;
         Ok(Self {
             inner: tokio::net::TcpListener::from_std(socket.into())?,
