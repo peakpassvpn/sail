@@ -74,6 +74,11 @@ on:
         type: choice
         options: [plain, buffers, allocators, workers, profile]
         default: plain
+      streams:
+        description: "the streams of a transfer, at once (not for profile)"
+        type: choice
+        options: ["4", "1"]
+        default: "4"
 
 permissions:
   contents: read
@@ -322,6 +327,7 @@ jobs:
         if: inputs.builds != 'profile'
         env:
           BUILDS: ${{ inputs.builds }}
+          STREAMS: ${{ inputs.streams }}
         run: |
           if [ "$BUILDS" = plain ] || { [ "$BUILDS" = allocators ] && [ "$RUNNER_OS" != Windows ]; }; then
             builds=(--sail variants/sail)
@@ -401,7 +407,7 @@ jobs:
               echo
             } >> "$GITHUB_STEP_SUMMARY"
           fi
-          python tools/perf/desktop/run.py "${builds[@]}" --sing-box bin/sing-box \
+          python tools/perf/desktop/run.py "${builds[@]}" --streams "$STREAMS" --sing-box bin/sing-box \
             --netgen bin/netgen --work cell-work --out results.json
 
       # xperf is the Windows Performance Toolkit's, a part of the Windows

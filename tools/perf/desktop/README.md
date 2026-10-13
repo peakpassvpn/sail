@@ -68,6 +68,8 @@ the cell's own arguments; the report says who was started with what:
 On GitHub: the workflow `perf-desktop`, by hand, with `os` = `windows` (the
 default), `macos` or `both`. The tables are in the job's summary and
 `results.json` in its artifact. Its input `builds` says what is compared.
+Its input `streams` is the streams of a transfer, 4 or 1: what several
+worker threads cost shows with several streams at once.
 
 Every run's summary starts with the runner: its CPU, its region and the CPU
 features BoringSSL chooses its code by (AES-NI, AVX2, VAES, VPCLMULQDQ and
