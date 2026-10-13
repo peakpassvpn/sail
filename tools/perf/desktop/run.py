@@ -21,6 +21,8 @@ Several builds of sail are compared in one run by naming each:
 One build serves several of them when they differ by sail's arguments:
 `--sail-args NAME=ARGS` appends ARGS, split as a shell would, to that
 one's command line, as in `--sail-args "big=--set quic.udp_receive_buffer=7168"`.
+`--sail-env NAME=VARIABLE=VALUE` sets a variable of the environment that one
+is started in.
 
 `--profile DIR`, on Windows: every download (`--profile-directions up,down`
 for both ways) is sampled by xperf
@@ -110,7 +112,7 @@ def wait_port(port, proc, limit=20.0):
 class Proc:
     """A child in a process group of its own, its output in a log file."""
 
-    def __init__(self, name, argv, log_path):
+    def __init__(self, name, argv, log_path, env=None):
         self.name = name
         self.log_path = log_path
         self.log = open(log_path, "ab")
@@ -120,6 +122,8 @@ class Proc:
             kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
         else:
             kwargs["start_new_session"] = True
+        if env:
+            kwargs["env"] = {**os.environ, **env}
         self.p = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=self.log,
                                   stderr=subprocess.STDOUT, **kwargs)
         try:
@@ -373,7 +377,7 @@ def run_client(args, proto, rnd, client, keys, server, target, server_port, targ
         argv = [args.sail[client], "-c", config, "--no-run-dir", "-D", work]
         argv += args.sail_args.get(client, [])
     samples = []
-    proc = Proc(name, argv, os.path.join(work, f"{name}.log"))
+    proc = Proc(name, argv, os.path.join(work, f"{name}.log"), args.sail_env.get(client))
     try:
         wait_port(socks_port, proc)
         warm = bulk(args, socks_port, target_port, "down", WARMUP_BYTES)
@@ -618,6 +622,19 @@ def version(argv):
         return "unknown"
 
 
+def sail_environment(values, builds):
+    """`--sail-env`'s values as {name: {variable: value}}."""
+    env = {}
+    for value in values:
+        name, eq, text = value.partition("=")
+        variable, eq2, to = text.partition("=")
+        if not eq or not eq2 or not variable or name not in builds:
+            sys.exit(f"--sail-env {value}: NAME=VARIABLE=VALUE, NAME one of --sail's "
+                     f"({', '.join(builds)})")
+        env.setdefault(name, {})[variable] = to
+    return env
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--sail", required=True, action="append", metavar="[NAME=]PATH",
@@ -626,6 +643,9 @@ def main():
     ap.add_argument("--sail-args", action="append", default=[], metavar="NAME=ARGS",
                     help="more arguments for the build NAME, split as a shell splits them "
                          "and appended to its command line; once a name")
+    ap.add_argument("--sail-env", action="append", default=[], metavar="NAME=VARIABLE=VALUE",
+                    help="a variable of the environment the build NAME is started in; "
+                         "may be given several times")
     ap.add_argument("--sing-box", required=True)
     ap.add_argument("--netgen", required=True)
     ap.add_argument("--work", required=True, help="a directory for configs, keys and logs")
@@ -655,6 +675,7 @@ def main():
         ap.error("--streams, --bytes and --rounds are at least 1")
     args.sail = sail_builds(args.sail)
     args.sail_args = sail_arguments(args.sail_args, args.sail)
+    args.sail_env = sail_environment(args.sail_env, args.sail)
     args.sing_box = executable(args.sing_box)
     args.netgen = executable(args.netgen)
     args.work = os.path.abspath(args.work)
@@ -671,7 +692,8 @@ def main():
     meta = {"system": platform.system(), "release": platform.release(),
             "machine": platform.machine(), "cpus": os.cpu_count(),
             "sail": [{"name": name, "version": version([path, "--version"]),
-                      "args": args.sail_args.get(name, [])}
+                      "args": args.sail_args.get(name, []),
+                      "env": args.sail_env.get(name, {})}
                      for name, path in args.sail.items()],
             "sing_box_version": version([args.sing_box, "version"]),
             "streams": args.streams, "bytes": args.bytes, "rounds": args.rounds,

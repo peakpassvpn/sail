@@ -93,6 +93,11 @@ sizes. The buffers are all that is varied: Windows' UDP receive offload
 (URO) is not a candidate, as it corrupts datagrams on some Windows 11
 systems.
 
+`workers`: one build started four ways, all three protocols: `sail` as it
+ships, a worker thread to each CPU; `sail-w1` and `sail-w2` with one and two
+worker threads, by `TOKIO_WORKER_THREADS`; `sail-1t` with `--single-thread`.
+It tells what the hand-over between threads costs.
+
 `allocators`: all three protocols; on macOS its one build, and on Windows
 three builds of the commit, all at the dist profile:
 
