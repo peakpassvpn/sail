@@ -23,6 +23,7 @@ use crate::common;
 use std::io::{Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -567,6 +568,45 @@ fn test_reality_flight_has_the_sites_shape() -> anyhow::Result<()> {
 // Traffic
 // ---------------------------------------------------------------------------
 
+/// How far the bytes of a TCP echo have got, for an echo that times out to
+/// say where it stood still: on the way to the echo server, or back.
+#[derive(Default)]
+struct Progress {
+    /// Read by the echo server.
+    reached: AtomicUsize,
+    /// Written back by the echo server.
+    returned: AtomicUsize,
+    /// Read back by the test.
+    echoed: AtomicUsize,
+}
+
+/// A TCP echo server on `listener` that counts in `progress` what it reads
+/// and what it has written back.
+async fn counting_echo(listener: tokio::net::TcpListener, progress: std::sync::Arc<Progress>) {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    loop {
+        let Ok((mut stream, _)) = listener.accept().await else {
+            return;
+        };
+        let progress = progress.clone();
+        tokio::spawn(async move {
+            let mut buf = vec![0u8; 16 * 1024];
+            loop {
+                let n = match stream.read(&mut buf).await {
+                    Ok(n) if n > 0 => n,
+                    _ => return,
+                };
+                progress.reached.fetch_add(n, Ordering::Relaxed);
+                if stream.write_all(&buf[..n]).await.is_err() {
+                    return;
+                }
+                progress.returned.fetch_add(n, Ordering::Relaxed);
+            }
+        });
+    }
+}
+
 /// Runs `configs` and, through the socks server on `socks_port`, echoes
 /// megabytes over TCP and UDP packets of a few sizes. With `inner_tls`, it
 /// also runs TLS 1.3 through the proxy, which is what Vision switches to
@@ -582,8 +622,10 @@ fn transfer(configs: Vec<String>, socks_port: u16, inner_tls: bool) -> anyhow::R
         .build()?;
     let ids = common::run_sail_instances(&rt, configs)?;
     let result = rt.block_on(async {
-        let (tcp_addr, tcp_echo) = common::run_tcp_echo_server("127.0.0.1:0").await?;
-        let tcp_echo = tokio::spawn(tcp_echo);
+        let progress = std::sync::Arc::new(Progress::default());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let tcp_addr = listener.local_addr()?;
+        let tcp_echo = tokio::spawn(counting_echo(listener, progress.clone()));
         let udp = tokio::net::UdpSocket::bind("127.0.0.1:0").await?;
         let udp_addr = udp.local_addr()?;
         let udp_echo = tokio::spawn(async move {
@@ -609,9 +651,35 @@ fn transfer(configs: Vec<String>, socks_port: u16, inner_tls: bool) -> anyhow::R
             Ok::<_, std::io::Error>(w)
         });
         let mut echoed = vec![0u8; data.len()];
-        timeout(Duration::from_secs(60), r.read_exact(&mut echoed))
+        let reading = async {
+            let mut n = 0;
+            while n < echoed.len() {
+                let read = r.read(&mut echoed[n..]).await?;
+                anyhow::ensure!(read > 0, "TCP echo ended after {} bytes", n);
+                n += read;
+                progress.echoed.store(n, Ordering::Relaxed);
+            }
+            Ok::<_, anyhow::Error>(())
+        };
+        // An echo that stands still says where: the next one that does is
+        // then known for the way there or the way back, and for how far in.
+        timeout(Duration::from_secs(60), reading)
             .await
-            .map_err(|_| anyhow::anyhow!("TCP echo timed out"))??;
+            .map_err(|_| {
+                anyhow::anyhow!(
+                    "TCP echo timed out: of {} bytes, {} reached the echo server, \
+                     {} left it again and {} came back; the writer {}",
+                    data.len(),
+                    progress.reached.load(Ordering::Relaxed),
+                    progress.returned.load(Ordering::Relaxed),
+                    progress.echoed.load(Ordering::Relaxed),
+                    if writer.is_finished() {
+                        "had written all of them"
+                    } else {
+                        "was still writing"
+                    },
+                )
+            })??;
         let _w = writer.await??;
         anyhow::ensure!(echoed == data, "TCP echo differs");
 
