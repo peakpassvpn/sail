@@ -163,7 +163,7 @@ pub fn lower(
         rules.push(Value::Object(rule));
     }
     // Before every other rule, Clash's modes' among them.
-    out.rules.splice(0..0, rules);
+    out.rules.extend_front(rules);
     Ok(())
 }
 

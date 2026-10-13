@@ -8,6 +8,11 @@
 //! in the lowered JSON, before the model is read from it: as only adjacent
 //! ones merge, the first rule a connection matches routes it as before.
 //!
+//! They merge as they are lowered (`Rules`), each into the one before it:
+//! a rule of one line is a JSON object of some 600 bytes, and thirty
+//! thousand of them kept until all were lowered were most of what reading
+//! a profile took.
+//!
 //! Each merged line keeps its index in `route.rules` and is told as the
 //! rule it was, and every rule keeps the index it had before the merge
 //! (`attach`, once the model is read): what a match reports (its rule, its
@@ -31,8 +36,129 @@ const DOMAINS: [(&str, LineKind); 3] = [
     ("domain_keyword", LineKind::Keyword),
 ];
 
+/// The route rules of a configuration being lowered, merged as they come.
+///
+/// A rule pushed joins the one before it when the two differ only in
+/// their one domain. Rules put in front, which a lowering does once the
+/// others are there (its listeners', its sniffing, a TUN's), are kept
+/// apart until `finish` joins the two lists, so that what comes out is
+/// what merging the whole list at the end would give.
+#[derive(Default)]
+pub(crate) struct Rules {
+    front: Vec<Value>,
+    rest: Run,
+}
+
+/// Rules merged in the order pushed, and what `Told` keeps of each.
+#[derive(Default)]
+struct Run {
+    rules: Vec<Value>,
+    told: Vec<(u32, Vec<Line>)>,
+    /// How many were pushed: the index of the next.
+    pushed: u32,
+}
+
+impl Run {
+    fn push(&mut self, rule: Value) {
+        let index = self.pushed;
+        self.pushed = self.pushed.saturating_add(1);
+        let line = one_domain(&rule).map(|(kind, value)| Line { index, kind, value });
+        if let (Some(line), Some(last), Some((_, lines))) =
+            (&line, self.rules.last_mut(), self.told.last_mut())
+        {
+            if !lines.is_empty() && alike(last, &rule) {
+                push(last, line);
+                lines.push(line.clone());
+                return;
+            }
+        }
+        self.told.push((index, line.into_iter().collect()));
+        self.rules.push(rule);
+    }
+
+    /// Adds the rules of `after`, pushed after its own: the first of them
+    /// joins its last as it would have, pushed one line at a time.
+    fn append(&mut self, mut after: Run) {
+        let shift = self.pushed;
+        self.pushed = self.pushed.saturating_add(after.pushed);
+        for (index, lines) in &mut after.told {
+            *index += shift;
+            for line in lines {
+                line.index += shift;
+            }
+        }
+        let joins = match (
+            self.rules.last(),
+            self.told.last(),
+            after.rules.first(),
+            after.told.first(),
+        ) {
+            (Some(last), Some((_, lines)), Some(rule), Some((_, first))) => {
+                !lines.is_empty() && !first.is_empty() && alike(last, rule)
+            }
+            _ => false,
+        };
+        if joins {
+            after.rules.remove(0);
+            let (_, first) = after.told.remove(0);
+            if let (Some(last), Some((_, lines))) = (self.rules.last_mut(), self.told.last_mut()) {
+                for line in first {
+                    push(last, &line);
+                    lines.push(line);
+                }
+            }
+        }
+        self.rules.append(&mut after.rules);
+        self.told.append(&mut after.told);
+    }
+}
+
+impl Rules {
+    /// Adds `rule` after those pushed so far.
+    pub(crate) fn push(&mut self, rule: Value) {
+        self.rest.push(rule);
+    }
+
+    /// Adds `rules`, in order, after those pushed so far.
+    #[cfg(any(feature = "config-surge", test))]
+    pub(crate) fn extend(&mut self, rules: impl IntoIterator<Item = Value>) {
+        for rule in rules {
+            self.rest.push(rule);
+        }
+    }
+
+    /// Puts `rule` before every other.
+    pub(crate) fn push_front(&mut self, rule: Value) {
+        self.front.insert(0, rule);
+    }
+
+    /// Puts `rules`, in order, before every other.
+    pub(crate) fn extend_front(&mut self, rules: Vec<Value>) {
+        self.front.splice(0..0, rules);
+    }
+
+    /// The rules, merged, and what a merged `route.rules` keeps of the
+    /// rules it had.
+    pub(crate) fn finish(self) -> (Vec<Value>, Told) {
+        let mut all = Run::default();
+        for rule in self.front {
+            all.push(rule);
+        }
+        all.append(self.rest);
+        // A line nothing joined stays a plain rule.
+        for (_, lines) in &mut all.told {
+            if lines.len() == 1 {
+                lines.clear();
+            }
+        }
+        (all.rules, Told(all.told))
+    }
+}
+
 /// Merges the adjacent rules of `config`'s `route.rules`, a lowered
-/// configuration, that differ only in their one domain.
+/// configuration, that differ only in their one domain: the whole list at
+/// once, which `Rules` does as the rules come. For tests.
+#[cfg(test)]
 pub(crate) fn merge(config: &mut Value) -> Told {
     let Some(rules) = config
         .get_mut("route")
@@ -125,16 +251,20 @@ fn one_domain(rule: &Value) -> Option<(LineKind, String)> {
 }
 
 /// Whether `merged`, a rule lines were merged into, and `rule` differ
-/// only in their domains.
+/// only in their domains. Field by field, nothing copied: a run of
+/// thousands of lines to one target compares each with the rule that has
+/// all those before it.
 fn alike(merged: &Value, rule: &Value) -> bool {
-    let bare = |r: &Value| -> Option<Map<String, Value>> {
-        let mut r = r.as_object()?.clone();
-        for (field, _) in DOMAINS {
-            r.remove(field);
-        }
-        Some(r)
+    let (Some(merged), Some(rule)) = (merged.as_object(), rule.as_object()) else {
+        return false;
     };
-    matches!((bare(merged), bare(rule)), (Some(a), Some(b)) if a == b)
+    let domain = |field: &str| DOMAINS.iter().any(|(name, _)| *name == field);
+    let others = |r: &Map<String, Value>| r.keys().filter(|field| !domain(field)).count();
+    others(merged) == others(rule)
+        && merged
+            .iter()
+            .filter(|(field, _)| !domain(field))
+            .all(|(field, value)| rule.get(field) == Some(value))
 }
 
 /// Adds `line`'s domain to `merged`'s field of its kind, a list.
@@ -192,6 +322,75 @@ mod tests {
         assert_eq!(told.0[1].0, 3);
         assert_eq!((told.0[2].0, told.0[2].1.len()), (4, 0));
         assert_eq!(indexes(&told, 3), [5, 6]);
+    }
+
+    /// Merged as they come, with rules put in front along the way, the
+    /// rules are those the whole list merged at once gives: the same
+    /// rules, numbered and told the same.
+    #[test]
+    fn rules_merged_as_they_come_are_those_merged_at_once() {
+        let g = |domain: &str| serde_json::json!({ "domain_suffix": [domain], "outbound": "G" });
+        let d = |domain: &str| serde_json::json!({ "domain": domain, "outbound": "DIRECT" });
+        let other = || serde_json::json!({ "ip_cidr": ["10.0.0.0/8"], "outbound": "G" });
+        let sniff = || serde_json::json!({ "action": "sniff" });
+        // What a lowering does: (true, rules) puts them in front.
+        let cases: Vec<Vec<(bool, Vec<Value>)>> = vec![
+            vec![(
+                false,
+                vec![g("a"), g("b"), other(), g("c"), d("d"), d("e"), g("f")],
+            )],
+            // The front's last and the first of the rest are alike: one rule.
+            vec![
+                (false, vec![g("a"), g("b"), d("c")]),
+                (true, vec![sniff(), g("x"), g("y")]),
+            ],
+            // A rule of one line in front joins a run; one behind it too.
+            vec![
+                (false, vec![g("a"), g("b")]),
+                (true, vec![g("x")]),
+                (false, vec![g("c")]),
+            ],
+            // Front after front, the later one first; neither joins the rest.
+            vec![
+                (false, vec![d("a")]),
+                (true, vec![g("x"), g("y")]),
+                (true, vec![sniff()]),
+            ],
+            // Nothing but front; nothing at all.
+            vec![(true, vec![g("x"), g("y"), d("z")])],
+            vec![],
+            // One line each side of the join, and a single in front of a single of another target.
+            vec![(false, vec![g("a")]), (true, vec![g("x")])],
+            vec![(false, vec![d("a")]), (true, vec![g("x")])],
+        ];
+        for case in cases {
+            let mut rules = Rules::default();
+            let mut whole: Vec<Value> = Vec::new();
+            for (front, batch) in case {
+                if front {
+                    whole.splice(0..0, batch.clone());
+                    // One at a time or all at once, as lowerings do both.
+                    if batch.len() == 1 {
+                        rules.push_front(batch.into_iter().next().unwrap());
+                    } else {
+                        rules.extend_front(batch);
+                    }
+                } else {
+                    whole.extend(batch.clone());
+                    rules.extend(batch);
+                }
+            }
+            let mut config = serde_json::json!({ "route": { "rules": whole.clone() } });
+            let at_once = merge(&mut config);
+            let (as_they_came, told) = rules.finish();
+            assert_eq!(
+                Value::Array(as_they_came),
+                config["route"]["rules"],
+                "{:?}",
+                whole
+            );
+            assert_eq!(told.0, at_once.0, "{:?}", whole);
+        }
     }
 
     #[test]

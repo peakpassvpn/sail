@@ -69,18 +69,16 @@ pub fn parse_in(s: &str, home: Option<&std::path::Path>) -> Result<Config> {
     tun::lower(&mut doc, fake_ip, &mut sets, &mut out, &mut warnings)?;
     // Before every other rule, sniffing among them.
     if let Some(rule) = listeners::lan_rule(&out) {
-        out.rules.insert(0, rule);
+        out.rules.push_front(rule);
     }
     out.rule_sets.extend(sets.into_geo_sets());
     out.apply_keep_alive(&mut warnings);
     doc.finish(general::TOP, |key| holders.contains(key), &mut warnings)?;
 
-    let value = out.into_json();
-    // Its inline rules' adjacent lines merged before the model is read,
+    // Its inline rules' adjacent lines were merged as they were lowered,
     // each still told and numbered as itself; a lowering's own, never a
     // native configuration.
-    let mut value = value;
-    let told = super::inline::merge(&mut value);
+    let (value, told) = out.into_json();
     let mut config: Config = serde_path_to_error::deserialize(value).map_err(|e| {
         anyhow!(
             "{}: {} (as sail reads it)",
@@ -127,7 +125,8 @@ pub struct Lowered {
     pub outbounds: Vec<Value>,
     pub endpoints: Vec<Value>,
     pub outbound_providers: Vec<Value>,
-    pub rules: Vec<Value>,
+    /// The route rules, merged as they are lowered.
+    pub(in crate::config) rules: super::inline::Rules,
     pub rule_sets: Vec<Value>,
     pub route: Map<String, Value>,
     /// Mihomo's `mode`, which the Clash API may change.
@@ -186,9 +185,12 @@ impl Lowered {
         }
     }
 
-    pub(in crate::config) fn into_json(self) -> Value {
+    /// The configuration, and what its merged `route.rules` keeps of the
+    /// rules lowered.
+    pub(in crate::config) fn into_json(self) -> (Value, super::inline::Told) {
         let mut route = self.route;
-        route.insert("rules".into(), Value::Array(self.rules));
+        let (rules, told) = self.rules.finish();
+        route.insert("rules".into(), Value::Array(rules));
         if !self.rule_sets.is_empty() {
             route.insert("rule_set".into(), Value::Array(self.rule_sets));
         }
@@ -223,7 +225,7 @@ impl Lowered {
         if !experimental.is_empty() {
             config.insert("experimental".into(), Value::Object(experimental));
         }
-        Value::Object(config)
+        (Value::Object(config), told)
     }
 }
 

@@ -150,12 +150,10 @@ pub fn parse_with(
             .insert("auto_detect_interface".into(), json!(true));
     }
 
-    let value: Value = out.into_json();
-    // Its inline rules' adjacent lines merged before the model is read,
+    // Its inline rules' adjacent lines were merged as they were lowered,
     // each still told and numbered as itself; a lowering's own, never a
     // native configuration.
-    let mut value = value;
-    let told = super::inline::merge(&mut value);
+    let (value, told) = out.into_json();
     let mut config: Config = serde_path_to_error::deserialize(value).map_err(|e| {
         anyhow!(
             "{}: {} (as sail reads it)",

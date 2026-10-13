@@ -245,7 +245,7 @@ pub fn lower(
     out.inbounds.push(Value::Object(tun));
     // Before every other rule, sniffing among them: Mihomo answers these
     // before a connection is routed.
-    out.rules.insert(0, hijack);
+    out.rules.push_front(hijack);
     Ok(())
 }
 

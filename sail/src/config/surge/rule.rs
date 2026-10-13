@@ -434,7 +434,7 @@ pub fn lower(
         ));
     }
     let early = std::mem::take(&mut walk.early);
-    walk.out.rules.splice(0..0, early);
+    walk.out.rules.extend_front(early);
     Ok(())
 }
 

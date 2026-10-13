@@ -1135,6 +1135,6 @@ fn listener(listen: &str, at: &str, out: &mut Lowered) -> Result<()> {
         "listen_port": port,
     }));
     out.rules
-        .insert(0, json!({ "inbound": [LISTENER], "action": "hijack-dns" }));
+        .push_front(json!({ "inbound": [LISTENER], "action": "hijack-dns" }));
     Ok(())
 }

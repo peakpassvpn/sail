@@ -2543,11 +2543,9 @@ fn the_lowered_document_moves_its_parts_in() {
         "domain_suffix".into(),
         Value::Array(vec![Value::String(domain)]),
     );
-    let out = Lowered {
-        rules: vec![Value::Object(rule)],
-        ..Default::default()
-    };
-    let config = out.into_json();
+    let mut out = Lowered::default();
+    out.rules.push(Value::Object(rule));
+    let (config, _) = out.into_json();
     let moved = config["route"]["rules"][0]["domain_suffix"][0]
         .as_str()
         .unwrap();

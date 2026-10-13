@@ -114,7 +114,7 @@ pub struct General {
 impl General {
     /// Puts its rules before every other.
     pub fn apply(self, out: &mut Lowered) {
-        out.rules.splice(0..0, self.rules);
+        out.rules.extend_front(self.rules);
     }
 }
 

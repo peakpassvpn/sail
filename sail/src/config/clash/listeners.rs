@@ -70,7 +70,7 @@ pub struct Listeners {
 impl Listeners {
     /// Puts their rules before every other, the sniffer's to come.
     pub fn apply(self, out: &mut Lowered) {
-        out.rules.splice(0..0, self.rules);
+        out.rules.extend_front(self.rules);
     }
 }
 

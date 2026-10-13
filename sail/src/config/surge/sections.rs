@@ -156,7 +156,7 @@ fn forwarding(lines: Vec<text::Line>, policies: &Policies, out: &mut Lowered) ->
             }
         }
     }
-    out.rules.splice(0..0, rules);
+    out.rules.extend_front(rules);
     Ok(())
 }
 
