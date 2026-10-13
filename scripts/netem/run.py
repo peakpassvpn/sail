@@ -402,10 +402,14 @@ def last(samples, key):
 # ------------------------------------------------------------- runs
 class Run:
     def __init__(self, args, proto, client, server, client_bin=None, server_bin=None,
-                 tag=""):
+                 tag="", client_extra=("", ""), server_extra=("", "")):
         self.args = args
         self.client_bin = client_bin or args.sail
         self.server_bin = server_bin or args.sail
+        # What --sail-env and --sail-arg give a sail side: (before, after)
+        # its command.
+        self.client_extra = client_extra
+        self.server_extra = server_extra
         self.proto = proto
         self.client = client
         self.server = server
@@ -465,7 +469,9 @@ class Run:
 
     def server_command(self, path):
         if self.server.startswith("sail"):
-            return f"{self.server_bin} -c {path} --profile {self.args.server_profile}"
+            before, after = self.server_extra
+            return (f"{before}{self.server_bin} -c {path} "
+                    f"--profile {self.args.server_profile}{after}")
         return f"{self.args.singbox} run -c {path}"
 
     def start_client(self):
@@ -479,13 +485,30 @@ class Run:
         log = os.path.join(self.dir, "client.log")
         if self.client.startswith("sail"):
             profile = self.client.split("-", 1)[1]
-            cmd = f"{self.client_bin} -c {path} --profile {profile}"
+            before, after = self.client_extra
+            cmd = f"{before}{self.client_bin} -c {path} --profile {profile}{after}"
             cmd += "".join(f" --set {setting}" for setting in self.args.client_set)
         else:
             cmd = f"{self.args.singbox} run -c {path}"
         self.procs["client"] = Proc("client", CLIENT_NS, cmd, log,
                                     nofile=self.args.client_nofile)
         time.sleep(1.5)
+
+    def threads(self):
+        """The threads of the client and of the protocol server, counted
+        by name, for a run that sets how many workers a side has to show
+        that it took."""
+        out = {}
+        for side in ("client", "server"):
+            proc = self.procs.get(side)
+            pid = proc.pid() if proc else None
+            try:
+                names = [open(f"/proc/{pid}/task/{t}/comm").read().strip()
+                         for t in os.listdir(f"/proc/{pid}/task")]
+            except OSError:
+                continue
+            out[side] = {name: names.count(name) for name in sorted(set(names))}
+        return out
 
     def restart_server(self):
         key = "server" if "server" in self.procs else "netgen"
@@ -871,6 +894,7 @@ class Run:
         # Hours of samples a second would be the run's own load.
         sampler = Sampler(self.procs["client"], interval=10 if self.args.soak else 1)
         start_idle = self.idle(sampler, settle=2)
+        threads = {"start": self.threads()}
         try:
             if self.args.soak:
                 self.soak(sampler, self.args.soak)
@@ -879,11 +903,12 @@ class Run:
         finally:
             netns("clear")
             end_idle = self.idle(sampler, settle=self.args.end_settle)
+            threads["end"] = self.threads()
             sampler.stop()
             for p in self.procs.values():
                 p.stop()
         summary = {"name": self.name, "failures": self.failures,
-                   "idle_start": start_idle, "idle_end": end_idle,
+                   "idle_start": start_idle, "idle_end": end_idle, "threads": threads,
                    "records": [compact(r) for r in self.records]}
         with gzip.open(os.path.join(self.dir, "raw.jsonl.gz"), "wt") as f:
             for r in self.records:
@@ -967,11 +992,13 @@ def matrix(args, summaries):
             quic = proto == "hy2" or proto.startswith("tuic")
             args.bulk_bytes = (args.bulk_bytes_quic or tcp_bytes) if quic else tcp_bytes
             for c, s in order:
-                client = "sing-box" if c == "sb" else "sail-server"
+                client = "sing-box" if c == "sb" else f"sail-{args.client_profile}"
                 server = "sing-box" if s == "sb" else "sail"
                 tag = f"--{c}-{s}-r{r + 1}"
                 run = Run(args, proto, client, server, client_bin=bins.get(c),
-                          server_bin=bins.get(s), tag=tag)
+                          server_bin=bins.get(s), tag=tag,
+                          client_extra=args.sail_extra.get(c, ("", "")),
+                          server_extra=args.sail_extra.get(s, ("", "")))
                 run.pair = f"{c}>{s}"
                 summ = run.go()
                 summ.update({"proto": proto, "pair": f"{c}>{s}", "round": r + 1})
@@ -1043,6 +1070,14 @@ def main():
                     help="how long the client rests before its last sample (default 10)")
     ap.add_argument("--sail-bin", action="append", default=[], metavar="NAME=PATH",
                     help="another sail binary, named for --matrix (repeatable)")
+    ap.add_argument("--sail-env", action="append", default=[], metavar="NAME=KEY=VALUE",
+                    help="an environment variable for the --matrix side NAME (sail or a "
+                         "--sail-bin name), e.g. w1=TOKIO_WORKER_THREADS=1; repeatable")
+    ap.add_argument("--sail-arg", action="append", default=[], metavar="NAME=ARG",
+                    help="one more argument for the --matrix side NAME, e.g. "
+                         "st=--single-thread; repeatable")
+    ap.add_argument("--client-profile", default="server",
+                    help="the runtime profile of a sail client of --matrix (default server)")
     ap.add_argument("--matrix", default="",
                     help="client>server pairs, each sb, sail or a --sail-bin name, e.g. "
                          "sb>sb,sail>sb,sb>sail,sail>sail; rounds go outside, the order of "
@@ -1074,6 +1109,23 @@ def main():
         if not sep or not name or not path or name in ("sb", "sail"):
             ap.error(f"--sail-bin {item!r}: NAME=PATH, NAME other than sb and sail")
         args.sail_bins[name] = path
+    # Each side's (before, after) its command: `env K=V ` and ` ARG`.
+    extra = {}
+    for opt, items in (("--sail-env", args.sail_env), ("--sail-arg", args.sail_arg)):
+        for item in items:
+            name, sep, value = item.partition("=")
+            if not sep or not value or name not in ("sail", *args.sail_bins):
+                ap.error(f"{opt} {item!r}: NAME=..., NAME sail or a --sail-bin name")
+            if opt == "--sail-env" and "=" not in value:
+                ap.error(f"--sail-env {item!r}: NAME=KEY=VALUE")
+            extra.setdefault(name, ([], []))[opt == "--sail-arg"].append(shlex.quote(value))
+    # Inside the single quotes Proc runs a command in.
+    if any("'" in word for before, after in extra.values() for word in before + after):
+        ap.error("--sail-env, --sail-arg: no quotes or spaces in a value")
+    args.sail_extra = {
+        name: ("env " + " ".join(before) + " " if before else "",
+               "".join(f" {a}" for a in after))
+        for name, (before, after) in extra.items()}
     for pair in filter(None, args.matrix.split(",")):
         sides = pair.split(">")
         known = {"sb", "sail", *args.sail_bins}
