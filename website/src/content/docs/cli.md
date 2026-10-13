@@ -193,7 +193,7 @@ The input is one link, a subscription file (base64, or one link per line), or st
 
 ## Threading
 
-Sail uses a multi-threaded runtime by default. `--single-thread` is useful for constrained hosts, deterministic debugging or embeddings that provide their own outer concurrency. `--thread-stack-size` changes the worker stack size in bytes (default 256 KiB in release builds, 2 MiB in debug builds); keep the default unless profiling shows a concrete need.
+The runtime's threads follow the profile: two worker threads for `desktop` (one on a single CPU), one thread for `mobile`, a worker thread to each CPU for `server` and `router`. Two is measured: a connection's tasks wake one another, and with a worker to each CPU those wakes cross threads, which on Windows cost Hysteria2 downloads twice the CPU. `--threads` sets the number of worker threads whatever the profile. `--single-thread` is useful for constrained hosts, deterministic debugging or embeddings that provide their own outer concurrency. `--thread-stack-size` changes the worker stack size in bytes (default 256 KiB in release builds, 2 MiB in debug builds); keep the default unless profiling shows a concrete need.
 
 On Unix, the CLI raises the open-file soft limit to the hard limit at startup (on macOS, no higher than `kern.maxfilesperproc`).
 
@@ -204,6 +204,7 @@ On Unix, the CLI raises the open-file soft limit to the hard limit at startup (o
 | `-c`, `--config` | Configuration path; default `config.json`. Format by extension: `.json`, `.yaml`/`.yml`, `.conf` |
 | `--auto-reload` | Watch the configuration and reload changes |
 | `--single-thread` | Use a current-thread runtime |
+| `--threads` | Worker threads of the runtime; the profile's unless set |
 | `--thread-stack-size` | Worker thread stack size in bytes |
 | `-T`, `--test` | Validate configuration and exit |
 | `-t`, `--test-outbound` | Test one outbound tag |

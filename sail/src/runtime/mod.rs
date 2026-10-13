@@ -17,7 +17,7 @@ pub mod teardown;
 #[cfg(feature = "auto-reload")]
 pub(crate) mod watch;
 
-pub use options::{Profile, RuntimeOptions};
+pub use options::{Profile, ProfileThreads, RuntimeOptions};
 pub use platform::{Platform, PlatformRef, TunRequest};
 
 use anyhow::{anyhow, Result};

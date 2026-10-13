@@ -150,11 +150,11 @@ impl Instance {
             .resolve()
             .map_err(|e| Error::new(ErrorKind::Config, format!("{:#}", e)))?;
         host.stop_within = stop_within;
-        let threads = threads.unwrap_or(match profile {
-            // A phone's budget: one thread, as libbox's.
-            crate::runtime::Profile::Mobile => Threads::One,
-            // As sail-cli runs: a worker a core.
-            _ => Threads::Auto,
+        // As sail-cli runs each profile.
+        let threads = threads.unwrap_or(match profile.threads() {
+            crate::runtime::ProfileThreads::One => Threads::One,
+            crate::runtime::ProfileThreads::Workers(n) => Threads::Workers(n, super::STACK_SIZE),
+            crate::runtime::ProfileThreads::PerCpu => Threads::Auto,
         });
         let id = take_id()?;
         let log = log.unwrap_or_else(|| InstanceLog::new(log_lines));

@@ -77,11 +77,18 @@ same.
 - **Where it runs.** By default each instance runs on a tokio runtime of
   its own, on threads of its own:
   - one thread with the `mobile` profile;
-  - a worker per core with every other profile, as `sail` the CLI runs;
-  - or what `Options::threads` says.
+  - two workers with the `desktop` profile (one on a single CPU);
+  - a worker per core with the `server` and `router` profiles;
+  - or what `Options::threads` says. `sail` the CLI runs each profile the
+    same way.
 - **On the host's runtime.** `Options::runtime(Runtime::Host(handle))`
   runs the instance's tasks on the host's tokio runtime instead; `threads`
-  is then ignored, and two or more instances may share one runtime. The
+  is then ignored, and two or more instances may share one runtime. For a
+  client, a runtime of two workers is recommended, as sail starts for a
+  desktop: a connection's tasks wake one another, and with a worker to
+  each CPU most of those wakes cross threads (on Windows a Hysteria2
+  download cost twice the CPU of two workers, and four times that of
+  one). The
   runtime must be:
   - multi-thread, with I/O and timers enabled (`enable_all()`). `start()`
     refuses anything else with `ErrorKind::InvalidArgument`, naming what is
@@ -160,7 +167,9 @@ returns memory by itself needs nothing.
 allocate arenas of their own, up to eight a core, and keeps in each what
 was freed there. Instances on runtimes of their own each bring their
 workers, and their arenas outlive them. Measured on Linux x86-64, 4
-cores (`sail/tests/test_hundred_instances.rs`: 100 instances one after
+cores, each instance of its own runtime on 4 workers (the desktop
+profile's default was a worker per core then; it is two now)
+(`sail/tests/test_hundred_instances.rs`: 100 instances one after
 another, then ten rounds of ten at once, each relaying a connection):
 
 | | RSS after, from 64 MB |

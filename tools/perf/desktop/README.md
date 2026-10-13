@@ -94,8 +94,8 @@ sizes. The buffers are all that is varied: Windows' UDP receive offload
 systems.
 
 `workers`: one build started four ways, all three protocols: `sail` as it
-ships, a worker thread to each CPU; `sail-w1` and `sail-w2` with one and two
-worker threads, by `TOKIO_WORKER_THREADS`; `sail-1t` with `--single-thread`.
+ships, the desktop profile's two worker threads; `sail-w1` and `sail-w4`
+with one and four, by `--threads`; `sail-1t` with `--single-thread`.
 It tells what the hand-over between threads costs.
 
 `allocators`: all three protocols; on macOS its one build, and on Windows

@@ -24,6 +24,64 @@ pub enum Profile {
     Router,
 }
 
+/// The threads a profile's runtime runs on, unless told otherwise.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProfileThreads {
+    /// One thread, the runtime's and the tasks' alike.
+    One,
+    /// This many worker threads.
+    Workers(usize),
+    /// A worker thread to each CPU.
+    PerCpu,
+}
+
+/// The worker threads of a desktop: measured. A connection's tasks wake
+/// one another, and each wake that lands on another worker is a thread
+/// woken, which costs more than the work handed over. Client CPU seconds
+/// per GiB, 4 streams over loopback, by worker threads:
+///
+/// | Windows, 4 CPUs (two runners) | 4          | 2         | 1        |
+/// |-------------------------------|------------|-----------|----------|
+/// | Hysteria2 download            | 27.8, 15.9 | 13.1, 8.7 | 7.7, 4.8 |
+/// | its throughput over sing-box  | 0.62, 0.70 | 1.12, 1.02 | 1.23, 1.23 |
+/// | Trojan download over sing-box | 0.89, 0.92 | 0.97, 0.98 | 1.03, 1.02 |
+///
+/// | Linux, 8 CPUs, Mbit/s | 8     | 2     | 1    |
+/// |-----------------------|-------|-------|------|
+/// | Trojan download       | 11777 | 10204 | 6468 |
+/// | Trojan upload         | 12131 | 10598 | 5491 |
+/// | Hysteria2 download    | 5084  | 5757  | 6075 |
+///
+/// One worker is the cheapest until it is one CPU's worth of work, and
+/// then it is the limit: Trojan and multiplexed uploads lose 39 to 55%.
+/// Two keep 87% or more of what every CPU gives, at about half the cost
+/// of four where waking a thread is dear.
+const DESKTOP_WORKERS: usize = 2;
+
+impl Profile {
+    /// The threads its runtime runs on, unless told otherwise.
+    ///
+    /// - A phone: one, as libbox's. It was the embedding's before it was
+    ///   measured anywhere, and no phone has been measured since: a
+    ///   judgment, which the desktop's and Linux's figures agree with, a
+    ///   phone's links being far from a CPU's worth of work.
+    /// - A desktop: `DESKTOP_WORKERS`, or its CPUs if fewer.
+    /// - A server and a router: a worker to each CPU. A server of one
+    ///   worker answered 500 new connections a second in 4.8 to 11 s at
+    ///   the 99th percentile, against 6 to 12 ms; a router's CPUs are
+    ///   slow enough that it needs each.
+    pub fn threads(self) -> ProfileThreads {
+        match self {
+            Profile::Mobile => ProfileThreads::One,
+            Profile::Desktop => {
+                let cpus = std::thread::available_parallelism().map_or(1, |n| n.get());
+                ProfileThreads::Workers(DESKTOP_WORKERS.min(cpus))
+            }
+            Profile::Server | Profile::Router => ProfileThreads::PerCpu,
+        }
+    }
+}
+
 impl FromStr for Profile {
     type Err = anyhow::Error;
 

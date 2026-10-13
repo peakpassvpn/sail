@@ -181,7 +181,7 @@ cat subscription.txt | sail import
 
 ## 线程
 
-Sail 默认使用多线程运行时。`--single-thread` 适合资源受限的宿主、可复现的调试，或自带外层并发的嵌入场景。`--thread-stack-size` 以字节为单位设置工作线程栈大小（release 构建默认 256 KiB，debug 构建 2 MiB）；除非性能分析表明确有需要，否则保持默认。
+运行时的线程数随档位而定：`desktop` 两个工作线程（单 CPU 时一个），`mobile` 单线程，`server` 与 `router` 每个 CPU 一个工作线程。两个是实测值：同一连接的任务互相唤醒，每个 CPU 一个工作线程时这些唤醒会跨线程，在 Windows 上使 Hysteria2 下行的 CPU 开销翻倍。`--threads` 指定工作线程数，优先于档位。`--single-thread` 适合资源受限的宿主、可复现的调试，或自带外层并发的嵌入场景。`--thread-stack-size` 以字节为单位设置工作线程栈大小（release 构建默认 256 KiB，debug 构建 2 MiB）；除非性能分析表明确有需要，否则保持默认。
 
 在 Unix 上，CLI 启动时会把打开文件数的软限制提高到硬限制（macOS 上不超过 `kern.maxfilesperproc`）。
 
@@ -192,6 +192,7 @@ Sail 默认使用多线程运行时。`--single-thread` 适合资源受限的宿
 | `-c`, `--config` | 配置文件，默认 `config.json`；按扩展名区分格式：`.json`、`.yaml`/`.yml`、`.conf` |
 | `--auto-reload` | 监听文件变化并重载 |
 | `--single-thread` | 使用单线程运行时 |
+| `--threads` | 运行时的工作线程数；未指定时取档位的值 |
 | `--thread-stack-size` | 工作线程栈大小（字节） |
 | `-T`, `--test` | 验证配置后退出 |
 | `-t`, `--test-outbound` | 测试指定出站标签 |

@@ -70,7 +70,7 @@ on:
         options: [windows, macos, both]
         default: windows
       builds:
-        description: "plain: one build, all protocols; buffers: one build, four socket buffer sizes, Hysteria2; allocators: three builds (Windows), all protocols; workers: one build with 1, 2 and all worker threads and single-threaded, all protocols; profile: where the CPU goes (Windows only), Hysteria2 and Trojan"
+        description: "plain: one build, all protocols; buffers: one build, four socket buffer sizes, Hysteria2; allocators: three builds (Windows), all protocols; workers: one build with 1, 2 (as shipped) and 4 worker threads and single-threaded, all protocols; profile: where the CPU goes (Windows only), Hysteria2 and Trojan"
         type: choice
         options: [plain, buffers, allocators, workers, profile]
         default: plain
@@ -330,18 +330,18 @@ jobs:
             builds=(
               --sail sail=variants/sail
               --sail sail-w1=variants/sail
-              --sail sail-w2=variants/sail
+              --sail sail-w4=variants/sail
               --sail sail-1t=variants/sail
-              --sail-env sail-w1=TOKIO_WORKER_THREADS=1
-              --sail-env sail-w2=TOKIO_WORKER_THREADS=2
+              --sail-args "sail-w1=--threads 1"
+              --sail-args "sail-w4=--threads 4"
               --sail-args "sail-1t=--single-thread"
             )
             "variants/sail$EXE" --version
             {
               echo "One build of this commit, at the dist profile, started four ways: \`sail\` as it"
-              echo "ships, a worker thread to each CPU; \`sail-w1\` and \`sail-w2\` with one and two"
-              echo "worker threads (\`TOKIO_WORKER_THREADS\`); \`sail-1t\` with \`--single-thread\`,"
-              echo "everything on the one thread."
+              echo "ships, the desktop profile's two worker threads; \`sail-w1\` and \`sail-w4\` with"
+              echo "one and four (\`--threads\`), four being a worker to each of a runner's CPUs;"
+              echo "\`sail-1t\` with \`--single-thread\`, everything on the one thread."
               echo
             } >> "$GITHUB_STEP_SUMMARY"
           elif [ "$BUILDS" = allocators ]; then

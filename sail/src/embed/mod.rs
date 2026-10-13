@@ -82,7 +82,8 @@ pub enum Config {
 pub enum Threads {
     /// One thread: the mobile profile's default.
     One,
-    /// A worker a core, as sail-cli runs: every other profile's default.
+    /// A worker a core: the server and router profiles' default. The
+    /// desktop profile's is two workers, see `runtime::Profile::threads`.
     Auto,
     /// `n` workers of `stack` bytes each.
     Workers(usize, usize),

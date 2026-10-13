@@ -44,6 +44,10 @@ struct Args {
     #[argh(switch)]
     single_thread: bool,
 
+    /// worker threads of the runtime; the profile's unless set
+    #[argh(option)]
+    threads: Option<usize>,
+
     /// sets the stack size of runtime worker threads
     #[argh(option, default = "default_thread_stack_size()")]
     thread_stack_size: usize,
@@ -590,6 +594,12 @@ fn main() {
             exit(1);
         }
     };
+    // One that is no profile is told with the rest of the settings.
+    let profile: sail::runtime::Profile = args
+        .profile
+        .as_deref()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or_default();
     let settings = sail::runtime::StartSettings {
         profile: args.profile,
         set: args.set,
@@ -732,13 +742,15 @@ fn main() {
             .spawn(move || updater.run())
             .expect("a thread for the managed profile's updates");
     }
+    let (multi_thread, auto_threads, threads) =
+        runtime_threads(args.single_thread, args.threads, profile.threads());
     if let Err(e) = sail::util::run_with_options(
         0,
         args.config,
         args.auto_reload,
-        !args.single_thread,
-        true,
-        0, // auto_threads is true, this value no longer matters
+        multi_thread,
+        auto_threads,
+        threads,
         args.thread_stack_size,
         runtime,
         host,
@@ -804,9 +816,58 @@ fn file_limit_target(hard: libc::rlim_t) -> libc::rlim_t {
     }
 }
 
+/// The runtime's threads, as `run_with_options` takes them (whether it has
+/// worker threads, whether one to each CPU, else how many): one thread
+/// under `--single-thread`, else `--threads`' workers, else the profile's.
+fn runtime_threads(
+    single_thread: bool,
+    threads: Option<usize>,
+    profile: sail::runtime::ProfileThreads,
+) -> (bool, bool, usize) {
+    use sail::runtime::ProfileThreads;
+    match (single_thread, threads, profile) {
+        (true, _, _) => (false, false, 0),
+        (_, Some(n), _) | (_, None, ProfileThreads::Workers(n)) => (true, false, n.max(1)),
+        (_, None, ProfileThreads::One) => (false, false, 0),
+        (_, None, ProfileThreads::PerCpu) => (true, true, 0),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_runtimes_threads_are_the_profiles_unless_told() {
+        use sail::runtime::{Profile, ProfileThreads};
+        let cpus = std::thread::available_parallelism().unwrap().get();
+        // A desktop: two workers, not one to each CPU.
+        assert_eq!(
+            runtime_threads(false, None, Profile::Desktop.threads()),
+            (true, false, cpus.min(2))
+        );
+        // A phone: one thread, as the embedding runs it.
+        assert_eq!(
+            runtime_threads(false, None, Profile::Mobile.threads()),
+            (false, false, 0)
+        );
+        for profile in [Profile::Server, Profile::Router] {
+            assert_eq!(profile.threads(), ProfileThreads::PerCpu);
+            assert_eq!(
+                runtime_threads(false, None, profile.threads()),
+                (true, true, 0)
+            );
+        }
+        // What is asked for wins over the profile.
+        assert_eq!(
+            runtime_threads(false, Some(6), Profile::Mobile.threads()),
+            (true, false, 6)
+        );
+        assert_eq!(
+            runtime_threads(true, Some(6), Profile::Server.threads()),
+            (false, false, 0)
+        );
+    }
 
     /// give_memory_back declares mimalloc's mi_collect by hand, which no
     /// compiler checks against the C library: it was checked against
