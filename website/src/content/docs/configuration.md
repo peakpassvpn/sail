@@ -27,7 +27,7 @@ For individual fields, see the generated reference: [top level and common](/sail
 | `outbound_providers` | Outbounds downloaded or given together, for groups (extension) | Empty |
 | `user_limits` | Per-user limits across inbounds (extension) | Empty |
 
-sing-box's `ntp` section is read: the time it measures is the one the protocols check and TLS and QUIC verify certificates at, and the system's clock is never set. sing-box's `services`, `certificate_providers` and `network_namespaces` are mostly errors.
+sing-box's `ntp` section is read: the time it measures is the one the protocols check and TLS and QUIC verify certificates at, and the system's clock is never set. Give its `server` as an IP address, or let its name resolve over plain DNS: until the first answer the time is still the system's, so a name resolved over DoH, DoT or DoQ has that server's certificate verified at the uncorrected time, which fails on a device whose clock is far off. sing-box's `services`, `certificate_providers` and `network_namespaces` are mostly errors.
 
 Every inbound, outbound and endpoint has a `type` and may have a `tag`. When `tag` is omitted it defaults to the protocol type. Explicit tags are recommended once a configuration has more than one item.
 
