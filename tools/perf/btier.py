@@ -20,14 +20,27 @@ import statistics
 import sys
 
 # metric -> (the side that is worse, the limit): an alert when the whole
-# 95% interval lies past it. Design section 6: 10% for CPU and throughput
-# (paired sigma 6.8% measured, so 6 rounds); memory per connection 10%;
-# a setup's p50 only at a doubling.
+# 95% interval lies past it. From the calibration of 2026-10-14 (one build
+# against itself, 6 rounds, sd of the paired ratios): the client's
+# throughput 0.4-2.8% and CPU per GiB 1.7-4.0%, but for trojan-server's
+# download (5.6 and 8.1%); at 4 rounds an interval is about 1.4 sd either
+# side. The netem cells' (the client's):
 LIMITS = {
     "cpu_s_per_gib": ("higher", 1.10),
     "mbps": ("lower", 0.90),
+    "setup.p50_ms": ("higher", 1.25),
+    "rtt.p50_ms": ("higher", 1.25),
+}
+# server-accept's: memory per connection (within 2.1% at the
+# calibration). Its bulk CPU and throughput (12 to 17%) and every p99 and
+# p999 (33 to 53%) are too noisy to alert on: reported only.
+SERVER_LIMITS = {
     "server_kb_per_conn": ("higher", 1.10),
-    "setup.p99_ms": ("higher", 2.00),
+}
+# Cells whose noise leaves a 10% change within the interval at 4 rounds:
+# what the smallest change is that they show.
+DETECTS = {
+    "trojan-sail-server/baseline/bulk_down": "detects ≥11%",
 }
 
 # Two-sided 95% t quantiles by degrees of freedom.
@@ -60,6 +73,9 @@ def netem_metrics(path):
                 out[(cell, "mbps")] = res["mbps"]
             if rec.get("cpu_s") is not None and res.get("bytes"):
                 out[(cell, "cpu_s_per_gib")] = rec["cpu_s"] / (res["bytes"] / 2**30)
+            for timing in ("setup", "rtt"):
+                if isinstance((res.get(timing) or {}).get("p50_ms"), (int, float)):
+                    out[(cell, f"{timing}.p50_ms")] = res[timing]["p50_ms"]
     return out
 
 
@@ -95,14 +111,14 @@ def server(run_dir):
     return out
 
 
-def verdict(metric, low, high):
-    limit = LIMITS.get(metric)
+def verdict(limits, cell, metric, low, high):
+    limit = limits.get(metric)
     if not limit or low is None:
-        return ""
+        return "reported"
     worse, at = limit
     if worse == "higher" and low > at or worse == "lower" and high < at:
         return f"**past {at:.2f}**"
-    return "ok"
+    return f"ok, {DETECTS[cell]}" if cell in DETECTS else "ok"
 
 
 def main():
@@ -112,14 +128,14 @@ def main():
     alerts = 0
     for (cell, metric), ratios in sorted(netem(run_dir).items()):
         mean, low, high, sd = interval(ratios)
-        v = verdict(metric, low, high)
+        v = verdict(LIMITS, cell, metric, low, high)
         alerts += v.startswith("**")
         span = f"{low:.3f}–{high:.3f}" if low is not None else "—"
         lines.append(f"| {cell} | {metric} | {mean:.3f} | {span} | "
                      f"{sd:.3f} | {v} |" if sd is not None else
                      f"| {cell} | {metric} | {mean:.3f} | {span} | — | {v} |")
     for (cell, metric), (ratio, low, high) in sorted(server(run_dir).items()):
-        v = verdict(metric, low, high)
+        v = verdict(SERVER_LIMITS, cell, metric, low, high)
         alerts += v.startswith("**")
         span = f"{low:.3f}–{high:.3f}" if low is not None else "—"
         lines.append(f"| {cell} | {metric} | {ratio:.3f} | {span} | — | {v} |")
