@@ -734,8 +734,11 @@ impl RuntimeOptions {
             Ok(v @ (serde_json::Value::Number(_) | serde_json::Value::Bool(_))) => v,
             _ => serde_json::Value::String(value.to_string()),
         };
+        let profile = self.profile;
         *self = serde_json::from_value(tree)
             .map_err(|e| anyhow!("runtime option \"{}\": {}", key, e))?;
+        // Not an option, so not in the tree: kept as it was.
+        self.profile = profile;
         Ok(())
     }
 
@@ -806,7 +809,8 @@ mod tests {
         assert_eq!(options.relay.buffer_size, 32);
         assert!(options.inbound.tcp_abort_on_close);
         assert_eq!(options.dns.dualstack_delay, Duration::from_secs(1));
-        // The rest stays as the profile has it.
+        // The rest stays as the profile has it, and so does the profile.
+        assert_eq!(options.profile, Profile::Mobile);
         assert_eq!(
             options.relay.buffer_max_size,
             RuntimeOptions::profile(Profile::Mobile)
