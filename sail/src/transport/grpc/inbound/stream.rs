@@ -178,10 +178,10 @@ impl InboundStreamHandler for Handler {
         if let (Some(interval), Some(ping_pong)) = (self.idle_timeout, ping_pong) {
             super::super::keepalive(
                 ping_pong,
-                received,
+                received.clone(),
                 interval,
                 self.ping_timeout,
-                || true,
+                super::super::quiet(received),
                 abort,
             );
         }

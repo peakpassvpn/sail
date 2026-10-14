@@ -692,7 +692,7 @@ Rust: [`InboundTransport`](https://github.com/peakpassvpn/sail/blob/master/sail/
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
 | `service_name` | string | `"TunService"` | Supported | — |
-| `idle_timeout` | duration | unset | Supported | Unset, no keepalive pings. |
+| `idle_timeout` | duration | unset | Supported | Unset, no keepalive pings. A client pings this often; a server after this long with nothing received, so give a server no shorter a time than its clients' interval. |
 | `ping_timeout` | duration | unset | Supported | — |
 | `permit_without_stream` | bool | — | Warned: Response headers and keepalive of a WebSocket or gRPC server: the same streams | — |
 
@@ -707,7 +707,7 @@ Rust: [`OutboundTransport`](https://github.com/peakpassvpn/sail/blob/master/sail
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
 | `service_name` | string | `"TunService"` | Supported | — |
-| `idle_timeout` | duration | unset | Supported | Unset, no keepalive pings. |
+| `idle_timeout` | duration | unset | Supported | Unset, no keepalive pings. A client pings this often; a server after this long with nothing received, so give a server no shorter a time than its clients' interval. |
 | `ping_timeout` | duration | unset | Supported | — |
 | `permit_without_stream` | bool | `false` | Supported | Whether a connection carrying no calls is pinged too. |
 

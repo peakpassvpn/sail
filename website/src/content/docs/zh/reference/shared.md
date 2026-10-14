@@ -692,7 +692,7 @@ Rust 定义：[`InboundTransport`](https://github.com/peakpassvpn/sail/blob/mast
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
 | `service_name` | string | `"TunService"` | 支持 | — |
-| `idle_timeout` | duration | 未设置 | 支持 | Unset, no keepalive pings. |
+| `idle_timeout` | duration | 未设置 | 支持 | Unset, no keepalive pings. A client pings this often; a server after this long with nothing received, so give a server no shorter a time than its clients' interval. |
 | `ping_timeout` | duration | 未设置 | 支持 | — |
 | `permit_without_stream` | bool | — | 警告：Response headers and keepalive of a WebSocket or gRPC server: the same streams | — |
 
@@ -707,7 +707,7 @@ Rust 定义：[`OutboundTransport`](https://github.com/peakpassvpn/sail/blob/mas
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
 | `service_name` | string | `"TunService"` | 支持 | — |
-| `idle_timeout` | duration | 未设置 | 支持 | Unset, no keepalive pings. |
+| `idle_timeout` | duration | 未设置 | 支持 | Unset, no keepalive pings. A client pings this often; a server after this long with nothing received, so give a server no shorter a time than its clients' interval. |
 | `ping_timeout` | duration | 未设置 | 支持 | — |
 | `permit_without_stream` | bool | `false` | 支持 | Whether a connection carrying no calls is pinged too. |
 

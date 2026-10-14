@@ -10984,7 +10984,7 @@
     },
     "idle_timeout": {
      "type": "string",
-     "description": "Unset, no keepalive pings."
+     "description": "Unset, no keepalive pings. A client pings this often; a server after this long with nothing received, so give a server no shorter a time than its clients' interval."
     },
     "ping_timeout": {
      "type": "string"
@@ -12735,7 +12735,7 @@
     },
     "idle_timeout": {
      "type": "string",
-     "description": "Unset, no keepalive pings."
+     "description": "Unset, no keepalive pings. A client pings this often; a server after this long with nothing received, so give a server no shorter a time than its clients' interval."
     },
     "ping_timeout": {
      "type": "string"
@@ -13462,7 +13462,7 @@
     },
     "idle_timeout": {
      "type": "string",
-     "description": "Unset, no keepalive pings."
+     "description": "Unset, no keepalive pings. A client pings this often; a server after this long with nothing received, so give a server no shorter a time than its clients' interval."
     },
     "ping_timeout": {
      "type": "string"
@@ -19108,7 +19108,7 @@
     },
     "idle_timeout": {
      "type": "string",
-     "description": "Unset, no keepalive pings."
+     "description": "Unset, no keepalive pings. A client pings this often; a server after this long with nothing received, so give a server no shorter a time than its clients' interval."
     },
     "ping_timeout": {
      "type": "string"
@@ -20615,7 +20615,7 @@
     },
     "idle_timeout": {
      "type": "string",
-     "description": "Unset, no keepalive pings."
+     "description": "Unset, no keepalive pings. A client pings this often; a server after this long with nothing received, so give a server no shorter a time than its clients' interval."
     },
     "ping_timeout": {
      "type": "string"
@@ -21418,7 +21418,7 @@
     },
     "idle_timeout": {
      "type": "string",
-     "description": "Unset, no keepalive pings."
+     "description": "Unset, no keepalive pings. A client pings this often; a server after this long with nothing received, so give a server no shorter a time than its clients' interval."
     },
     "ping_timeout": {
      "type": "string"

@@ -126,9 +126,17 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for Counted<S> {
 /// `wanted` says no is skipped: a client pings a connection with no calls
 /// open only if `permit_without_stream`.
 ///
-/// sing-box pings after `idle_timeout` without a frame received; here the
-/// ping goes out every `idle_timeout` whatever the traffic. Its cost is one
-/// frame each way.
+/// A client pings every `idle_timeout` whatever the traffic; a server, as
+/// sing-box's and grpc-go's, only after a whole `idle_timeout` with nothing
+/// received (`quiet`). Two ends that both ping while both send can each be
+/// left unable to read: h2 writes a pending PING or PONG before it reads
+/// the next frame, and while each end is blocked writing its data neither
+/// reads the other's. A server that pings only when nothing comes is not
+/// writing then, so its PING goes at once. A window is left: the two ends
+/// starting to send both ways inside the round trip of that PING; then
+/// the timeout ends it. It takes a server's `idle_timeout` no shorter than
+/// the client's interval: a server that waits less pings while the client's
+/// own pings are all it receives.
 ///
 /// A pong can wait behind all the peer sends before it, on a slow link
 /// megabytes. So, as in grpc-go, bytes from the peer show it alive too:
@@ -177,11 +185,37 @@ fn keepalive(
     });
 }
 
+/// Whether nothing came from the peer since the last time this was asked:
+/// a server's keepalive round. `received` counts what came.
+#[cfg(feature = "inbound-grpc")]
+fn quiet(received: Arc<AtomicU64>) -> impl Fn() -> bool + Send + 'static {
+    let seen = AtomicU64::new(received.load(Ordering::Relaxed));
+    move || {
+        let now = received.load(Ordering::Relaxed);
+        seen.swap(now, Ordering::Relaxed) == now
+    }
+}
+
 #[cfg(all(test, feature = "inbound-grpc", feature = "outbound-grpc"))]
 mod stall_tests;
 
 #[cfg(test)]
 mod tests {
+    /// A round is quiet only when nothing came since the one before.
+    #[cfg(feature = "inbound-grpc")]
+    #[test]
+    fn a_server_pings_only_after_a_round_with_nothing_received() {
+        use std::sync::atomic::Ordering;
+        let received = std::sync::Arc::new(super::AtomicU64::new(0));
+        let quiet = super::quiet(received.clone());
+        assert!(quiet());
+        received.fetch_add(10, Ordering::Relaxed);
+        assert!(!quiet());
+        assert!(quiet());
+        received.fetch_add(1, Ordering::Relaxed);
+        assert!(!quiet());
+    }
+
     #[test]
     fn test_service_path() {
         assert_eq!(

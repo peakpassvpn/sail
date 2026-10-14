@@ -523,7 +523,9 @@ pub enum OutboundTransport {
     Grpc {
         #[serde(default = "default_service_name")]
         service_name: String,
-        /// Unset, no keepalive pings.
+        /// Unset, no keepalive pings. A client pings this often; a server
+        /// after this long with nothing received, so give a server no
+        /// shorter a time than its clients' interval.
         #[serde(default, with = "crate::config::model::duration")]
         idle_timeout: Option<std::time::Duration>,
         #[serde(default, with = "crate::config::model::duration")]
@@ -1637,7 +1639,9 @@ pub enum InboundTransport {
     Grpc {
         #[serde(default = "default_service_name")]
         service_name: String,
-        /// Unset, no keepalive pings.
+        /// Unset, no keepalive pings. A client pings this often; a server
+        /// after this long with nothing received, so give a server no
+        /// shorter a time than its clients' interval.
         #[serde(default, with = "crate::config::model::duration")]
         idle_timeout: Option<std::time::Duration>,
         #[serde(default, with = "crate::config::model::duration")]
