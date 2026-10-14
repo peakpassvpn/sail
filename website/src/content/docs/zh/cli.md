@@ -64,6 +64,8 @@ sail -c config.json --profile server \
 
 `lifecycle.drain_timeout` 指收到 SIGTERM 或 Ctrl-C、停止接受新连接后，已有 TCP 连接最多还能继续多久；`0` 表示立即停止，第二次信号总是立即停止。
 
+`relay` 的各项（包括 `relay.write_stall_timeout`）同样适用于回落（Trojan、VLESS、AnyTLS）、ShadowTLS 与 REALITY 转发到真实站点的连接。
+
 多路复用连接（sing-mux 的 smux 与 yamux、AnyTLS、amux）上的流使用其中三项：
 
 | 参数 | 默认值 | 含义 |

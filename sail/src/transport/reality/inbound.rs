@@ -127,6 +127,8 @@ pub struct Handler {
     max_time_difference: Option<Duration>,
     handshake: (String, u16),
     dialer: InboundDialer,
+    /// How a client that is not ours is relayed to the handshake server.
+    relay: crate::runtime::options::Relay,
     pub(crate) timeouts: Timeouts,
     context: SslContext,
     key: PKey<Private>,
@@ -256,7 +258,7 @@ unsafe fn keep_secret(ssl: *const btls_sys::SSL, line: *const std::os::raw::c_ch
 impl Handler {
     /// `private_key` is hex or base64url, each short ID up to 16 hex
     /// digits; `handshake` is the site REALITY imitates and relays to,
-    /// dialed by `dialer`.
+    /// dialed by `dialer` and relayed as `relay` says.
     pub fn new(
         server_name: String,
         private_key: &str,
@@ -264,6 +266,7 @@ impl Handler {
         max_time_difference: Option<Duration>,
         handshake: (String, u16),
         dialer: InboundDialer,
+        relay: crate::runtime::options::Relay,
     ) -> Result<Self> {
         if server_name.is_empty() {
             return Err(anyhow!("server_name is required"));
@@ -306,6 +309,7 @@ impl Handler {
             max_time_difference,
             handshake,
             dialer,
+            relay,
             timeouts: Timeouts::default(),
             context: builder.build(),
             key,
@@ -758,11 +762,17 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for Prefixed<S> {
 
 /// Relays a connection that is not ours, or whose handshake server does
 /// not speak TLS 1.3, to the handshake server: first what that server has
-/// already said, then both ways until either side is done.
-async fn relay(mut stream: AnyStream, mut target: TcpStream, to_client: Vec<u8>) {
+/// already said, then both ways, as `relay` says, until both sides are
+/// done.
+async fn relay(
+    mut stream: AnyStream,
+    mut target: TcpStream,
+    to_client: Vec<u8>,
+    relay: crate::runtime::options::Relay,
+) {
     let result = async {
         stream.write_all(&to_client).await?;
-        tokio::io::copy_bidirectional(&mut stream, &mut target).await
+        crate::net::relay::copy_with_options(&mut stream, &mut target, &relay).await
     }
     .await;
     if let Err(e) = result {
@@ -819,7 +829,7 @@ impl InboundStreamHandler for Handler {
                 // as long as it takes.
                 crate::runtime::scope::spawn(
                     "reality fallback relay",
-                    relay(stream, target, to_client),
+                    relay(stream, target, to_client, self.relay.clone()),
                 );
                 return Err(not_ours("no ClientHello"));
             }
@@ -830,7 +840,7 @@ impl InboundStreamHandler for Handler {
         else {
             crate::runtime::scope::spawn(
                 "reality fallback relay",
-                relay(stream, target, Vec::new()),
+                relay(stream, target, Vec::new(), self.relay.clone()),
             );
             return Err(not_ours("not authenticated"));
         };
@@ -842,7 +852,7 @@ impl InboundStreamHandler for Handler {
             Reply::NotTls13 => {
                 crate::runtime::scope::spawn(
                     "reality fallback relay",
-                    relay(stream, target, saved),
+                    relay(stream, target, saved, self.relay.clone()),
                 );
                 return Err(not_ours("the handshake server does not answer in TLS 1.3"));
             }
@@ -908,6 +918,7 @@ mod tests {
             max_time_difference,
             ("127.0.0.1".to_string(), port),
             dialer,
+            crate::runtime::options::Relay::default(),
         )
         .unwrap()
     }

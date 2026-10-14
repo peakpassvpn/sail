@@ -508,6 +508,31 @@ where
     .await
 }
 
+/// Relays `a` and `b` both ways with the buffers and timeouts `relay`
+/// sets, as a routed connection is: `a` is the client's side.
+pub async fn copy_with_options<A, B>(
+    a: &mut A,
+    b: &mut B,
+    relay: &crate::runtime::options::Relay,
+) -> Result<(u64, u64), std::io::Error>
+where
+    A: AsyncRead + AsyncWrite + Unpin + ?Sized,
+    B: AsyncRead + AsyncWrite + Unpin + ?Sized,
+{
+    copy_buf_bidirectional_with_timeout(
+        a,
+        b,
+        relay.buffer_size * 1024,
+        relay.buffer_max_size.max(relay.buffer_size) * 1024,
+        RelayTimeouts {
+            write_stall: relay.write_stall_timeout,
+            a_to_b_idle: relay.uplink_idle_timeout,
+            b_to_a_idle: relay.downlink_idle_timeout,
+        },
+    )
+    .await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

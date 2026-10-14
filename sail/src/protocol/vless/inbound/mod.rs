@@ -106,6 +106,7 @@ fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
         options.fallback,
         options.fallback_for_alpn,
         ctx.dial.default_dialer(),
+        ctx.env.options.relay.clone(),
     )?;
     if fallback.is_none() {
         crate::protocol::fallback::note_without(ctx.tag, "vless", ctx.env);

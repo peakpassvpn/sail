@@ -3,7 +3,8 @@
 //! to authenticate is relayed to a web server, starting with the bytes read
 //! of it so far, so that an active prober meets that server rather than a
 //! connection that closes on it. ShadowTLS relays to its handshake server
-//! the same way.
+//! the same way. The relay is sail's, as a routed connection's: its
+//! buffers, and its write stall and idle timeouts (`relay`).
 
 use std::collections::HashMap;
 use std::io;
@@ -11,10 +12,10 @@ use std::time::Duration;
 
 use anyhow::{anyhow, Result};
 use serde_derive::Deserialize;
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tracing::Instrument;
 
-use crate::{adapter::AnyStream, net::InboundDialer, session::Session};
+use crate::{adapter::AnyStream, net::InboundDialer, runtime::options::Relay, session::Session};
 
 /// How long a peer that has sent less than a header is waited for before it
 /// is handed to the fallback, as Xray does: a prober that sends a few bytes
@@ -70,17 +71,20 @@ pub struct Fallback {
     default: Option<Target>,
     by_alpn: HashMap<String, Target>,
     dialer: InboundDialer,
+    relay: Relay,
 }
 
 impl Fallback {
     /// `fallback` and `fallback_for_alpn` as the inbound's options have
-    /// them, dialled with `dialer`; `None` if neither is set, which leaves
-    /// the inbound closing what fails to authenticate.
+    /// them, dialled with `dialer` and relayed as `relay` says; `None` if
+    /// neither is set, which leaves the inbound closing what fails to
+    /// authenticate.
     pub fn new(
         tag: &str,
         fallback: Option<FallbackServer>,
         fallback_for_alpn: HashMap<String, FallbackServer>,
         dialer: InboundDialer,
+        relay: Relay,
     ) -> Result<Option<Self>> {
         let default = fallback
             .map(|f| Target::parse("fallback", f))
@@ -105,6 +109,7 @@ impl Fallback {
             default,
             by_alpn,
             dialer,
+            relay,
         }))
     }
 
@@ -142,14 +147,22 @@ impl Fallback {
         let message = format!("{}; relayed to the fallback {}:{}", why, server, port);
         crate::runtime::scope::spawn(
             "fallback relay",
-            relay(self.dialer.clone(), stream, consumed, server, port).instrument(sess.span()),
+            relay(
+                self.dialer.clone(),
+                stream,
+                consumed,
+                server,
+                port,
+                self.relay.clone(),
+            )
+            .instrument(sess.span()),
         );
         io::Error::new(io::ErrorKind::PermissionDenied, message)
     }
 }
 
 /// Relays `stream` to `server`:`port`, dialled with `dialer`: `consumed`
-/// first, then both ways until either side is done.
+/// first, then both ways, as `relay` says, until both sides are done.
 ///
 /// The server is dialled as sail's own sockets are, with the instance's
 /// dial defaults: it is a neighbour of the server, not a destination to be
@@ -160,16 +173,31 @@ pub(crate) async fn relay(
     consumed: Vec<u8>,
     server: String,
     port: u16,
+    relay: Relay,
 ) {
     let result = async {
         let mut remote = dialer.tcp(&server, port).await?;
-        remote.write_all(&consumed).await?;
-        tokio::io::copy_bidirectional(&mut stream, &mut remote).await
+        relay_to(&mut stream, &mut remote, &consumed, &relay).await
     }
     .await;
     if let Err(e) = result {
         tracing::debug!("fallback to {}:{}: {}", server, port, e);
     }
+}
+
+/// Writes `consumed` to `remote`, then relays `stream` and `remote` both
+/// ways as `relay` says.
+async fn relay_to<S>(
+    stream: &mut AnyStream,
+    remote: &mut S,
+    consumed: &[u8],
+    relay: &Relay,
+) -> io::Result<(u64, u64)>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    remote.write_all(consumed).await?;
+    crate::net::relay::copy_with_options(stream, remote, relay).await
 }
 
 #[cfg(test)]
@@ -194,6 +222,7 @@ mod tests {
             Some(server(1)),
             HashMap::from([("h2".to_string(), server(2))]),
             dialer(),
+            Relay::default(),
         )
         .unwrap()
         .unwrap();
@@ -206,13 +235,16 @@ mod tests {
             None,
             HashMap::from([("h2".to_string(), server(2))]),
             dialer(),
+            Relay::default(),
         )
         .unwrap()
         .unwrap();
         assert!(only_alpn.target(None).is_none());
-        assert!(Fallback::new("t", None, HashMap::new(), dialer())
-            .unwrap()
-            .is_none());
+        assert!(
+            Fallback::new("t", None, HashMap::new(), dialer(), Relay::default())
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[test]
@@ -221,15 +253,25 @@ mod tests {
             "t",
             None,
             HashMap::from([(String::new(), server(2))]),
-            dialer()
+            dialer(),
+            Relay::default()
         )
         .is_err());
-        assert!(Fallback::new("t", Some(server(0)), HashMap::new(), dialer()).is_err());
+        assert!(Fallback::new(
+            "t",
+            Some(server(0)),
+            HashMap::new(),
+            dialer(),
+            Relay::default()
+        )
+        .is_err());
         let empty = FallbackServer {
             server: String::new(),
             server_port: 80,
         };
-        assert!(Fallback::new("t", Some(empty), HashMap::new(), dialer()).is_err());
+        assert!(
+            Fallback::new("t", Some(empty), HashMap::new(), dialer(), Relay::default()).is_err()
+        );
     }
 
     /// The fallback is dialled with the instance's dial defaults, whose
@@ -245,6 +287,7 @@ mod tests {
             Some(server(web.local_addr().unwrap().port())),
             HashMap::new(),
             dial.default_dialer(),
+            Relay::default(),
         )
         .unwrap()
         .unwrap();
@@ -256,5 +299,30 @@ mod tests {
         accepted.read_exact(&mut first).await.unwrap();
         assert_eq!(&first, b"GET");
         assert_eq!(protected.count(), 1);
+    }
+
+    /// A site that stops taking what is written to it ends the relay after
+    /// the write stall timeout, rather than holding the connection for
+    /// good.
+    #[tokio::test(start_paused = true)]
+    async fn a_site_that_takes_nothing_ends_the_relay_after_the_write_stall_timeout() {
+        let relay = Relay::default();
+        let (mut client, ours) = tokio::io::duplex(64 << 10);
+        let mut stream: AnyStream = Box::new(ours);
+        // Room for what was read first and a little more, never read.
+        let (mut site, _never_read) = tokio::io::duplex(16);
+        client.write_all(&[7u8; 1024]).await.unwrap();
+        let relayed = relay_to(&mut stream, &mut site, b"GET", &relay);
+        tokio::pin!(relayed);
+        let before = relay.write_stall_timeout - Duration::from_secs(1);
+        assert!(
+            tokio::time::timeout(before, &mut relayed).await.is_err(),
+            "ended before the write stall timeout"
+        );
+        let e = tokio::time::timeout(Duration::from_secs(2), relayed)
+            .await
+            .expect("still relaying past the write stall timeout")
+            .unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::TimedOut);
     }
 }

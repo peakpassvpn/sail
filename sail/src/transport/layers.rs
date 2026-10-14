@@ -2016,7 +2016,7 @@ fn tls_inbound(
                 tag
             ));
         }
-        return reality_inbound(tag, tls, reality, dial);
+        return reality_inbound(tag, tls, reality, env, dial);
     }
     // `server_name` is for REALITY; without it, it is ignored, as sing-box
     // sets it where Go's TLS server never reads it, and server configs
@@ -2051,6 +2051,7 @@ fn reality_inbound(
     tag: &str,
     tls: &InboundTls,
     reality: &InboundReality,
+    env: &RuntimeEnv,
     dial: &InstanceDial,
 ) -> Result<AnyInboundHandler> {
     if tls.certificate.is_some()
@@ -2084,6 +2085,7 @@ fn reality_inbound(
                 reality.handshake.server_port,
             ),
             reality.handshake.dialer(tag, dial)?,
+            env.options.relay.clone(),
         )
         .map_err(|e| anyhow!("[{}] inbound: tls.reality: {}", tag, e))?;
         Ok(Arc::new(crate::adapter::inbound::Handler::new(

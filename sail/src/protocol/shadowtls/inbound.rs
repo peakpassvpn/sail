@@ -207,6 +207,7 @@ fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
         detour,
         detour_tag,
         dialer: ctx.dial.default_dialer(),
+        relay: ctx.env.options.relay.clone(),
     });
     Ok(Arc::new(InboundHandlerImpl::new(
         tag.to_owned(),
@@ -227,6 +228,8 @@ pub struct Handler {
     /// Dials the wildcard handshake servers where there is no `handshake`
     /// to dial them as: the instance's dial defaults.
     dialer: InboundDialer,
+    /// How what goes to the handshake server is relayed.
+    relay: crate::runtime::options::Relay,
 }
 
 impl Handler {
@@ -260,20 +263,21 @@ fn denied(why: String) -> io::Error {
     )
 }
 
-/// Relays `client` and `server` both ways, with what was read of each and
-/// not yet passed on first, on a task of its own.
+/// Relays `client` and `server` both ways, as `relay` says, with what was
+/// read of each and not yet passed on first, on a task of its own.
 fn splice(
     sess: &Session,
     mut client: AnyStream,
     client_read: BytesMut,
     mut server: tokio::net::TcpStream,
     server_read: BytesMut,
+    relay: crate::runtime::options::Relay,
 ) {
     let task = async move {
         let result = async {
             server.write_all(&client_read).await?;
             client.write_all(&server_read).await?;
-            tokio::io::copy_bidirectional(&mut client, &mut server).await
+            crate::net::relay::copy_with_options(&mut client, &mut server, &relay).await
         }
         .await;
         if let Err(e) = result {
@@ -319,6 +323,7 @@ impl InboundStreamHandler for Handler {
                         consumed,
                         other.server.clone(),
                         other.port,
+                        self.relay.clone(),
                     )
                     .instrument(sess.span()),
                 );
@@ -347,6 +352,7 @@ impl InboundStreamHandler for Handler {
                     records.into_inner(),
                     server,
                     server_records.into_inner(),
+                    self.relay.clone(),
                 );
                 return Err(denied(format!("{}; relayed", why)));
             }

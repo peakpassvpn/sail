@@ -76,6 +76,8 @@ The groups are `relay` (TCP relay buffers and half-close idle timeouts), `udp`, 
 
 `lifecycle.drain_timeout` is how long open TCP connections may finish after SIGTERM or Ctrl-C once no new ones are accepted; `0` stops at once, and a second signal always stops at once.
 
+The `relay` settings, `relay.write_stall_timeout` among them, apply as well to the connections a fallback (Trojan, VLESS, AnyTLS), ShadowTLS or REALITY relays to the real site.
+
 The streams of multiplexed connections (sing-mux smux and yamux, AnyTLS, amux) take three of them:
 
 | Setting | Default | Meaning |
