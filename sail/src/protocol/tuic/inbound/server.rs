@@ -339,10 +339,9 @@ impl Conn {
                 self.authenticate(&body)
             }
             CMD_PACKET => {
-                let (header, payload) = timeout(UNI_STREAM_TIMEOUT, read_packet(&mut recv))
-                    .await
-                    .map_err(|_| timed_out())??;
-                if let Some(user) = self.authed().await {
+                if let Some((user, header, payload)) =
+                    packet_once_authed(&mut recv, self.authed()).await?
+                {
                     self.packet(header, payload, UdpRelayMode::Quic, user).await;
                 }
                 Ok(())
@@ -576,6 +575,28 @@ impl Conn {
     }
 }
 
+/// A `Packet` command's packet, read from `recv` once `authed` says who
+/// sent it, as the reference server reads it: none from a connection that
+/// is closed before it authenticates. Until then the stream waits unread,
+/// held back by QUIC's flow control, and a connection that does not
+/// authenticate within `auth_timeout` is closed.
+async fn packet_once_authed<R, A>(
+    recv: &mut R,
+    authed: A,
+) -> io::Result<Option<(Authed, PacketHeader, Bytes)>>
+where
+    R: tokio::io::AsyncRead + Unpin,
+    A: std::future::Future<Output = Option<Authed>>,
+{
+    let Some(user) = authed.await else {
+        return Ok(None);
+    };
+    let (header, payload) = timeout(UNI_STREAM_TIMEOUT, read_packet(recv))
+        .await
+        .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "command timed out"))??;
+    Ok(Some((user, header, payload)))
+}
+
 /// One UDP association, as the NAT manager relays it.
 struct AssociationDatagram {
     packets: mpsc::Receiver<(SocksAddr, Bytes)>,
@@ -667,5 +688,41 @@ impl InboundDatagramSendHalf for AssociationSendHalf {
 
     async fn close(&mut self) -> io::Result<()> {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::super::frag::fragment;
+    use super::*;
+    use futures::FutureExt;
+
+    /// A `Packet` command's packet is read only once the connection has
+    /// authenticated: until then not a byte of it is taken, and none at
+    /// all if the connection closes first.
+    #[tokio::test]
+    async fn a_packet_is_read_only_once_authenticated() {
+        let addr = SocksAddr::Domain("example.com".into(), 53);
+        let wire = fragment(1, 0, &addr, b"query", 1200).unwrap().remove(0);
+        // As the stream has it, after the command.
+        let body = &wire[2..];
+
+        let mut recv = body;
+        let read = packet_once_authed(&mut recv, futures::future::pending());
+        assert!(read.now_or_never().is_none());
+        assert_eq!(recv.len(), body.len());
+
+        let mut recv = body;
+        let read = packet_once_authed(&mut recv, futures::future::ready(None));
+        assert!(read.await.unwrap().is_none());
+        assert_eq!(recv.len(), body.len());
+
+        let mut recv = body;
+        let read = packet_once_authed(&mut recv, futures::future::ready(Some(None)));
+        let (user, header, payload) = read.await.unwrap().unwrap();
+        assert!(user.is_none());
+        assert_eq!((header.assoc_id, header.addr), (1, Some(addr)));
+        assert_eq!(&payload[..], b"query");
+        assert!(recv.is_empty());
     }
 }
