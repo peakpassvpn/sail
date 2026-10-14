@@ -1384,3 +1384,597 @@ impl Drop for EchKeys {
         unsafe { btls_sys::SSL_ECH_KEYS_free(self.keys) }
     }
 }
+
+// ---------------------------------------------------------------------------
+// Clients' certificates, as an inbound checks them (`ClientAuth`).
+// ---------------------------------------------------------------------------
+
+/// A CA of clients' certificates, and what it issues.
+pub(crate) struct ClientCa {
+    pub pem: String,
+    cert: rcgen::Certificate,
+    key: rcgen::KeyPair,
+}
+
+/// A client certificate and its key, PEM; its DER, and its key's
+/// SubjectPublicKeyInfo.
+pub(crate) struct ClientCert {
+    pub pem: String,
+    pub key: String,
+    pub der: Vec<u8>,
+    pub spki: Vec<u8>,
+}
+
+fn ca_params(name: &str) -> rcgen::CertificateParams {
+    let mut params = rcgen::CertificateParams::new(Vec::<String>::new()).unwrap();
+    params.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
+    params.distinguished_name = rcgen::DistinguishedName::new();
+    params
+        .distinguished_name
+        .push(rcgen::DnType::CommonName, name);
+    params
+}
+
+impl ClientCa {
+    pub(crate) fn new(name: &str) -> Self {
+        let key = rcgen::KeyPair::generate().unwrap();
+        let cert = ca_params(name).self_signed(&key).unwrap();
+        Self {
+            pem: cert.pem(),
+            cert,
+            key,
+        }
+    }
+
+    /// An intermediate CA this one issues.
+    pub(crate) fn intermediate(&self, name: &str) -> Self {
+        let key = rcgen::KeyPair::generate().unwrap();
+        let cert = ca_params(name)
+            .signed_by(&key, &self.cert, &self.key)
+            .unwrap();
+        Self {
+            pem: cert.pem(),
+            cert,
+            key,
+        }
+    }
+
+    /// A client certificate this CA issues, what it is made from changed
+    /// by `tweak`.
+    pub(crate) fn issue_with(
+        &self,
+        tweak: impl FnOnce(&mut rcgen::CertificateParams),
+    ) -> ClientCert {
+        let key = rcgen::KeyPair::generate().unwrap();
+        let mut params = rcgen::CertificateParams::new(vec!["client".into()]).unwrap();
+        params.distinguished_name = rcgen::DistinguishedName::new();
+        params
+            .distinguished_name
+            .push(rcgen::DnType::CommonName, "client");
+        tweak(&mut params);
+        let cert = params.signed_by(&key, &self.cert, &self.key).unwrap();
+        ClientCert {
+            pem: cert.pem(),
+            key: key.serialize_pem(),
+            der: cert.der().to_vec(),
+            spki: key.public_key_der(),
+        }
+    }
+
+    pub(crate) fn issue(&self) -> ClientCert {
+        self.issue_with(|_| {})
+    }
+}
+
+impl ClientCert {
+    /// The identity a client presents it with, `chain` sent after it.
+    pub(crate) fn identity(&self, chain: &[&str]) -> super::client::Identity {
+        let pem = std::iter::once(self.pem.as_str())
+            .chain(chain.iter().copied())
+            .collect::<Vec<_>>()
+            .join("\n");
+        super::client::Identity::new(
+            X509::stack_from_pem(pem.as_bytes()).unwrap(),
+            PKey::private_key_from_pem(self.key.as_bytes()).unwrap(),
+        )
+        .unwrap()
+    }
+
+    /// Its `client_certificate_sha256` pin: base64, as sing-box 1.15's.
+    pub(crate) fn pin(&self) -> String {
+        btls::base64::encode_block(&btls::sha::sha256(&self.der))
+    }
+
+    /// Its `client_certificate_public_key_sha256` pin.
+    pub(crate) fn key_pin(&self) -> String {
+        spki_pin(&self.spki)
+    }
+}
+
+/// An inbound's client-authentication fields, owned.
+#[derive(Default)]
+pub(crate) struct AuthFields {
+    pub mode: Option<&'static str>,
+    pub cas: Vec<String>,
+    pub ca_files: Vec<String>,
+    pub cert_pins: Vec<String>,
+    pub key_pins: Vec<String>,
+}
+
+impl AuthFields {
+    pub(crate) fn build(&self) -> anyhow::Result<(Option<super::ClientAuth>, Vec<String>)> {
+        super::ClientAuth::new(&super::ClientAuthFields {
+            mode: self.mode,
+            certificate: &self.cas,
+            certificate_path: &self.ca_files,
+            certificate_sha256: &self.cert_pins,
+            public_key_sha256: &self.key_pins,
+        })
+    }
+
+    /// `build`, with no error or warning.
+    pub(crate) fn auth(&self) -> Option<super::ClientAuth> {
+        let (auth, warnings) = self.build().unwrap();
+        assert!(warnings.is_empty(), "{:?}", warnings);
+        auth
+    }
+}
+
+/// A server that takes clients' certificates as `auth` says.
+fn server_checking(auth: Option<&super::ClientAuth>) -> Server {
+    server_with(|builder| {
+        if let Some(auth) = auth {
+            auth.apply(builder).unwrap();
+        }
+    })
+}
+
+/// Whether `server` takes a client presenting `identity`, if any, and the
+/// two exchange data; the server's error if not.
+async fn served(server: &Server, identity: Option<&super::client::Identity>) -> Result<(), String> {
+    let client = TlsClient::with_identity(
+        &[],
+        Some(&server.cert_pem),
+        false,
+        None,
+        &test_roots(),
+        identity,
+    )
+    .unwrap();
+    let (c, s) = pair(server, &client, "localhost", None, None).await;
+    let mut s = s.map_err(|e| e.to_string())?;
+    let mut c = c.map_err(|e| format!("the client: {}", e))?;
+    c.write_all(b"ping").await.unwrap();
+    c.flush().await.unwrap();
+    let mut buf = [0; 4];
+    s.read_exact(&mut buf).await.unwrap();
+    assert_eq!(&buf, b"ping");
+    Ok(())
+}
+
+// Each mode, with a client that sends no certificate, one the CA issued,
+// and one another CA did: sing-box's (Go's) table.
+#[tokio::test]
+async fn each_client_authentication_mode_takes_the_clients_it_should() {
+    let ca = ClientCa::new("sail test client CA");
+    let valid = ca.issue();
+    let other = ClientCa::new("sail test other CA").issue();
+    let (valid, other) = (valid.identity(&[]), other.identity(&[]));
+    let with_ca = |mode| AuthFields {
+        mode,
+        cas: vec![ca.pem.clone()],
+        ..Default::default()
+    };
+    let without = |mode| AuthFields {
+        mode,
+        ..Default::default()
+    };
+    for (fields, wanted) in [
+        (without(None), [true, true, true]),
+        (without(Some("no")), [true, true, true]),
+        (without(Some("request")), [true, true, true]),
+        (without(Some("require-any")), [false, true, true]),
+        (with_ca(Some("verify-if-given")), [true, true, false]),
+        (with_ca(Some("require-and-verify")), [false, true, false]),
+        // CAs with no mode, or `no`, are require-and-verify.
+        (with_ca(None), [false, true, false]),
+        (with_ca(Some("no")), [false, true, false]),
+    ] {
+        let auth = fields.auth();
+        let server = server_checking(auth.as_ref());
+        let got = [
+            served(&server, None).await,
+            served(&server, Some(&valid)).await,
+            served(&server, Some(&other)).await,
+        ];
+        let mode = (fields.mode, !fields.cas.is_empty());
+        for ((got, wanted), client) in got.iter().zip(wanted).zip(["none", "valid", "other"]) {
+            assert_eq!(
+                got.is_ok(),
+                wanted,
+                "{:?}, {} certificate: {:?}",
+                mode,
+                client,
+                got
+            );
+        }
+        if let Err(e) = &got[2] {
+            assert!(
+                e.contains("client_certificate: the client's certificate (SHA-256 ")
+                    && e.contains("is not verified by the CAs: unable to get local issuer"),
+                "{}",
+                e
+            );
+        }
+    }
+    let auth = AuthFields {
+        cas: vec![ca.pem.clone()],
+        ..Default::default()
+    }
+    .auth()
+    .unwrap();
+    assert_eq!(auth.mode(), super::ClientAuthMode::RequireAndVerify);
+}
+
+// A certificate expired, or for servers alone by its extended key usage,
+// is refused as Go refuses it; one for clients is taken.
+#[tokio::test]
+async fn a_client_certificate_must_be_valid_and_for_clients() {
+    let ca = ClientCa::new("sail test client CA");
+    for mode in ["verify-if-given", "require-and-verify"] {
+        let auth = AuthFields {
+            mode: Some(mode),
+            cas: vec![ca.pem.clone()],
+            ..Default::default()
+        }
+        .auth();
+        let server = server_checking(auth.as_ref());
+        let expired = ca.issue_with(|params| {
+            params.not_before = rcgen::date_time_ymd(2000, 1, 1);
+            params.not_after = rcgen::date_time_ymd(2001, 1, 1);
+        });
+        let err = served(&server, Some(&expired.identity(&[])))
+            .await
+            .unwrap_err();
+        assert!(err.contains("certificate has expired"), "{}: {}", mode, err);
+        let for_servers = ca.issue_with(|params| {
+            params.extended_key_usages = vec![rcgen::ExtendedKeyUsagePurpose::ServerAuth];
+        });
+        let err = served(&server, Some(&for_servers.identity(&[])))
+            .await
+            .unwrap_err();
+        assert!(
+            err.contains("unsupported certificate purpose"),
+            "{}: {}",
+            mode,
+            err
+        );
+        let for_clients = ca.issue_with(|params| {
+            params.extended_key_usages = vec![rcgen::ExtendedKeyUsagePurpose::ClientAuth];
+        });
+        assert_eq!(
+            served(&server, Some(&for_clients.identity(&[]))).await,
+            Ok(())
+        );
+    }
+}
+
+// A client whose certificate an intermediate issued is taken when it
+// sends the intermediate, and not when it leaves it out; an intermediate
+// configured as the CA is an anchor of its own, as Go takes it.
+#[tokio::test]
+async fn a_client_certificate_chains_by_the_intermediates_it_sends() {
+    let root = ClientCa::new("sail test client root");
+    let intermediate = root.intermediate("sail test client intermediate");
+    let cert = intermediate.issue();
+    let server = server_checking(
+        AuthFields {
+            mode: Some("require-and-verify"),
+            cas: vec![root.pem.clone()],
+            ..Default::default()
+        }
+        .auth()
+        .as_ref(),
+    );
+    assert_eq!(
+        served(&server, Some(&cert.identity(&[&intermediate.pem]))).await,
+        Ok(())
+    );
+    assert!(served(&server, Some(&cert.identity(&[]))).await.is_err());
+    let server = server_checking(
+        AuthFields {
+            cas: vec![intermediate.pem.clone()],
+            ..Default::default()
+        }
+        .auth()
+        .as_ref(),
+    );
+    assert_eq!(served(&server, Some(&cert.identity(&[]))).await, Ok(()));
+}
+
+// Pins take a client by its leaf, whole or by its key, whoever issued it:
+// either list passing, the certificate pins first, as in sing-box 1.15.
+#[tokio::test]
+async fn pins_take_a_client_by_its_certificate_or_its_key() {
+    let cert = ClientCa::new("sail test client CA").issue();
+    let other = ClientCa::new("sail test other CA").issue();
+    let identity = cert.identity(&[]);
+    let pinning = |cert_pins: &[&String], key_pins: &[&String]| {
+        let auth = AuthFields {
+            mode: Some("require-and-verify"),
+            cert_pins: cert_pins.iter().map(|p| p.to_string()).collect(),
+            key_pins: key_pins.iter().map(|p| p.to_string()).collect(),
+            ..Default::default()
+        }
+        .auth();
+        server_checking(auth.as_ref())
+    };
+    let (pin, key_pin) = (cert.pin(), cert.key_pin());
+    let (other_pin, other_key_pin) = (other.pin(), other.key_pin());
+    for (server, wanted) in [
+        (pinning(&[&pin], &[]), true),
+        (pinning(&[&other_pin, &pin], &[]), true),
+        (pinning(&[], &[&key_pin]), true),
+        (pinning(&[&other_pin], &[&key_pin]), true),
+        (pinning(&[&pin], &[&other_key_pin]), true),
+        (pinning(&[&other_pin], &[]), false),
+        (pinning(&[], &[&other_key_pin]), false),
+        (pinning(&[&other_pin], &[&other_key_pin]), false),
+    ] {
+        let got = served(&server, Some(&identity)).await;
+        assert_eq!(got.is_ok(), wanted, "{:?}", got);
+        // Without a certificate, require-and-verify refuses.
+        assert!(served(&server, None).await.is_err());
+    }
+    // The leaf alone is pinned: a pin of its CA takes nobody.
+    let ca = ClientCa::new("sail test pinned CA");
+    let issued = ca.issue();
+    let ca_pin = btls::base64::encode_block(&btls::sha::sha256(
+        &X509::from_pem(ca.pem.as_bytes()).unwrap().to_der().unwrap(),
+    ));
+    let server = pinning(&[&ca_pin], &[]);
+    let err = served(&server, Some(&issued.identity(&[&ca.pem])))
+        .await
+        .unwrap_err();
+    assert!(
+        err.contains(&format!(
+            "client_certificate_sha256: the client's certificate, {} (base64 {}), is not \
+             pinned",
+            certificate_pin(&issued.der),
+            issued.pin()
+        )),
+        "{}",
+        err
+    );
+    let err = served(&pinning(&[&other_pin], &[&other_key_pin]), Some(&identity))
+        .await
+        .unwrap_err();
+    assert!(
+        err.contains("client_certificate_sha256: the client's certificate")
+            && err.contains(&format!(
+                "; client_certificate_public_key_sha256: the client's public key, {}, is not \
+                 pinned",
+                key_pin
+            )),
+        "{}",
+        err
+    );
+}
+
+// verify-if-given with pins takes a client that sends no certificate:
+// sing-box 1.14 fails on it, and 1.15 takes it.
+#[tokio::test]
+async fn verify_if_given_with_pins_takes_a_client_without_a_certificate() {
+    let cert = ClientCa::new("sail test client CA").issue();
+    let other = ClientCa::new("sail test other CA").issue();
+    for fields in [
+        AuthFields {
+            mode: Some("verify-if-given"),
+            cert_pins: vec![cert.pin()],
+            ..Default::default()
+        },
+        AuthFields {
+            mode: Some("verify-if-given"),
+            key_pins: vec![cert.key_pin()],
+            ..Default::default()
+        },
+    ] {
+        let server = server_checking(fields.auth().as_ref());
+        assert_eq!(served(&server, None).await, Ok(()));
+        assert_eq!(served(&server, Some(&cert.identity(&[]))).await, Ok(()));
+        assert!(served(&server, Some(&other.identity(&[]))).await.is_err());
+    }
+}
+
+// What sing-box ignores beside a field it prefers is ignored with a
+// warning, and is not what clients are checked by: the inline CAs before
+// the files, the CAs before the pins.
+#[tokio::test]
+async fn fields_sing_box_ignores_are_warned_of_and_ignored() {
+    let (inline, file) = (
+        ClientCa::new("sail test inline CA"),
+        ClientCa::new("sail test file CA"),
+    );
+    let path = std::env::temp_dir().join(format!("sail-client-ca-{}.pem", std::process::id()));
+    std::fs::write(&path, &file.pem).unwrap();
+    let written = path.clone();
+    let path = path.to_string_lossy().into_owned();
+    let by_file = file.issue();
+
+    let (auth, warnings) = AuthFields {
+        cas: vec![inline.pem.clone()],
+        ca_files: vec![path.clone()],
+        ..Default::default()
+    }
+    .build()
+    .unwrap();
+    assert_eq!(
+        warnings,
+        [
+            "client_certificate_path: ignored beside client_certificate, as sing-box ignores it: \
+          clients are verified by the inline CAs alone"
+        ]
+    );
+    let server = server_checking(auth.as_ref());
+    assert_eq!(
+        served(&server, Some(&inline.issue().identity(&[]))).await,
+        Ok(())
+    );
+    assert!(served(&server, Some(&by_file.identity(&[]))).await.is_err());
+
+    // The file's CAs, without inline ones, are the CAs.
+    let server = server_checking(
+        AuthFields {
+            ca_files: vec![path.clone()],
+            ..Default::default()
+        }
+        .auth()
+        .as_ref(),
+    );
+    assert_eq!(served(&server, Some(&by_file.identity(&[]))).await, Ok(()));
+
+    let pinned = ClientCa::new("sail test other CA").issue();
+    for (cas, ca_files, field) in [
+        (vec![inline.pem.clone()], vec![], "client_certificate"),
+        (vec![], vec![path.clone()], "client_certificate_path"),
+    ] {
+        let (auth, warnings) = AuthFields {
+            mode: Some("verify-if-given"),
+            cas,
+            ca_files,
+            cert_pins: vec![pinned.pin()],
+            key_pins: vec![pinned.key_pin()],
+        }
+        .build()
+        .unwrap();
+        assert_eq!(
+            warnings,
+            [format!(
+                "client_certificate_sha256 and client_certificate_public_key_sha256: ignored \
+                 beside {}, as sing-box ignores it: clients are verified by the CAs alone",
+                field
+            )]
+        );
+        let server = server_checking(auth.as_ref());
+        let err = served(&server, Some(&pinned.identity(&[])))
+            .await
+            .unwrap_err();
+        assert!(
+            err.contains(&format!("{}: the client's certificate", field)),
+            "{}",
+            err
+        );
+    }
+    std::fs::remove_file(written).unwrap();
+}
+
+// What would leave clients unchecked while it looks as if it checks them
+// is an error, where sing-box takes it; so is a verifying mode with
+// nothing to verify by, as in sing-box. Each names the field.
+#[test]
+fn client_authentication_that_checks_nothing_is_an_error() {
+    let ca = ClientCa::new("sail test client CA");
+    let pin = ca.issue().pin();
+    let cas = || vec![ca.pem.clone()];
+    let pins = || vec![pin.clone()];
+    let err = |fields: AuthFields| fields.build().unwrap_err().to_string();
+    for mode in [None, Some("no"), Some("")] {
+        assert_eq!(
+            err(AuthFields {
+                mode,
+                cert_pins: pins(),
+                ..Default::default()
+            }),
+            "client_certificate_sha256: without client_authentication, or with no, no client \
+             certificate is asked for, and none is checked; set it to verify-if-given or \
+             require-and-verify"
+        );
+        assert!(err(AuthFields {
+            mode,
+            key_pins: pins_of_key(),
+            ..Default::default()
+        })
+        .starts_with("client_certificate_public_key_sha256: without client_authentication"));
+    }
+    for mode in ["request", "require-any"] {
+        assert_eq!(
+            err(AuthFields {
+                mode: Some(mode),
+                cas: cas(),
+                ..Default::default()
+            }),
+            format!(
+                "client_certificate: client_authentication {} takes any client certificate \
+                 and checks none; verify-if-given or require-and-verify check it",
+                mode
+            )
+        );
+        assert!(err(AuthFields {
+            mode: Some(mode),
+            ca_files: vec!["ca.pem".into()],
+            ..Default::default()
+        })
+        .starts_with("client_certificate_path: client_authentication"));
+        assert!(err(AuthFields {
+            mode: Some(mode),
+            cert_pins: pins(),
+            ..Default::default()
+        })
+        .starts_with("client_certificate_sha256: client_authentication"));
+    }
+    for mode in ["verify-if-given", "require-and-verify"] {
+        assert_eq!(
+            err(AuthFields {
+                mode: Some(mode),
+                ..Default::default()
+            }),
+            format!(
+                "client_authentication: {} needs client_certificate, client_certificate_path, \
+                 client_certificate_sha256 or client_certificate_public_key_sha256 to verify \
+                 clients by",
+                mode
+            )
+        );
+    }
+    assert_eq!(
+        err(AuthFields {
+            mode: Some("required"),
+            ..Default::default()
+        }),
+        "client_authentication: unknown value \"required\", one of no, request, require-any, \
+         verify-if-given, require-and-verify"
+    );
+    assert_eq!(
+        err(AuthFields {
+            cas: vec!["not PEM".into()],
+            ..Default::default()
+        }),
+        "client_certificate: not PEM certificates"
+    );
+    assert!(err(AuthFields {
+        ca_files: vec!["/nonexistent/ca.pem".into()],
+        ..Default::default()
+    })
+    .starts_with("client_certificate_path[0]: load certificates from /nonexistent/ca.pem"));
+    // Pins are read, used or not.
+    assert!(err(AuthFields {
+        cas: cas(),
+        key_pins: vec!["x".into()],
+        ..Default::default()
+    })
+    .starts_with("client_certificate_public_key_sha256[0]: not base64"));
+    // No field asks for a certificate: none is.
+    assert!(AuthFields::default().build().unwrap().0.is_none());
+    assert!(AuthFields {
+        mode: Some("no"),
+        ..Default::default()
+    }
+    .build()
+    .unwrap()
+    .0
+    .is_none());
+}
+
+fn pins_of_key() -> Vec<String> {
+    vec![spki_pin(b"a SubjectPublicKeyInfo")]
+}

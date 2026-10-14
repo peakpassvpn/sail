@@ -702,16 +702,17 @@ mod tests {
         let tls = &config.outbounds[0].options["tls"];
         assert_eq!(tls["disable_sni"], true);
         assert_eq!(tls["client_key_path"], "c.key");
-        // An inbound verifying clients' certificates is another matter.
-        let err = parse(
+        // As do an inbound's, which verify clients' certificates.
+        let config = parse(
             r#"{ "inbounds": [{ "type": "trojan", "listen_port": 443, "users": [],
-                 "tls": { "enabled": true, "client_certificate_path": ["ca.crt"] } }] }"#,
+                 "tls": { "enabled": true, "client_authentication": "verify-if-given",
+                 "client_certificate_path": ["ca.crt"] } }] }"#,
         )
-        .unwrap_err();
-        assert_eq!(
-            err.to_string(),
-            "inbounds[0].tls.client_certificate_path: sail does not implement this field yet"
-        );
+        .unwrap();
+        assert!(config.warnings.is_empty());
+        let tls = &config.inbounds[0].options["tls"];
+        assert_eq!(tls["client_authentication"], "verify-if-given");
+        assert_eq!(tls["client_certificate_path"][0], "ca.crt");
     }
 
     #[test]

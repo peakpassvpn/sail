@@ -3,6 +3,7 @@ use async_trait::async_trait;
 use btls::ssl::{AlpnError, Ssl, SslAcceptor, SslMethod, SslVersion};
 
 use super::super::client::{load_certificates, load_private_key};
+use super::super::client_auth::ClientAuth;
 use super::super::conn::BoringConnection;
 use super::super::options::TlsVersionRange;
 use crate::{
@@ -20,12 +21,24 @@ impl Handler {
     /// PEM or paths. `alpn` is what the server speaks, most preferred
     /// first: the first a client offers too is selected, and a client that
     /// offers none of them gets no ALPN rather than an alert. `versions` are
-    /// those accepted.
+    /// those accepted. No client certificate is asked for.
     pub fn new(
         certificate: String,
         certificate_key: String,
         alpn: Vec<String>,
         versions: TlsVersionRange,
+    ) -> Result<Self> {
+        Self::with_client_auth(certificate, certificate_key, alpn, versions, None)
+    }
+
+    /// `new`, clients' certificates asked for and checked as `client_auth`
+    /// says, if set.
+    pub fn with_client_auth(
+        certificate: String,
+        certificate_key: String,
+        alpn: Vec<String>,
+        versions: TlsVersionRange,
+        client_auth: Option<&ClientAuth>,
     ) -> Result<Self> {
         let certs = load_certificates(&certificate)?;
         let key = load_private_key(&certificate_key)?;
@@ -41,6 +54,9 @@ impl Handler {
         builder
             .check_private_key()
             .map_err(|e| anyhow!("private key does not match the certificate: {}", e))?;
+        if let Some(client_auth) = client_auth {
+            client_auth.apply(&mut builder)?;
+        }
         if !alpn.is_empty() {
             builder.set_alpn_select_callback(move |_, client| {
                 crate::transport::tls::guarded(
@@ -124,6 +140,65 @@ mod tests {
             Default::default()
         )
         .is_ok());
+    }
+
+    /// The acceptor asks for and checks clients' certificates as its
+    /// client authentication says, and says why it refused one.
+    #[tokio::test]
+    async fn the_acceptor_checks_clients_certificates() {
+        use crate::adapter::{InboundStreamHandler, InboundTransport};
+        use crate::transport::tls::tests::{test_roots, AuthFields, ClientCa};
+        use crate::transport::tls::TlsClient;
+        let rcgen::CertifiedKey { cert, key_pair } =
+            rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
+        let ca = ClientCa::new("sail test client CA");
+        let auth = AuthFields {
+            mode: Some("require-and-verify"),
+            cas: vec![ca.pem.clone()],
+            ..Default::default()
+        }
+        .auth();
+        let handler = Handler::with_client_auth(
+            cert.pem(),
+            key_pair.serialize_pem(),
+            vec![],
+            Default::default(),
+            auth.as_ref(),
+        )
+        .unwrap();
+        let handshake = |identity: Option<crate::transport::tls::client::Identity>| {
+            let client = TlsClient::with_identity(
+                &[],
+                Some(&cert.pem()),
+                false,
+                None,
+                &test_roots(),
+                identity.as_ref(),
+            )
+            .unwrap();
+            let handler = &handler;
+            async move {
+                let (c, s) = tokio::io::duplex(64 * 1024);
+                let (_, served) = tokio::join!(
+                    client.connect("localhost", c, None, None),
+                    handler.handle(Default::default(), Box::new(s))
+                );
+                match served {
+                    Ok(InboundTransport::Stream(..)) => Ok(()),
+                    Ok(_) => panic!("a stream"),
+                    Err(e) => Err(e.to_string()),
+                }
+            }
+        };
+        assert_eq!(handshake(Some(ca.issue().identity(&[]))).await, Ok(()));
+        assert!(handshake(None).await.is_err());
+        let other = ClientCa::new("sail test other CA").issue();
+        let err = handshake(Some(other.identity(&[]))).await.unwrap_err();
+        assert!(
+            err.contains("client_certificate: the client's certificate"),
+            "{}",
+            err
+        );
     }
 
     #[test]

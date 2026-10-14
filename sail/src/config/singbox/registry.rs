@@ -263,9 +263,17 @@ fn dns_action(action: &str) -> Value {
     v
 }
 
+/// `from`'s fields into `into`'s, an object in both merged in turn.
 fn merge(into: &mut Value, from: Value) {
     if let (Value::Object(into), Value::Object(from)) = (into, from) {
-        into.extend(from);
+        for (key, value) in from {
+            match into.get_mut(&key) {
+                Some(at) if at.is_object() && value.is_object() => merge(at, value),
+                _ => {
+                    into.insert(key, value);
+                }
+            }
+        }
     }
 }
 
@@ -280,8 +288,14 @@ fn object(key: &str) -> Value {
 }
 
 /// What an extension needs to be taken: fields next to it, merged into
-/// the entry probed, and entries before that one in its list.
+/// the entry probed, and entries before that one in its list. A path may
+/// name several types, as `inbounds[trojan|vless]`.
 const CONTEXT: &[(&str, &str, &str)] = &[
+    (
+        "inbounds[anytls|http|trojan|vless|vmess].tls.client_certificate_sha256",
+        r#"{ "tls": { "client_authentication": "require-and-verify" } }"#,
+        "[]",
+    ),
     (
         "dns.servers[race].servers",
         "{}",
@@ -360,7 +374,10 @@ const CONTEXT: &[(&str, &str, &str)] = &[
 
 /// `config` with what `path` needs (`CONTEXT`).
 fn with_context(config: &mut Value, path: &str) {
-    let Some((_, with, before)) = CONTEXT.iter().find(|(p, _, _)| *p == path) else {
+    let Some((_, with, before)) = CONTEXT
+        .iter()
+        .find(|(p, _, _)| expand(p).iter().any(|p| p == path))
+    else {
         return;
     };
     let with: Value = serde_json::from_str(with).expect("a context");
@@ -1284,6 +1301,11 @@ const EXTENSIONS: &[(&str, &str, &str)] = &[
         "endpoints[wireguard].skip_default_domain_resolver",
         "true",
         "As an outbound's, for the peers' names",
+    ),
+    (
+        "inbounds[anytls|http|trojan|vless|vmess].tls.client_certificate_sha256",
+        r#"["q6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6s="]"#,
+        "sing-box 1.15's, read ahead: clients' certificates taken by the SHA-256 of the whole leaf (its DER), standard base64 or hex, with a verifying `client_authentication`; looked at before `client_certificate_public_key_sha256`, either list passing",
     ),
     (
         "inbounds[http|mixed].realm",

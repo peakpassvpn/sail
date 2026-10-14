@@ -1528,6 +1528,37 @@ pub struct InboundTls {
     /// The highest; unset, 1.3.
     #[serde(default)]
     pub max_version: Option<String>,
+    /// What is asked of clients' certificates, as sing-box takes it: `no`
+    /// (none is asked for), `request` or `require-any` (one is taken
+    /// unchecked; `require-any` refuses a client without), `verify-if-given`
+    /// or `require-and-verify` (one is checked, by the CAs or the pins;
+    /// `require-and-verify` refuses a client without). Unset is `no`, or
+    /// `require-and-verify` with CAs set. Pins without a verifying mode,
+    /// and CAs or pins with `request` or `require-any`, are errors, where
+    /// sing-box checks no certificate.
+    #[serde(default)]
+    pub client_authentication: Option<String>,
+    /// The CAs clients' certificates are verified by, inline PEM: chained
+    /// to one of them, by the intermediates the client sends, valid, and
+    /// for client authentication. With `client_certificate_path` too, the
+    /// files are ignored with a warning, as sing-box ignores them.
+    #[serde(default)]
+    pub client_certificate: Option<Listable>,
+    /// The CAs, from PEM (or DER) files, as `client_certificate`.
+    #[serde(default)]
+    pub client_certificate_path: Option<Listable>,
+    /// Clients' certificates taken by the SHA-256 of their public key
+    /// (SubjectPublicKeyInfo), standard base64, in place of CAs: the leaf
+    /// alone, no CA or validity period. With
+    /// `client_certificate_sha256`, either list passing is enough. Beside
+    /// CAs, ignored with a warning, as sing-box ignores them.
+    #[serde(default)]
+    pub client_certificate_public_key_sha256: Option<Listable>,
+    /// sing-box 1.15's, read ahead: clients' certificates taken by the
+    /// SHA-256 of the whole leaf (its DER), standard base64 or hex, looked
+    /// at before `client_certificate_public_key_sha256`, as that is.
+    #[serde(default)]
+    pub client_certificate_sha256: Option<Listable>,
     /// The name REALITY clients must ask for; only REALITY uses it, and
     /// without REALITY it is ignored with a warning, as sing-box ignores it.
     #[serde(default)]
@@ -1773,6 +1804,73 @@ impl InboundTls {
         .map_err(|e| anyhow!("[{}] inbound: tls.{}", tag, e))
     }
 
+    /// How clients' certificates are taken, if they are asked for; the
+    /// warnings of fields ignored are logged. Errors as the inbound
+    /// `tag`'s.
+    #[cfg(feature = "tls")]
+    pub(crate) fn client_auth(
+        &self,
+        tag: &str,
+        env: &RuntimeEnv,
+    ) -> Result<Option<crate::transport::tls::ClientAuth>> {
+        let list = |field: &Option<Listable>| field.clone().map(Listable::into_vec);
+        let certificate = list(&self.client_certificate).unwrap_or_default();
+        let certificate_path: Vec<String> = list(&self.client_certificate_path)
+            .unwrap_or_default()
+            .iter()
+            .map(|path| env.data_path(path))
+            .collect();
+        let certificate_sha256 = list(&self.client_certificate_sha256).unwrap_or_default();
+        let public_key_sha256 =
+            list(&self.client_certificate_public_key_sha256).unwrap_or_default();
+        let (client_auth, warnings) =
+            crate::transport::tls::ClientAuth::new(&crate::transport::tls::ClientAuthFields {
+                mode: self.client_authentication.as_deref(),
+                certificate: &certificate,
+                certificate_path: &certificate_path,
+                certificate_sha256: &certificate_sha256,
+                public_key_sha256: &public_key_sha256,
+            })
+            .map_err(|e| anyhow!("[{}] inbound: tls.{}", tag, e))?;
+        for warning in warnings {
+            tracing::warn!("[{}] inbound: tls.{}", tag, warning);
+        }
+        Ok(client_auth)
+    }
+
+    /// The first field that asks for clients' certificates, if any: a mode
+    /// of `no` asks for none.
+    pub(crate) fn client_auth_field(&self) -> Option<&'static str> {
+        let set = |field: &Option<Listable>| {
+            field
+                .as_ref()
+                .is_some_and(|l| !l.clone().into_vec().is_empty())
+        };
+        [
+            (
+                "client_authentication",
+                self.client_authentication
+                    .as_deref()
+                    .is_some_and(|m| !m.is_empty() && m != "no"),
+            ),
+            ("client_certificate", set(&self.client_certificate)),
+            (
+                "client_certificate_path",
+                set(&self.client_certificate_path),
+            ),
+            (
+                "client_certificate_sha256",
+                set(&self.client_certificate_sha256),
+            ),
+            (
+                "client_certificate_public_key_sha256",
+                set(&self.client_certificate_public_key_sha256),
+            ),
+        ]
+        .into_iter()
+        .find_map(|(field, set)| set.then_some(field))
+    }
+
     /// The certificate to present: inline, or by path.
     pub(crate) fn certificate(&self, tag: &str, env: &RuntimeEnv) -> Result<String> {
         match (&self.certificate, &self.certificate_path) {
@@ -2014,6 +2112,16 @@ fn tls_inbound(
                 tag
             ));
         }
+        // REALITY's server asks for no certificate: what would check one
+        // is an error, where sing-box ignores it.
+        if let Some(field) = tls.client_auth_field() {
+            return Err(anyhow!(
+                "[{}] inbound: tls.{}: not with tls.reality, whose server asks clients for no \
+                 certificate",
+                tag,
+                field
+            ));
+        }
         return reality_inbound(tag, tls, reality, env, dial);
     }
     // `server_name` is for REALITY; without it, it is ignored, as sing-box
@@ -2027,11 +2135,12 @@ fn tls_inbound(
     }
     #[cfg(feature = "inbound-tls")]
     {
-        let handler = crate::transport::tls::inbound::StreamHandler::new(
+        let handler = crate::transport::tls::inbound::StreamHandler::with_client_auth(
             tls.certificate(tag, env)?,
             tls.key(tag, env)?,
             alpn,
             tls.versions(tag)?,
+            tls.client_auth(tag, env)?.as_ref(),
         )
         .map_err(|e| anyhow!("[{}] inbound: tls: {}", tag, e))?;
         Ok(Arc::new(crate::adapter::inbound::Handler::new(
@@ -2747,6 +2856,82 @@ mod inbound_tls_tests {
         .unwrap();
         let env = crate::runtime::RuntimeEnv::default();
         tls_inbound("in", &tls, Vec::new(), &env, &Default::default()).unwrap();
+    }
+
+    /// Any field that would check clients' certificates is an error with
+    /// REALITY, whose server asks for none, where sing-box ignores it; a
+    /// mode of `no` asks for none and is taken.
+    #[test]
+    fn client_authentication_is_an_error_with_reality() {
+        let reality = serde_json::json!({
+            "enabled": true,
+            "private_key": "x",
+            "short_id": ["0123"],
+            "handshake": { "server": "example.com", "server_port": 443 },
+        });
+        let pin = btls::base64::encode_block(&[7; 32]);
+        for (field, value) in [
+            ("client_authentication", serde_json::json!("require-any")),
+            (
+                "client_certificate",
+                serde_json::json!("-----BEGIN CERTIFICATE-----"),
+            ),
+            ("client_certificate_path", serde_json::json!(["ca.pem"])),
+            ("client_certificate_sha256", serde_json::json!([pin])),
+            (
+                "client_certificate_public_key_sha256",
+                serde_json::json!(pin),
+            ),
+        ] {
+            let tls: InboundTls = serde_json::from_value(serde_json::json!({
+                "enabled": true, "server_name": "example.com", "reality": reality,
+                field: value,
+            }))
+            .unwrap();
+            let env = crate::runtime::RuntimeEnv::default();
+            let err = tls_inbound("in", &tls, Vec::new(), &env, &Default::default())
+                .err()
+                .unwrap();
+            assert_eq!(
+                err.to_string(),
+                format!(
+                    "[in] inbound: tls.{}: not with tls.reality, whose server asks clients for \
+                     no certificate",
+                    field
+                )
+            );
+        }
+        let tls: InboundTls = serde_json::from_value(serde_json::json!({
+            "enabled": true, "server_name": "example.com", "reality": reality,
+            "client_authentication": "no",
+        }))
+        .unwrap();
+        assert_eq!(tls.client_auth_field(), None);
+    }
+
+    /// An inbound's client-authentication fields are read and checked as
+    /// it is built, errors naming the field under `tls`.
+    #[test]
+    fn client_authentication_errors_name_the_inbound_and_field() {
+        let rcgen::CertifiedKey { cert, key_pair } =
+            rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
+        let tls: InboundTls = serde_json::from_value(serde_json::json!({
+            "enabled": true,
+            "certificate": cert.pem(),
+            "key": key_pair.serialize_pem(),
+            "client_certificate_sha256": [btls::base64::encode_block(&[7; 32])],
+        }))
+        .unwrap();
+        let env = crate::runtime::RuntimeEnv::default();
+        let err = tls_inbound("in", &tls, Vec::new(), &env, &Default::default())
+            .err()
+            .unwrap();
+        assert!(
+            err.to_string()
+                .starts_with("[in] inbound: tls.client_certificate_sha256: without"),
+            "{}",
+            err
+        );
     }
 }
 

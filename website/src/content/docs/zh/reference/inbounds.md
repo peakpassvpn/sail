@@ -68,10 +68,10 @@ Rust 定义：[`AnyTlsInboundOptions`](https://github.com/peakpassvpn/sail/blob/
 | `curve_preferences` | listable-string, 取值 `P256`, `P384`, `P521`, `X25519`, `X25519MLKEM768` | — | 报错：TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked | — |
 | `certificate` | listable-string | — | 支持 | — |
 | `certificate_path` | string | — | 支持 | — |
-| `client_authentication` | string, 取值 `no`, `request`, `require-any`, `verify-if-given`, `require-and-verify` | — | 报错：Verifying clients' certificates: an inbound would take clients it should refuse | — |
-| `client_certificate` | listable-string | — | 报错：Verifying clients' certificates: an inbound would take clients it should refuse | — |
-| `client_certificate_path` | listable-string | — | 报错：Verifying clients' certificates: an inbound would take clients it should refuse | — |
-| `client_certificate_public_key_sha256` | listable-string\|array | — | 报错：Verifying clients' certificates: an inbound would take clients it should refuse | — |
+| `client_authentication` | string, 取值 `no`, `request`, `require-any`, `verify-if-given`, `require-and-verify` | — | 支持 | — |
+| `client_certificate` | listable-string | — | 支持 | — |
+| `client_certificate_path` | listable-string | — | 支持 | — |
+| `client_certificate_public_key_sha256` | listable-string\|array | — | 支持 | — |
 | `key` | listable-string | — | 支持 | — |
 | `key_path` | string | — | 支持 | — |
 | `kernel_tx` | bool | — | 警告：The TLS stack, kernel TLS and the handshake's timeout: the same TLS without them | — |
@@ -81,6 +81,7 @@ Rust 定义：[`AnyTlsInboundOptions`](https://github.com/peakpassvpn/sail/blob/
 | `ech` | object → [对象](/sail/zh/reference/shared/#ech-inbounds) | — | 报错：Encrypted Client Hello on an inbound | — |
 | `reality` | object → [对象](#inbounds-anytls-tls-reality) | — | 支持 | — |
 | `acme` | object | — | 报错：A certificate from a provider or ACME: the inbound would have none (sing-box 已弃用) | — |
+| `client_certificate_sha256` | — | — | sail 扩展 | sing-box 1.15's, read ahead: clients' certificates taken by the SHA-256 of the whole leaf (its DER), standard base64 or hex, with a verifying `client_authentication`; looked at before `client_certificate_public_key_sha256`, either list passing |
 
 <a id="inbounds-anytls-tls-reality"></a>
 

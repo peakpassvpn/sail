@@ -532,10 +532,10 @@ Rust: [`InboundTls`](https://github.com/peakpassvpn/sail/blob/master/sail/src/tr
 | `curve_preferences` | listable-string, one of `P256`, `P384`, `P521`, `X25519`, `X25519MLKEM768` | — | Error: TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked | — |
 | `certificate` | listable-string | unset | Supported | An inline PEM certificate. |
 | `certificate_path` | string | unset | Supported | — |
-| `client_authentication` | string, one of `no`, `request`, `require-any`, `verify-if-given`, `require-and-verify` | — | Error: Verifying clients' certificates: an inbound would take clients it should refuse | — |
-| `client_certificate` | listable-string | — | Error: Verifying clients' certificates: an inbound would take clients it should refuse | — |
-| `client_certificate_path` | listable-string | — | Error: Verifying clients' certificates: an inbound would take clients it should refuse | — |
-| `client_certificate_public_key_sha256` | listable-string\|array | — | Error: Verifying clients' certificates: an inbound would take clients it should refuse | — |
+| `client_authentication` | string, one of `no`, `request`, `require-any`, `verify-if-given`, `require-and-verify` | unset | Supported | What is asked of clients' certificates, as sing-box takes it: `no` (none is asked for), `request` or `require-any` (one is taken unchecked; `require-any` refuses a client without), `verify-if-given` or `require-and-verify` (one is checked, by the CAs or the pins; `require-and-verify` refuses a client without). Unset is `no`, or `require-and-verify` with CAs set. Pins without a verifying mode, and CAs or pins with `request` or `require-any`, are errors, where sing-box checks no certificate. |
+| `client_certificate` | listable-string | unset | Supported | The CAs clients' certificates are verified by, inline PEM: chained to one of them, by the intermediates the client sends, valid, and for client authentication. With `client_certificate_path` too, the files are ignored with a warning, as sing-box ignores them. |
+| `client_certificate_path` | listable-string | unset | Supported | The CAs, from PEM (or DER) files, as `client_certificate`. |
+| `client_certificate_public_key_sha256` | listable-string\|array | unset | Supported | Clients' certificates taken by the SHA-256 of their public key (SubjectPublicKeyInfo), standard base64, in place of CAs: the leaf alone, no CA or validity period. With `client_certificate_sha256`, either list passing is enough. Beside CAs, ignored with a warning, as sing-box ignores them. |
 | `key` | listable-string | unset | Supported | An inline PEM key. |
 | `key_path` | string | unset | Supported | — |
 | `kernel_tx` | bool | — | Warned: The TLS stack, kernel TLS and the handshake's timeout: the same TLS without them | — |
@@ -545,6 +545,7 @@ Rust: [`InboundTls`](https://github.com/peakpassvpn/sail/blob/master/sail/src/tr
 | `ech` | object → [object](#ech-inbounds) | — | Error: Encrypted Client Hello on an inbound | — |
 | `reality` | object → [object](#reality-inbounds) | unset | Supported | — |
 | `acme` | object | — | Error: A certificate from a provider or ACME: the inbound would have none (deprecated in sing-box) | — |
+| `client_certificate_sha256` | string or array of string | unset | sail extension | sing-box 1.15's, read ahead: clients' certificates taken by the SHA-256 of the whole leaf (its DER), standard base64 or hex, looked at before `client_certificate_public_key_sha256`, as that is. |
 
 <a id="tls-inbounds-2"></a>
 
@@ -566,10 +567,10 @@ Rust: [`InboundTls`](https://github.com/peakpassvpn/sail/blob/master/sail/src/tr
 | `curve_preferences` | listable-string, one of `P256`, `P384`, `P521`, `X25519`, `X25519MLKEM768` | — | Error: TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked | — |
 | `certificate` | listable-string | unset | Supported | An inline PEM certificate. |
 | `certificate_path` | string | unset | Supported | — |
-| `client_authentication` | string, one of `no`, `request`, `require-any`, `verify-if-given`, `require-and-verify` | — | Error: Verifying clients' certificates: an inbound would take clients it should refuse | — |
-| `client_certificate` | listable-string | — | Error: Verifying clients' certificates: an inbound would take clients it should refuse | — |
-| `client_certificate_path` | listable-string | — | Error: Verifying clients' certificates: an inbound would take clients it should refuse | — |
-| `client_certificate_public_key_sha256` | listable-string\|array | — | Error: Verifying clients' certificates: an inbound would take clients it should refuse | — |
+| `client_authentication` | string, one of `no`, `request`, `require-any`, `verify-if-given`, `require-and-verify` | unset | Supported | What is asked of clients' certificates, as sing-box takes it: `no` (none is asked for), `request` or `require-any` (one is taken unchecked; `require-any` refuses a client without), `verify-if-given` or `require-and-verify` (one is checked, by the CAs or the pins; `require-and-verify` refuses a client without). Unset is `no`, or `require-and-verify` with CAs set. Pins without a verifying mode, and CAs or pins with `request` or `require-any`, are errors, where sing-box checks no certificate. |
+| `client_certificate` | listable-string | — | Error: The protocol's own check: not implemented yet | The CAs clients' certificates are verified by, inline PEM: chained to one of them, by the intermediates the client sends, valid, and for client authentication. With `client_certificate_path` too, the files are ignored with a warning, as sing-box ignores them. |
+| `client_certificate_path` | listable-string | — | Error: The protocol's own check: not implemented yet | The CAs, from PEM (or DER) files, as `client_certificate`. |
+| `client_certificate_public_key_sha256` | listable-string\|array | — | Error: The protocol's own check: not implemented yet | Clients' certificates taken by the SHA-256 of their public key (SubjectPublicKeyInfo), standard base64, in place of CAs: the leaf alone, no CA or validity period. With `client_certificate_sha256`, either list passing is enough. Beside CAs, ignored with a warning, as sing-box ignores them. |
 | `key` | listable-string | unset | Supported | An inline PEM key. |
 | `key_path` | string | unset | Supported | — |
 | `kernel_tx` | bool | — | Warned: The TLS stack, kernel TLS and the handshake's timeout: the same TLS without them | — |

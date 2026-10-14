@@ -68,10 +68,10 @@ Rust: [`AnyTlsInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/s
 | `curve_preferences` | listable-string, one of `P256`, `P384`, `P521`, `X25519`, `X25519MLKEM768` | — | Error: TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked | — |
 | `certificate` | listable-string | — | Supported | — |
 | `certificate_path` | string | — | Supported | — |
-| `client_authentication` | string, one of `no`, `request`, `require-any`, `verify-if-given`, `require-and-verify` | — | Error: Verifying clients' certificates: an inbound would take clients it should refuse | — |
-| `client_certificate` | listable-string | — | Error: Verifying clients' certificates: an inbound would take clients it should refuse | — |
-| `client_certificate_path` | listable-string | — | Error: Verifying clients' certificates: an inbound would take clients it should refuse | — |
-| `client_certificate_public_key_sha256` | listable-string\|array | — | Error: Verifying clients' certificates: an inbound would take clients it should refuse | — |
+| `client_authentication` | string, one of `no`, `request`, `require-any`, `verify-if-given`, `require-and-verify` | — | Supported | — |
+| `client_certificate` | listable-string | — | Supported | — |
+| `client_certificate_path` | listable-string | — | Supported | — |
+| `client_certificate_public_key_sha256` | listable-string\|array | — | Supported | — |
 | `key` | listable-string | — | Supported | — |
 | `key_path` | string | — | Supported | — |
 | `kernel_tx` | bool | — | Warned: The TLS stack, kernel TLS and the handshake's timeout: the same TLS without them | — |
@@ -81,6 +81,7 @@ Rust: [`AnyTlsInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/s
 | `ech` | object → [object](/sail/reference/shared/#ech-inbounds) | — | Error: Encrypted Client Hello on an inbound | — |
 | `reality` | object → [object](#inbounds-anytls-tls-reality) | — | Supported | — |
 | `acme` | object | — | Error: A certificate from a provider or ACME: the inbound would have none (deprecated in sing-box) | — |
+| `client_certificate_sha256` | — | — | sail extension | sing-box 1.15's, read ahead: clients' certificates taken by the SHA-256 of the whole leaf (its DER), standard base64 or hex, with a verifying `client_authentication`; looked at before `client_certificate_public_key_sha256`, either list passing |
 
 <a id="inbounds-anytls-tls-reality"></a>
 

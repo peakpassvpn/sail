@@ -1,6 +1,7 @@
 //! TLS over TCP, on BoringSSL.
 
 pub mod client;
+pub mod client_auth;
 mod conn;
 #[cfg(any(feature = "outbound-tls", feature = "quic"))]
 pub(crate) mod ech;
@@ -67,23 +68,41 @@ pub(crate) fn at_instance_time(param: &mut X509VerifyParamRef) {
 /// Runs `configure` on the context of a QUIC client configuration, as on
 /// the builder of one not built yet.
 #[cfg(feature = "quic")]
-pub(crate) fn configure_quic(
+pub(crate) fn configure_quic<T>(
     crypto: &mut quinn_btls::ClientConfig,
-    configure: impl FnOnce(&mut SslContextBuilder),
-) {
+    configure: impl FnOnce(&mut SslContextBuilder) -> T,
+) -> T {
+    configure_context(crypto.ctx_mut(), configure)
+}
+
+/// `configure_quic`, of a QUIC server configuration.
+#[cfg(feature = "quic")]
+pub(crate) fn configure_quic_server<T>(
+    crypto: &mut quinn_btls::ServerConfig,
+    configure: impl FnOnce(&mut SslContextBuilder) -> T,
+) -> T {
+    configure_context(crypto.ctx_mut(), configure)
+}
+
+#[cfg(feature = "quic")]
+fn configure_context<T>(
+    ctx: &mut btls::ssl::SslContext,
+    configure: impl FnOnce(&mut SslContextBuilder) -> T,
+) -> T {
     use foreign_types::ForeignType;
-    let ctx = crypto.ctx_mut().as_ptr();
+    let ctx = ctx.as_ptr();
     // SAFETY: the builder takes a reference of its own to the context,
     // given back when it drops. The context is not in use yet: nothing
     // configures it at the same time.
     unsafe {
         btls_sys::SSL_CTX_up_ref(ctx);
         let mut builder = SslContextBuilder::from_ptr(ctx);
-        configure(&mut builder);
+        configure(&mut builder)
     }
 }
 
 pub use client::TlsClient;
+pub use client_auth::{ClientAuth, ClientAuthFields, ClientAuthMode};
 pub use conn::BoringConnection;
 pub use fingerprint::Fingerprint;
 pub use options::{CertificatePins, ClientOptions, Pins, PublicKeyPins, TlsVersionRange};

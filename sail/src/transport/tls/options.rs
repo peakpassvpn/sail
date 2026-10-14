@@ -15,9 +15,9 @@ use btls::ssl::{
     Ssl, SslAlert, SslContextBuilder, SslRef, SslVerifyError, SslVerifyMode, SslVersion,
 };
 use btls::stack::Stack;
-use btls::x509::store::X509StoreBuilder;
+use btls::x509::store::{X509Store, X509StoreBuilder, X509StoreRef};
 use btls::x509::verify::{X509VerifyFlags, X509VerifyParamRef};
-use btls::x509::{X509StoreContext, X509VerifyResult, X509};
+use btls::x509::{X509Ref, X509StoreContext, X509VerifyResult, X509};
 
 /// A TLS version a `tls` block names.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -173,10 +173,15 @@ impl PublicKeyPins {
     /// field and the entry; a hash of any other length is an error here,
     /// where sing-box would match no key.
     pub fn parse(hashes: &[String]) -> Result<Option<Self>> {
-        const FIELD: &str = "certificate_public_key_sha256";
+        Self::parse_field("certificate_public_key_sha256", hashes)
+    }
+
+    /// `parse`, of the field `field`, as errors name it: an inbound's
+    /// `client_certificate_public_key_sha256` takes the same.
+    pub fn parse_field(field: &str, hashes: &[String]) -> Result<Option<Self>> {
         let mut pins = Vec::with_capacity(hashes.len());
         for (i, hash) in hashes.iter().enumerate() {
-            let invalid = |why: &str| anyhow!("{}[{}]: {}", FIELD, i, why);
+            let invalid = |why: &str| anyhow!("{}[{}]: {}", field, i, why);
             if hash.is_empty() || hash.len() % 4 != 0 || hash.trim() != hash {
                 return Err(invalid("not base64 (standard, padded) of a SHA-256 hash"));
             }
@@ -185,7 +190,7 @@ impl PublicKeyPins {
             let pin: [u8; 32] = bytes.try_into().map_err(|b: Vec<u8>| {
                 anyhow!(
                     "{}[{}]: {} bytes, where a SHA-256 hash has 32",
-                    FIELD,
+                    field,
                     i,
                     b.len()
                 )
@@ -203,12 +208,19 @@ impl PublicKeyPins {
     /// Whether `spki_der`, a SubjectPublicKeyInfo, is one of the pinned
     /// keys; if not, why, with the key's hash as the field would take it.
     pub fn check(&self, spki_der: &[u8]) -> std::result::Result<(), String> {
+        self.check_as(Peer::SERVER, spki_der)
+    }
+
+    /// `check`, its error naming `peer`.
+    fn check_as(&self, peer: Peer, spki_der: &[u8]) -> std::result::Result<(), String> {
         let hash = Self::hash(spki_der);
         if self.0.contains(&hash) {
             return Ok(());
         }
         Err(format!(
-            "certificate_public_key_sha256: the server's public key, {}, is not pinned",
+            "{}: the {}'s public key, {}, is not pinned",
+            peer.key_field,
+            peer.name,
             btls::base64::encode_block(&hash)
         ))
     }
@@ -218,12 +230,45 @@ impl PublicKeyPins {
         let cert = ssl
             .peer_certificate()
             .ok_or("certificate_public_key_sha256: the server sent no certificate")?;
+        self.check_certificate(Peer::SERVER, &cert)
+    }
+
+    /// `check`, of the key of `cert`, the certificate of `peer`.
+    pub(crate) fn check_certificate(
+        &self,
+        peer: Peer,
+        cert: &X509Ref,
+    ) -> std::result::Result<(), String> {
         let spki = cert
             .public_key()
             .and_then(|key| key.public_key_to_der())
-            .map_err(|e| format!("certificate_public_key_sha256: the server's key: {}", e))?;
-        self.check(&spki)
+            .map_err(|e| format!("{}: the {}'s key: {}", peer.key_field, peer.name, e))?;
+        self.check_as(peer, &spki)
     }
+}
+
+/// Whose certificate the pins check, as their errors name it: the field
+/// of each list of pins, and the peer.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Peer {
+    pub name: &'static str,
+    pub certificate_field: &'static str,
+    pub key_field: &'static str,
+}
+
+impl Peer {
+    /// A server, by a client's `tls` block.
+    pub const SERVER: Self = Self {
+        name: "server",
+        certificate_field: "certificate_sha256",
+        key_field: "certificate_public_key_sha256",
+    };
+    /// A client, by an inbound's.
+    pub const CLIENT: Self = Self {
+        name: "client",
+        certificate_field: "client_certificate_sha256",
+        key_field: "client_certificate_public_key_sha256",
+    };
 }
 
 /// The SHA-256 hashes of whole certificates (their DER) a client takes a
@@ -263,13 +308,19 @@ impl CertificatePins {
     /// cannot be confused: the base64 of 32 bytes ends in `=`. None when
     /// there are none. Errors name the field and the entry.
     pub fn parse(hashes: &[String]) -> Result<Option<Self>> {
+        Self::parse_field(Self::FIELD, hashes)
+    }
+
+    /// `parse`, of the field `field`, as errors name it: an inbound's
+    /// `client_certificate_sha256` takes the same.
+    pub fn parse_field(field: &str, hashes: &[String]) -> Result<Option<Self>> {
         let mut pins = Vec::with_capacity(hashes.len());
         for (i, hash) in hashes.iter().enumerate() {
             let invalid = || {
                 anyhow!(
                     "{}[{}]: neither the hex nor the base64 (standard, padded) of a \
                      SHA-256 hash",
-                    Self::FIELD,
+                    field,
                     i
                 )
             };
@@ -295,7 +346,7 @@ impl CertificatePins {
             let pin: [u8; 32] = bytes.try_into().map_err(|b: Vec<u8>| {
                 anyhow!(
                     "{}[{}]: {} bytes, where a SHA-256 hash has 32",
-                    Self::FIELD,
+                    field,
                     i,
                     b.len()
                 )
@@ -354,6 +405,29 @@ impl CertificatePins {
             btls::base64::encode_block(leaf_hash)
         ))
     }
+
+    /// Takes `cert`, the leaf of `peer`, if it hashes to a pin; if not,
+    /// why, with its hash. The leaf alone, as sing-box 1.15 compares it: no
+    /// CA, name or validity period is checked.
+    pub(crate) fn check_leaf(&self, peer: Peer, cert: &X509Ref) -> std::result::Result<(), String> {
+        let der = cert.to_der().map_err(|e| {
+            format!(
+                "{}: the {}'s certificate: {}",
+                peer.certificate_field, peer.name, e
+            )
+        })?;
+        let hash = Self::hash(&der);
+        if self.0.contains(&hash) {
+            return Ok(());
+        }
+        Err(format!(
+            "{}: the {}'s certificate, {} (base64 {}), is not pinned",
+            peer.certificate_field,
+            peer.name,
+            hex(&hash),
+            btls::base64::encode_block(&hash)
+        ))
+    }
 }
 
 /// Verifies `leaf` with `anchor` as the only certificate trusted and
@@ -366,27 +440,58 @@ fn verify_by(
     intermediates: &[X509],
     param: &X509VerifyParamRef,
 ) -> std::result::Result<(), String> {
-    use foreign_types::ForeignTypeRef;
-    let run = || -> std::result::Result<X509VerifyResult, ErrorStack> {
+    let store = || -> std::result::Result<X509Store, ErrorStack> {
         let mut store = X509StoreBuilder::new()?;
         store.add_cert(anchor)?;
-        let store = store.build();
+        Ok(store.build())
+    };
+    let store = store().map_err(|e| e.to_string())?;
+    verify_in(&store, leaf, intermediates, Purpose::Server, Some(param))
+}
+
+/// What a chain is verified for: a TLS server's, or a TLS client's, whose
+/// leaf must be for client authentication (by its extended key usage, if
+/// it has one).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Purpose {
+    Server,
+    Client,
+}
+
+/// Verifies `leaf` with the certificates of `store` trusted, each an
+/// anchor whether or not it is self-signed, as Go takes its roots, and
+/// `intermediates` in between, as BoringSSL verifies a peer's chain: for
+/// `purpose`, by `param` if given (a server's name to verify), at the
+/// instance's time.
+pub(crate) fn verify_in(
+    store: &X509StoreRef,
+    leaf: &X509Ref,
+    intermediates: &[X509],
+    purpose: Purpose,
+    param: Option<&X509VerifyParamRef>,
+) -> std::result::Result<(), String> {
+    use foreign_types::ForeignTypeRef;
+    let name = match purpose {
+        Purpose::Server => c"ssl_server",
+        Purpose::Client => c"ssl_client",
+    };
+    let run = || -> std::result::Result<X509VerifyResult, ErrorStack> {
         let mut stack = Stack::new()?;
         for cert in intermediates {
             stack.push(cert.clone())?;
         }
         let mut context = X509StoreContext::new()?;
-        context.init(&store, leaf, &stack, |context| {
-            // As BoringSSL verifies a server's chain itself: its purpose
+        context.init(store, leaf, &stack, |context| {
+            // As BoringSSL verifies a peer's chain itself: its purpose
             // and trust, then the connection's parameters.
             // SAFETY: the context is initialised, and the name a C string.
-            if unsafe {
-                btls_sys::X509_STORE_CTX_set_default(context.as_ptr(), c"ssl_server".as_ptr())
-            } != 1
+            if unsafe { btls_sys::X509_STORE_CTX_set_default(context.as_ptr(), name.as_ptr()) } != 1
             {
                 return Err(ErrorStack::get());
             }
-            context.verify_param_mut().copy_from(param)?;
+            if let Some(param) = param {
+                context.verify_param_mut().copy_from(param)?;
+            }
             // At the instance's time, as every verification.
             super::at_instance_time(context.verify_param_mut());
             // The anchor may be an intermediate, not self-signed.
@@ -451,7 +556,7 @@ impl Pins {
                     };
                     checked.map_err(|why| {
                         tracing::warn!("tls: {}", why);
-                        ssl.set_ex_data(failure_index(), why);
+                        set_failure(ssl, why);
                         SslVerifyError::Invalid(SslAlert::BAD_CERTIFICATE)
                     })
                 },
@@ -466,9 +571,16 @@ impl Pins {
     }
 }
 
-/// Why the pins refused the server of `ssl`, once they have.
+/// Why the pins refused the server of `ssl`, once they have; or why an
+/// inbound refused the client's certificate.
 pub fn pin_failure(ssl: &SslRef) -> Option<&str> {
     ssl.ex_data(failure_index()).map(String::as_str)
+}
+
+/// Keeps why the peer of `ssl` is refused, for `pin_failure` to tell: the
+/// handshake's error says no more than that verification failed.
+pub(crate) fn set_failure(ssl: &mut SslRef, why: String) {
+    ssl.set_ex_data(failure_index(), why);
 }
 
 fn failure_index() -> Index<Ssl, String> {

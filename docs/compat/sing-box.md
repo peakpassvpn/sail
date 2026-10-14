@@ -33,12 +33,12 @@ The dial fields Windows cannot take are refused there. A known gap is `tcp_fast_
 | `http_clients` | 80 | 33 | 8 | 39 |
 | `network_namespaces` | 6 | 0 | 0 | 6 |
 | `endpoints` | 433 | 48 | 13 | 372 |
-| `inbounds` | 1367 | 623 | 116 | 628 |
+| `inbounds` | 1367 | 645 | 116 | 606 |
 | `outbounds` | 1228 | 685 | 75 | 468 |
 | `route` | 268 | 177 | 38 | 53 |
 | `services` | 751 | 1 | 166 | 584 |
 | `experimental` | 34 | 16 | 17 | 1 |
-| **All** | **5003** | **1996** | **500** | **2507** |
+| **All** | **5003** | **2018** | **500** | **2485** |
 
 ## `$schema`
 
@@ -922,10 +922,10 @@ The dial fields Windows cannot take are refused there. A known gap is `tcp_fast_
 | `tls.curve_preferences` | Error | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
 | `tls.certificate` | Supported |  |
 | `tls.certificate_path` | Supported |  |
-| `tls.client_authentication` | Error | Verifying clients' certificates: an inbound would take clients it should refuse |
-| `tls.client_certificate` | Error | Verifying clients' certificates: an inbound would take clients it should refuse |
-| `tls.client_certificate_path` | Error | Verifying clients' certificates: an inbound would take clients it should refuse |
-| `tls.client_certificate_public_key_sha256` | Error | Verifying clients' certificates: an inbound would take clients it should refuse |
+| `tls.client_authentication` | Supported |  |
+| `tls.client_certificate` | Supported |  |
+| `tls.client_certificate_path` | Supported |  |
+| `tls.client_certificate_public_key_sha256` | Supported |  |
 | `tls.key` | Supported |  |
 | `tls.key_path` | Supported |  |
 | `tls.kernel_tx` | Warned | The TLS stack, kernel TLS and the handshake's timeout: the same TLS without them |
@@ -1034,10 +1034,10 @@ The dial fields Windows cannot take are refused there. A known gap is `tcp_fast_
 | `tls.curve_preferences` | Error | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
 | `tls.certificate` | Supported |  |
 | `tls.certificate_path` | Supported |  |
-| `tls.client_authentication` | Error | Verifying clients' certificates: an inbound would take clients it should refuse |
-| `tls.client_certificate` | Error | Verifying clients' certificates: an inbound would take clients it should refuse |
-| `tls.client_certificate_path` | Error | Verifying clients' certificates: an inbound would take clients it should refuse |
-| `tls.client_certificate_public_key_sha256` | Error | Verifying clients' certificates: an inbound would take clients it should refuse |
+| `tls.client_authentication` | Supported |  |
+| `tls.client_certificate` | Supported |  |
+| `tls.client_certificate_path` | Supported |  |
+| `tls.client_certificate_public_key_sha256` | Supported |  |
 | `tls.key` | Supported |  |
 | `tls.key_path` | Supported |  |
 | `tls.kernel_tx` | Warned | The TLS stack, kernel TLS and the handshake's timeout: the same TLS without them |
@@ -1126,10 +1126,10 @@ The dial fields Windows cannot take are refused there. A known gap is `tcp_fast_
 | `tls.curve_preferences` | Error | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
 | `tls.certificate` | Supported |  |
 | `tls.certificate_path` | Supported |  |
-| `tls.client_authentication` | Error | Verifying clients' certificates: an inbound would take clients it should refuse |
-| `tls.client_certificate` | Error | Verifying clients' certificates: an inbound would take clients it should refuse |
-| `tls.client_certificate_path` | Error | Verifying clients' certificates: an inbound would take clients it should refuse |
-| `tls.client_certificate_public_key_sha256` | Error | Verifying clients' certificates: an inbound would take clients it should refuse |
+| `tls.client_authentication` | Supported |  |
+| `tls.client_certificate` | Error | The protocol's own check: not implemented yet |
+| `tls.client_certificate_path` | Error | The protocol's own check: not implemented yet |
+| `tls.client_certificate_public_key_sha256` | Error | The protocol's own check: not implemented yet |
 | `tls.key` | Supported |  |
 | `tls.key_path` | Supported |  |
 | `tls.kernel_tx` | Warned | The TLS stack, kernel TLS and the handshake's timeout: the same TLS without them |
@@ -1409,10 +1409,10 @@ The dial fields Windows cannot take are refused there. A known gap is `tcp_fast_
 | `tls.curve_preferences` | Error | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
 | `tls.certificate` | Supported |  |
 | `tls.certificate_path` | Supported |  |
-| `tls.client_authentication` | Error | Verifying clients' certificates: an inbound would take clients it should refuse |
-| `tls.client_certificate` | Error | Verifying clients' certificates: an inbound would take clients it should refuse |
-| `tls.client_certificate_path` | Error | Verifying clients' certificates: an inbound would take clients it should refuse |
-| `tls.client_certificate_public_key_sha256` | Error | Verifying clients' certificates: an inbound would take clients it should refuse |
+| `tls.client_authentication` | Supported |  |
+| `tls.client_certificate` | Supported |  |
+| `tls.client_certificate_path` | Supported |  |
+| `tls.client_certificate_public_key_sha256` | Supported |  |
 | `tls.key` | Supported |  |
 | `tls.key_path` | Supported |  |
 | `tls.kernel_tx` | Warned | The TLS stack, kernel TLS and the handshake's timeout: the same TLS without them |
@@ -1527,10 +1527,10 @@ The dial fields Windows cannot take are refused there. A known gap is `tcp_fast_
 | `tls.curve_preferences` | Error | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
 | `tls.certificate` | Supported |  |
 | `tls.certificate_path` | Supported |  |
-| `tls.client_authentication` | Error | Verifying clients' certificates: an inbound would take clients it should refuse |
-| `tls.client_certificate` | Error | Verifying clients' certificates: an inbound would take clients it should refuse |
-| `tls.client_certificate_path` | Error | Verifying clients' certificates: an inbound would take clients it should refuse |
-| `tls.client_certificate_public_key_sha256` | Error | Verifying clients' certificates: an inbound would take clients it should refuse |
+| `tls.client_authentication` | Supported |  |
+| `tls.client_certificate` | Error | The protocol's own check: not implemented yet |
+| `tls.client_certificate_path` | Error | The protocol's own check: not implemented yet |
+| `tls.client_certificate_public_key_sha256` | Error | The protocol's own check: not implemented yet |
 | `tls.key` | Supported |  |
 | `tls.key_path` | Supported |  |
 | `tls.kernel_tx` | Warned | The TLS stack, kernel TLS and the handshake's timeout: the same TLS without them |
@@ -1664,10 +1664,10 @@ The dial fields Windows cannot take are refused there. A known gap is `tcp_fast_
 | `tls.curve_preferences` | Error | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
 | `tls.certificate` | Supported |  |
 | `tls.certificate_path` | Supported |  |
-| `tls.client_authentication` | Error | Verifying clients' certificates: an inbound would take clients it should refuse |
-| `tls.client_certificate` | Error | Verifying clients' certificates: an inbound would take clients it should refuse |
-| `tls.client_certificate_path` | Error | Verifying clients' certificates: an inbound would take clients it should refuse |
-| `tls.client_certificate_public_key_sha256` | Error | Verifying clients' certificates: an inbound would take clients it should refuse |
+| `tls.client_authentication` | Supported |  |
+| `tls.client_certificate` | Supported |  |
+| `tls.client_certificate_path` | Supported |  |
+| `tls.client_certificate_public_key_sha256` | Supported |  |
 | `tls.key` | Supported |  |
 | `tls.key_path` | Supported |  |
 | `tls.kernel_tx` | Warned | The TLS stack, kernel TLS and the handshake's timeout: the same TLS without them |
@@ -1774,10 +1774,10 @@ The dial fields Windows cannot take are refused there. A known gap is `tcp_fast_
 | `tls.curve_preferences` | Error | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
 | `tls.certificate` | Supported |  |
 | `tls.certificate_path` | Supported |  |
-| `tls.client_authentication` | Error | Verifying clients' certificates: an inbound would take clients it should refuse |
-| `tls.client_certificate` | Error | Verifying clients' certificates: an inbound would take clients it should refuse |
-| `tls.client_certificate_path` | Error | Verifying clients' certificates: an inbound would take clients it should refuse |
-| `tls.client_certificate_public_key_sha256` | Error | Verifying clients' certificates: an inbound would take clients it should refuse |
+| `tls.client_authentication` | Supported |  |
+| `tls.client_certificate` | Supported |  |
+| `tls.client_certificate_path` | Supported |  |
+| `tls.client_certificate_public_key_sha256` | Supported |  |
 | `tls.key` | Supported |  |
 | `tls.key_path` | Supported |  |
 | `tls.kernel_tx` | Warned | The TLS stack, kernel TLS and the handshake's timeout: the same TLS without them |
@@ -3188,6 +3188,7 @@ Fields and types sail accepts that sing-box does not.
 | `outbounds[direct|anytls|http|hysteria2|shadowsocks|shadowtls|socks|trojan|tuic|vless|vmess].skip_default_domain_resolver` | Names resolve as the DNS rules say, not by `route.default_domain_resolver` |
 | `outbounds[direct|anytls|http|shadowsocks|shadowtls|socks|trojan|vless|vmess].tcp_concurrent` | A name's addresses are all connected to at once and the first to connect taken, rather than Happy Eyeballs (Mihomo's tcp-concurrent) |
 | `endpoints[wireguard].skip_default_domain_resolver` | As an outbound's, for the peers' names |
+| `inbounds[anytls|http|trojan|vless|vmess].tls.client_certificate_sha256` | sing-box 1.15's, read ahead: clients' certificates taken by the SHA-256 of the whole leaf (its DER), standard base64 or hex, with a verifying `client_authentication`; looked at before `client_certificate_public_key_sha256`, either list passing |
 | `inbounds[http|mixed].realm` | The realm a 407 names, which clients show when asking for credentials; `sail` when unset (sing-box sends `sing-box`) |
 | `inbounds[http|socks|mixed].skip_auth_prefixes` | The clients that go in without credentials, by the IP prefixes they connect from (Mihomo's skip-auth-prefixes) |
 | `inbounds[shadowtls].handshake.skip_default_domain_resolver` | As an outbound's, for the handshake server's name |

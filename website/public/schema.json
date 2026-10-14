@@ -6828,20 +6828,60 @@
      "type": "string"
     },
     "client_authentication": {
-     "not": {},
-     "description": "sail refuses this field: Verifying clients' certificates: an inbound would take clients it should refuse"
+     "type": "string",
+     "examples": [
+      "no",
+      "request",
+      "require-any",
+      "verify-if-given",
+      "require-and-verify"
+     ]
     },
     "client_certificate": {
-     "not": {},
-     "description": "sail refuses this field: Verifying clients' certificates: an inbound would take clients it should refuse"
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      }
+     ]
     },
     "client_certificate_path": {
-     "not": {},
-     "description": "sail refuses this field: Verifying clients' certificates: an inbound would take clients it should refuse"
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      }
+     ]
     },
     "client_certificate_public_key_sha256": {
-     "not": {},
-     "description": "sail refuses this field: Verifying clients' certificates: an inbound would take clients it should refuse"
+     "anyOf": [
+      {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "array",
+         "items": {
+          "type": "string"
+         }
+        }
+       ]
+      },
+      {
+       "type": "array"
+      }
+     ]
     },
     "key": {
      "anyOf": [
@@ -6888,6 +6928,9 @@
     "acme": {
      "not": {},
      "description": "sail refuses this field: A certificate from a provider or ACME: the inbound would have none"
+    },
+    "client_certificate_sha256": {
+     "description": "sing-box 1.15's, read ahead: clients' certificates taken by the SHA-256 of the whole leaf (its DER), standard base64 or hex, with a verifying `client_authentication`; looked at before `client_certificate_public_key_sha256`, either list passing"
     }
    },
    "additionalProperties": false
@@ -7504,20 +7547,64 @@
      "type": "string"
     },
     "client_authentication": {
-     "not": {},
-     "description": "sail refuses this field: Verifying clients' certificates: an inbound would take clients it should refuse"
+     "type": "string",
+     "examples": [
+      "no",
+      "request",
+      "require-any",
+      "verify-if-given",
+      "require-and-verify"
+     ],
+     "description": "What is asked of clients' certificates, as sing-box takes it: `no` (none is asked for), `request` or `require-any` (one is taken unchecked; `require-any` refuses a client without), `verify-if-given` or `require-and-verify` (one is checked, by the CAs or the pins; `require-and-verify` refuses a client without). Unset is `no`, or `require-and-verify` with CAs set. Pins without a verifying mode, and CAs or pins with `request` or `require-any`, are errors, where sing-box checks no certificate."
     },
     "client_certificate": {
-     "not": {},
-     "description": "sail refuses this field: Verifying clients' certificates: an inbound would take clients it should refuse"
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      }
+     ],
+     "description": "The CAs clients' certificates are verified by, inline PEM: chained to one of them, by the intermediates the client sends, valid, and for client authentication. With `client_certificate_path` too, the files are ignored with a warning, as sing-box ignores them."
     },
     "client_certificate_path": {
-     "not": {},
-     "description": "sail refuses this field: Verifying clients' certificates: an inbound would take clients it should refuse"
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      }
+     ],
+     "description": "The CAs, from PEM (or DER) files, as `client_certificate`."
     },
     "client_certificate_public_key_sha256": {
-     "not": {},
-     "description": "sail refuses this field: Verifying clients' certificates: an inbound would take clients it should refuse"
+     "anyOf": [
+      {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "array",
+         "items": {
+          "type": "string"
+         }
+        }
+       ]
+      },
+      {
+       "type": "array"
+      }
+     ],
+     "description": "Clients' certificates taken by the SHA-256 of their public key (SubjectPublicKeyInfo), standard base64, in place of CAs: the leaf alone, no CA or validity period. With `client_certificate_sha256`, either list passing is enough. Beside CAs, ignored with a warning, as sing-box ignores them."
     },
     "key": {
      "anyOf": [
@@ -7565,6 +7652,17 @@
     "acme": {
      "not": {},
      "description": "sail refuses this field: A certificate from a provider or ACME: the inbound would have none"
+    },
+    "client_certificate_sha256": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array"
+      }
+     ],
+     "description": "sing-box 1.15's, read ahead: clients' certificates taken by the SHA-256 of the whole leaf (its DER), standard base64 or hex, looked at before `client_certificate_public_key_sha256`, as that is."
     }
    },
    "additionalProperties": false
@@ -8610,20 +8708,27 @@
      "type": "string"
     },
     "client_authentication": {
-     "not": {},
-     "description": "sail refuses this field: Verifying clients' certificates: an inbound would take clients it should refuse"
+     "type": "string",
+     "examples": [
+      "no",
+      "request",
+      "require-any",
+      "verify-if-given",
+      "require-and-verify"
+     ],
+     "description": "What is asked of clients' certificates, as sing-box takes it: `no` (none is asked for), `request` or `require-any` (one is taken unchecked; `require-any` refuses a client without), `verify-if-given` or `require-and-verify` (one is checked, by the CAs or the pins; `require-and-verify` refuses a client without). Unset is `no`, or `require-and-verify` with CAs set. Pins without a verifying mode, and CAs or pins with `request` or `require-any`, are errors, where sing-box checks no certificate."
     },
     "client_certificate": {
      "not": {},
-     "description": "sail refuses this field: Verifying clients' certificates: an inbound would take clients it should refuse"
+     "description": "sail refuses this field: The protocol's own check: not implemented yet"
     },
     "client_certificate_path": {
      "not": {},
-     "description": "sail refuses this field: Verifying clients' certificates: an inbound would take clients it should refuse"
+     "description": "sail refuses this field: The protocol's own check: not implemented yet"
     },
     "client_certificate_public_key_sha256": {
      "not": {},
-     "description": "sail refuses this field: Verifying clients' certificates: an inbound would take clients it should refuse"
+     "description": "sail refuses this field: The protocol's own check: not implemented yet"
     },
     "key": {
      "anyOf": [
@@ -10649,20 +10754,64 @@
      "type": "string"
     },
     "client_authentication": {
-     "not": {},
-     "description": "sail refuses this field: Verifying clients' certificates: an inbound would take clients it should refuse"
+     "type": "string",
+     "examples": [
+      "no",
+      "request",
+      "require-any",
+      "verify-if-given",
+      "require-and-verify"
+     ],
+     "description": "What is asked of clients' certificates, as sing-box takes it: `no` (none is asked for), `request` or `require-any` (one is taken unchecked; `require-any` refuses a client without), `verify-if-given` or `require-and-verify` (one is checked, by the CAs or the pins; `require-and-verify` refuses a client without). Unset is `no`, or `require-and-verify` with CAs set. Pins without a verifying mode, and CAs or pins with `request` or `require-any`, are errors, where sing-box checks no certificate."
     },
     "client_certificate": {
-     "not": {},
-     "description": "sail refuses this field: Verifying clients' certificates: an inbound would take clients it should refuse"
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      }
+     ],
+     "description": "The CAs clients' certificates are verified by, inline PEM: chained to one of them, by the intermediates the client sends, valid, and for client authentication. With `client_certificate_path` too, the files are ignored with a warning, as sing-box ignores them."
     },
     "client_certificate_path": {
-     "not": {},
-     "description": "sail refuses this field: Verifying clients' certificates: an inbound would take clients it should refuse"
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      }
+     ],
+     "description": "The CAs, from PEM (or DER) files, as `client_certificate`."
     },
     "client_certificate_public_key_sha256": {
-     "not": {},
-     "description": "sail refuses this field: Verifying clients' certificates: an inbound would take clients it should refuse"
+     "anyOf": [
+      {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "array",
+         "items": {
+          "type": "string"
+         }
+        }
+       ]
+      },
+      {
+       "type": "array"
+      }
+     ],
+     "description": "Clients' certificates taken by the SHA-256 of their public key (SubjectPublicKeyInfo), standard base64, in place of CAs: the leaf alone, no CA or validity period. With `client_certificate_sha256`, either list passing is enough. Beside CAs, ignored with a warning, as sing-box ignores them."
     },
     "key": {
      "anyOf": [
@@ -10710,6 +10859,17 @@
     "acme": {
      "not": {},
      "description": "sail refuses this field: A certificate from a provider or ACME: the inbound would have none"
+    },
+    "client_certificate_sha256": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array"
+      }
+     ],
+     "description": "sing-box 1.15's, read ahead: clients' certificates taken by the SHA-256 of the whole leaf (its DER), standard base64 or hex, looked at before `client_certificate_public_key_sha256`, as that is."
     }
    },
    "additionalProperties": false
@@ -11322,20 +11482,27 @@
      "type": "string"
     },
     "client_authentication": {
-     "not": {},
-     "description": "sail refuses this field: Verifying clients' certificates: an inbound would take clients it should refuse"
+     "type": "string",
+     "examples": [
+      "no",
+      "request",
+      "require-any",
+      "verify-if-given",
+      "require-and-verify"
+     ],
+     "description": "What is asked of clients' certificates, as sing-box takes it: `no` (none is asked for), `request` or `require-any` (one is taken unchecked; `require-any` refuses a client without), `verify-if-given` or `require-and-verify` (one is checked, by the CAs or the pins; `require-and-verify` refuses a client without). Unset is `no`, or `require-and-verify` with CAs set. Pins without a verifying mode, and CAs or pins with `request` or `require-any`, are errors, where sing-box checks no certificate."
     },
     "client_certificate": {
      "not": {},
-     "description": "sail refuses this field: Verifying clients' certificates: an inbound would take clients it should refuse"
+     "description": "sail refuses this field: The protocol's own check: not implemented yet"
     },
     "client_certificate_path": {
      "not": {},
-     "description": "sail refuses this field: Verifying clients' certificates: an inbound would take clients it should refuse"
+     "description": "sail refuses this field: The protocol's own check: not implemented yet"
     },
     "client_certificate_public_key_sha256": {
      "not": {},
-     "description": "sail refuses this field: Verifying clients' certificates: an inbound would take clients it should refuse"
+     "description": "sail refuses this field: The protocol's own check: not implemented yet"
     },
     "key": {
      "anyOf": [
@@ -12400,20 +12567,64 @@
      "type": "string"
     },
     "client_authentication": {
-     "not": {},
-     "description": "sail refuses this field: Verifying clients' certificates: an inbound would take clients it should refuse"
+     "type": "string",
+     "examples": [
+      "no",
+      "request",
+      "require-any",
+      "verify-if-given",
+      "require-and-verify"
+     ],
+     "description": "What is asked of clients' certificates, as sing-box takes it: `no` (none is asked for), `request` or `require-any` (one is taken unchecked; `require-any` refuses a client without), `verify-if-given` or `require-and-verify` (one is checked, by the CAs or the pins; `require-and-verify` refuses a client without). Unset is `no`, or `require-and-verify` with CAs set. Pins without a verifying mode, and CAs or pins with `request` or `require-any`, are errors, where sing-box checks no certificate."
     },
     "client_certificate": {
-     "not": {},
-     "description": "sail refuses this field: Verifying clients' certificates: an inbound would take clients it should refuse"
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      }
+     ],
+     "description": "The CAs clients' certificates are verified by, inline PEM: chained to one of them, by the intermediates the client sends, valid, and for client authentication. With `client_certificate_path` too, the files are ignored with a warning, as sing-box ignores them."
     },
     "client_certificate_path": {
-     "not": {},
-     "description": "sail refuses this field: Verifying clients' certificates: an inbound would take clients it should refuse"
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      }
+     ],
+     "description": "The CAs, from PEM (or DER) files, as `client_certificate`."
     },
     "client_certificate_public_key_sha256": {
-     "not": {},
-     "description": "sail refuses this field: Verifying clients' certificates: an inbound would take clients it should refuse"
+     "anyOf": [
+      {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "array",
+         "items": {
+          "type": "string"
+         }
+        }
+       ]
+      },
+      {
+       "type": "array"
+      }
+     ],
+     "description": "Clients' certificates taken by the SHA-256 of their public key (SubjectPublicKeyInfo), standard base64, in place of CAs: the leaf alone, no CA or validity period. With `client_certificate_sha256`, either list passing is enough. Beside CAs, ignored with a warning, as sing-box ignores them."
     },
     "key": {
      "anyOf": [
@@ -12461,6 +12672,17 @@
     "acme": {
      "not": {},
      "description": "sail refuses this field: A certificate from a provider or ACME: the inbound would have none"
+    },
+    "client_certificate_sha256": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array"
+      }
+     ],
+     "description": "sing-box 1.15's, read ahead: clients' certificates taken by the SHA-256 of the whole leaf (its DER), standard base64 or hex, looked at before `client_certificate_public_key_sha256`, as that is."
     }
    },
    "additionalProperties": false
@@ -13127,20 +13349,64 @@
      "type": "string"
     },
     "client_authentication": {
-     "not": {},
-     "description": "sail refuses this field: Verifying clients' certificates: an inbound would take clients it should refuse"
+     "type": "string",
+     "examples": [
+      "no",
+      "request",
+      "require-any",
+      "verify-if-given",
+      "require-and-verify"
+     ],
+     "description": "What is asked of clients' certificates, as sing-box takes it: `no` (none is asked for), `request` or `require-any` (one is taken unchecked; `require-any` refuses a client without), `verify-if-given` or `require-and-verify` (one is checked, by the CAs or the pins; `require-and-verify` refuses a client without). Unset is `no`, or `require-and-verify` with CAs set. Pins without a verifying mode, and CAs or pins with `request` or `require-any`, are errors, where sing-box checks no certificate."
     },
     "client_certificate": {
-     "not": {},
-     "description": "sail refuses this field: Verifying clients' certificates: an inbound would take clients it should refuse"
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      }
+     ],
+     "description": "The CAs clients' certificates are verified by, inline PEM: chained to one of them, by the intermediates the client sends, valid, and for client authentication. With `client_certificate_path` too, the files are ignored with a warning, as sing-box ignores them."
     },
     "client_certificate_path": {
-     "not": {},
-     "description": "sail refuses this field: Verifying clients' certificates: an inbound would take clients it should refuse"
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      }
+     ],
+     "description": "The CAs, from PEM (or DER) files, as `client_certificate`."
     },
     "client_certificate_public_key_sha256": {
-     "not": {},
-     "description": "sail refuses this field: Verifying clients' certificates: an inbound would take clients it should refuse"
+     "anyOf": [
+      {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "array",
+         "items": {
+          "type": "string"
+         }
+        }
+       ]
+      },
+      {
+       "type": "array"
+      }
+     ],
+     "description": "Clients' certificates taken by the SHA-256 of their public key (SubjectPublicKeyInfo), standard base64, in place of CAs: the leaf alone, no CA or validity period. With `client_certificate_sha256`, either list passing is enough. Beside CAs, ignored with a warning, as sing-box ignores them."
     },
     "key": {
      "anyOf": [
@@ -13188,6 +13454,17 @@
     "acme": {
      "not": {},
      "description": "sail refuses this field: A certificate from a provider or ACME: the inbound would have none"
+    },
+    "client_certificate_sha256": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array"
+      }
+     ],
+     "description": "sing-box 1.15's, read ahead: clients' certificates taken by the SHA-256 of the whole leaf (its DER), standard base64 or hex, looked at before `client_certificate_public_key_sha256`, as that is."
     }
    },
    "additionalProperties": false

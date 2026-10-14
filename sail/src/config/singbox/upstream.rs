@@ -390,16 +390,6 @@ pub const GROUPS: &[Group] = &[
     ),
     // Inbound TLS.
     g(
-        "Verifying clients' certificates: an inbound would take clients it should refuse",
-        Unsupported,
-        &[
-            "inbounds.*.tls.client_authentication",
-            "inbounds.*.tls.client_certificate",
-            "inbounds.*.tls.client_certificate_path",
-            "inbounds.*.tls.client_certificate_public_key_sha256",
-        ],
-    ),
-    g(
         "A certificate from a provider or ACME: the inbound would have none",
         Unsupported,
         &["inbounds.*.tls.certificate_provider", "inbounds.*.tls.acme"],

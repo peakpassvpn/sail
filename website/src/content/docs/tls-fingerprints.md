@@ -160,6 +160,48 @@ A server that authenticates clients by certificate (mutual TLS) asks for one dur
 
 Surge's `client-cert=<item>` reads a `p12` item of its `[Keystore]`, and Mihomo's `certificate` and `private-key` become these fields.
 
+## Verify clients' certificates
+
+An inbound asks clients for certificates and checks them with sing-box's fields in its `tls` block:
+
+```json
+{
+  "tls": {
+    "enabled": true,
+    "certificate_path": "certs/server.crt",
+    "key_path": "certs/server.key",
+    "client_authentication": "require-and-verify",
+    "client_certificate_path": ["certs/clients-ca.crt"]
+  }
+}
+```
+
+`client_authentication` takes sing-box's five modes:
+
+| Mode | Client without a certificate | Client with one |
+|---|---|---|
+| `no` (the default) | taken | none is asked for |
+| `request` | taken | taken unchecked |
+| `require-any` | refused | taken unchecked |
+| `verify-if-given` | taken | checked |
+| `require-and-verify` | refused | checked |
+
+CAs set with no mode, or with `no`, make it `require-and-verify`, as in sing-box.
+
+A certificate is checked by CAs, inline PEM in `client_certificate` or PEM or DER files in `client_certificate_path`. It must chain to one of them, through the intermediates the client sends, be valid at the instance's time, and be for client authentication: one whose extended key usage is serverAuth alone is refused. A CA that is itself an intermediate is trusted as it is, as Go trusts it.
+
+Pins check it instead of CAs: `client_certificate_sha256`, sing-box 1.15's, the SHA-256 of the whole leaf in standard base64 or hex, and `client_certificate_public_key_sha256`, the SHA-256 of the leaf's public key in base64. The certificate pins are looked at first, and either list passing is enough. Pins check the leaf alone: no CA, no validity period.
+
+Where sing-box would take clients it should not, Sail refuses the configuration:
+
+- pins with no `client_authentication`, or `no`: sing-box asks for no certificate and checks none;
+- CAs or pins with `request` or `require-any`: those modes check no certificate;
+- any of these fields, but a mode of `no`, with REALITY, whose server asks for no certificate.
+
+Where sing-box ignores a field beside one it prefers, Sail ignores it too, with a warning: `client_certificate_path` beside `client_certificate`, and the pins beside CAs.
+
+A client refused gets a `bad_certificate` alert, and the inbound's handshake error says why. Client certificates are checked on TLS inbounds over TCP (Trojan, VLESS, VMess, AnyTLS, HTTP); over QUIC, these fields are an error for now.
+
 ## ClientHello without SNI
 
 `disable_sni: true` leaves the server name out of the ClientHello, with or without a browser profile. The certificate is still verified against `server_name`, or the server address, unless `insecure` is set:

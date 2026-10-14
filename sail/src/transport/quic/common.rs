@@ -290,6 +290,13 @@ pub fn inbound_crypto(
     tls.versions(tag)?
         .require_tls13("QUIC")
         .map_err(|e| anyhow!("[{}] inbound: tls.{}", tag, e))?;
+    if let Some(field) = tls.client_auth_field() {
+        return Err(anyhow!(
+            "[{}] inbound: tls.{}: sail does not implement this field over QUIC yet",
+            tag,
+            field
+        ));
+    }
     let certificate = tls.certificate(tag, env)?;
     let key = tls.key(tag, env)?;
     server_crypto(&certificate, &key, alpns).map_err(|e| anyhow!("[{}] inbound: tls: {}", tag, e))

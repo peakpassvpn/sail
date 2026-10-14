@@ -160,6 +160,48 @@ ECH 只用于 TLS 1.3，因此开启 ECH 且 `min_version` 或 `max_version` 低
 
 Surge 的 `client-cert=<条目>` 读取 `[Keystore]` 中的 `p12` 条目；Mihomo 的 `certificate` 与 `private-key` 对应这两个字段。
 
+## 校验客户端证书
+
+入站在 `tls` 块中用 sing-box 的字段向客户端索要证书并校验：
+
+```json
+{
+  "tls": {
+    "enabled": true,
+    "certificate_path": "certs/server.crt",
+    "key_path": "certs/server.key",
+    "client_authentication": "require-and-verify",
+    "client_certificate_path": ["certs/clients-ca.crt"]
+  }
+}
+```
+
+`client_authentication` 取 sing-box 的五种模式：
+
+| 模式 | 客户端未给证书 | 客户端给了证书 |
+|---|---|---|
+| `no`（默认） | 接受 | 不索要 |
+| `request` | 接受 | 接受，不校验 |
+| `require-any` | 拒绝 | 接受，不校验 |
+| `verify-if-given` | 接受 | 校验 |
+| `require-and-verify` | 拒绝 | 校验 |
+
+设了 CA 而未设模式（或设为 `no`）时按 `require-and-verify` 处理，与 sing-box 一致。
+
+证书按 CA 校验：`client_certificate` 为内联 PEM，`client_certificate_path` 为 PEM 或 DER 文件。证书须经客户端发来的中间证书链到其中之一，在实例时间下有效，且用于客户端认证：扩展密钥用途只有 serverAuth 的证书会被拒绝。配置的 CA 本身是中间证书时按原样信任，与 Go 一致。
+
+也可用固定值代替 CA：`client_certificate_sha256`（sing-box 1.15 的字段，整张叶证书的 SHA-256，标准 base64 或十六进制）与 `client_certificate_public_key_sha256`（叶证书公钥的 SHA-256，base64）。先比对证书固定值，两份列表任一通过即可。固定值只比对叶证书，不查 CA，也不查有效期。
+
+sing-box 会放进不该放的客户端时，Sail 直接报配置错误：
+
+- 设了固定值而未设 `client_authentication` 或设为 `no`：sing-box 不索要证书，也不校验；
+- `request` 或 `require-any` 搭配 CA 或固定值：这两种模式不校验证书；
+- 与 REALITY 同用其中任一字段（模式 `no` 除外）：REALITY 服务器不索要证书。
+
+sing-box 因偏好另一字段而忽略的字段，Sail 同样忽略并给出警告：与 `client_certificate` 同设的 `client_certificate_path`，以及与 CA 同设的固定值。
+
+被拒绝的客户端会收到 `bad_certificate` 告警，入站的握手错误会写明原因。目前仅 TCP 上的 TLS 入站（Trojan、VLESS、VMess、AnyTLS、HTTP）校验客户端证书；QUIC 上设置这些字段暂时报错。
+
 ## 不发送 SNI
 
 `disable_sni: true` 使 ClientHello 不带服务器名，无论是否使用浏览器指纹。除非设置 `insecure`，证书仍按 `server_name`（未设置时为服务器地址）校验：
