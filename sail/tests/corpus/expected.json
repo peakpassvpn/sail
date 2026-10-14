@@ -33,7 +33,7 @@
     "warnings": 0
   },
   "clash/0008.yaml": {
-    "check": "route.rules[25].ip_cidr: invalid CIDR \"192.0.2.137/24\": host part of address was not zero",
+    "check": "ok",
     "ok": true,
     "warnings": 1
   },
@@ -349,7 +349,7 @@
     "warnings": 0
   },
   "clash/0075.yaml": {
-    "check": "route.rules[25].ip_cidr: invalid CIDR \"192.0.2.137/24\": host part of address was not zero",
+    "check": "ok",
     "ok": true,
     "warnings": 1
   },
@@ -491,7 +491,7 @@
     "warnings": 0
   },
   "clash/0105.yaml": {
-    "check": "route.rules[5].ip_cidr: invalid CIDR \"198.18.0.1/16\": host part of address was not zero",
+    "check": "ok",
     "ok": true,
     "warnings": 11
   },
@@ -648,7 +648,7 @@
     "error": "proxies[7].type: sail does not implement \"hysteria\" yet"
   },
   "clash/0142.yaml": {
-    "check": "route.rules[465].ip_cidr: invalid CIDR \"192.0.2.1/28\": host part of address was not zero",
+    "check": "ok",
     "ok": true,
     "warnings": 10
   },
@@ -900,7 +900,7 @@
     "warnings": 0
   },
   "clash/0195.yaml": {
-    "check": "route.rules[51].ip_cidr: invalid CIDR \"192.0.2.137/24\": host part of address was not zero",
+    "check": "ok",
     "ok": true,
     "warnings": 1
   },
@@ -908,7 +908,7 @@
     "error": "dns.proxy-server-nameserver: missing, which Mihomo requires with respect-rules"
   },
   "clash/0197.yaml": {
-    "check": "route.rules[118].ip_cidr: invalid CIDR \"198.19.174.0/16\": host part of address was not zero",
+    "check": "ok",
     "ok": true,
     "warnings": 12
   },
@@ -1311,7 +1311,7 @@
     "error": "route.rules[5]: outbound [Proxy 9] does not exist"
   },
   "sing-box/0090.json": {
-    "check": "dns.rules[1].source_ip_cidr: invalid CIDR \"192.0.2.1/30\": host part of address was not zero",
+    "check": "ok",
     "ok": true,
     "warnings": 4
   },

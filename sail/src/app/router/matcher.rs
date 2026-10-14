@@ -413,12 +413,15 @@ pub(crate) struct CidrIndex {
 }
 
 impl CidrIndex {
-    /// CIDRs, or plain addresses, which stand for themselves.
+    /// CIDRs, or plain addresses, which stand for themselves. A CIDR with
+    /// bits set past its prefix stands for its network, as Go's
+    /// netip.ParsePrefix reads it in sing-box: "10.1.2.3/8" is 10.0.0.0/8.
     pub(crate) fn new(cidrs: &[String]) -> Result<Self> {
         let mut index = CidrIndex::default();
         for value in cidrs {
             let cidr = value
-                .parse::<IpCidr>()
+                .parse::<cidr::IpInet>()
+                .map(|inet| inet.network())
                 .or_else(|e| value.parse::<IpAddr>().map(IpCidr::new_host).map_err(|_| e))
                 .map_err(|e| anyhow!("invalid CIDR \"{}\": {}", value, e))?;
             match (cidr.first_address(), cidr.last_address()) {
@@ -2725,6 +2728,20 @@ pub(crate) mod tests {
         assert!(anywhere.matches(&at("/a?token=1")));
         assert!(compile_err(serde_json::json!({ "url_regex": "(" }))
             .starts_with("route.rules[3].url_regex: \"(\""));
+    }
+
+    /// As sing-box reads one (Go's netip.ParsePrefix, then the set masks
+    /// it): bits past the prefix are left out, not an error.
+    #[test]
+    fn a_cidr_with_host_bits_is_its_network() {
+        let m = json(serde_json::json!({ "ip_cidr": ["10.1.2.3/8", "2001:db8::1/32"] }));
+        assert!(m.matches(&ip("10.200.0.1", 1)));
+        assert!(!m.matches(&ip("11.0.0.1", 1)));
+        assert!(m.matches(&ip("2001:db8:ffff::1", 1)));
+        assert!(!m.matches(&ip("2001:db9::1", 1)));
+        assert!(
+            compile_err(serde_json::json!({ "ip_cidr": ["10.0.0.0/33"] })).contains("invalid CIDR")
+        );
     }
 
     #[test]
