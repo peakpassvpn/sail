@@ -188,6 +188,11 @@ impl Luid {
         Ok(row)
     }
 
+    /// Whether its TCP/IP interface of the family is there yet.
+    pub(crate) fn has_ip_interface(self, v6: bool) -> bool {
+        self.ip_interface(v6).is_ok()
+    }
+
     fn ip_interface(self, v6: bool) -> io::Result<MIB_IPINTERFACE_ROW> {
         let mut row = MIB_IPINTERFACE_ROW::default();
         // SAFETY: initialized, then the family and interface said.
@@ -579,6 +584,79 @@ impl Drop for ChangeNotices {
         }
         // SAFETY: the Arc into_raw made, released once no callback runs.
         unsafe { drop(Arc::from_raw(self.notify)) };
+    }
+}
+
+/// Notices, while it lives, of each TCP/IP interface the system adds, of
+/// either family, as its LUID and whether it is IPv6: as WireGuard for
+/// Windows takes them (tunnel/interfacewatcher.go), an adapter's settings
+/// go on the interface the system made, and again on one it makes anew.
+pub(crate) struct InterfaceAdds {
+    handle: HANDLE,
+    /// Given to the callback; freed once it is cancelled.
+    sender: *const std::sync::Mutex<std::sync::mpsc::Sender<(Luid, bool)>>,
+}
+
+// SAFETY: the handle is only cancelled, once, and the sender is behind a
+// Mutex.
+unsafe impl Send for InterfaceAdds {}
+unsafe impl Sync for InterfaceAdds {}
+
+unsafe extern "system" fn on_interface_added(
+    context: *const core::ffi::c_void,
+    row: *const MIB_IPINTERFACE_ROW,
+    kind: MIB_NOTIFICATION_TYPE,
+) {
+    if kind != MibAddInstance || row.is_null() {
+        return;
+    }
+    // SAFETY: a row the system gives for the call; the sender InterfaceAdds
+    // keeps until the callback stops.
+    let (luid, v6) = ((*row).InterfaceLuid, (*row).Family == AF_INET6);
+    let sender = &*(context as *const std::sync::Mutex<std::sync::mpsc::Sender<(Luid, bool)>>);
+    if let Ok(sender) = sender.lock() {
+        let _ = sender.send((Luid::of(&luid), v6));
+    }
+}
+
+impl InterfaceAdds {
+    /// The interfaces added from now on, on the receiver; it ends when
+    /// this is dropped.
+    pub(crate) fn start() -> io::Result<(InterfaceAdds, std::sync::mpsc::Receiver<(Luid, bool)>)> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let sender = Box::into_raw(Box::new(std::sync::Mutex::new(tx)));
+        let mut handle: HANDLE = std::ptr::null_mut();
+        // SAFETY: the callback and its context live until cancelled.
+        let status = unsafe {
+            NotifyIpInterfaceChange(
+                AF_UNSPEC,
+                Some(on_interface_added),
+                sender as *const core::ffi::c_void,
+                false,
+                &mut handle,
+            )
+        };
+        if let Err(e) = check(status) {
+            // SAFETY: the Box just made, which no callback has.
+            unsafe { drop(Box::from_raw(sender)) };
+            return Err(e);
+        }
+        Ok((InterfaceAdds { handle, sender }, rx))
+    }
+}
+
+impl Drop for InterfaceAdds {
+    fn drop(&mut self) {
+        // SAFETY: a handle NotifyIpInterfaceChange gave; cancelling waits
+        // for a callback running to return.
+        unsafe { CancelMibChangeNotify2(self.handle) };
+        // SAFETY: the Box into_raw made, released once no callback runs:
+        // the receiver's loop ends with it.
+        unsafe {
+            drop(Box::from_raw(
+                self.sender as *mut std::sync::Mutex<std::sync::mpsc::Sender<(Luid, bool)>>,
+            ))
+        };
     }
 }
 
