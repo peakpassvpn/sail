@@ -984,3 +984,86 @@ fn syn_ack_data_and_fin_wait_for_the_peer_to_resend_them() {
         .unwrap();
     assert!(resent.contains(&TcpAction::DeliverPayload { len: 20 }));
 }
+
+/// A peer's acknowledgment starts at its SND.NXT, which may sit exactly at
+/// our right edge when it filled the window and its last segments were
+/// lost: that ACK counts, or the peer's acknowledgments of our data go
+/// unread until it retransmits (RFC 7323 2.4; Linux's `tcp_sequence`).
+#[test]
+fn an_ack_at_the_right_edge_is_taken() {
+    let mut tcb = established(1_000);
+    tcb.on_app_event(AppEvent::Send(100)).unwrap();
+    assert_eq!(tcb.advertised_right_edge(), SeqNumber::new(1_101));
+    let actions = tcb
+        .on_segment(segment(1_101, Some(1_101), TcpFlags::ACK, 0))
+        .unwrap();
+    assert_eq!(tcb.send_unacked(), SeqNumber::new(1_101));
+    assert!(!actions
+        .iter()
+        .any(|action| matches!(action, TcpAction::DefensiveAck(_))));
+
+    // One past the edge is outside any window we offered.
+    tcb.on_app_event(AppEvent::Send(100)).unwrap();
+    let past = tcb
+        .on_segment(segment(1_102, Some(1_201), TcpFlags::ACK, 0))
+        .unwrap();
+    assert_eq!(tcb.send_unacked(), SeqNumber::new(1_101));
+    assert!(matches!(past.as_slice(), [TcpAction::DefensiveAck(_)]));
+}
+
+/// At a zero window a probe with data is answered and its ACK taken, its
+/// data not (RFC 9293 3.10.7.4); nor is it a duplicate ACK.
+#[test]
+fn a_zero_window_probe_with_data_draws_an_ack_and_counts_for_its_ack() {
+    let mut tcb = established(10);
+    tcb.on_segment(segment(101, Some(1_001), TcpFlags::ACK, 10))
+        .unwrap();
+    assert_eq!(tcb.advertised_window(), 0);
+    tcb.on_app_event(AppEvent::Send(300)).unwrap();
+
+    // The same probe three times: no duplicate ACKs, so no fast retransmit.
+    for _ in 0..3 {
+        let actions = tcb
+            .on_segment(segment(111, Some(1_101), TcpFlags::ACK, 1))
+            .unwrap();
+        assert_eq!(tcb.send_unacked(), SeqNumber::new(1_101));
+        assert!(matches!(
+            actions.last(),
+            Some(TcpAction::DefensiveAck(control))
+                if control.acknowledgment == SeqNumber::new(111) && control.window == 0
+        ));
+        assert!(!actions
+            .iter()
+            .any(|action| matches!(action, TcpAction::RetransmitPayload(_))));
+    }
+    assert_eq!(tcb.recv_next(), SeqNumber::new(111));
+    assert_eq!(tcb.recv_buffered(), 10);
+
+    // A retransmission reaching back before RCV.NXT counts for its ACK too.
+    tcb.on_segment(segment(105, Some(1_201), TcpFlags::ACK, 10))
+        .unwrap();
+    assert_eq!(tcb.send_unacked(), SeqNumber::new(1_201));
+    assert_eq!(tcb.recv_next(), SeqNumber::new(111));
+    assert_eq!(tcb.recv_buffered(), 10);
+}
+
+/// A FIN at a zero window is not taken but its ACK is.
+#[test]
+fn a_fin_at_a_zero_window_counts_for_its_ack() {
+    let mut tcb = established(10);
+    tcb.on_segment(segment(101, Some(1_001), TcpFlags::ACK, 10))
+        .unwrap();
+    tcb.on_app_event(AppEvent::Send(100)).unwrap();
+    let actions = tcb
+        .on_segment(segment(
+            111,
+            Some(1_101),
+            TcpFlags::ACK.union(TcpFlags::FIN),
+            0,
+        ))
+        .unwrap();
+    assert_eq!(tcb.send_unacked(), SeqNumber::new(1_101));
+    assert_eq!(tcb.state(), TcpState::Established);
+    assert!(!actions.contains(&TcpAction::PeerHalfClosed));
+    assert!(matches!(actions.last(), Some(TcpAction::DefensiveAck(_))));
+}

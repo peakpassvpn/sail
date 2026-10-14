@@ -1631,6 +1631,7 @@ impl<I: PacketIo> SingleShardRunner<I> {
             tcp_accept_overflow_drops: tcp.accept_overflow_drops,
             tcp_accept_overflow_rejections: tcp.accept_overflow_rejections,
             tcp_pressure_reclaimed_syns: tcp.pressure_reclaimed_syns,
+            tcp_receive_pressure_drops: tcp.receive_pressure_drops,
             udp_active_flows: udp.active_flows,
             udp_peak_active_flows: udp.peak_active_flows,
             udp_created_flows: udp.created_flows,

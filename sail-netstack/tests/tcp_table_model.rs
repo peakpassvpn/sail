@@ -676,8 +676,13 @@ fn zero_window_send_is_budgeted_probed_and_flushed_after_window_update() {
         .is_empty());
 }
 
+/// A zero window probe that carries data is answered, and its ACK and
+/// window are taken though its data is not (RFC 9293 3.10.7.4: at a zero
+/// window, "special allowance should be made to accept valid ACKs"):
+/// otherwise a peer probing with data has its acknowledgments of ours
+/// dropped for as long as our window stays shut.
 #[test]
-fn zero_receive_window_data_cannot_ack_outbound_payload() {
+fn a_zero_window_probe_with_data_is_answered_and_its_ack_taken() {
     let ledger = ResourceLedger::new(BudgetProfile::Router.budget()).unwrap();
     let mut table = TcpTable::new(
         ledger,
@@ -705,10 +710,7 @@ fn zero_receive_window_data_cannot_ack_outbound_payload() {
         [TcpEvent::Readable { token, bytes: 5 }]
     );
 
-    // At a zero receive window, a segment consuming sequence space is not
-    // acceptable. Its ACK and window fields must therefore not update sender
-    // state, even though its sequence equals RCV.NXT.
-    let unacceptable = packet_with_window(
+    let probe = packet_with_window(
         source,
         destination,
         106,
@@ -717,25 +719,19 @@ fn zero_receive_window_data_cannot_ack_outbound_payload() {
         0,
         b"x",
     );
-    let rejected = table.ingest(&unacceptable).unwrap();
-    assert!(rejected.events.is_empty());
-    assert_eq!(rejected.outgoing.len(), 1);
-    let defensive_ack =
-        parse_tcp_segment(parse_ip_packet(&rejected.outgoing[0], true).unwrap(), true).unwrap();
-    assert_eq!(defensive_ack.meta.acknowledgment, Some(SeqNumber::new(106)));
-    assert_eq!(table.stats().send_buffered_bytes, 4);
-
-    // A pure ACK at RCV.NXT is acceptable with a zero receive window and can
-    // acknowledge the same bytes.
-    let valid_ack = packet(
-        source,
-        destination,
-        106,
-        server_next.wrapping_add(4),
-        TcpFlags::ACK,
-        &[],
-    );
-    table.ingest(&valid_ack).unwrap();
+    let answered = table.ingest(&probe).unwrap();
+    assert!(!answered
+        .events
+        .iter()
+        .any(|event| matches!(event, TcpEvent::Readable { .. })));
+    assert_eq!(answered.outgoing.len(), 1);
+    let ack =
+        parse_tcp_segment(parse_ip_packet(&answered.outgoing[0], true).unwrap(), true).unwrap();
+    assert_eq!(ack.meta.acknowledgment, Some(SeqNumber::new(106)));
+    assert_eq!(ack.meta.window, 0);
+    assert!(ack.payload.is_empty());
+    // The probe's byte was not taken, and its ACK freed what it covered.
+    assert_eq!(table.stats().buffered_bytes, 5);
     assert_eq!(table.stats().send_buffered_bytes, 0);
 }
 
@@ -3171,8 +3167,10 @@ fn partial_sack_blocks_split_chunks_into_exact_unsacked_ranges() {
     assert_eq!(table.stats().send_buffered_bytes, 0);
 }
 
+/// Short of memory to split the send queue at its SACK blocks, a segment
+/// still counts for its cumulative ACK: that is what frees memory.
 #[test]
-fn sack_split_budget_failure_does_not_partially_advance_ack_state() {
+fn sack_split_budget_failure_still_takes_the_cumulative_ack() {
     let mut budget = BudgetProfile::Router.budget();
     budget.metadata_bytes = 512 + 64;
     let ledger = ResourceLedger::new(budget).unwrap();
@@ -3205,11 +3203,8 @@ fn sack_split_budget_failure_does_not_partially_advance_ack_state() {
         TcpFlags::ACK,
         &options,
     );
-    assert!(matches!(
-        table.ingest(&ack_with_sack),
-        Err(TcpTableError::Budget(_))
-    ));
-    assert_eq!(table.stats().send_buffered_bytes, payload.len());
+    table.ingest(&ack_with_sack).unwrap();
+    assert_eq!(table.stats().send_buffered_bytes, payload.len() - 50);
     assert_eq!(
         ledger.snapshot().used[ResourceKind::MetadataBytes as usize],
         576
@@ -3219,8 +3214,11 @@ fn sack_split_budget_failure_does_not_partially_advance_ack_state() {
     assert_eq!(timeout.outgoing.len(), 1);
     let retransmit =
         parse_tcp_segment(parse_ip_packet(&timeout.outgoing[0], true).unwrap(), true).unwrap();
-    assert_eq!(retransmit.meta.sequence, SeqNumber::new(server_next));
-    assert_eq!(retransmit.payload, payload);
+    assert_eq!(
+        retransmit.meta.sequence,
+        SeqNumber::new(server_next.wrapping_add(50))
+    );
+    assert_eq!(retransmit.payload, &payload[50..]);
 }
 
 #[test]
@@ -4477,4 +4475,103 @@ fn a_syn_with_a_newer_timestamp_opens_a_new_connection_an_older_does_not() {
         "a newer timestamp"
     );
     assert_eq!(table.stats().time_wait, 0);
+}
+
+/// Short of memory for a segment's data, the table still takes its ACK and
+/// answers at once; the data comes again. Dropped whole, the ACK that would
+/// free the send queue's memory would go with it.
+#[test]
+fn memory_pressure_drops_a_segments_data_but_takes_its_ack() {
+    let ledger = ResourceLedger::new(BudgetProfile::Router.budget()).unwrap();
+    let mut table = TcpTable::new(
+        Arc::clone(&ledger),
+        NetworkGeneration::new(1),
+        TcpTableConfig::default(),
+    );
+    let (source, destination) = endpoints(60);
+    let (token, server_next) = handshake(&mut table, source, destination);
+    table.accept(token).unwrap();
+    assert_eq!(table.write(token, b"sent").unwrap().outgoing.len(), 1);
+
+    let used = ledger.snapshot().used[ResourceKind::MetadataBytes as usize];
+    let hold = ledger
+        .try_acquire(
+            ResourceKind::MetadataBytes,
+            ledger.budget().metadata_bytes - used,
+        )
+        .unwrap();
+    let data = packet(
+        source,
+        destination,
+        101,
+        server_next.wrapping_add(4),
+        TcpFlags::ACK,
+        b"hello",
+    );
+    let squeezed = table.ingest(&data).unwrap();
+    assert!(!squeezed
+        .events
+        .iter()
+        .any(|event| matches!(event, TcpEvent::Readable { .. })));
+    assert_eq!(squeezed.outgoing.len(), 1);
+    let ack =
+        parse_tcp_segment(parse_ip_packet(&squeezed.outgoing[0], true).unwrap(), true).unwrap();
+    assert_eq!(ack.meta.acknowledgment, Some(SeqNumber::new(101)));
+    assert!(ack.payload.is_empty());
+    assert_eq!(table.stats().send_buffered_bytes, 0);
+    assert_eq!(table.stats().buffered_bytes, 0);
+    assert_eq!(table.stats().receive_pressure_drops, 1);
+
+    drop(hold);
+    assert_eq!(
+        table.ingest(&data).unwrap().events,
+        [TcpEvent::Readable { token, bytes: 5 }]
+    );
+    assert_eq!(table.read(token, usize::MAX).unwrap().bytes, b"hello");
+}
+
+/// A peer that shut its window has our retransmissions as window probes:
+/// while it answers them the flow outlives the retransmission limit (RFC
+/// 9293 3.8.6.2.1), and silent for twice the largest RTO it ends, as
+/// Linux's `tcp_rtx_probe0_timed_out`.
+#[test]
+fn a_shut_window_keeps_the_flow_while_the_peer_answers() {
+    let ledger = ResourceLedger::new(BudgetProfile::Router.budget()).unwrap();
+    let mut table = TcpTable::new(
+        Arc::clone(&ledger),
+        NetworkGeneration::new(1),
+        TcpTableConfig {
+            max_retransmission_timeouts: 2,
+            ..TcpTableConfig::default()
+        },
+    );
+    let (source, destination) = endpoints(61);
+    let (token, server_next) = handshake(&mut table, source, destination);
+    table.accept(token).unwrap();
+    assert_eq!(table.write(token, b"held").unwrap().outgoing.len(), 1);
+
+    let shut = packet_with_window(source, destination, 101, server_next, TcpFlags::ACK, 0, &[]);
+    let mut now = 0;
+    table.ingest_with_policy_at(&shut, true, now).unwrap();
+    for _ in 0..5 {
+        now += 60_000;
+        let probe = table
+            .on_timer_at(token, TimerEvent::Retransmission, now)
+            .unwrap();
+        assert!(!probe.events.contains(&TcpEvent::Closed(token)));
+        assert_eq!(probe.outgoing.len(), 1);
+        table.ingest_with_policy_at(&shut, true, now).unwrap();
+    }
+    assert_eq!(table.stats().retransmission_failures, 0);
+
+    let quiet = table
+        .on_timer_at(token, TimerEvent::Retransmission, now + 60_000)
+        .unwrap();
+    assert!(!quiet.events.contains(&TcpEvent::Closed(token)));
+    let gone = table
+        .on_timer_at(token, TimerEvent::Retransmission, now + 120_001)
+        .unwrap();
+    assert!(gone.events.contains(&TcpEvent::Closed(token)));
+    assert_eq!(table.stats().retransmission_failures, 1);
+    assert_eq!(ledger.snapshot().total_bytes, 0);
 }

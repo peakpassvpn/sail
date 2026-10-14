@@ -18,6 +18,10 @@ const TIME_WAIT_METADATA_CHARGE: usize = 128;
 const IPV4_BLACK_HOLE_FALLBACK_MTU: usize = 576;
 const IPV6_BLACK_HOLE_FALLBACK_MTU: usize = 1_280;
 const PAWS_IDLE_INVALIDATION_MS: u64 = 24 * 24 * 60 * 60 * 1_000;
+/// How long a peer that shut its window with our data outstanding may stay
+/// silent before the flow gives up: twice the largest RTO, as Linux's
+/// `tcp_rtx_probe0_timed_out`. While it answers, the flow waits.
+const SHUT_WINDOW_SILENCE_MS: u64 = 2 * super::rto::MAX_RTO_MS;
 // Fixed header sizes (RFC 791, RFC 8200 3, RFC 9293 3.1).
 const IPV4_HEADER_BYTES: usize = 20;
 const IPV6_HEADER_BYTES: usize = 40;
@@ -139,6 +143,17 @@ struct ReceiveAdmission {
     out_of_order_fin: Option<SeqNumber>,
 }
 
+impl ReceiveAdmission {
+    const fn nothing() -> Self {
+        Self {
+            buffering: false,
+            chunk: None,
+            out_of_order: None,
+            out_of_order_fin: None,
+        }
+    }
+}
+
 #[derive(Debug)]
 struct TcpFlow {
     id: FlowId,
@@ -157,6 +172,8 @@ struct TcpFlow {
     /// The FIN-WAIT-2 timer of an orphaned flow is set.
     fin_wait2_armed: bool,
     retransmission_timeouts: u8,
+    /// When the peer was last heard from, in the table's clock.
+    last_received_ms: u64,
     max_send_segment_bytes: usize,
     sack_permitted: bool,
     peer_window_scale: Option<u8>,
@@ -180,6 +197,18 @@ struct TcpFlow {
     /// what it has read since.
     read_measure_start_ms: u64,
     read_measure_bytes: usize,
+}
+
+impl TcpFlow {
+    /// Whether a retransmission timeout probes a window the peer shut: it
+    /// keeps the flow while the peer answers (RFC 9293 3.8.6.2.1: a sender
+    /// SHOULD NOT time out over data past the window's edge). A flow the
+    /// application let go of counts its timeouts as any other.
+    fn probes_shut_window(&self) -> bool {
+        self.tcb.peer_window() == 0
+            && !self.orphaned
+            && !matches!(self.tcb.state(), TcpState::SynSent | TcpState::SynReceived)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -360,6 +389,9 @@ pub struct TcpTableStats {
     pub accept_overflow_drops: u64,
     pub accept_overflow_rejections: u64,
     pub pressure_reclaimed_syns: u64,
+    /// Segments whose data the memory budget refused: their ACK was taken,
+    /// their data left to come again.
+    pub receive_pressure_drops: u64,
 }
 
 #[derive(Debug)]
@@ -865,6 +897,7 @@ impl TcpTable {
                 orphaned: false,
                 fin_wait2_armed: false,
                 retransmission_timeouts: 0,
+                last_received_ms: self.now_ms,
                 max_send_segment_bytes: local_mss.min(default_peer_mss),
                 sack_permitted: false,
                 peer_window_scale: None,
@@ -1010,17 +1043,9 @@ impl TcpTable {
             ResourceKind::TcpPayloadBytes,
             self.config.receive_credit_bytes,
         )?;
-        let pending_initial_receive = if payload.is_empty() {
-            None
-        } else {
-            Some(ReceiveChunk {
-                bytes: payload.into(),
-                offset: 0,
-                _metadata_lease: self
-                    .ledger
-                    .try_acquire(ResourceKind::MetadataBytes, TCP_CHUNK_METADATA_CHARGE)?,
-            })
-        };
+        let pending_initial_receive = (!payload.is_empty())
+            .then(|| receive_chunk(&self.ledger, payload))
+            .transpose()?;
         let id = FlowId::new(self.next_flow_id);
         let isn = self.initial_sequence(key, id);
         let timestamp_offset = self.timestamp_offset(key);
@@ -1061,6 +1086,7 @@ impl TcpTable {
                 orphaned: false,
                 fin_wait2_armed: false,
                 retransmission_timeouts: 0,
+                last_received_ms: self.now_ms,
                 max_send_segment_bytes,
                 sack_permitted: options.sack_permitted,
                 peer_window_scale: options.window_scale,
@@ -1111,14 +1137,7 @@ impl TcpTable {
         let accepting = flow.tcb.accepts_final_ack(segment);
         let (payload, payload_admissible) =
             normalize_receive_segment(flow, &mut segment, payload, accepting);
-        let state_segment = if (flow.tcb.state() == TcpState::SynReceived && !accepting)
-            || (flow.tcb.state() != TcpState::SynReceived
-                && original_segment.sequence.after(flow.tcb.recv_next()))
-        {
-            original_segment
-        } else {
-            segment
-        };
+        let mut state_segment = state_segment(flow, original_segment, segment, accepting);
         let old_recv_next = flow.tcb.recv_next();
         let had_send = !flow.send.is_empty();
         let old_send_unacked = flow.tcb.send_unacked();
@@ -1134,21 +1153,25 @@ impl TcpTable {
         } else {
             None
         };
-        let admission = prepare_receive_admission(
+        let (admission, pressure_dropped) = admit_or_strip(
             &self.ledger,
             flow,
-            segment,
+            (&mut segment, &mut state_segment),
             payload,
             payload_admissible,
             accepting,
         )?;
-        let sack_anchor = (payload_admissible && original_segment.payload_len > 0)
-            .then_some(original_segment.sequence);
+        let sack_anchor =
+            (payload_admissible && !pressure_dropped && original_segment.payload_len > 0)
+                .then_some(original_segment.sequence);
         let flow = self
             .by_key
             .get_mut(&key)
             .ok_or(TcpTableError::UnknownFlow)?;
         let mut actions = flow.tcb.on_segment(state_segment)?;
+        if pressure_dropped {
+            answer_pressure_drop(flow, &mut self.stats, &mut actions);
+        }
         apply_challenge_ack_limit(
             &mut self.challenge_ack_limiter,
             &mut self.stats,
@@ -1156,6 +1179,7 @@ impl TcpTable {
             &mut actions,
         );
         flow.keepalive_probes_sent = 0;
+        flow.last_received_ms = self.now_ms;
         record_ack_progress(flow, old_send_unacked, options, self.now_ms);
         update_recent_timestamp(flow, segment, options, old_recv_next, self.now_ms);
         update_sender_sack(
@@ -1703,7 +1727,15 @@ impl TcpTable {
             if flow.tcb.send_unacked() == flow.tcb.send_next() {
                 return Ok(TcpIngress::default());
             }
-            if flow.retransmission_timeouts >= self.config.max_retransmission_timeouts {
+            // Silent too long, a peer probed through a shut window ends the
+            // flow, as Linux's does.
+            let probing_shut_window = flow.probes_shut_window();
+            let gave_up = if probing_shut_window {
+                self.now_ms.saturating_sub(flow.last_received_ms) > SHUT_WINDOW_SILENCE_MS
+            } else {
+                flow.retransmission_timeouts >= self.config.max_retransmission_timeouts
+            };
+            if gave_up {
                 self.remove(key);
                 self.stats.retransmission_failures =
                     self.stats.retransmission_failures.saturating_add(1);
@@ -1713,7 +1745,9 @@ impl TcpTable {
                     ..TcpIngress::default()
                 });
             }
-            flow.retransmission_timeouts = flow.retransmission_timeouts.saturating_add(1);
+            if !probing_shut_window {
+                flow.retransmission_timeouts = flow.retransmission_timeouts.saturating_add(1);
+            }
             flow.rtt_probe = None;
             self.stats.retransmission_timeouts =
                 self.stats.retransmission_timeouts.saturating_add(1);
@@ -3032,16 +3066,9 @@ fn prepare_receive_admission(
     if buffering && payload.len() > flow.tcb.receive_available() {
         return Err(TcpError::ReceiveCreditExceeded.into());
     }
-    let chunk = if buffering {
-        Some(ReceiveChunk {
-            bytes: payload.into(),
-            offset: 0,
-            _metadata_lease: ledger
-                .try_acquire(ResourceKind::MetadataBytes, TCP_CHUNK_METADATA_CHARGE)?,
-        })
-    } else {
-        None
-    };
+    let chunk = buffering
+        .then(|| receive_chunk(ledger, payload))
+        .transpose()?;
     let out_of_order = if payload_admissible && !buffering && !accepting {
         admit_out_of_order(ledger, flow, segment.sequence, payload)?
     } else {
@@ -3057,6 +3084,66 @@ fn prepare_receive_admission(
             out_of_order_fin(flow, segment, payload_admissible)
         },
     })
+}
+
+/// Received bytes held for the application, their metadata reserved.
+fn receive_chunk(ledger: &Arc<ResourceLedger>, bytes: &[u8]) -> Result<ReceiveChunk, BudgetError> {
+    Ok(ReceiveChunk {
+        bytes: bytes.into(),
+        offset: 0,
+        _metadata_lease: ledger
+            .try_acquire(ResourceKind::MetadataBytes, TCP_CHUNK_METADATA_CHARGE)?,
+    })
+}
+
+/// Admits a segment's data, as [`prepare_receive_admission`]. Short of
+/// memory for it, the segment still counts for its ACK, window and SACK:
+/// its data and FIN are stripped from both its forms, to come again.
+/// Dropped whole, the acknowledgment that would free the send queue's
+/// memory would go with it.
+fn admit_or_strip(
+    ledger: &Arc<ResourceLedger>,
+    flow: &TcpFlow,
+    (segment, state_segment): (&mut crate::TcpSegmentMeta, &mut crate::TcpSegmentMeta),
+    payload: &[u8],
+    payload_admissible: bool,
+    accepting: bool,
+) -> Result<(ReceiveAdmission, bool), TcpTableError> {
+    match prepare_receive_admission(
+        ledger,
+        flow,
+        *segment,
+        payload,
+        payload_admissible,
+        accepting,
+    ) {
+        Ok(admission) => Ok((admission, false)),
+        Err(TcpTableError::Budget(_)) if !accepting && carries_data(*segment) => {
+            strip_data(segment);
+            strip_data(state_segment);
+            Ok((ReceiveAdmission::nothing(), true))
+        }
+        Err(error) => Err(error),
+    }
+}
+
+/// Answers a segment whose data memory pressure dropped, unless the control
+/// block already did: the peer learns at once that it must come again.
+fn answer_pressure_drop(
+    flow: &mut TcpFlow,
+    stats: &mut TcpTableStats,
+    actions: &mut Vec<TcpAction>,
+) {
+    increment_counter(&mut stats.receive_pressure_drops);
+    let answered = actions.iter().any(|action| {
+        matches!(
+            action,
+            TcpAction::Send(_) | TcpAction::DefensiveAck(_) | TcpAction::Closed
+        )
+    });
+    if !answered {
+        actions.extend(flow.tcb.reject_unacceptable_segment());
+    }
 }
 
 fn normalize_receive_segment<'a>(
@@ -3572,6 +3659,9 @@ fn prepare_sack_split(
     }))
 }
 
+/// Whether `segment` is acceptable sender feedback, and how its SACK blocks
+/// split the send queue. Short of memory for the split, the SACK blocks go
+/// unread and the cumulative ACK alone is taken: the ACK is what frees memory.
 fn prepare_sender_feedback(
     ledger: &Arc<ResourceLedger>,
     flow: &TcpFlow,
@@ -3580,11 +3670,47 @@ fn prepare_sender_feedback(
 ) -> Result<(bool, Option<SackSplitPlan>), TcpTableError> {
     let admissible = flow.tcb.accepts_sender_feedback(segment);
     let split = if admissible && flow.sack_permitted {
-        prepare_sack_split(ledger, flow, blocks)?
+        match prepare_sack_split(ledger, flow, blocks) {
+            Err(TcpTableError::Budget(_)) => None,
+            split => split?,
+        }
     } else {
         None
     };
     Ok((admissible, split))
+}
+
+/// The segment the control block sees: the one trimmed to what the table
+/// took, but as it came when it is still in the handshake or ahead of
+/// RCV.NXT, and when the window had no room for any of its data or FIN,
+/// so that the control block takes its ACK and answers it.
+fn state_segment(
+    flow: &TcpFlow,
+    original: crate::TcpSegmentMeta,
+    trimmed: crate::TcpSegmentMeta,
+    accepting: bool,
+) -> crate::TcpSegmentMeta {
+    let handshaking = flow.tcb.state() == TcpState::SynReceived;
+    if (handshaking && !accepting)
+        || (!handshaking && original.sequence.after(flow.tcb.recv_next()))
+        || (carries_data(original) && !carries_data(trimmed))
+    {
+        original
+    } else {
+        trimmed
+    }
+}
+
+/// Whether a segment carries data or a FIN.
+fn carries_data(segment: crate::TcpSegmentMeta) -> bool {
+    segment.payload_len > 0 || segment.flags.contains(TcpFlags::FIN)
+}
+
+/// Leaves a segment its ACK and window only: a FIN after data not taken
+/// cannot be taken either.
+fn strip_data(segment: &mut crate::TcpSegmentMeta) {
+    segment.payload_len = 0;
+    segment.flags = TcpFlags::from_bits(segment.flags.bits() & !TcpFlags::FIN.bits());
 }
 
 fn apply_sack_split(flow: &mut TcpFlow, plan: SackSplitPlan) {

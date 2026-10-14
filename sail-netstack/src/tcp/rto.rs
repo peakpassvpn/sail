@@ -1,5 +1,5 @@
 const MIN_RTO_MS: u64 = 1_000;
-const MAX_RTO_MS: u64 = 60_000;
+pub(crate) const MAX_RTO_MS: u64 = 60_000;
 
 /// RFC 6298-style integer RTT estimator. Callers apply Karn's algorithm by not
 /// sampling retransmitted segments.

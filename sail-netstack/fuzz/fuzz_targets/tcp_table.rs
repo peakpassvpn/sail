@@ -450,7 +450,14 @@ fuzz_target!(|input: &[u8]| {
         time_wait_ms: 1_000,
         ..TcpTableConfig::default()
     };
-    let ledger = ResourceLedger::new(BudgetProfile::Router.budget()).unwrap();
+    // A metadata pool with room for the flows and a few chunks: segments
+    // then meet a memory squeeze, which drops their data but must keep
+    // their ACKs and leave every byte delivered or sent intact.
+    let mut budget = BudgetProfile::Router.budget();
+    if data[1] & 0x20 != 0 {
+        budget.metadata_bytes = [1_200, 1_600, 2_400][usize::from(data[0] >> 6) % 3];
+    }
+    let ledger = ResourceLedger::new(budget).unwrap();
     let service = SocketAddr::from((Ipv4Addr::new(10, 0, 1, 1), 443));
     let mut harness = Harness {
         table: TcpTable::new(Arc::clone(&ledger), NetworkGeneration::new(1), config),

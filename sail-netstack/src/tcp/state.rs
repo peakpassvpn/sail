@@ -678,14 +678,23 @@ impl TcpTcb {
             return Ok(actions);
         }
 
+        let beyond_window = self.beyond_receive_window(segment);
+        let carried_data = segment.payload_len > 0;
         self.trim_in_order_segment_to_receive_window(&mut segment);
 
         let old_peer_window = self.peer_window;
         self.update_send_window(segment);
         segment.window = u32::try_from(self.peer_window).unwrap_or(u32::MAX);
 
-        self.process_ack(segment, old_peer_window, &mut actions);
+        self.process_ack(segment, old_peer_window, carried_data, &mut actions);
         if self.state == TcpState::Closed {
+            return Ok(actions);
+        }
+        if beyond_window {
+            // A zero window probe, or data past the window: the answer
+            // tells the peer where the window stands.
+            self.cancel_delayed_ack(&mut actions);
+            actions.push(TcpAction::DefensiveAck(self.ack()));
             return Ok(actions);
         }
         if self.peer_receive_closed()
@@ -1011,10 +1020,13 @@ impl TcpTcb {
         }
     }
 
+    /// `carried_data`: the segment had data, perhaps all of it past the
+    /// window, so it is no duplicate ACK.
     fn process_ack(
         &mut self,
         segment: TcpSegmentMeta,
         old_peer_window: usize,
+        carried_data: bool,
         actions: &mut Vec<TcpAction>,
     ) {
         let Some(ack) = segment.acknowledgment else {
@@ -1039,7 +1051,7 @@ impl TcpTcb {
             }
         } else if ack == self.send_unacked
             && self.send_unacked != self.send_next
-            && segment.payload_len == 0
+            && !carried_data
             && usize::try_from(segment.window).unwrap_or(usize::MAX) == old_peer_window
             && self.congestion.on_duplicate_ack(
                 usize::try_from(self.send_next.distance_from(self.send_unacked))
@@ -1083,23 +1095,36 @@ impl TcpTcb {
         }
     }
 
+    /// RFC 9293 3.10.7.4's test, but a segment may also start at the right
+    /// edge, and whatever it carries past the edge is dropped (and
+    /// acknowledged) while its ACK and window are taken. The right edge
+    /// never moves left, so a peer's SND.NXT never passes it, and its
+    /// acknowledgments, which start there, always count: RFC 7323 2.4 has a
+    /// receiver honor any segment in the window of any ACK it sent, and RFC
+    /// 9293 asks that a zero window still take valid ACKs. Without that, a
+    /// peer probing a shut window with data, or one whose segments up to the
+    /// edge were lost, has every acknowledgment of ours it sends dropped
+    /// unread, and both ends can wait on each other. Linux's `tcp_sequence`
+    /// also takes a segment starting at the edge; FreeBSD takes a zero
+    /// window probe's ACK.
     fn segment_acceptable(&self, segment: TcpSegmentMeta) -> bool {
-        let window = self.advertised_right_edge.distance_from(self.recv_next);
         let length = segment.payload_len
             + usize::from(segment.flags.contains(TcpFlags::SYN))
             + usize::from(segment.flags.contains(TcpFlags::FIN));
-        if window == 0 {
-            return length == 0 && segment.sequence == self.recv_next;
+        if segment.sequence.after(self.advertised_right_edge) {
+            return false;
         }
         if length == 0 {
-            return self.sequence_in_receive_window(segment.sequence);
+            return !segment.sequence.before(self.recv_next);
         }
-        let segment_end = segment.sequence.wrapping_add(length);
-        if segment.sequence.before(self.recv_next) {
-            segment_end.after(self.recv_next)
-        } else {
-            segment.sequence.before(self.advertised_right_edge)
-        }
+        segment.sequence.wrapping_add(length).after(self.recv_next)
+    }
+
+    /// Whether a segment's data or FIN lies wholly at or past the right
+    /// edge, so that nothing of it can be taken.
+    fn beyond_receive_window(&self, segment: TcpSegmentMeta) -> bool {
+        (segment.payload_len > 0 || segment.flags.contains(TcpFlags::FIN))
+            && !segment.sequence.before(self.advertised_right_edge)
     }
 
     fn trim_in_order_segment_to_receive_window(&self, segment: &mut TcpSegmentMeta) {

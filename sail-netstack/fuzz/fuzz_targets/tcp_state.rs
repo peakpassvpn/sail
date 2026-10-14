@@ -34,6 +34,40 @@ fn assert_invariants(tcb: &TcpTcb, receive_capacity: usize, previous_right_edge:
     }
 }
 
+/// RFC 7323 2.4: a segment in the window of any ACK we sent counts. The
+/// right edge never moves left, so a peer's SND.NXT never passes it, and
+/// its acknowledgment starting there, bare or carrying data the window has
+/// no room for, must be taken; otherwise both ends can wait on each other.
+fn assert_ack_at_right_edge_counts(tcb: &TcpTcb, carries_data: bool) {
+    if !matches!(
+        tcb.state(),
+        TcpState::Established
+            | TcpState::FinWait1
+            | TcpState::FinWait2
+            | TcpState::CloseWait
+            | TcpState::Closing
+            | TcpState::LastAck
+    ) {
+        return;
+    }
+    let mut probe = tcb.clone();
+    let segment = TcpSegmentMeta {
+        sequence: probe.advertised_right_edge(),
+        acknowledgment: Some(probe.send_next()),
+        flags: TcpFlags::ACK,
+        window: 1,
+        payload_len: usize::from(carries_data),
+    };
+    probe
+        .on_segment(segment)
+        .expect("an acknowledgment at the right edge is acceptable");
+    assert_eq!(
+        probe.send_unacked(),
+        probe.send_next(),
+        "an acknowledgment at the right edge went unread"
+    );
+}
+
 fuzz_target!(|input: &[u8]| {
     let data = &input[..input.len().min(MAX_INPUT_LEN)];
     if data.len() < OPERATION_BYTES {
@@ -147,6 +181,7 @@ fuzz_target!(|input: &[u8]| {
             previous_right_edge = tcb.advertised_right_edge();
         }
         assert_invariants(&tcb, receive_capacity, previous_right_edge);
+        assert_ack_at_right_edge_counts(&tcb, operation[1] & 0x20 != 0);
         previous_right_edge = tcb.advertised_right_edge();
         if tcb.state() == TcpState::Closed {
             break;
