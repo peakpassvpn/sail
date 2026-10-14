@@ -2477,6 +2477,95 @@ fn a_vless_listener_is_a_vless_inbound_and_reality_its_tls() {
     );
 }
 
+/// A hysteria2 listener is a hysteria2 inbound: users by name, its own
+/// certificate, salamander, rates as Mihomo reads them and a site behind.
+#[test]
+fn a_hysteria2_listener_is_a_hysteria2_inbound() {
+    let inbound = |fields: &str| {
+        parse(&format!(
+            "listeners: [{{ name: H, type: hysteria2, port: 443{} }}]\nrules: [\"MATCH,DIRECT\"]\n",
+            fields
+        ))
+        .map(|config| {
+            let inbound = config.inbounds.iter().find(|i| i.tag == "H").unwrap();
+            (serde_json::to_value(inbound).unwrap(), config.warnings)
+        })
+        .map_err(|e| format!("{:#}", e))
+    };
+    let tls = ", certificate: c.pem, private-key: k.pem";
+    let (v, warnings) = inbound(&format!(
+        "{}, users: {{ alice: a, bob: b }}, alpn: [h3, h3-29], obfs: salamander, \
+         obfs-password: o, up: 100 Mbps, down: 10 MBps, ignore-client-bandwidth: true, \
+         masquerade: \"https://www.example.com\", max-idle-time: 15000",
+        tls
+    ))
+    .unwrap();
+    assert!(warnings.is_empty(), "{:?}", warnings);
+    assert_eq!(v["type"], "hysteria2");
+    assert_eq!(
+        v["users"],
+        json!([{ "name": "alice", "password": "a" }, { "name": "bob", "password": "b" }])
+    );
+    assert_eq!(
+        v["tls"],
+        json!({ "enabled": true, "certificate_path": "c.pem", "key_path": "k.pem",
+            "alpn": ["h3", "h3-29"] })
+    );
+    assert_eq!(v["obfs"], json!({ "type": "salamander", "password": "o" }));
+    assert_eq!(v["up_mbps"], 100);
+    assert_eq!(v["down_mbps"], 80);
+    assert_eq!(v["ignore_client_bandwidth"], true);
+    assert_eq!(v["masquerade"], "https://www.example.com");
+
+    // A bare number is Mbps, one Mihomo cannot read none; two users with
+    // one password are one, the last; what sail does not tune by, and
+    // sing-mux, are warned of.
+    let (v, warnings) = inbound(&format!(
+        "{}, users: {{ alice: p, bob: p }}, up: 30, down: fast, cwnd: 32, \
+         mux-option: {{ padding: true }}",
+        tls
+    ))
+    .unwrap();
+    assert_eq!(v["users"], json!([{ "name": "bob", "password": "p" }]));
+    assert_eq!(v["up_mbps"], 30);
+    assert!(v.get("down_mbps").is_none());
+    assert_eq!(warnings.len(), 4, "{:?}", warnings);
+    assert!(warnings[0].starts_with("listeners[0].users.bob: the password of \"alice\""));
+    assert!(warnings[1].starts_with("listeners[0].down: \"fast\": 0 to Mihomo"));
+    assert!(warnings[2].starts_with("listeners[0].cwnd: sail does not tune"));
+    assert!(warnings[3].starts_with("listeners[0].mux-option: sail serves no sing-mux"));
+
+    for (fields, error) in [
+        (
+            String::new(),
+            "listeners[0].certificate: missing: Mihomo serves a random self-signed certificate",
+        ),
+        (
+            ", certificate: c.pem".to_string(),
+            "listeners[0].certificate: without private-key: Mihomo refuses",
+        ),
+        (
+            format!("{}, obfs: salamander", tls),
+            "listeners[0].obfs-password: missing",
+        ),
+        (
+            format!("{}, obfs: gecko, obfs-password: o", tls),
+            "listeners[0].obfs: \"gecko\": sail does not implement it",
+        ),
+        (
+            format!("{}, masquerade: \"file:///srv/www\"", tls),
+            "listeners[0].masquerade: sail does not serve a directory",
+        ),
+        (
+            format!("{}, realm-opts: {{ enable: true }}", tls),
+            "listeners[0].realm-opts: sail does not implement Hysteria realms",
+        ),
+    ] {
+        let e = inbound(&fields).unwrap_err();
+        assert!(e.contains(error), "{}: {}", fields, e);
+    }
+}
+
 /// A listener's client authentication, as Mihomo's: `client-auth-type`
 /// and the CAs of `client-auth-cert`, CAs alone requiring and verifying.
 #[test]

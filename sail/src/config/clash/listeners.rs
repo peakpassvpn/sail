@@ -14,7 +14,8 @@
 //!
 //! The proxy listeners (trojan, vless) serve sing-mux, as all of Mihomo's do,
 //! over a websocket at `ws-path` or gRPC under `grpc-service-name` where
-//! one is given.
+//! one is given. The QUIC ones (hysteria2) do not, where Mihomo's do: no
+//! client asks for it over QUIC.
 //!
 //! Where sail does otherwise: its SOCKS, mixed and shadowsocks inbounds
 //! carry UDP whatever `udp` says, where Mihomo's listeners carry it only
@@ -44,6 +45,7 @@ const TYPES: &[(&str, &str)] = &[
     ("shadowsocks", "shadowsocks"),
     ("trojan", "trojan"),
     ("vless", "vless"),
+    ("hysteria2", "hysteria2"),
 ];
 
 /// The early data a websocket client may send in `Sec-WebSocket-Protocol`,
@@ -205,6 +207,7 @@ pub fn lower(
                     ));
                 }
             }
+            "hysteria2" => hysteria2(&mut f, out.home.as_deref(), &mut inbound, warnings)?,
             _ => {}
         }
         if matches!(protocol, "http" | "trojan" | "vless") {
@@ -523,6 +526,248 @@ fn reality(mut r: Fields, warnings: &mut Vec<String>) -> Result<Option<Value>> {
     Ok(Some(
         json!({ "enabled": true, "server_name": name, "reality": reality }),
     ))
+}
+
+/// A hysteria2 listener, as Mihomo's `sing_hysteria2` serves one: users a
+/// map of names to passwords, its own TLS (`quic_tls`), salamander, rates,
+/// and a site for those without a password.
+fn hysteria2(
+    f: &mut Fields,
+    home: Option<&std::path::Path>,
+    inbound: &mut Map<String, Value>,
+    warnings: &mut Vec<String>,
+) -> Result<()> {
+    let users_at = f.at("users");
+    let mut users: Vec<(String, String)> = Vec::new();
+    if let Some(mut map) = f.map("users")? {
+        for name in map.keys() {
+            let password = map.string(&name)?.unwrap_or_default();
+            // Mihomo keys them by password, the one it meets last taken.
+            if let Some(j) = users.iter().position(|(_, p)| *p == password) {
+                warnings.push(format!(
+                    "{}.{}: the password of {:?} too: Mihomo takes one of the two, and sail \
+                     this one",
+                    users_at, name, users[j].0
+                ));
+                users.remove(j);
+            }
+            users.push((name, password));
+        }
+    }
+    let users: Vec<Value> = users
+        .into_iter()
+        .map(|(name, password)| json!({ "name": name, "password": password }))
+        .collect();
+    inbound.insert("users".into(), Value::Array(users));
+    inbound.insert("tls".into(), quic_tls(f, home, "hysteria2", warnings)?);
+
+    let obfs_at = f.at("obfs");
+    let password_at = f.at("obfs-password");
+    let password = f.string("obfs-password")?.unwrap_or_default();
+    // Gecko's alone, which sail does not have.
+    f.take("obfs-min-packet-size");
+    f.take("obfs-max-packet-size");
+    match f.string("obfs")?.filter(|o| !o.is_empty()).as_deref() {
+        None => {}
+        Some(_) if password.is_empty() => {
+            return Err(anyhow!("{}: missing, which Mihomo requires with obfs", password_at))
+        }
+        Some("salamander") => {
+            inbound.insert(
+                "obfs".into(),
+                json!({ "type": "salamander", "password": password }),
+            );
+        }
+        Some("gecko") => {
+            return Err(anyhow!(
+                "{}: \"gecko\": sail does not implement it yet",
+                obfs_at
+            ))
+        }
+        Some(other) => {
+            return Err(anyhow!(
+                "{}: {:?}: Mihomo knows no such obfuscation",
+                obfs_at,
+                other
+            ))
+        }
+    }
+
+    for (from, to) in [("up", "up_mbps"), ("down", "down_mbps")] {
+        let at = f.at(from);
+        let Some(rate) = f.string(from)?.filter(|r| !r.is_empty()) else {
+            continue;
+        };
+        match mihomo_mbps(&rate) {
+            Some(mbps) => {
+                inbound.insert(to.into(), json!(mbps));
+            }
+            None => warnings.push(format!(
+                "{}: {:?}: 0 to Mihomo, which then sets no rate; nor does sail",
+                at, rate
+            )),
+        }
+    }
+    if f.bool("ignore-client-bandwidth")?.unwrap_or(false) {
+        inbound.insert("ignore_client_bandwidth".into(), json!(true));
+    }
+
+    let masquerade_at = f.at("masquerade");
+    if let Some(site) = f.string("masquerade")?.filter(|m| !m.is_empty()) {
+        let scheme = site.split_once("://").map(|(s, _)| s.to_ascii_lowercase());
+        match scheme.as_deref() {
+            Some("http" | "https") => {
+                inbound.insert("masquerade".into(), json!(site));
+            }
+            Some("file") => {
+                return Err(anyhow!(
+                    "{}: sail does not serve a directory as the site yet",
+                    masquerade_at
+                ))
+            }
+            _ => {
+                return Err(anyhow!(
+                    "{}: {:?}: Mihomo takes an http, https or file URL",
+                    masquerade_at,
+                    site
+                ))
+            }
+        }
+    }
+
+    let realm_at = f.at("realm-opts");
+    if let Some(mut realm) = f.map("realm-opts")? {
+        if realm.bool("enable")?.unwrap_or(false) {
+            return Err(anyhow!(
+                "{}: sail does not implement Hysteria realms",
+                realm_at
+            ));
+        }
+    }
+    quic_tuning(f, warnings)?;
+    // Mihomo's hysteria2 server reads no idle time of its own.
+    f.take("max-idle-time");
+    Ok(())
+}
+
+/// A rate as Mihomo's `StringToBps` reads it, in Mbps: a bare number is
+/// Mbps, else a number, maybe K, M, G or T, and bps (bits) or Bps (bytes);
+/// anything else is none. Some(0) is no rate.
+fn mihomo_mbps(rate: &str) -> Option<u64> {
+    let bits_per_sec = match rate.parse::<u64>() {
+        Ok(mbps) => mbps.checked_mul(1_000_000)?,
+        Err(_) => {
+            let number_end = rate.find(|c: char| !c.is_ascii_digit())?;
+            let (number, rest) = rate.split_at(number_end);
+            let number: u64 = number.parse().ok()?;
+            let rest = rest.trim_start();
+            let (scale, unit) = match rest.chars().next()? {
+                'K' => (1_000, &rest[1..]),
+                'M' => (1_000_000, &rest[1..]),
+                'G' => (1_000_000_000, &rest[1..]),
+                'T' => (1_000_000_000_000, &rest[1..]),
+                _ => (1, rest),
+            };
+            let bytes_per_sec = match unit {
+                // Mihomo keeps a rate in bytes, a bit rate's in eighths.
+                "bps" => number.checked_mul(scale)? / 8,
+                "Bps" => number.checked_mul(scale)?,
+                _ => return None,
+            };
+            bytes_per_sec.checked_mul(8)?
+        }
+    };
+    Some(bits_per_sec.div_ceil(1_000_000)).filter(|m| *m > 0)
+}
+
+/// A QUIC listener's TLS, as Mihomo's: a certificate and its key, PEM or
+/// a path in the data directory; `alpn`, h3 unless given; and client
+/// authentication. Without both Mihomo serves a random self-signed
+/// certificate, which sail does not yet.
+fn quic_tls(
+    f: &mut Fields,
+    home: Option<&std::path::Path>,
+    protocol: &str,
+    warnings: &mut Vec<String>,
+) -> Result<Value> {
+    let certificate = f.string("certificate")?.filter(|c| !c.is_empty());
+    let key = f.string("private-key")?.filter(|k| !k.is_empty());
+    let mut tls = Map::new();
+    tls.insert("enabled".into(), json!(true));
+    match (certificate, key) {
+        (Some(certificate), Some(key)) => {
+            for (name, field, value) in [
+                ("certificate", "certificate", certificate),
+                ("private-key", "key", key),
+            ] {
+                let (field, value) = pem_or_path(&f.at(name), home, field, value)?;
+                tls.insert(field, value);
+            }
+        }
+        (None, None) => {
+            return Err(anyhow!(
+                "{}: missing: Mihomo serves a random self-signed certificate without one, \
+                 sail cannot yet",
+                f.at("certificate")
+            ))
+        }
+        (certificate, _) => {
+            let (has, lacks) = if certificate.is_some() {
+                ("certificate", "private-key")
+            } else {
+                ("private-key", "certificate")
+            };
+            return Err(anyhow!(
+                "{}: without {}: Mihomo refuses a {} listener with one alone",
+                f.at(has),
+                lacks,
+                protocol
+            ));
+        }
+    }
+    let alpn = f.strings("alpn")?;
+    if !alpn.is_empty() {
+        tls.insert("alpn".into(), json!(alpn));
+    }
+    if let Some(auth) = client_auth(f, home, true, warnings)? {
+        tls.extend(auth);
+    }
+    Ok(Value::Object(tls))
+}
+
+/// What Mihomo tunes its QUIC listeners by and sail does not, warned of;
+/// and sing-mux, which Mihomo serves on them and sail does not, as no
+/// client asks for it over QUIC.
+fn quic_tuning(f: &mut Fields, warnings: &mut Vec<String>) -> Result<()> {
+    for key in [
+        "cwnd",
+        "bbr-profile",
+        "udp-mtu",
+        "initial-stream-receive-window",
+        "max-stream-receive-window",
+        "initial-connection-receive-window",
+        "max-connection-receive-window",
+    ] {
+        let at = f.at(key);
+        let set = match f.take(key) {
+            None => false,
+            Some(n) => n.as_string().is_some_and(|v| !v.is_empty() && v != "0"),
+        };
+        if set {
+            warnings.push(format!(
+                "{}: sail does not tune its QUIC listeners so; ignored",
+                at
+            ));
+        }
+    }
+    let mux_at = f.at("mux-option");
+    if f.take("mux-option").is_some() {
+        warnings.push(format!(
+            "{}: sail serves no sing-mux over QUIC, which no client asks for; ignored",
+            mux_at
+        ));
+    }
+    Ok(())
 }
 
 /// A proxy listener's users, by `secret`, the password or the UUID, its

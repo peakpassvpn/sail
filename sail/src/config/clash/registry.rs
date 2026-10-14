@@ -121,7 +121,13 @@ fn listener(kind: &str) -> Value {
             "users": [{ "username": "u", "password": "p" }],
             "allow-insecure": true
         }),
-        "anytls" | "hysteria2" => json!({ "users": { "u": "p" } }),
+        "anytls" => json!({ "users": { "u": "p" } }),
+        // A certificate of its own, which Mihomo would make up.
+        "hysteria2" => json!({
+            "users": { "u": "p" },
+            "certificate": "c.pem",
+            "private-key": "k.pem"
+        }),
         "tuic" => json!({ "users": { "b831381d-6324-4d53-ad4f-8cda48b30811": "p" } }),
         "tunnel" => json!({ "network": ["tcp"], "target": "a.example:80" }),
         "tun" => json!({ "port": null }),
