@@ -12,9 +12,14 @@
 //! Mihomo keeps them: a rule before every other rejects the others' TCP
 //! and UDP alike.
 //!
+//! The proxy listeners (trojan) serve sing-mux, as all of Mihomo's do,
+//! over a websocket at `ws-path` or gRPC under `grpc-service-name` where
+//! one is given.
+//!
 //! Where sail does otherwise: its SOCKS, mixed and shadowsocks inbounds
 //! carry UDP whatever `udp` says, where Mihomo's listeners carry it only
-//! with `udp: true`. A connection `lan-allowed-ips` keeps out is rejected
+//! with `udp: true`. A websocket listener takes websocket clients alone,
+//! where Mihomo's takes v2ray's HTTP upgrade on the same path too. A connection `lan-allowed-ips` keeps out is rejected
 //! once its client has asked for a destination, where Mihomo closes it at
 //! once.
 
@@ -37,7 +42,13 @@ const TYPES: &[(&str, &str)] = &[
     ("redir", "redirect"),
     ("tproxy", "tproxy"),
     ("shadowsocks", "shadowsocks"),
+    ("trojan", "trojan"),
 ];
+
+/// The early data a websocket client may send in `Sec-WebSocket-Protocol`,
+/// which Mihomo's listeners read of any size: Xray's 2048 bytes, all that
+/// its clients and Mihomo's send.
+const WS_EARLY_DATA: usize = 2048;
 
 const FIELDS: &[(&str, Tier)] = &[
     // Which policy what comes in goes to.
@@ -55,6 +66,7 @@ const FIELDS: &[(&str, Tier)] = &[
     ("res-tls", Unsupported),
     ("jls-config", Unsupported),
     ("kcp-tun", Unsupported),
+    ("ss-option", Unsupported),
     ("simple-obfs", Unsupported),
 ];
 
@@ -171,10 +183,28 @@ pub fn lower(
                 inbound.insert("method".into(), json!(method));
                 inbound.insert("password".into(), json!(password));
             }
+            "trojan" => {
+                inbound.insert(
+                    "users".into(),
+                    Value::Array(trojan_users(&mut f, warnings)?),
+                );
+            }
             _ => {}
         }
-        if protocol == "http" {
+        if matches!(protocol, "http" | "trojan") {
             tls(&mut f, out.home.as_deref(), &mut inbound, warnings)?;
+        }
+        if protocol == "trojan" {
+            // As Mihomo: none of these but by leave.
+            let insecure = f.bool("allow-insecure")?.unwrap_or(false);
+            if !inbound.contains_key("tls") && !insecure {
+                return Err(anyhow!(
+                    "{}: no certificate, and not allow-insecure: Mihomo refuses a trojan \
+                     listener without TLS",
+                    f.at("certificate")
+                ));
+            }
+            carriers(&mut f, &mut inbound, warnings)?;
         }
         // Mihomo's are TCP alone without it; sail's carry UDP all the same.
         let udp = f.bool("udp")?;
@@ -302,6 +332,114 @@ fn tls(
         }
     }
     inbound.insert("tls".into(), Value::Object(tls));
+    Ok(())
+}
+
+/// A trojan listener's users, its `username` the user's name; of two
+/// with one password the last is taken, as Mihomo keys them by password.
+fn trojan_users(f: &mut Fields, warnings: &mut Vec<String>) -> Result<Vec<Value>> {
+    let at = f.at("users");
+    let mut users: Vec<(String, Value)> = Vec::new();
+    for (j, item) in f.list("users")?.into_iter().enumerate() {
+        let mut u = Fields::of(item, &format!("{}[{}]", at, j))?;
+        let password = u
+            .string("password")?
+            .ok_or_else(|| anyhow!("{}: missing", u.at("password")))?;
+        let mut user = Map::new();
+        if let Some(name) = u.string("username")?.filter(|n| !n.is_empty()) {
+            user.insert("name".into(), json!(name));
+        }
+        user.insert("password".into(), json!(password));
+        if let Some(k) = users.iter().position(|(p, _)| *p == password) {
+            users.remove(k);
+            warnings.push(format!(
+                "{}: the password of a user before it: Mihomo takes this one alone, \
+                 and so does sail",
+                u.at("password")
+            ));
+        }
+        u.finish(&[], |_| false, warnings)?;
+        users.push((password, Value::Object(user)));
+    }
+    Ok(users.into_iter().map(|(_, user)| user).collect())
+}
+
+/// What a proxy listener carries its protocol in: a websocket at
+/// `ws-path`, taking early data as Mihomo's does, or gRPC under
+/// `grpc-service-name`; and sing-mux, which Mihomo's serve whatever they
+/// say, `mux-option` tuning it.
+fn carriers(
+    f: &mut Fields,
+    inbound: &mut Map<String, Value>,
+    warnings: &mut Vec<String>,
+) -> Result<()> {
+    let ws = f.string("ws-path")?.filter(|p| !p.is_empty());
+    let grpc_at = f.at("grpc-service-name");
+    let grpc = f.string("grpc-service-name")?.filter(|s| !s.is_empty());
+    match (ws, grpc) {
+        (Some(_), Some(_)) => {
+            return Err(anyhow!(
+                "{}: with ws-path: sail does not serve two transports on one port",
+                grpc_at
+            ))
+        }
+        (Some(path), None) => {
+            inbound.insert(
+                "transport".into(),
+                json!({ "type": "ws", "path": path,
+                    "early_data_header_name": "Sec-WebSocket-Protocol",
+                    "max_early_data": WS_EARLY_DATA }),
+            );
+        }
+        (None, Some(name)) => {
+            inbound.insert(
+                "transport".into(),
+                json!({ "type": "grpc", "service_name": name }),
+            );
+        }
+        (None, None) => {}
+    }
+    let mut multiplex = Map::new();
+    multiplex.insert("enabled".into(), json!(true));
+    if let Some(mut m) = f.map("mux-option")? {
+        if m.bool("padding")?.unwrap_or(false) {
+            multiplex.insert("padding".into(), json!(true));
+        }
+        if let Some(mut b) = m.map("brutal")? {
+            // A rate missing, or one Mihomo cannot read, is 0 there, and
+            // sing-mux takes the lower of the two ends' rates: brutal does
+            // nothing then, and is left off here.
+            let enabled = b.bool("enabled")?.unwrap_or(false);
+            let mut rates = Vec::new();
+            for key in ["up", "down"] {
+                let at = b.at(key);
+                let rate = b.string(key)?;
+                if !enabled {
+                    continue;
+                }
+                match rate.as_deref().map(super::proxy::mbps) {
+                    Some(Ok(mbps)) => rates.push(mbps),
+                    Some(Err(e)) => warnings.push(format!(
+                        "{}: {}: 0 to Mihomo, so brutal does nothing; left off",
+                        at, e
+                    )),
+                    None => warnings.push(format!(
+                        "{}: missing: 0 to Mihomo, so brutal does nothing; left off",
+                        at
+                    )),
+                }
+            }
+            if let [up, down] = rates[..] {
+                multiplex.insert(
+                    "brutal".into(),
+                    json!({ "enabled": true, "up_mbps": up, "down_mbps": down }),
+                );
+            }
+            b.finish(&[], |_| false, warnings)?;
+        }
+        m.finish(&[], |_| false, warnings)?;
+    }
+    inbound.insert("multiplex".into(), Value::Object(multiplex));
     Ok(())
 }
 

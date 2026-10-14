@@ -56,7 +56,7 @@ sail 直接读取 sing-box、Clash / Mihomo 与 Surge 的配置。每种格式�
 | `listeners[socks]` | 30 | 8 | 1 | 21 |
 | `listeners[sudoku]` | 29 | 0 | 0 | 29 |
 | `listeners[tproxy]` | 7 | 5 | 1 | 1 |
-| `listeners[trojan]` | 73 | 0 | 0 | 73 |
+| `listeners[trojan]` | 73 | 18 | 1 | 54 |
 | `listeners[trusttunnel]` | 18 | 0 | 0 | 18 |
 | `listeners[tuic]` | 26 | 0 | 0 | 26 |
 | `listeners[tun]` | 55 | 0 | 0 | 55 |
@@ -100,7 +100,7 @@ sail 直接读取 sing-box、Clash / Mihomo 与 Surge 的配置。每种格式�
 | `tls` | 7 | 0 | 7 | 0 |
 | `tuic-server` | 13 | 0 | 0 | 13 |
 | `tun` | 50 | 34 | 9 | 7 |
-| **All** | **2077** | **520** | **112** | **1445** |
+| **All** | **2077** | **538** | **113** | **1426** |
 
 ## Surge
 

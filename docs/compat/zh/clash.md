@@ -46,7 +46,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `listeners[socks]` | 30 | 8 | 1 | 21 |
 | `listeners[sudoku]` | 29 | 0 | 0 | 29 |
 | `listeners[tproxy]` | 7 | 5 | 1 | 1 |
-| `listeners[trojan]` | 73 | 0 | 0 | 73 |
+| `listeners[trojan]` | 73 | 18 | 1 | 54 |
 | `listeners[trusttunnel]` | 18 | 0 | 0 | 18 |
 | `listeners[tuic]` | 26 | 0 | 0 | 26 |
 | `listeners[tun]` | 55 | 0 | 0 | 55 |
@@ -90,7 +90,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `tls` | 7 | 0 | 7 | 0 |
 | `tuic-server` | 13 | 0 | 0 | 13 |
 | `tun` | 50 | 34 | 9 | 7 |
-| **All** | **2077** | **520** | **112** | **1445** |
+| **All** | **2077** | **538** | **113** | **1426** |
 
 
 ## `general`
@@ -491,7 +491,79 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 
 | 字段 | sail | sail 的说明 |
 |---|---|---|
-| `listeners[trojan]` | 报错 | listeners[0].type: sail does not implement "trojan" listeners yet |
+| `listeners[trojan].allow-insecure` | 支持 |  |
+| `listeners[trojan].certificate` | 支持 |  |
+| `listeners[trojan].client-auth-cert` | 报错 | listeners[0].client-auth-cert: sail does not implement this field yet |
+| `listeners[trojan].client-auth-type` | 报错 | listeners[0].client-auth-type: sail does not implement this field yet |
+| `listeners[trojan].ech-key` | 报错 | listeners[0].ech-key: sail does not implement this field yet |
+| `listeners[trojan].grpc-service-name` | 支持 |  |
+| `listeners[trojan].jls-config` | 报错 | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[trojan].jls-config.alpn` | 报错 | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[trojan].jls-config.dest` | 报错 | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[trojan].jls-config.enable` | 报错 | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[trojan].jls-config.proxy` | 报错 | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[trojan].jls-config.rate-limit` | 报错 | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[trojan].jls-config.sni` | 报错 | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[trojan].jls-config.users` | 报错 | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[trojan].jls-config.users[].password` | 报错 | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[trojan].jls-config.users[].username` | 报错 | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[trojan].listen` | 支持 |  |
+| `listeners[trojan].mux-option` | 支持 |  |
+| `listeners[trojan].mux-option.brutal` | 支持 |  |
+| `listeners[trojan].mux-option.brutal.down` | 支持 |  |
+| `listeners[trojan].mux-option.brutal.enabled` | 支持 |  |
+| `listeners[trojan].mux-option.brutal.up` | 支持 |  |
+| `listeners[trojan].mux-option.padding` | 支持 |  |
+| `listeners[trojan].name` | 支持 |  |
+| `listeners[trojan].port` | 支持 | listeners[0].port: "x": sail takes one port, not ranges, yet |
+| `listeners[trojan].private-key` | 支持 |  |
+| `listeners[trojan].proxy` | 支持 | listeners[0].proxy: no proxy or group is named "x" |
+| `listeners[trojan].reality-config` | 报错 | listeners[0].reality-config: sail does not implement this field yet |
+| `listeners[trojan].reality-config.dest` | 报错 | listeners[0].reality-config: sail does not implement this field yet |
+| `listeners[trojan].reality-config.limit-fallback-download` | 报错 | listeners[0].reality-config: sail does not implement this field yet |
+| `listeners[trojan].reality-config.limit-fallback-download.after-bytes` | 报错 | listeners[0].reality-config: sail does not implement this field yet |
+| `listeners[trojan].reality-config.limit-fallback-download.burst-bytes-per-sec` | 报错 | listeners[0].reality-config: sail does not implement this field yet |
+| `listeners[trojan].reality-config.limit-fallback-download.bytes-per-sec` | 报错 | listeners[0].reality-config: sail does not implement this field yet |
+| `listeners[trojan].reality-config.limit-fallback-upload` | 报错 | listeners[0].reality-config: sail does not implement this field yet |
+| `listeners[trojan].reality-config.limit-fallback-upload.after-bytes` | 报错 | listeners[0].reality-config: sail does not implement this field yet |
+| `listeners[trojan].reality-config.limit-fallback-upload.burst-bytes-per-sec` | 报错 | listeners[0].reality-config: sail does not implement this field yet |
+| `listeners[trojan].reality-config.limit-fallback-upload.bytes-per-sec` | 报错 | listeners[0].reality-config: sail does not implement this field yet |
+| `listeners[trojan].reality-config.max-time-difference` | 报错 | listeners[0].reality-config: sail does not implement this field yet |
+| `listeners[trojan].reality-config.private-key` | 报错 | listeners[0].reality-config: sail does not implement this field yet |
+| `listeners[trojan].reality-config.proxy` | 报错 | listeners[0].reality-config: sail does not implement this field yet |
+| `listeners[trojan].reality-config.server-names` | 报错 | listeners[0].reality-config: sail does not implement this field yet |
+| `listeners[trojan].reality-config.short-id` | 报错 | listeners[0].reality-config: sail does not implement this field yet |
+| `listeners[trojan].res-tls` | 报错 | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[trojan].res-tls.dest` | 报错 | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[trojan].res-tls.enable` | 报错 | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[trojan].res-tls.min-record-len` | 报错 | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[trojan].res-tls.password` | 报错 | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[trojan].res-tls.proxy` | 报错 | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[trojan].res-tls.rate-limit` | 报错 | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[trojan].res-tls.restls-script` | 报错 | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[trojan].routing-mark` | 警告 | listeners[0].routing-mark: sail does not implement this field; ignored |
+| `listeners[trojan].rule` | 报错 | listeners[0].rule: sail does not implement this field yet |
+| `listeners[trojan].shadow-tls` | 报错 | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[trojan].shadow-tls.enable` | 报错 | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[trojan].shadow-tls.handshake` | 报错 | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[trojan].shadow-tls.handshake-for-server-name` | 报错 | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[trojan].shadow-tls.handshake.dest` | 报错 | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[trojan].shadow-tls.handshake.proxy` | 报错 | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[trojan].shadow-tls.password` | 报错 | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[trojan].shadow-tls.strict-mode` | 报错 | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[trojan].shadow-tls.users` | 报错 | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[trojan].shadow-tls.users[].name` | 报错 | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[trojan].shadow-tls.users[].password` | 报错 | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[trojan].shadow-tls.version` | 报错 | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[trojan].shadow-tls.wildcard-sni` | 报错 | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[trojan].ss-option` | 报错 | listeners[0].ss-option: sail does not implement this field yet |
+| `listeners[trojan].ss-option.enabled` | 报错 | listeners[0].ss-option: sail does not implement this field yet |
+| `listeners[trojan].ss-option.method` | 报错 | listeners[0].ss-option: sail does not implement this field yet |
+| `listeners[trojan].ss-option.password` | 报错 | listeners[0].ss-option: sail does not implement this field yet |
+| `listeners[trojan].users` | 支持 | listeners[0].users[0]: a map, not a string |
+| `listeners[trojan].users[].password` | 支持 |  |
+| `listeners[trojan].users[].username` | 支持 |  |
+| `listeners[trojan].ws-path` | 支持 |  |
 
 ## `listeners[trusttunnel]`
 

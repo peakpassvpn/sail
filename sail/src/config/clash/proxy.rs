@@ -934,7 +934,7 @@ fn hysteria2(f: &mut Fields, o: &mut Map<String, Value>, w: &mut Vec<String>) ->
 }
 
 /// A rate as Mihomo writes one, in Mbps: a number is in Mbps.
-fn mbps(rate: &str) -> Result<u64> {
+pub(super) fn mbps(rate: &str) -> Result<u64> {
     let rate = rate.trim();
     let split = rate
         .find(|c: char| !c.is_ascii_digit() && c != '.')

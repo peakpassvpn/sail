@@ -46,7 +46,7 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 | `listeners[socks]` | 30 | 8 | 1 | 21 |
 | `listeners[sudoku]` | 29 | 0 | 0 | 29 |
 | `listeners[tproxy]` | 7 | 5 | 1 | 1 |
-| `listeners[trojan]` | 73 | 0 | 0 | 73 |
+| `listeners[trojan]` | 73 | 18 | 1 | 54 |
 | `listeners[trusttunnel]` | 18 | 0 | 0 | 18 |
 | `listeners[tuic]` | 26 | 0 | 0 | 26 |
 | `listeners[tun]` | 55 | 0 | 0 | 55 |
@@ -90,7 +90,7 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 | `tls` | 7 | 0 | 7 | 0 |
 | `tuic-server` | 13 | 0 | 0 | 13 |
 | `tun` | 50 | 34 | 9 | 7 |
-| **All** | **2077** | **520** | **112** | **1445** |
+| **All** | **2077** | **538** | **113** | **1426** |
 
 
 ## `general`
@@ -491,7 +491,79 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 
 | Field | sail | What sail says |
 |---|---|---|
-| `listeners[trojan]` | Error | listeners[0].type: sail does not implement "trojan" listeners yet |
+| `listeners[trojan].allow-insecure` | Supported |  |
+| `listeners[trojan].certificate` | Supported |  |
+| `listeners[trojan].client-auth-cert` | Error | listeners[0].client-auth-cert: sail does not implement this field yet |
+| `listeners[trojan].client-auth-type` | Error | listeners[0].client-auth-type: sail does not implement this field yet |
+| `listeners[trojan].ech-key` | Error | listeners[0].ech-key: sail does not implement this field yet |
+| `listeners[trojan].grpc-service-name` | Supported |  |
+| `listeners[trojan].jls-config` | Error | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[trojan].jls-config.alpn` | Error | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[trojan].jls-config.dest` | Error | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[trojan].jls-config.enable` | Error | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[trojan].jls-config.proxy` | Error | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[trojan].jls-config.rate-limit` | Error | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[trojan].jls-config.sni` | Error | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[trojan].jls-config.users` | Error | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[trojan].jls-config.users[].password` | Error | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[trojan].jls-config.users[].username` | Error | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[trojan].listen` | Supported |  |
+| `listeners[trojan].mux-option` | Supported |  |
+| `listeners[trojan].mux-option.brutal` | Supported |  |
+| `listeners[trojan].mux-option.brutal.down` | Supported |  |
+| `listeners[trojan].mux-option.brutal.enabled` | Supported |  |
+| `listeners[trojan].mux-option.brutal.up` | Supported |  |
+| `listeners[trojan].mux-option.padding` | Supported |  |
+| `listeners[trojan].name` | Supported |  |
+| `listeners[trojan].port` | Supported | listeners[0].port: "x": sail takes one port, not ranges, yet |
+| `listeners[trojan].private-key` | Supported |  |
+| `listeners[trojan].proxy` | Supported | listeners[0].proxy: no proxy or group is named "x" |
+| `listeners[trojan].reality-config` | Error | listeners[0].reality-config: sail does not implement this field yet |
+| `listeners[trojan].reality-config.dest` | Error | listeners[0].reality-config: sail does not implement this field yet |
+| `listeners[trojan].reality-config.limit-fallback-download` | Error | listeners[0].reality-config: sail does not implement this field yet |
+| `listeners[trojan].reality-config.limit-fallback-download.after-bytes` | Error | listeners[0].reality-config: sail does not implement this field yet |
+| `listeners[trojan].reality-config.limit-fallback-download.burst-bytes-per-sec` | Error | listeners[0].reality-config: sail does not implement this field yet |
+| `listeners[trojan].reality-config.limit-fallback-download.bytes-per-sec` | Error | listeners[0].reality-config: sail does not implement this field yet |
+| `listeners[trojan].reality-config.limit-fallback-upload` | Error | listeners[0].reality-config: sail does not implement this field yet |
+| `listeners[trojan].reality-config.limit-fallback-upload.after-bytes` | Error | listeners[0].reality-config: sail does not implement this field yet |
+| `listeners[trojan].reality-config.limit-fallback-upload.burst-bytes-per-sec` | Error | listeners[0].reality-config: sail does not implement this field yet |
+| `listeners[trojan].reality-config.limit-fallback-upload.bytes-per-sec` | Error | listeners[0].reality-config: sail does not implement this field yet |
+| `listeners[trojan].reality-config.max-time-difference` | Error | listeners[0].reality-config: sail does not implement this field yet |
+| `listeners[trojan].reality-config.private-key` | Error | listeners[0].reality-config: sail does not implement this field yet |
+| `listeners[trojan].reality-config.proxy` | Error | listeners[0].reality-config: sail does not implement this field yet |
+| `listeners[trojan].reality-config.server-names` | Error | listeners[0].reality-config: sail does not implement this field yet |
+| `listeners[trojan].reality-config.short-id` | Error | listeners[0].reality-config: sail does not implement this field yet |
+| `listeners[trojan].res-tls` | Error | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[trojan].res-tls.dest` | Error | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[trojan].res-tls.enable` | Error | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[trojan].res-tls.min-record-len` | Error | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[trojan].res-tls.password` | Error | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[trojan].res-tls.proxy` | Error | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[trojan].res-tls.rate-limit` | Error | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[trojan].res-tls.restls-script` | Error | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[trojan].routing-mark` | Warned | listeners[0].routing-mark: sail does not implement this field; ignored |
+| `listeners[trojan].rule` | Error | listeners[0].rule: sail does not implement this field yet |
+| `listeners[trojan].shadow-tls` | Error | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[trojan].shadow-tls.enable` | Error | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[trojan].shadow-tls.handshake` | Error | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[trojan].shadow-tls.handshake-for-server-name` | Error | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[trojan].shadow-tls.handshake.dest` | Error | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[trojan].shadow-tls.handshake.proxy` | Error | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[trojan].shadow-tls.password` | Error | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[trojan].shadow-tls.strict-mode` | Error | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[trojan].shadow-tls.users` | Error | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[trojan].shadow-tls.users[].name` | Error | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[trojan].shadow-tls.users[].password` | Error | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[trojan].shadow-tls.version` | Error | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[trojan].shadow-tls.wildcard-sni` | Error | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[trojan].ss-option` | Error | listeners[0].ss-option: sail does not implement this field yet |
+| `listeners[trojan].ss-option.enabled` | Error | listeners[0].ss-option: sail does not implement this field yet |
+| `listeners[trojan].ss-option.method` | Error | listeners[0].ss-option: sail does not implement this field yet |
+| `listeners[trojan].ss-option.password` | Error | listeners[0].ss-option: sail does not implement this field yet |
+| `listeners[trojan].users` | Supported | listeners[0].users[0]: a map, not a string |
+| `listeners[trojan].users[].password` | Supported |  |
+| `listeners[trojan].users[].username` | Supported |  |
+| `listeners[trojan].ws-path` | Supported |  |
 
 ## `listeners[trusttunnel]`
 

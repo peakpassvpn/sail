@@ -111,7 +111,12 @@ fn listener(kind: &str) -> Value {
         "vmess" | "vless" => {
             json!({ "users": [{ "username": "u", "uuid": "b831381d-6324-4d53-ad4f-8cda48b30811" }] })
         }
-        "trojan" | "anytls" | "hysteria2" => json!({ "users": { "u": "p" } }),
+        // Without TLS, by Mihomo's leave.
+        "trojan" => json!({
+            "users": [{ "username": "u", "password": "p" }],
+            "allow-insecure": true
+        }),
+        "anytls" | "hysteria2" => json!({ "users": { "u": "p" } }),
         "tuic" => json!({ "users": { "b831381d-6324-4d53-ad4f-8cda48b30811": "p" } }),
         "tunnel" => json!({ "network": ["tcp"], "target": "a.example:80" }),
         "tun" => json!({ "port": null }),

@@ -2189,6 +2189,123 @@ fn an_http_listener_s_certificate_is_its_tls() {
     );
 }
 
+/// A trojan listener: its users, TLS, a websocket or gRPC, and sing-mux,
+/// which Mihomo's serve whatever they say; without TLS only by leave.
+#[test]
+fn a_trojan_listener_is_a_trojan_inbound() {
+    let inbound = |fields: &str| {
+        parse(&format!(
+            "listeners: [{{ name: T, type: trojan, port: 443{} }}]\nrules: [\"MATCH,DIRECT\"]\n",
+            fields
+        ))
+        .map(|config| {
+            let inbound = config.inbounds.iter().find(|i| i.tag == "T").unwrap();
+            (serde_json::to_value(inbound).unwrap(), config.warnings)
+        })
+        .map_err(|e| format!("{:#}", e))
+    };
+    let tls = ", certificate: c.pem, private-key: k.pem";
+    let (t, warnings) = inbound(&format!(
+        "{}, users: [{{ username: alice, password: a }}, {{ password: b }}], \
+         ws-path: /t, mux-option: {{ padding: true, brutal: {{ enabled: true, up: 100, down: 1 Gbps }} }}",
+        tls
+    ))
+    .unwrap();
+    assert!(warnings.is_empty(), "{:?}", warnings);
+    assert_eq!(t["type"], "trojan");
+    assert_eq!(
+        t["users"],
+        json!([{ "name": "alice", "password": "a" }, { "password": "b" }])
+    );
+    assert_eq!(
+        t["tls"],
+        json!({ "enabled": true, "certificate_path": "c.pem", "key_path": "k.pem" })
+    );
+    assert_eq!(
+        t["transport"],
+        json!({ "type": "ws", "path": "/t", "early_data_header_name": "Sec-WebSocket-Protocol",
+            "max_early_data": 2048 })
+    );
+    assert_eq!(
+        t["multiplex"],
+        json!({ "enabled": true, "padding": true,
+            "brutal": { "enabled": true, "up_mbps": 100, "down_mbps": 1000 } })
+    );
+
+    // gRPC; sing-mux on with no mux-option; a brutal not enabled is no brutal.
+    let (t, warnings) = inbound(&format!(
+        "{}, users: [{{ password: a }}], grpc-service-name: g, \
+         mux-option: {{ brutal: {{ up: 10, down: 10 }} }}",
+        tls
+    ))
+    .unwrap();
+    assert!(warnings.is_empty(), "{:?}", warnings);
+    assert_eq!(
+        t["transport"],
+        json!({ "type": "grpc", "service_name": "g" })
+    );
+    assert_eq!(t["multiplex"], json!({ "enabled": true }));
+
+    // Of two users with one password, the last, as Mihomo keys them.
+    let (t, warnings) = inbound(&format!(
+        "{}, users: [{{ username: a, password: p }}, {{ username: b, password: p }}]",
+        tls
+    ))
+    .unwrap();
+    assert_eq!(t["users"], json!([{ "name": "b", "password": "p" }]));
+    assert_eq!(
+        warnings,
+        [
+            "listeners[0].users[1].password: the password of a user before it: Mihomo takes \
+          this one alone, and so does sail"
+        ]
+    );
+
+    // A brutal rate missing or unread is 0 to Mihomo: brutal does nothing,
+    // and is left off.
+    for (brutal, warning) in [
+        (
+            "up: 10",
+            "listeners[0].mux-option.brutal.down: missing: 0 to Mihomo, so brutal does \
+             nothing; left off",
+        ),
+        (
+            "up: 10, down: fast",
+            "listeners[0].mux-option.brutal.down: \"fast\" is not a rate: 0 to Mihomo, so \
+             brutal does nothing; left off",
+        ),
+    ] {
+        let (t, warnings) = inbound(&format!(
+            "{}, users: [], mux-option: {{ brutal: {{ enabled: true, {} }} }}",
+            tls, brutal
+        ))
+        .unwrap();
+        assert_eq!(t["multiplex"], json!({ "enabled": true }));
+        assert_eq!(warnings, [warning]);
+    }
+
+    // Without TLS only with allow-insecure, as in Mihomo.
+    let (t, _) = inbound(", users: [{ password: a }], allow-insecure: true").unwrap();
+    assert!(t.get("tls").is_none());
+    for (fields, error) in [
+        (
+            ", users: [{ password: a }]".to_string(),
+            "listeners[0].certificate: no certificate, and not allow-insecure",
+        ),
+        (
+            format!("{}, users: [{{ username: a }}]", tls),
+            "listeners[0].users[0].password: missing",
+        ),
+        (
+            format!("{}, users: [], ws-path: /t, grpc-service-name: g", tls),
+            "listeners[0].grpc-service-name: with ws-path: sail does not serve two transports",
+        ),
+    ] {
+        let e = inbound(&fields).unwrap_err();
+        assert!(e.contains(error), "{}: {}", fields, e);
+    }
+}
+
 const LISTENERS_CONFIG: &str = r#"
 authentication: ["alice:secret"]
 proxies:
