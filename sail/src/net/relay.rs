@@ -9,8 +9,20 @@ use futures::ready;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::time::{Instant, Sleep};
 
-/// Upper bound on the bytes of idle buffers cached per thread.
+/// Upper bound on the bytes of idle buffers cached per thread, unless
+/// `set_pool_max` says otherwise: `relay.buffer_pool`.
 const BUFFER_POOL_MAX_BYTES: usize = 1024 * 1024;
+
+/// The bytes of idle buffers a thread caches at most: the process's, as
+/// the pool is the thread's; the last instance to start sets it.
+static POOL_MAX: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(BUFFER_POOL_MAX_BYTES);
+
+/// Caches at most `bytes` of idle buffers a thread, from now on: a pool
+/// over it shrinks as its buffers are taken.
+pub(crate) fn set_pool_max(bytes: usize) {
+    POOL_MAX.store(bytes, std::sync::atomic::Ordering::Relaxed);
+}
 
 struct BufferPool {
     bytes: usize,
@@ -44,13 +56,19 @@ pub(crate) fn acquire_buffer(size: usize) -> io::Result<Box<[u8]>> {
 }
 
 pub(crate) fn release_buffer(buf: Box<[u8]>) {
-    BUFFER_POOL.with(|pool| {
-        let mut pool = pool.borrow_mut();
-        if pool.bytes + buf.len() <= BUFFER_POOL_MAX_BYTES {
-            pool.bytes += buf.len();
-            pool.buffers.push(buf);
+    let max = POOL_MAX.load(std::sync::atomic::Ordering::Relaxed);
+    BUFFER_POOL.with(|pool| pool.borrow_mut().keep(buf, max));
+}
+
+impl BufferPool {
+    /// Keeps `buf` for reuse if the pool stays within `max` bytes with it;
+    /// otherwise it goes back to the allocator.
+    fn keep(&mut self, buf: Box<[u8]>, max: usize) {
+        if self.bytes + buf.len() <= max {
+            self.bytes += buf.len();
+            self.buffers.push(buf);
         }
-    });
+    }
 }
 
 /// A copy buffer that only holds memory while it has data in flight: the
@@ -535,6 +553,29 @@ where
 
 #[cfg(test)]
 mod tests {
+    /// A thread keeps idle buffers up to the pool's bound, and gives back
+    /// the rest: the mobile and router profiles' 256 KiB hold sixteen of
+    /// 16 KiB, a desktop's 1 MiB sixty-four.
+    #[test]
+    fn the_pool_keeps_buffers_up_to_its_bound() {
+        use crate::runtime::{Profile, RuntimeOptions};
+        let bound = |profile| RuntimeOptions::profile(profile).relay.buffer_pool << 10;
+        assert_eq!(bound(Profile::Mobile), 256 << 10);
+        assert_eq!(bound(Profile::Router), 256 << 10);
+        assert_eq!(bound(Profile::Desktop), 1 << 20);
+        for (profile, kept) in [(Profile::Mobile, 16), (Profile::Desktop, 64)] {
+            let mut pool = BufferPool {
+                bytes: 0,
+                buffers: Vec::new(),
+            };
+            for _ in 0..100 {
+                pool.keep(vec![0u8; 16 << 10].into_boxed_slice(), bound(profile));
+            }
+            assert_eq!(pool.buffers.len(), kept, "{:?}", profile);
+            assert_eq!(pool.bytes, kept * (16 << 10));
+        }
+    }
+
     use super::*;
 
     use tokio::io::{duplex, AsyncReadExt, AsyncWriteExt, DuplexStream};

@@ -545,6 +545,7 @@ impl Dispatcher {
         stat_manager: SyncStatManager,
         env: crate::runtime::SyncRuntimeEnv,
     ) -> Self {
+        net::relay::set_pool_max(env.options.relay.buffer_pool << 10);
         Dispatcher {
             outbound_manager,
             router,

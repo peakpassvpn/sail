@@ -125,6 +125,12 @@ pub struct Relay {
     pub buffer_size: usize,
     /// The largest a direction's buffer grows to, in KiB.
     pub buffer_max_size: usize,
+    /// The buffers a worker thread keeps for reuse once a connection goes
+    /// idle, in KiB: a fixed cost a thread, not one a connection; less
+    /// means more trips to the allocator when many connections turn busy
+    /// at once. The process's, as the threads are: the last instance to
+    /// start sets it.
+    pub buffer_pool: usize,
     /// A direction with data its writer does not take for this long
     /// aborts the connection, both sides closed. Short outages stall
     /// writes for a while and TCP recovers from them: a 90 s outage has
@@ -446,6 +452,7 @@ impl RuntimeOptions {
             relay: Relay {
                 buffer_size: 16,
                 buffer_max_size: 128,
+                buffer_pool: 1024,
                 write_stall_timeout: Duration::from_secs(300),
                 uplink_idle_timeout: Duration::from_secs(300),
                 downlink_idle_timeout: Duration::from_secs(300),
@@ -523,6 +530,9 @@ impl RuntimeOptions {
                 relay: Relay {
                     buffer_size: 8,
                     buffer_max_size: 64,
+                    // A judgment: a phone's memory is short, and it
+                    // carries few connections busy at once.
+                    buffer_pool: 256,
                     ..desktop.relay
                 },
                 udp: Udp {
@@ -575,6 +585,8 @@ impl RuntimeOptions {
                 relay: Relay {
                     buffer_size: 4,
                     buffer_max_size: 16,
+                    // A judgment, as the mobile profile's.
+                    buffer_pool: 256,
                     ..desktop.relay
                 },
                 udp: Udp {
