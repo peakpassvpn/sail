@@ -161,10 +161,15 @@ impl AnyTlsDecoder {
     /// What a control frame with data asks, now that all of it is in.
     fn control(&mut self, cmd: u8, sid: u32, data: &[u8]) -> Option<Event> {
         match (cmd, &self.proto.role) {
-            (CMD_SYNACK, _) => Some(Event::Refused(
+            (CMD_SYNACK, Role::Client { .. }) => Some(Event::Refused(
                 sid,
                 format!("anytls server: {}", String::from_utf8_lossy(data)),
             )),
+            // A client sends its settings once, at the start of the
+            // session, as the reference client does: later ones are
+            // dropped unanswered, so that a peer cannot have the scheme
+            // sent over and over.
+            (CMD_SETTINGS, Role::Server { .. }) if self.settings_received => None,
             (CMD_SETTINGS, Role::Server { padding }) => {
                 self.settings_received = true;
                 let settings = string_map(data);
@@ -199,7 +204,9 @@ impl AnyTlsDecoder {
                             *current = Arc::new(scheme);
                         }
                     }
-                    None => warn!("anytls server sent a padding scheme that does not parse"),
+                    None => warn!(
+                        "anytls server sent a padding scheme that does not parse or is past the bounds; the current one stays"
+                    ),
                 }
                 None
             }
@@ -231,6 +238,17 @@ impl Decoder for AnyTlsDecoder {
             raw.copy_from_slice(&buf[..HEADER_LEN]);
             let header = Header::decode(&raw);
             let (sid, len) = (header.sid, header.len as usize);
+            if len > 0 && carries_no_data(header.cmd) {
+                // The reference reads such data as frames. What follows
+                // could not be told from frames, so the session ends.
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!(
+                        "anytls: command {} carries {} bytes of data, and takes none",
+                        header.cmd, len
+                    ),
+                ));
+            }
             match header.cmd {
                 CMD_PSH => {
                     buf.advance(HEADER_LEN);
@@ -269,7 +287,9 @@ impl Decoder for AnyTlsDecoder {
                 | CMD_ALERT
                 | CMD_UPDATE_PADDING_SCHEME
                 | CMD_SERVER_SETTINGS => {
-                    if header.cmd == CMD_SYNACK {
+                    // A `SYNACK` is the server's to send: a server reads
+                    // one and drops it.
+                    if header.cmd == CMD_SYNACK && matches!(self.proto.role, Role::Client { .. }) {
                         self.proto.synack_generation.fetch_add(1, Ordering::Relaxed);
                     }
                     if len == 0 {
@@ -286,12 +306,25 @@ impl Decoder for AnyTlsDecoder {
                         self.events.push_back(event);
                     }
                 }
-                // Heartbeat answers, and unknown commands, which carry no
-                // data.
-                _ => buf.advance(HEADER_LEN),
+                // Heartbeat answers carry no data (checked above). An
+                // unknown command's data, if it has any, is skipped, so
+                // that the frames after it are read as frames.
+                _ => {
+                    buf.advance(HEADER_LEN);
+                    self.framing.skip(len);
+                }
             }
         }
     }
+}
+
+/// Whether `cmd` is one whose frames never carry data: a stream's opening
+/// and end, and the heartbeats.
+fn carries_no_data(cmd: u8) -> bool {
+    matches!(
+        cmd,
+        CMD_SYN | CMD_FIN | CMD_HEART_REQUEST | CMD_HEART_RESPONSE
+    )
 }
 
 /// Pads a client's first writes, as the padding scheme says.
@@ -657,6 +690,138 @@ mod tests {
 
     fn cell() -> PaddingCell {
         Arc::new(RwLock::new(Arc::new(PaddingScheme::default_scheme())))
+    }
+
+    /// A decoder for a server with the default scheme, or for a client
+    /// whose scheme is in `padding`.
+    fn decoder(server: bool, padding: &PaddingCell) -> Box<dyn Decoder> {
+        let role = if server {
+            Role::Server {
+                padding: Arc::new(PaddingScheme::default_scheme()),
+            }
+        } else {
+            Role::Client {
+                padding: padding.clone(),
+            }
+        };
+        AnyTls(Arc::new(Proto {
+            role,
+            peer_version: AtomicU8::new(0),
+            synack_generation: AtomicU64::new(0),
+            synack_missed: AtomicU32::new(0),
+            settings: Mutex::new(None),
+        }))
+        .decoder(server)
+    }
+
+    /// What a decoder makes of `wire`, up to its first error.
+    fn events(decoder: &mut dyn Decoder, wire: &[u8]) -> io::Result<Vec<Event>> {
+        let mut buf = BytesMut::from(wire);
+        let mut events = Vec::new();
+        while let Some(event) = decoder.decode(&mut buf)? {
+            events.push(event);
+        }
+        Ok(events)
+    }
+
+    /// A client's settings, with a padding md5 no scheme has.
+    fn client_settings() -> BytesMut {
+        frame::encode(
+            CMD_SETTINGS,
+            0,
+            &frame::settings(&[("v", "2"), ("padding-md5", "0")]),
+        )
+    }
+
+    /// `SYN`, `FIN` and the heartbeats carry no data. One that comes with
+    /// some ends the session at either end, rather than have its data read
+    /// as frames.
+    #[test]
+    fn a_frame_that_takes_no_data_and_carries_some_is_refused() {
+        for (server, cmd) in [
+            (true, CMD_SYN),
+            (true, CMD_FIN),
+            (true, CMD_HEART_REQUEST),
+            (true, CMD_HEART_RESPONSE),
+            (false, CMD_FIN),
+            (false, CMD_HEART_REQUEST),
+            (false, CMD_HEART_RESPONSE),
+        ] {
+            let mut decoder = decoder(server, &cell());
+            let mut wire = client_settings();
+            wire.extend_from_slice(&frame::encode(cmd, 1, b"abc"));
+            wire.extend_from_slice(&frame::encode(CMD_PSH, 1, b"hi"));
+            let result = events(decoder.as_mut(), &wire);
+            assert!(result.is_err(), "{} {}: {:?}", server, cmd, result);
+        }
+    }
+
+    /// An unknown command's data is skipped: the frames after it are still
+    /// frames.
+    #[test]
+    fn an_unknown_commands_data_is_skipped() {
+        let mut decoder = decoder(false, &cell());
+        let mut wire = frame::encode(42, 0, b"abcdefghij");
+        wire.extend_from_slice(&frame::encode(CMD_PSH, 1, b"hi"));
+        let events = events(decoder.as_mut(), &wire).unwrap();
+        assert_eq!(events, vec![Event::Data(1, Bytes::from_static(b"hi"))]);
+    }
+
+    /// A `SYNACK` is the server's: one a client sends, with an error or
+    /// without, fails no stream of the server's.
+    #[test]
+    fn a_server_drops_a_synack() {
+        let mut decoder = decoder(true, &cell());
+        let mut wire = client_settings();
+        wire.extend_from_slice(&frame::encode(CMD_SYN, 1, &[]));
+        wire.extend_from_slice(&frame::encode(CMD_SYNACK, 1, b"refused"));
+        wire.extend_from_slice(&frame::encode(CMD_SYNACK, 1, &[]));
+        let events = events(decoder.as_mut(), &wire).unwrap();
+        assert!(events.contains(&Event::Open(1)), "{:?}", events);
+        assert!(
+            !events.iter().any(|e| matches!(e, Event::Refused(..))),
+            "{:?}",
+            events
+        );
+    }
+
+    /// Settings after the first are dropped unanswered: the scheme and the
+    /// server's settings go out once a session.
+    #[test]
+    fn a_server_answers_the_first_settings_only() {
+        let mut decoder = decoder(true, &cell());
+        let mut wire = BytesMut::new();
+        for _ in 0..3 {
+            wire.extend_from_slice(&client_settings());
+        }
+        wire.extend_from_slice(&frame::encode(CMD_SYN, 1, &[]));
+        wire.extend_from_slice(&client_settings());
+        let events = events(decoder.as_mut(), &wire).unwrap();
+        let replies: Vec<u8> = events
+            .iter()
+            .filter_map(|e| match e {
+                Event::Reply(frame) => Some(frame[0]),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            replies,
+            vec![CMD_UPDATE_PADDING_SCHEME, CMD_SERVER_SETTINGS]
+        );
+        assert!(events.contains(&Event::Open(1)), "{:?}", events);
+    }
+
+    /// A scheme past the bounds leaves a client with the one it has.
+    #[test]
+    fn a_client_keeps_its_scheme_over_one_past_the_bounds() {
+        let padding = cell();
+        let mut decoder = decoder(false, &padding);
+        let wire = frame::encode(CMD_UPDATE_PADDING_SCHEME, 0, b"stop=100000\n1=100-200");
+        events(decoder.as_mut(), &wire).unwrap();
+        assert_eq!(padding.read().unwrap().stop(), 8);
+        let wire = frame::encode(CMD_UPDATE_PADDING_SCHEME, 0, b"stop=3\n1=100-200");
+        events(decoder.as_mut(), &wire).unwrap();
+        assert_eq!(padding.read().unwrap().stop(), 3);
     }
 
     #[test]

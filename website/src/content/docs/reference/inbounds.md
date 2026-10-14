@@ -48,7 +48,7 @@ Rust: [`AnyTlsInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/s
 | `detour` | string | — | Error: Handing an inbound's connections to another inbound | — |
 | `tls` | object → [object](#inbounds-anytls-tls) | — | Supported | — |
 | `users` | array → [[]](#inbounds-anytls-users) | required | Supported | — |
-| `padding_scheme` | listable-string | unset | Supported | The padding scheme, as lines. Unset, the default. |
+| `padding_scheme` | listable-string | unset | Supported | The padding scheme, as lines. Unset, the default. A scheme that pads past write 1024, gives a write more than 64 sizes or asks for more than 1 MiB of padding in all is refused. |
 | `fallback` | object → [object](/sail/reference/shared/#fallback-fallback-for-alpn) | unset | sail extension | Where a connection that fails to authenticate is relayed. |
 | `fallback_for_alpn` | object of object → [object](/sail/reference/shared/#fallback-fallback-for-alpn) | `{}` | sail extension | The same, by the ALPN the connection's TLS negotiated; the ones it does not name go to `fallback`. |
 

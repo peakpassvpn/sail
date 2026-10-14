@@ -6719,7 +6719,7 @@
        }
       }
      ],
-     "description": "The padding scheme, as lines. Unset, the default."
+     "description": "The padding scheme, as lines. Unset, the default. A scheme that pads past write 1024, gives a write more than 64 sizes or asks for more than 1 MiB of padding in all is refused."
     },
     "fallback": {
      "$ref": "#/$defs/inbounds%5Banytls%5D.fallback",

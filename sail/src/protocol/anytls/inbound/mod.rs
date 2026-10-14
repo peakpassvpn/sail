@@ -44,7 +44,9 @@ pub(crate) fn register(registry: &mut InboundRegistry) {
 #[serde(deny_unknown_fields)]
 struct AnyTlsInboundOptions {
     users: Vec<AnyTlsUser>,
-    /// The padding scheme, as lines. Unset, the default.
+    /// The padding scheme, as lines. Unset, the default. A scheme that
+    /// pads past write 1024, gives a write more than 64 sizes or asks for
+    /// more than 1 MiB of padding in all is refused.
     #[serde(default)]
     padding_scheme: Option<Listable>,
     /// Where a connection that fails to authenticate is relayed.

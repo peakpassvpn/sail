@@ -48,7 +48,7 @@ Rust 定义：[`AnyTlsInboundOptions`](https://github.com/peakpassvpn/sail/blob/
 | `detour` | string | — | 报错：Handing an inbound's connections to another inbound | — |
 | `tls` | object → [对象](#inbounds-anytls-tls) | — | 支持 | — |
 | `users` | array → [[]](#inbounds-anytls-users) | 必填 | 支持 | — |
-| `padding_scheme` | listable-string | 未设置 | 支持 | The padding scheme, as lines. Unset, the default. |
+| `padding_scheme` | listable-string | 未设置 | 支持 | The padding scheme, as lines. Unset, the default. A scheme that pads past write 1024, gives a write more than 64 sizes or asks for more than 1 MiB of padding in all is refused. |
 | `fallback` | 对象 → [对象](/sail/zh/reference/shared/#fallback-fallback-for-alpn) | 未设置 | sail 扩展 | Where a connection that fails to authenticate is relayed. |
 | `fallback_for_alpn` | 对象，值为 对象 → [对象](/sail/zh/reference/shared/#fallback-fallback-for-alpn) | `{}` | sail 扩展 | The same, by the ALPN the connection's TLS negotiated; the ones it does not name go to `fallback`. |
 

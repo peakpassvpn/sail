@@ -42,6 +42,20 @@ pub enum Size {
 /// frame can carry, with its header.
 const MAX_RECORD: u64 = u16::MAX as u64;
 
+// What a scheme may ask of a client at most. The reference implementations
+// set no bounds; a scheme past these is refused, and a client keeps the one
+// it has. The text itself is bounded by the frame that carries it, 64 KiB.
+
+/// The latest write a scheme may pad (`stop`). Judgment: the default stops
+/// at 8; every write before `stop` goes out on its own.
+const MAX_STOP: u32 = 1024;
+/// The sizes, checks among them, one write may be given. Judgment: the
+/// default gives at most 9.
+const MAX_SIZES: usize = 64;
+/// The padding a scheme may ask for in all, the largest of each range
+/// summed over every write. Judgment: the default's is about 10 KiB.
+const MAX_PADDING: u64 = 1 << 20;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Range {
     Between(u64, u64),
@@ -73,8 +87,14 @@ impl PaddingScheme {
 
     /// Reads a scheme the way the reference implementations do: only a
     /// missing or unreadable `stop` makes it unusable, and a range that
-    /// does not read is skipped. This is for schemes a server pushes.
+    /// does not read is skipped. This is for schemes a server pushes. A
+    /// scheme past the bounds (`MAX_STOP`, `MAX_SIZES`, `MAX_PADDING`) is
+    /// unusable too.
     pub fn parse(raw: &[u8]) -> Option<Self> {
+        Self::parse_unbounded(raw).filter(|scheme| scheme.bounds().is_ok())
+    }
+
+    fn parse_unbounded(raw: &[u8]) -> Option<Self> {
         let map = string_map(raw);
         let stop = map.get("stop")?.parse::<i64>().ok()?;
         let stop = u32::try_from(stop).unwrap_or(0);
@@ -124,7 +144,41 @@ impl PaddingScheme {
         if stop.is_none() {
             return Err(anyhow!("stop is missing"));
         }
-        Self::parse(raw.as_bytes()).ok_or_else(|| anyhow!("does not parse"))
+        let scheme =
+            Self::parse_unbounded(raw.as_bytes()).ok_or_else(|| anyhow!("does not parse"))?;
+        scheme.bounds()?;
+        Ok(scheme)
+    }
+
+    /// Whether the scheme asks no more of a client than the bounds allow.
+    fn bounds(&self) -> Result<()> {
+        if self.stop > MAX_STOP {
+            return Err(anyhow!("stop: {} is past {}", self.stop, MAX_STOP));
+        }
+        let mut padding = 0u64;
+        for (index, ranges) in &self.writes {
+            if ranges.len() > MAX_SIZES {
+                return Err(anyhow!(
+                    "{}: {} sizes, past {}",
+                    index,
+                    ranges.len(),
+                    MAX_SIZES
+                ));
+            }
+            for range in ranges {
+                if let Range::Between(_, max) = range {
+                    padding += max;
+                }
+            }
+        }
+        if padding > MAX_PADDING {
+            return Err(anyhow!(
+                "{} bytes of padding in all, past {}",
+                padding,
+                MAX_PADDING
+            ));
+        }
+        Ok(())
     }
 
     pub fn raw(&self) -> &[u8] {
@@ -262,6 +316,43 @@ mod tests {
         assert!(PaddingScheme::parse_strict("stop=2\n1=1-70000").is_err());
         assert!(PaddingScheme::parse_strict("stop=2\n1=1-2,d").is_err());
         assert!(PaddingScheme::parse_strict("stop=2\n\n1=1-2").is_err());
+    }
+
+    /// A scheme past the bounds is refused, read as a server pushes it or
+    /// from a configuration.
+    #[test]
+    fn schemes_past_the_bounds_are_refused() {
+        let many = |n: usize, range: &str| vec![range; n].join(",");
+        let refused = [
+            "stop=1025\n0=30-30".to_string(),
+            format!("stop=8\n1={}", many(65, "c")),
+            format!(
+                "stop=8\n1={}\n2={}",
+                many(10, "1-60000"),
+                many(10, "1-60000")
+            ),
+        ];
+        for scheme in &refused {
+            assert!(
+                PaddingScheme::parse(scheme.as_bytes()).is_none(),
+                "{}",
+                scheme
+            );
+            assert!(PaddingScheme::parse_strict(scheme).is_err(), "{}", scheme);
+        }
+        let taken = [
+            "stop=1024\n0=30-30".to_string(),
+            format!("stop=8\n1={}", many(64, "c")),
+            format!("stop=8\n1={}", many(16, "1-65535")),
+        ];
+        for scheme in &taken {
+            assert!(
+                PaddingScheme::parse(scheme.as_bytes()).is_some(),
+                "{}",
+                scheme
+            );
+            assert!(PaddingScheme::parse_strict(scheme).is_ok(), "{}", scheme);
+        }
     }
 
     #[test]
