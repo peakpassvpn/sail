@@ -464,7 +464,11 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/master' }}
 
       - name: libraries
-        run: cargo test --locked -p sail -p sail-netstack --features sail/auto-reload --lib
+        run: cargo test --locked -p sail -p sail-netstack --features sail/auto-reload,sail/plugin --lib
+
+      # The out-of-tree plugin interface's example: the Shadowsocks plugin.
+      - name: the Shadowsocks plugin
+        run: cargo test --locked -p shadowsocks --lib
 
       - name: sail-netstack's models
         run: cargo test --locked -p sail-netstack --test '*'

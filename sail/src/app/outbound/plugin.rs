@@ -3,7 +3,7 @@ use std::ffi::OsStr;
 use std::io;
 use std::sync::Arc;
 
-use async_ffi::BorrowingFfiFuture;
+use async_ffi::{BorrowingFfiFuture, FutureExt};
 use async_trait::async_trait;
 use libloading::Library;
 
@@ -62,6 +62,26 @@ pub trait ExternalOutboundStreamHandler: Send + Sync + Unpin {
         sess: &'a Session,
         stream: Option<AnyStream>,
     ) -> BorrowingFfiFuture<'a, io::Result<AnyStream>>;
+
+    /// `handle`, with `first`, what the client sent before the stream was
+    /// asked for (up to 10 ms of it, as the built-in outbounds wait): to go
+    /// out with the plugin's own header, as a built-in outbound sends its
+    /// own. By default it is written after `handle`, as the next write.
+    fn handle_first<'a>(
+        &'a self,
+        sess: &'a Session,
+        first: Vec<u8>,
+        stream: Option<AnyStream>,
+    ) -> BorrowingFfiFuture<'a, io::Result<AnyStream>> {
+        async move {
+            let mut stream = self.handle(sess, stream).await?;
+            if !first.is_empty() {
+                tokio::io::AsyncWriteExt::write_all(&mut stream, &first).await?;
+            }
+            Ok(stream)
+        }
+        .into_ffi()
+    }
 }
 pub type AnyExternalOutboundStreamHandler = Arc<dyn ExternalOutboundStreamHandler>;
 
@@ -135,6 +155,15 @@ impl ExternalOutboundStreamHandler for OutboundStreamHandlerProxy {
         stream: Option<AnyStream>,
     ) -> BorrowingFfiFuture<'a, io::Result<AnyStream>> {
         self.handler.handle(sess, stream)
+    }
+
+    fn handle_first<'a>(
+        &'a self,
+        sess: &'a Session,
+        first: Vec<u8>,
+        stream: Option<AnyStream>,
+    ) -> BorrowingFfiFuture<'a, io::Result<AnyStream>> {
+        self.handler.handle_first(sess, first, stream)
     }
 }
 
@@ -235,11 +264,13 @@ impl OutboundStreamHandler for ExternalOutboundStreamHandlerProxy {
     async fn handle<'a>(
         &'a self,
         sess: &'a Session,
-        _lhs: Option<&mut AnyStream>,
+        lhs: Option<&mut AnyStream>,
         stream: Option<AnyStream>,
     ) -> io::Result<AnyStream> {
         tracing::trace!("handling outbound stream");
-        self.0.handle(sess, stream).await
+        // As a built-in outbound waits for it, to go out with the header.
+        let first = crate::net::peek_tcp_one_off(lhs).await;
+        self.0.handle_first(sess, first, stream).await
     }
 }
 
@@ -317,4 +348,91 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         .stream_handler(stream)
         .datagram_handler(datagram)
         .build())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    /// A plugin that writes `H` as its header, and has no `handle_first`.
+    struct Plain;
+
+    impl ExternalOutboundStreamHandler for Plain {
+        fn connect_addr(&self) -> Option<PluginConnect> {
+            None
+        }
+
+        fn handle<'a>(
+            &'a self,
+            _sess: &'a Session,
+            stream: Option<AnyStream>,
+        ) -> BorrowingFfiFuture<'a, io::Result<AnyStream>> {
+            async move {
+                let mut stream = stream.unwrap();
+                stream.write_all(b"H").await?;
+                Ok(stream)
+            }
+            .into_ffi()
+        }
+    }
+
+    /// One that keeps what `handle_first` was given, and writes `H` too.
+    #[derive(Default)]
+    struct Taking(std::sync::Mutex<Option<Vec<u8>>>);
+
+    impl ExternalOutboundStreamHandler for Taking {
+        fn connect_addr(&self) -> Option<PluginConnect> {
+            None
+        }
+
+        fn handle<'a>(
+            &'a self,
+            sess: &'a Session,
+            stream: Option<AnyStream>,
+        ) -> BorrowingFfiFuture<'a, io::Result<AnyStream>> {
+            Plain.handle(sess, stream)
+        }
+
+        fn handle_first<'a>(
+            &'a self,
+            sess: &'a Session,
+            first: Vec<u8>,
+            stream: Option<AnyStream>,
+        ) -> BorrowingFfiFuture<'a, io::Result<AnyStream>> {
+            *self.0.lock().unwrap() = Some(first);
+            self.handle(sess, stream)
+        }
+    }
+
+    /// Through the adapter, `hello` sent by the client first: what the
+    /// server reads.
+    async fn through(plugin: AnyExternalOutboundStreamHandler) -> Vec<u8> {
+        let proxy = ExternalOutboundStreamHandlerProxy(plugin, Dialer::system());
+        let (mut client, lhs) = tokio::io::duplex(64);
+        let mut lhs: AnyStream = Box::new(lhs);
+        client.write_all(b"hello").await.unwrap();
+        let (out, mut server) = tokio::io::duplex(64);
+        let sess = Session::default();
+        let stream = proxy
+            .handle(&sess, Some(&mut lhs), Some(Box::new(out)))
+            .await
+            .unwrap();
+        drop(stream);
+        let mut read = Vec::new();
+        server.read_to_end(&mut read).await.unwrap();
+        read
+    }
+
+    #[tokio::test]
+    async fn a_plugin_is_given_what_the_client_sent_first() {
+        let taking = Arc::new(Taking::default());
+        assert_eq!(through(taking.clone()).await, b"H");
+        assert_eq!(taking.0.lock().unwrap().as_deref(), Some(&b"hello"[..]));
+    }
+
+    #[tokio::test]
+    async fn by_default_it_goes_out_after_the_plugin_s_own_handshake() {
+        assert_eq!(through(Arc::new(Plain)).await, b"Hhello");
+    }
 }

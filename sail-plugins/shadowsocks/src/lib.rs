@@ -77,6 +77,27 @@ impl ExternalOutboundStreamHandler for TcpHandler {
         }
         .into_ffi()
     }
+
+    /// The header and the client's first data in one write, as the
+    /// built-in outbound sends them: one chunk on the wire.
+    fn handle_first<'a>(
+        &'a self,
+        sess: &'a Session,
+        first: Vec<u8>,
+        stream: Option<AnyStream>,
+    ) -> BorrowingFfiFuture<'a, io::Result<AnyStream>> {
+        async move {
+            let stream = stream.ok_or_else(|| io::Error::other("no stream to the server"))?;
+            let mut stream = ShadowedStream::new(stream, &self.cipher, &self.password, None)?;
+            let mut buf = BytesMut::new();
+            sess.destination
+                .write_buf(&mut buf, SocksAddrWireType::PortLast);
+            buf.put_slice(&first);
+            stream.write_all(&buf).await?;
+            Ok(Box::new(stream) as Box<dyn ProxyStream>)
+        }
+        .into_ffi()
+    }
 }
 
 pub struct UdpHandler {
@@ -216,5 +237,54 @@ impl OutboundDatagramSendHalf for DatagramSendHalf {
 
     async fn close(&mut self) -> io::Result<()> {
         self.send_half.close().await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::io::AsyncReadExt;
+
+    /// The header and the client's first data leave as one AEAD chunk, as
+    /// the built-in outbound sends them, and read back as sent.
+    #[tokio::test]
+    async fn the_header_and_the_first_data_are_one_chunk() {
+        let handler = TcpHandler {
+            address: String::new(),
+            port: 0,
+            cipher: "aes-128-gcm".into(),
+            password: "password".into(),
+        };
+        let sess = Session {
+            destination: SocksAddr::try_from(("example.com", 443)).unwrap(),
+            ..Default::default()
+        };
+        let (out, mut wire) = tokio::io::duplex(4096);
+        let stream = handler
+            .handle_first(&sess, b"hello".to_vec(), Some(Box::new(out)))
+            .await
+            .unwrap();
+        drop(stream);
+        let mut raw = Vec::new();
+        wire.read_to_end(&mut raw).await.unwrap();
+
+        let mut header = BytesMut::new();
+        sess.destination
+            .write_buf(&mut header, SocksAddrWireType::PortLast);
+        let plain = header.len() + b"hello".len();
+        // The salt, then one chunk: its sealed length, its sealed payload.
+        assert_eq!(raw.len(), 16 + (2 + 16) + (plain + 16));
+
+        let (feed, theirs) = tokio::io::duplex(4096);
+        let mut server = ShadowedStream::new(theirs, "aes-128-gcm", "password", None).unwrap();
+        let mut feed = feed;
+        tokio::io::AsyncWriteExt::write_all(&mut feed, &raw)
+            .await
+            .unwrap();
+        drop(feed);
+        let mut read = Vec::new();
+        server.read_to_end(&mut read).await.unwrap();
+        assert_eq!(&read[..header.len()], &header[..]);
+        assert_eq!(&read[header.len()..], b"hello");
     }
 }
