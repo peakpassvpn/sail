@@ -357,6 +357,69 @@ pub fn transport_config(
     config
 }
 
+/// The bytes of unfinished UDP packets, fragments waiting for the rest, a
+/// Hysteria2 or TUIC connection holds across all of its UDP sessions.
+/// Judgment: 64 packets of the largest size; fragments of one packet
+/// travel back to back, so a connection seldom holds more than a few.
+#[cfg(any(
+    feature = "inbound-hysteria2",
+    feature = "outbound-hysteria2",
+    feature = "inbound-tuic",
+    feature = "outbound-tuic"
+))]
+pub const MAX_FRAGMENT_BYTES: usize = 64 * (u16::MAX as usize + 1);
+
+/// What one connection's UDP sessions hold of unfinished packets, bounded
+/// by `MAX_FRAGMENT_BYTES` together. A fragment past the bound is dropped,
+/// and its packet with it, as UDP may drop any packet.
+#[cfg(any(
+    feature = "inbound-hysteria2",
+    feature = "outbound-hysteria2",
+    feature = "inbound-tuic",
+    feature = "outbound-tuic"
+))]
+#[derive(Debug)]
+pub struct FragmentBudget {
+    held: std::sync::atomic::AtomicUsize,
+    max: usize,
+}
+
+#[cfg(any(
+    feature = "inbound-hysteria2",
+    feature = "outbound-hysteria2",
+    feature = "inbound-tuic",
+    feature = "outbound-tuic"
+))]
+impl FragmentBudget {
+    pub fn new(max: usize) -> Arc<FragmentBudget> {
+        Arc::new(FragmentBudget {
+            held: Default::default(),
+            max,
+        })
+    }
+
+    /// Takes `n` bytes, unless that would pass the bound.
+    pub fn take(&self, n: usize) -> bool {
+        use std::sync::atomic::Ordering::Relaxed;
+        self.held
+            .fetch_update(Relaxed, Relaxed, |held| {
+                held.checked_add(n).filter(|total| *total <= self.max)
+            })
+            .is_ok()
+    }
+
+    /// Gives back `n` bytes taken.
+    pub fn give(&self, n: usize) {
+        self.held.fetch_sub(n, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// The bytes held now.
+    #[cfg(test)]
+    pub fn held(&self) -> usize {
+        self.held.load(std::sync::atomic::Ordering::Relaxed)
+    }
+}
+
 /// The streams of each kind a Hysteria2 or TUIC client may open at once
 /// before it authenticates: quinn's default, and what HTTP/3 servers
 /// commonly allow, so that a client that has not authenticated cannot

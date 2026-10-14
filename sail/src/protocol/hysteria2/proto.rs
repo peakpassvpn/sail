@@ -5,12 +5,15 @@
 //! See <https://v2.hysteria.network/docs/developers/Protocol/>.
 
 use std::io;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use bytes::{BufMut, BytesMut};
 use rand::Rng;
 use tokio::io::{AsyncRead, AsyncReadExt};
 
 use crate::session::SocksAddr;
+use crate::transport::quic::FragmentBudget;
 
 /// The HTTP/3 frame type a proxied TCP stream starts with.
 pub const FRAME_TYPE_TCP_REQUEST: u64 = 0x401;
@@ -378,41 +381,70 @@ pub fn fragment(
         .collect())
 }
 
+/// The largest packet put back together: a UDP packet's length is 16 bits.
+pub const MAX_PACKET: usize = u16::MAX as usize;
+
+/// How long an unfinished packet waits for the rest of its fragments.
+/// Judgment, TUIC's: the reference holds one until the next packet comes.
+pub const FRAGMENT_TIMEOUT: Duration = Duration::from_secs(10);
+
 /// Puts fragmented packets of one session back together.
 ///
 /// Like the reference implementation it keeps one packet at a time: a
 /// fragment of another packet drops the one being assembled. Fragments of
 /// one packet travel back to back, so this loses little and bounds what a
-/// session holds to one packet.
-#[derive(Default)]
+/// session holds to one packet, of at most `MAX_PACKET` bytes, for at most
+/// `FRAGMENT_TIMEOUT`. What it holds counts against the connection's
+/// `budget`, shared by all of its sessions.
 pub struct Defragger {
     packet_id: u16,
     fragments: Vec<Option<Vec<u8>>>,
     received: usize,
     size: usize,
+    started: Instant,
+    budget: Arc<FragmentBudget>,
 }
 
 impl Defragger {
+    pub fn new(budget: Arc<FragmentBudget>) -> Self {
+        Defragger {
+            packet_id: 0,
+            fragments: Vec::new(),
+            received: 0,
+            size: 0,
+            started: Instant::now(),
+            budget,
+        }
+    }
+
     /// Takes one message, returning the whole packet once it is complete.
-    pub fn feed(&mut self, msg: &UdpMessage<'_>) -> Option<Vec<u8>> {
+    pub fn feed(&mut self, msg: &UdpMessage<'_>, now: Instant) -> Option<Vec<u8>> {
         if msg.fragment_count <= 1 {
             return Some(msg.payload.to_vec());
         }
         if msg.fragment_id >= msg.fragment_count {
             return None;
         }
+        self.expire(now);
         if msg.packet_id != self.packet_id || self.fragments.len() != msg.fragment_count as usize {
+            self.drop_partial();
             self.packet_id = msg.packet_id;
             self.fragments = vec![None; msg.fragment_count as usize];
-            self.received = 0;
-            self.size = 0;
+            self.started = now;
         }
-        let slot = &mut self.fragments[msg.fragment_id as usize];
-        if slot.is_none() {
-            *slot = Some(msg.payload.to_vec());
-            self.received += 1;
-            self.size += msg.payload.len();
+        if self.fragments[msg.fragment_id as usize].is_some() {
+            return None;
         }
+        let len = msg.payload.len();
+        // A packet larger than one can be, or past what the connection
+        // holds: lost, as UDP may lose any.
+        if self.size + len > MAX_PACKET || !self.budget.take(len) {
+            self.drop_partial();
+            return None;
+        }
+        self.fragments[msg.fragment_id as usize] = Some(msg.payload.to_vec());
+        self.received += 1;
+        self.size += len;
         if self.received < self.fragments.len() {
             return None;
         }
@@ -420,9 +452,30 @@ impl Defragger {
         for fragment in self.fragments.drain(..) {
             packet.extend_from_slice(&fragment.unwrap_or_default());
         }
+        self.drop_partial();
+        Some(packet)
+    }
+
+    /// Drops the packet being assembled if it has waited too long.
+    pub fn expire(&mut self, now: Instant) {
+        if !self.fragments.is_empty()
+            && now.saturating_duration_since(self.started) >= FRAGMENT_TIMEOUT
+        {
+            self.drop_partial();
+        }
+    }
+
+    fn drop_partial(&mut self) {
+        self.budget.give(self.size);
+        self.fragments.clear();
         self.received = 0;
         self.size = 0;
-        Some(packet)
+    }
+}
+
+impl Drop for Defragger {
+    fn drop(&mut self) {
+        self.budget.give(self.size);
     }
 }
 
@@ -461,12 +514,14 @@ pub(crate) fn fuzz(data: &[u8]) {
     }
     // Messages cut from the input by a length byte each, through one
     // session's defragmenter.
-    let mut defragger = Defragger::default();
+    let budget = FragmentBudget::new(crate::transport::quic::MAX_FRAGMENT_BYTES);
+    let mut defragger = Defragger::new(budget.clone());
+    let now = Instant::now();
     let mut rest = data;
     while let Some((&len, tail)) = rest.split_first() {
         let (message, tail) = tail.split_at(usize::from(len).min(tail.len()));
         if let Ok(message) = UdpMessage::decode(message) {
-            let _ = defragger.feed(&message);
+            let _ = defragger.feed(&message, now);
         }
         rest = tail;
     }
@@ -475,6 +530,97 @@ pub(crate) fn fuzz(data: &[u8]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn defragger() -> Defragger {
+        Defragger::new(FragmentBudget::new(
+            crate::transport::quic::MAX_FRAGMENT_BYTES,
+        ))
+    }
+
+    /// Fragment `id` of `count` of packet `packet_id`, carrying `payload`.
+    fn piece(packet_id: u16, id: u8, count: u8, payload: &[u8]) -> UdpMessage<'_> {
+        UdpMessage {
+            session_id: 1,
+            packet_id,
+            fragment_id: id,
+            fragment_count: count,
+            addr: "a:1",
+            payload,
+        }
+    }
+
+    /// A packet whose fragments come to more than a UDP packet holds is
+    /// dropped, and what it held given back.
+    #[test]
+    fn a_packet_past_the_largest_is_dropped() {
+        let budget = FragmentBudget::new(crate::transport::quic::MAX_FRAGMENT_BYTES);
+        let mut defragger = Defragger::new(budget.clone());
+        let now = Instant::now();
+        let big = vec![0u8; 30_000];
+        assert!(defragger.feed(&piece(1, 0, 3, &big), now).is_none());
+        assert!(defragger.feed(&piece(1, 1, 3, &big), now).is_none());
+        assert_eq!(budget.held(), 60_000);
+        assert!(defragger.feed(&piece(1, 2, 3, &big), now).is_none());
+        assert_eq!(budget.held(), 0);
+        // Fragments of the largest packet still make it.
+        let half = vec![0u8; MAX_PACKET / 2];
+        let last = vec![0u8; MAX_PACKET - 2 * half.len()];
+        defragger.feed(&piece(2, 0, 3, &half), now);
+        defragger.feed(&piece(2, 1, 3, &half), now);
+        let packet = defragger.feed(&piece(2, 2, 3, &last), now).unwrap();
+        assert_eq!(packet.len(), MAX_PACKET);
+        assert_eq!(budget.held(), 0);
+    }
+
+    /// A packet whose fragments stop coming is dropped once it has waited
+    /// `FRAGMENT_TIMEOUT`: the rest, coming later, completes nothing.
+    #[test]
+    fn an_unfinished_packet_expires() {
+        let budget = FragmentBudget::new(crate::transport::quic::MAX_FRAGMENT_BYTES);
+        let mut defragger = Defragger::new(budget.clone());
+        let now = Instant::now();
+        assert!(defragger.feed(&piece(1, 0, 2, b"ab"), now).is_none());
+        defragger.expire(now + FRAGMENT_TIMEOUT / 2);
+        assert_eq!(budget.held(), 2);
+        let later = now + FRAGMENT_TIMEOUT;
+        assert!(defragger.feed(&piece(1, 1, 2, b"cd"), later).is_none());
+        assert_eq!(budget.held(), 2);
+        defragger.expire(later + FRAGMENT_TIMEOUT);
+        assert_eq!(budget.held(), 0);
+    }
+
+    /// The sessions of one connection share its budget: a fragment past it
+    /// is dropped, and a session gone gives back what it held.
+    #[test]
+    fn sessions_share_their_connections_budget() {
+        let budget = FragmentBudget::new(3000);
+        let now = Instant::now();
+        let mut one = Defragger::new(budget.clone());
+        let mut two = Defragger::new(budget.clone());
+        let fragment = vec![0u8; 2000];
+        assert!(one.feed(&piece(1, 0, 2, &fragment), now).is_none());
+        assert!(two.feed(&piece(1, 0, 2, &fragment), now).is_none());
+        assert_eq!(budget.held(), 2000);
+        drop(one);
+        assert_eq!(budget.held(), 0);
+        assert!(two.feed(&piece(1, 0, 2, &fragment), now).is_none());
+        assert!(two.feed(&piece(1, 1, 2, b"x"), now).is_some());
+        assert_eq!(budget.held(), 0);
+    }
+
+    /// Fragment ids past the count, and counts that change within a
+    /// packet, put nothing together.
+    #[test]
+    fn inconsistent_fragments_complete_nothing() {
+        let mut defragger = defragger();
+        let now = Instant::now();
+        assert!(defragger.feed(&piece(1, 2, 2, b"x"), now).is_none());
+        assert!(defragger.feed(&piece(1, 0, 2, b"a"), now).is_none());
+        // The same packet with another count starts over.
+        assert!(defragger.feed(&piece(1, 1, 3, b"b"), now).is_none());
+        assert!(defragger.feed(&piece(1, 1, 2, b"b"), now).is_none());
+        assert_eq!(defragger.feed(&piece(1, 0, 2, b"a"), now).unwrap(), b"ab");
+    }
 
     #[test]
     fn varints_round_trip_at_every_length() {
@@ -602,14 +748,14 @@ mod tests {
         assert_eq!(fragments.len(), 5);
         assert!(fragments.iter().all(|f| f.len() <= 1200));
 
-        let mut defragger = Defragger::default();
+        let mut defragger = defragger();
         // Out of order, with a duplicate.
         let order = [3, 0, 4, 0, 1, 2];
         let mut out = None;
         for (n, i) in order.iter().enumerate() {
             let msg = UdpMessage::decode(&fragments[*i]).unwrap();
             assert_eq!(msg.packet_id, 42);
-            let done = defragger.feed(&msg);
+            let done = defragger.feed(&msg, Instant::now());
             if n < order.len() - 1 {
                 assert!(done.is_none());
             }
@@ -623,18 +769,18 @@ mod tests {
         let payload = vec![1u8; 3000];
         let first = fragment(1, 1, "a:1", &payload, 1200).unwrap();
         let second = fragment(1, 2, "a:1", &payload, 1200).unwrap();
-        let mut defragger = Defragger::default();
+        let mut defragger = defragger();
         assert!(defragger
-            .feed(&UdpMessage::decode(&first[0]).unwrap())
+            .feed(&UdpMessage::decode(&first[0]).unwrap(), Instant::now())
             .is_none());
         let mut out = None;
         for f in &second {
-            out = defragger.feed(&UdpMessage::decode(f).unwrap());
+            out = defragger.feed(&UdpMessage::decode(f).unwrap(), Instant::now());
         }
         assert_eq!(out.unwrap(), payload);
         // The rest of the first packet alone does not complete it.
         assert!(defragger
-            .feed(&UdpMessage::decode(&first[1]).unwrap())
+            .feed(&UdpMessage::decode(&first[1]).unwrap(), Instant::now())
             .is_none());
     }
 

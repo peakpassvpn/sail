@@ -9,7 +9,7 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{ready, Context, Poll};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Context as _, Result};
 use bytes::Bytes;
@@ -23,7 +23,9 @@ use crate::app::SyncDnsClient;
 use crate::net::dial::BoundInterface;
 use crate::net::Dialer;
 use crate::session::{Session, SocksAddr};
-use crate::transport::quic::{endpoint_on, ClientTls, QuicStream, Side};
+use crate::transport::quic::{
+    endpoint_on, ClientTls, FragmentBudget, QuicStream, Side, MAX_FRAGMENT_BYTES,
+};
 
 use super::super::congestion::CongestionHandle;
 use super::super::h3;
@@ -409,12 +411,24 @@ struct SessionEntry {
     defragger: Defragger,
 }
 
-#[derive(Default)]
-struct Sessions(Mutex<HashMap<u32, SessionEntry>>);
+struct Sessions {
+    map: Mutex<HashMap<u32, SessionEntry>>,
+    /// What the sessions' unfinished packets hold, together.
+    fragments: Arc<FragmentBudget>,
+}
+
+impl Default for Sessions {
+    fn default() -> Self {
+        Sessions {
+            map: Default::default(),
+            fragments: FragmentBudget::new(MAX_FRAGMENT_BYTES),
+        }
+    }
+}
 
 impl Sessions {
     fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<u32, SessionEntry>> {
-        self.0.lock().unwrap_or_else(|e| e.into_inner())
+        self.map.lock().unwrap_or_else(|e| e.into_inner())
     }
 }
 
@@ -452,7 +466,7 @@ impl Connection {
             id,
             SessionEntry {
                 tx,
-                defragger: Defragger::default(),
+                defragger: Defragger::new(self.sessions.fragments.clone()),
             },
         );
         Ok((
@@ -498,6 +512,7 @@ impl Drop for UdpSession {
 
 /// Hands the datagrams of `conn` to their sessions.
 async fn receive_datagrams(conn: quinn::Connection, sessions: Arc<Sessions>) {
+    let mut swept = Instant::now();
     while let Ok(datagram) = conn.read_datagram().await {
         let msg = match UdpMessage::decode(&datagram) {
             Ok(msg) => msg,
@@ -507,10 +522,18 @@ async fn receive_datagrams(conn: quinn::Connection, sessions: Arc<Sessions>) {
             }
         };
         let mut sessions = sessions.lock();
+        let now = Instant::now();
+        // Unfinished packets of sessions gone quiet are dropped too.
+        if now.saturating_duration_since(swept) >= proto::FRAGMENT_TIMEOUT {
+            for entry in sessions.values_mut() {
+                entry.defragger.expire(now);
+            }
+            swept = now;
+        }
         let Some(entry) = sessions.get_mut(&msg.session_id) else {
             continue;
         };
-        let Some(packet) = entry.defragger.feed(&msg) else {
+        let Some(packet) = entry.defragger.feed(&msg, now) else {
             continue;
         };
         let from = match proto::parse_addr(msg.addr) {

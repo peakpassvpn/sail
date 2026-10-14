@@ -9,7 +9,7 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::task::{Context, Poll};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::anyhow;
 use async_trait::async_trait;
@@ -22,7 +22,7 @@ use tracing::{debug, trace};
 
 use crate::adapter::*;
 use crate::session::{DatagramSource, Network, Session, SocksAddr, StreamId};
-use crate::transport::quic::{endpoint_on, QuicStream, Side};
+use crate::transport::quic::{endpoint_on, FragmentBudget, QuicStream, Side, MAX_FRAGMENT_BYTES};
 
 use super::super::congestion::CongestionHandle;
 use super::super::h3::{self, Field};
@@ -312,6 +312,12 @@ impl ConnState {
             .await
             .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "request headers"))??;
         if is_auth_request(&fields) {
+            // A connection authenticates once. A later request is answered
+            // as the first was, whatever it says, as the reference answers
+            // it: nothing is set again.
+            if self.user.get().is_some() {
+                return self.answer_auth(send).await;
+            }
             let password = h3::field(&fields, proto::HEADER_AUTH).unwrap_or_default();
             let user = self.server.users.get(password);
             if let Some(user) = user.filter(|user| !crate::user::shut_out(user)) {
@@ -322,13 +328,16 @@ impl ConnState {
     }
 
     /// Answers a good authentication, and makes the connection a proxy
-    /// connection.
+    /// connection, unless another request made it one first.
     async fn authenticated(
         self: &Arc<Self>,
         user: Option<crate::user::UserRef>,
         fields: &[Field],
-        mut send: quinn::SendStream,
+        send: quinn::SendStream,
     ) -> io::Result<()> {
+        if self.user.set(user.clone()).is_err() {
+            return self.answer_auth(send).await;
+        }
         let server = &self.server;
         // Its bidirectional streams grow with its use from now on; HTTP/3
         // needs no more unidirectional ones than it has.
@@ -339,7 +348,6 @@ impl ConnState {
                 .carrier
                 .set(user.carry(&server.tag, move || conn.close(0u32.into(), b"")));
         }
-        let _ = self.user.set(user);
         // As the reference server: we send at what the client says it can
         // receive, capped by what we may send at; not knowing, BBR.
         let client_rx: u64 = h3::field(fields, proto::HEADER_CC_RX)
@@ -358,10 +366,19 @@ impl ConnState {
         } else {
             self.congestion.set_bbr();
         }
-        let rx = if server.ignore_client_bandwidth {
+        self.answer_auth(send).await?;
+        if !self.udp_started.swap(true, Ordering::Relaxed) {
+            self.start_udp.notify_one();
+        }
+        Ok(())
+    }
+
+    /// The answer to an authentication, the first or a later one.
+    async fn answer_auth(&self, mut send: quinn::SendStream) -> io::Result<()> {
+        let rx = if self.server.ignore_client_bandwidth {
             "auto".to_string()
         } else {
-            server.recv_bps.to_string()
+            self.server.recv_bps.to_string()
         };
         let padding = proto::padding(proto::AUTH_RESPONSE_PADDING);
         let status = proto::STATUS_AUTH_OK.to_string();
@@ -376,15 +393,13 @@ impl ConnState {
         )
         .await?;
         let _ = send.finish();
-        if !self.udp_started.swap(true, Ordering::Relaxed) {
-            self.start_udp.notify_one();
-        }
         Ok(())
     }
 
     /// Hands the datagrams of the connection to their sessions, starting a
     /// session for an ID it has not seen or has closed.
     async fn serve_datagrams(self: Arc<Self>) {
+        let mut swept = Instant::now();
         while let Ok(datagram) = self.conn.read_datagram().await {
             let msg = match UdpMessage::decode(&datagram) {
                 Ok(msg) => msg,
@@ -408,10 +423,18 @@ impl ConnState {
                 self.sessions.lock().insert(msg.session_id, entry);
             }
             let mut sessions = self.sessions.lock();
+            let now = Instant::now();
+            // Unfinished packets of sessions gone quiet are dropped too.
+            if now.saturating_duration_since(swept) >= proto::FRAGMENT_TIMEOUT {
+                for entry in sessions.values_mut() {
+                    entry.defragger.expire(now);
+                }
+                swept = now;
+            }
             let Some(entry) = sessions.get_mut(&msg.session_id) else {
                 continue;
             };
-            let Some(packet) = entry.defragger.feed(&msg) else {
+            let Some(packet) = entry.defragger.feed(&msg, now) else {
                 continue;
             };
             let destination = match proto::parse_addr(msg.addr) {
@@ -465,7 +488,7 @@ impl ConnState {
             .ok()?;
         Some(UdpSessionEntry {
             tx,
-            defragger: Defragger::default(),
+            defragger: Defragger::new(self.sessions.fragments.clone()),
             serial,
         })
     }
@@ -486,10 +509,21 @@ struct UdpSessionEntry {
     serial: u64,
 }
 
-#[derive(Default)]
 struct UdpSessions {
     map: Mutex<HashMap<u32, UdpSessionEntry>>,
     next_serial: AtomicU64,
+    /// What the sessions' unfinished packets hold, together.
+    fragments: Arc<FragmentBudget>,
+}
+
+impl Default for UdpSessions {
+    fn default() -> Self {
+        UdpSessions {
+            map: Default::default(),
+            next_serial: Default::default(),
+            fragments: FragmentBudget::new(MAX_FRAGMENT_BYTES),
+        }
+    }
 }
 
 impl UdpSessions {
@@ -1026,6 +1060,36 @@ mod tests {
         let (headers, body) = request(&conn, &GET).await;
         assert_eq!(h3::field(&headers, ":status"), Some("502"));
         assert!(body.is_empty());
+    }
+
+    /// A connection authenticates once: a later request is answered as
+    /// the first was, whatever its password, and the connection stays the
+    /// first user's.
+    #[tokio::test]
+    async fn a_later_authentication_is_answered_and_changes_nothing() {
+        let mut f = serve(Masquerade::NotFound).await;
+        let conn = f.connect().await;
+        let (headers, _) = request(&conn, &auth("pw")).await;
+        assert_eq!(h3::field(&headers, ":status"), Some("233"));
+        for password in ["pw", "wrong"] {
+            let mut fields = auth(password);
+            fields.retain(|(name, _)| *name != "hysteria-cc-rx");
+            fields.push(("hysteria-cc-rx", "1000000"));
+            let (headers, _) = request(&conn, &fields).await;
+            assert_eq!(h3::field(&headers, ":status"), Some("233"), "{}", password);
+            assert_eq!(h3::field(&headers, "hysteria-udp"), Some("true"));
+            assert_eq!(h3::field(&headers, "hysteria-cc-rx"), Some("0"));
+        }
+        let (mut send, mut recv) = conn.open_bi().await.unwrap();
+        let destination = SocksAddr::try_from(("example.com", 443)).unwrap();
+        send.write_all(&proto::tcp_request(&destination, b""))
+            .await
+            .unwrap();
+        proto::read_tcp_response(&mut recv).await.unwrap();
+        let Some(BaseInboundTransport::Stream(_, sess)) = f.incoming.next().await else {
+            panic!("no stream");
+        };
+        assert_eq!(crate::user::name(&sess.user), Some("alice"));
     }
 
     #[tokio::test]
