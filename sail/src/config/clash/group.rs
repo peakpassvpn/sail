@@ -391,6 +391,20 @@ fn group(f: &mut Fields, cx: &Context, warnings: &mut Vec<String>) -> Result<Val
                     ))
                 }
             }
+            // Mihomo v1.19.32's: `in-user` keys on the inbound's user, as
+            // sail's `hash_key: "user"`; any other value, or one with
+            // round-robin, which hashes nothing, is refused as there.
+            let at = f.at("hash-key");
+            match f.string("hash-key")?.as_deref() {
+                None | Some("") => {}
+                Some("in-user") if strategy == "round-robin" => {
+                    return Err(anyhow!("{}: round-robin hashes nothing", at))
+                }
+                Some("in-user") => {
+                    o.insert("hash_key".into(), json!("user"));
+                }
+                Some(other) => return Err(anyhow!("{}: {:?} is not in-user", at, other)),
+            }
         }
         // The Mihomo forks' (vernesong's), as sail's own smart group.
         "smart" => {

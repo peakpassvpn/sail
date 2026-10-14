@@ -464,6 +464,42 @@ rules: ["MATCH,S"]
     assert!(config.warnings.is_empty(), "{:?}", config.warnings);
 }
 
+/// Mihomo's `hash-key: in-user` keys a load-balance group on the inbound's
+/// user; another value, or round-robin's, is refused as Mihomo does.
+#[test]
+fn a_load_balance_group_s_hash_key_in_user_is_sail_s_user() {
+    let group = |fields: &str| {
+        parse(&format!(
+            r#"
+proxies:
+  - {{ name: a, type: direct }}
+proxy-groups:
+  - {{ name: LB, type: load-balance, proxies: [a]{} }}
+rules: ["MATCH,LB"]
+"#,
+            fields
+        ))
+        .map(|config| {
+            assert!(config.warnings.is_empty(), "{:?}", config.warnings);
+            serde_json::to_value(outbound(&config, "LB")).unwrap()["hash_key"].clone()
+        })
+        .map_err(|e| format!("{:#}", e))
+    };
+    assert_eq!(group(""), Ok(serde_json::Value::Null));
+    assert_eq!(group(", hash-key: \"\""), Ok(serde_json::Value::Null));
+    assert_eq!(group(", hash-key: in-user"), Ok(json!("user")));
+    assert_eq!(
+        group(", strategy: sticky-sessions, hash-key: in-user"),
+        Ok(json!("user"))
+    );
+    assert!(group(", strategy: round-robin, hash-key: in-user")
+        .unwrap_err()
+        .contains("proxy-groups[0].hash-key: round-robin hashes nothing"));
+    assert!(group(", hash-key: src-ip")
+        .unwrap_err()
+        .contains("\"src-ip\" is not in-user"));
+}
+
 #[test]
 fn a_wireguard_proxy_is_an_endpoint() {
     let yaml = format!(
