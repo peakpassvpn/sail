@@ -54,10 +54,6 @@ use super::{
 pub const MAX_CONNECTIONS: usize = 32;
 /// How long making a mux connection may take.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
-/// How often idle connections are looked for.
-const CHECK_INTERVAL: Duration = Duration::from_secs(30);
-/// How long a connection without streams is kept.
-const IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 /// How long the TCP Brutal exchange waits for the server to end its
 /// stream: a judgment call, the end coming with the answer.
 const EXCHANGE_END: Duration = Duration::from_secs(1);
@@ -225,9 +221,12 @@ impl Client {
             cleanup: SyncMutex::new(None),
         });
         let weak: Weak<Client> = Arc::downgrade(&client);
+        // How long a connection without streams is kept, looked for twice
+        // as often.
+        let every = tuning.idle_timeout / 2;
         let (check, handle) = abortable(async move {
             loop {
-                tokio::time::sleep(CHECK_INTERVAL).await;
+                tokio::time::sleep(every).await;
                 let Some(client) = weak.upgrade() else {
                     return;
                 };
@@ -259,7 +258,7 @@ impl Client {
                     entry.idle_since = Some(now);
                     true
                 }
-                Some(since) if now.duration_since(since) >= IDLE_TIMEOUT => {
+                Some(since) if now.duration_since(since) >= self.tuning.idle_timeout => {
                     entry.conn.close();
                     false
                 }

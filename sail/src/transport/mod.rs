@@ -15,7 +15,8 @@ pub mod httpupgrade;
 #[cfg(any(
     feature = "outbound-hysteria2",
     feature = "outbound-quic",
-    feature = "outbound-grpc"
+    feature = "outbound-grpc",
+    feature = "outbound-amux"
 ))]
 pub mod idle;
 #[cfg(feature = "mux")]

@@ -66,8 +66,8 @@ pub use session::{Session, Stream, MAX_STREAMS};
 /// The window every stream starts with, where there are windows.
 pub const INITIAL_WINDOW: u32 = 256 << 10;
 
-/// What sessions run with: `runtime::options::Mux`, and the relay's write
-/// stall timeout.
+/// What sessions run with: `runtime::options::Mux`, the relay's write
+/// stall timeout, and how long a client keeps one with no streams.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Tuning {
     /// The largest a stream's receive window grows to.
@@ -84,6 +84,9 @@ pub struct Tuning {
     /// h2mux: every stream's window, which does not grow; the
     /// connection's is eight times as much.
     pub h2_stream_window: u32,
+    /// A client's session with no streams for this long is closed (mux,
+    /// amux): the profile's carrier idle timeout.
+    pub idle_timeout: Duration,
 }
 
 impl Default for Tuning {
@@ -107,6 +110,7 @@ impl From<&crate::runtime::options::RuntimeOptions> for Tuning {
             h2_stream_window: u32::try_from(mux.stream_window_max.saturating_mul(1024) / 4)
                 .unwrap_or(u32::MAX)
                 .max(1 << 20),
+            idle_timeout: options.profile.carrier_idle_timeout(),
         }
     }
 }

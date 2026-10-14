@@ -1,6 +1,6 @@
 use std::convert::TryFrom;
 use std::io;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -19,6 +19,7 @@ use crate::{
     net::dial::BoundInterface,
     net::*,
     session::{Session, SocksAddr},
+    transport::idle::Idle,
     transport::muxcore::Tuning,
 };
 
@@ -31,6 +32,25 @@ use super::MuxStream;
 pub struct Pooled {
     connector: MuxConnector,
     bound: BoundInterface,
+    /// Since when its session has had no streams, as last checked.
+    idle: Idle,
+}
+
+/// Drops the connectors that are done, and closes and drops those whose
+/// session has had no streams for `idle_timeout` (`transport::idle`):
+/// their connection would otherwise stay for as long as the outbound.
+fn check(connectors: &mut Vec<Pooled>, idle_timeout: Duration, now: tokio::time::Instant) {
+    connectors.retain_mut(|c| {
+        if c.connector.is_done() {
+            return false;
+        }
+        if !c.idle.expired(c.connector.num_streams(), now, idle_timeout) {
+            return true;
+        }
+        debug!("closing an idle amux session");
+        c.connector.close();
+        false
+    });
 }
 
 pub struct MuxManager {
@@ -47,7 +67,8 @@ pub struct MuxManager {
     /// Who the sessions serve, in their logs.
     pub label: String,
     /// Sessions that may take more streams. One dropped, by the monitor or
-    /// with the manager on a reload, ends once its streams are done.
+    /// with the manager on a reload, ends once its streams are done; one
+    /// the monitor finds idle is closed.
     pub connectors: Arc<Mutex<Vec<Pooled>>>,
     pub monitor_task: Mutex<Option<BoxFuture<'static, ()>>>,
 }
@@ -69,11 +90,21 @@ impl MuxManager {
     ) -> (Self, Vec<AbortHandle>) {
         let mut abort_handles = Vec::new();
         let connectors: Arc<Mutex<Vec<Pooled>>> = Arc::new(Mutex::new(Vec::new()));
-        let connectors2 = connectors.clone();
-        // A task to monitor and remove completed connectors.
+        let watched: Weak<Mutex<Vec<Pooled>>> = Arc::downgrade(&connectors);
+        let idle_timeout = tuning.idle_timeout;
+        // A task to remove completed connectors and close idle ones, until
+        // the manager is gone.
         let fut = async move {
             loop {
-                connectors2.lock().await.retain(|c| !c.connector.is_done());
+                let Some(connectors) = watched.upgrade() else {
+                    return;
+                };
+                check(
+                    &mut *connectors.lock().await,
+                    idle_timeout,
+                    tokio::time::Instant::now(),
+                );
+                drop(connectors);
                 tokio::time::sleep(Duration::from_secs(5)).await;
             }
         };
@@ -174,6 +205,7 @@ impl MuxManager {
         conns.push(Pooled {
             connector,
             bound: BoundInterface::of(&sess),
+            idle: Idle::default(),
         });
         debug!("created new amux conn, total: {}", conns.len());
         Ok(s)
@@ -293,5 +325,93 @@ mod tests {
         assert_eq!(given.get(), Some(Egress::DefaultRoute));
         assert_eq!(given.local(), made.local());
         assert_eq!(given.peer(), Some(server));
+    }
+
+    /// A server that answers each stream with its end once the client's
+    /// has come: the port, and a message for each session that ended.
+    async fn finishing_server() -> (u16, tokio::sync::mpsc::UnboundedReceiver<()>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let (ended, ends) = tokio::sync::mpsc::unbounded_channel();
+        tokio::spawn(async move {
+            while let Ok((conn, _)) = listener.accept().await {
+                let ended = ended.clone();
+                tokio::spawn(async move {
+                    let mut acceptor = MuxSession::acceptor(conn, Tuning::default(), "test");
+                    while let Some(mut stream) = acceptor.next().await {
+                        tokio::spawn(async move {
+                            let _ = stream.read_to_end(&mut Vec::new()).await;
+                            let _ = stream.shutdown().await;
+                        });
+                    }
+                    let _ = ended.send(());
+                });
+            }
+        });
+        (port, ends)
+    }
+
+    fn manager_to(port: u16) -> MuxManager {
+        let dns = crate::app::dns::DnsClient::new(
+            &Default::default(),
+            Default::default(),
+            &Default::default(),
+        )
+        .unwrap()
+        .into_shared();
+        MuxManager::new(
+            "127.0.0.1".into(),
+            port,
+            Vec::new(),
+            128,
+            16,
+            0,
+            0,
+            dns,
+            Dialer::system(),
+            Tuning::default(),
+            "test".into(),
+        )
+        .0
+    }
+
+    /// A stream through `manager`, ended both ways: its session takes more.
+    async fn finished_stream(manager: &MuxManager) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let mut stream = manager.new_stream(&Session::default()).await.unwrap();
+        stream.write_all(b"once").await.unwrap();
+        stream.shutdown().await.unwrap();
+        stream.read_to_end(&mut Vec::new()).await.unwrap();
+    }
+
+    /// A session whose streams have ended is closed once the idle timeout
+    /// has passed, which the server sees; the next stream makes another.
+    /// Time paused.
+    #[tokio::test(start_paused = true)]
+    async fn a_session_with_no_stream_is_closed() {
+        let idle = Tuning::default().idle_timeout;
+        let (port, mut ended) = finishing_server().await;
+        let manager = manager_to(port);
+        finished_stream(&manager).await;
+        tokio::time::sleep(idle + Duration::from_secs(15)).await;
+        assert!(manager.connectors.lock().await.is_empty(), "kept idle");
+        let seen = tokio::time::timeout(Duration::from_secs(5), ended.recv()).await;
+        assert!(matches!(seen, Ok(Some(()))), "the server saw no end");
+        let _stream = manager.new_stream(&Session::default()).await.unwrap();
+        assert_eq!(manager.connectors.lock().await.len(), 1);
+    }
+
+    /// An open stream keeps its session past the idle timeout. Time paused.
+    #[tokio::test(start_paused = true)]
+    async fn an_open_stream_keeps_the_session() {
+        let idle = Tuning::default().idle_timeout;
+        let (port, mut ended) = finishing_server().await;
+        let manager = manager_to(port);
+        let open = manager.new_stream(&Session::default()).await.unwrap();
+        tokio::time::sleep(idle * 3).await;
+        assert_eq!(manager.connectors.lock().await.len(), 1);
+        assert!(ended.try_recv().is_err(), "the server saw an end");
+        drop(open);
     }
 }

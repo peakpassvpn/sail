@@ -292,6 +292,16 @@ impl MuxConnector {
         !self.session.is_reusable() || (!self.takes_more() && self.session.num_streams() == 0)
     }
 
+    /// The streams open on the session.
+    pub fn num_streams(&self) -> usize {
+        self.session.num_streams()
+    }
+
+    /// Ends the session, and any stream on it.
+    pub fn close(&self) {
+        self.session.close();
+    }
+
     /// Whether the limits let the session take another stream, some time.
     fn takes_more(&self) -> bool {
         self.total_accepted < self.max_accepts
