@@ -8,6 +8,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 
 - `size-limit`：下载超过它即失败，保留原有内容；Mihomo 会在上限处截断并读取截断后的内容。
 - 下载不跟随从 https 到 http 或到其他协议的重定向（Mihomo 的客户端会跟随）：请求携带的内容（如订阅令牌）会以明文传出。
+- 未设 `global-ua` 时，下载的 User-Agent 是 `sail/<版本>`，不是 `clash.meta/<版本>`。按 User-Agent 决定返回格式的订阅服务器，对不认识的 User-Agent 返回分享链接（明文或 base64），sail 同样能读取；要拿到 Clash 的 YAML，请设置 `global-ua` 或提供者的 `header`。
 
 与 Mihomo 一致，地址规则（`IP-CIDR`、`GEOIP` 等，未加 `no-resolve`）解析域名只为匹配：直连出站连接解析出的地址，代理服务器收到的仍是域名。
 
@@ -30,7 +31,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `dns` | 33 | 29 | 4 | 0 |
 | `experimental` | 5 | 0 | 5 | 0 |
 | `external-controller-cors` | 3 | 3 | 0 | 0 |
-| `general` | 48 | 34 | 12 | 2 |
+| `general` | 48 | 35 | 11 | 2 |
 | `geox-url` | 5 | 0 | 5 | 0 |
 | `iptables` | 5 | 0 | 0 | 5 |
 | `listeners[anytls]` | 45 | 0 | 0 | 45 |
@@ -89,7 +90,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `tls` | 7 | 0 | 7 | 0 |
 | `tuic-server` | 13 | 0 | 0 | 13 |
 | `tun` | 50 | 34 | 9 | 7 |
-| **All** | **2077** | **517** | **113** | **1447** |
+| **All** | **2077** | **518** | **112** | **1447** |
 
 
 ## `general`
@@ -216,7 +217,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | 字段 | sail | sail 的说明 |
 |---|---|---|
 | `global-client-fingerprint` | 支持 |  |
-| `global-ua` | 警告 | global-ua: sail does not implement this field; ignored |
+| `global-ua` | 支持 |  |
 | `hosts` | 支持 |  |
 | `inbound-mptcp` | 警告 | inbound-mptcp: sail does not implement this field; ignored |
 | `inbound-tfo` | 支持 |  |

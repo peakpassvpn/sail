@@ -22,7 +22,6 @@ pub const TOP: &[(&str, Tier)] = &[
     // How connections are made and timed, not where they go.
     ("inbound-mptcp", Ignored),
     ("find-process-mode", Ignored),
-    ("global-ua", Ignored),
     ("etag-support", Ignored),
     ("experimental", Ignored),
     ("clash-for-android", Ignored),
@@ -55,6 +54,9 @@ pub fn lower(doc: &mut Fields, out: &mut Lowered, warnings: &mut Vec<String>) ->
     controller(doc, out, warnings)?;
     profile(doc, out, warnings)?;
     keep_alive(doc, out)?;
+    // What every download says it is, where its provider's `header` says
+    // nothing: Mihomo's; unset, sail's own.
+    out.user_agent = doc.string("global-ua")?.filter(|ua| !ua.is_empty());
     ntp(doc, out, warnings)?;
     // TCP Fast Open on each port it listens on, where sail listens with
     // it; told and passed over where not, as Clash configurations run as

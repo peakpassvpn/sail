@@ -888,6 +888,60 @@ fn the_geo_sets_update_as_geo_update_interval_says() {
     );
 }
 
+/// `global-ua` is every download's User-Agent, but where a provider's
+/// `header` names its own.
+#[test]
+fn global_ua_is_every_download_s_user_agent() {
+    let config = load(
+        "global-ua: clash.meta/test\n\
+         rule-providers:\n\
+         \x20 plain: { type: http, behavior: domain, format: mrs, url: 'https://example.com/a.mrs' }\n\
+         \x20 own: { type: http, behavior: domain, format: mrs, url: 'https://example.com/b.mrs',\n\
+         \x20        header: { user-agent: [mine] } }\n\
+         \x20 here: { type: file, behavior: domain, path: ./rules/here.yaml }\n\
+         proxy-providers:\n\
+         \x20 sub: { type: http, url: 'https://sub.example.com/clash', header: { Authorization: [Bearer t] } }\n\
+         rules: [\"RULE-SET,plain,DIRECT\", \"RULE-SET,own,DIRECT\", \"RULE-SET,here,DIRECT\", \"GEOSITE,cn,DIRECT\", \"MATCH,DIRECT\"]\n",
+    );
+    let sets: Vec<serde_json::Value> = config
+        .route
+        .rule_set
+        .iter()
+        .map(|s| serde_json::to_value(s).unwrap())
+        .collect();
+    let set = |tag: &str| {
+        sets.iter()
+            .find(|s| s["tag"] == serde_json::json!([tag]) || s["tag"] == tag)
+            .unwrap_or_else(|| panic!("{} in {:#?}", tag, sets))
+            .clone()
+    };
+    let ua = serde_json::json!(["clash.meta/test"]);
+    let plain = set("plain");
+    assert!(plain.get("download_detour").is_none());
+    assert_eq!(plain["http_client"]["detour"], "DIRECT");
+    assert_eq!(plain["http_client"]["headers"]["User-Agent"], ua);
+    let own = set("own");
+    assert_eq!(
+        own["http_client"]["headers"]["user-agent"],
+        serde_json::json!(["mine"])
+    );
+    assert!(own["http_client"]["headers"].get("User-Agent").is_none());
+    assert_eq!(
+        set("geosite:cn")["http_client"]["headers"]["User-Agent"],
+        ua
+    );
+    // Not downloaded, and so as it was.
+    let here = set("here");
+    assert!(here.get("http_client").is_none() && here.get("download_detour").is_none());
+    let sub = provider(&config, "sub");
+    assert_eq!(sub["http_client"]["headers"]["User-Agent"], ua);
+    assert_eq!(
+        sub["http_client"]["headers"]["Authorization"],
+        serde_json::json!(["Bearer t"])
+    );
+    assert!(config.warnings.is_empty(), "{:?}", config.warnings);
+}
+
 #[test]
 fn rule_provider_mistakes_name_the_field() {
     for (yaml, message) in [

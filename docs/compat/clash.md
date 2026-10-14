@@ -8,6 +8,7 @@ Every field Mihomo v1.19.31 takes, and how sail reads it: measured by reading a 
 
 - `size-limit`: a download past it fails, and what was held before is kept; Mihomo cuts the body at the limit and reads what is left of it.
 - A download is not redirected from https to http, nor to another scheme, which Mihomo's client follows: what the request carries, a subscription's token, would go in the clear.
+- Without `global-ua`, a download says it is `sail/<version>`, not `clash.meta/<version>`. A subscription server that picks what it gives by the User-Agent gives one it does not know share links, plain or in base64, which sail reads as it reads Clash's YAML; set `global-ua`, or the provider's `header`, for the YAML.
 
 As in Mihomo, a rule on addresses (`IP-CIDR`, `GEOIP` and the like, without `no-resolve`) resolves a domain only to match it: a direct outbound dials the address it resolved to, while a proxy's server is still sent the domain.
 
@@ -30,7 +31,7 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 | `dns` | 33 | 29 | 4 | 0 |
 | `experimental` | 5 | 0 | 5 | 0 |
 | `external-controller-cors` | 3 | 3 | 0 | 0 |
-| `general` | 48 | 34 | 12 | 2 |
+| `general` | 48 | 35 | 11 | 2 |
 | `geox-url` | 5 | 0 | 5 | 0 |
 | `iptables` | 5 | 0 | 0 | 5 |
 | `listeners[anytls]` | 45 | 0 | 0 | 45 |
@@ -89,7 +90,7 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 | `tls` | 7 | 0 | 7 | 0 |
 | `tuic-server` | 13 | 0 | 0 | 13 |
 | `tun` | 50 | 34 | 9 | 7 |
-| **All** | **2077** | **517** | **113** | **1447** |
+| **All** | **2077** | **518** | **112** | **1447** |
 
 
 ## `general`
@@ -216,7 +217,7 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 | Field | sail | What sail says |
 |---|---|---|
 | `global-client-fingerprint` | Supported |  |
-| `global-ua` | Warned | global-ua: sail does not implement this field; ignored |
+| `global-ua` | Supported |  |
 | `hosts` | Supported |  |
 | `inbound-mptcp` | Warned | inbound-mptcp: sail does not implement this field; ignored |
 | `inbound-tfo` | Supported |  |

@@ -554,6 +554,20 @@ proxies:
         assert_eq!(proxies.proxies[0].1["detour"], "relay");
     }
 
+    /// What a subscription server gives a User-Agent it does not know,
+    /// as sail's own: share links, plain or in base64, padding and all,
+    /// which no Clash or Surge reading takes for its own.
+    #[test]
+    fn what_a_server_gives_an_unknown_user_agent_is_read() {
+        let plain =
+            "trojan://p@a.example:443#A%20HK\nss://YWVzLTEyOC1nY206cA@b.example:8388#B%20JP\n";
+        let encoded = "dHJvamFuOi8vcEBhLmV4YW1wbGU6NDQzI0ElMjBISwpzczovL1lXVnpMVEV5T0MxblkyMDZjQUBiLmV4YW1wbGU6ODM4OCNCJTIwSlAKCg==";
+        for body in [plain, encoded] {
+            let proxies = read(body, &Selection::default()).unwrap();
+            assert_eq!(names(&proxies), ["A HK", "B JP"], "{}", body);
+        }
+    }
+
     #[test]
     fn nothing_left_is_an_error() {
         let selection = Selection {

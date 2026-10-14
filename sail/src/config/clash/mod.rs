@@ -73,6 +73,7 @@ pub fn parse_in(s: &str, home: Option<&std::path::Path>) -> Result<Config> {
     }
     out.rule_sets.extend(sets.into_geo_sets(out.geo_update));
     out.apply_keep_alive(&mut warnings);
+    out.apply_user_agent();
     doc.finish(general::TOP, |key| holders.contains(key), &mut warnings)?;
 
     // Its inline rules' adjacent lines were merged as they were lowered,
@@ -165,6 +166,8 @@ pub struct Lowered {
     pub inbound_listen: Map<String, Value>,
     /// `unified-delay`, for the groups that test their members.
     pub unified_delay: bool,
+    /// `global-ua`: the User-Agent of every download.
+    pub user_agent: Option<String>,
 }
 
 impl Lowered {
@@ -202,6 +205,38 @@ impl Lowered {
                  proxies of proxy-providers keep sail's TCP keepalive and dialing"
                     .to_string(),
             );
+        }
+    }
+
+    /// Gives every remote rule-set and outbound provider `user_agent`,
+    /// where its own headers name none, as Mihomo does with `global-ua`.
+    /// Each remote one is lowered with a `download_detour` (DIRECT where
+    /// it names no proxy) or an inline `http_client`, never a tag of one:
+    /// a local or inline one has neither, and is left as it is.
+    fn apply_user_agent(&mut self) {
+        let Some(ua) = &self.user_agent else {
+            return;
+        };
+        for item in self
+            .rule_sets
+            .iter_mut()
+            .chain(&mut self.outbound_providers)
+        {
+            let Some(item) = item.as_object_mut() else {
+                continue;
+            };
+            if let Some(detour) = item.remove("download_detour") {
+                item.insert(
+                    "http_client".into(),
+                    json!({ "detour": detour, "headers": { "User-Agent": [ua] } }),
+                );
+            } else if let Some(Value::Object(client)) = item.get_mut("http_client") {
+                if let Value::Object(headers) = client.entry("headers").or_insert(json!({})) {
+                    if !headers.keys().any(|k| k.eq_ignore_ascii_case("user-agent")) {
+                        headers.insert("User-Agent".into(), json!([ua]));
+                    }
+                }
+            }
         }
     }
 

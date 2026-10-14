@@ -344,7 +344,11 @@ const EN: Words = Words {
 - `size-limit`: a download past it fails, and what was held before is kept; Mihomo cuts \
   the body at the limit and reads what is left of it.\n\
 - A download is not redirected from https to http, nor to another scheme, which Mihomo's \
-  client follows: what the request carries, a subscription's token, would go in the clear.\n\n\
+  client follows: what the request carries, a subscription's token, would go in the clear.\n\
+- Without `global-ua`, a download says it is `sail/<version>`, not `clash.meta/<version>`. A \
+  subscription server that picks what it gives by the User-Agent gives one it does not know \
+  share links, plain or in base64, which sail reads as it reads Clash's YAML; set \
+  `global-ua`, or the provider's `header`, for the YAML.\n\n\
 As in Mihomo, a rule on addresses (`IP-CIDR`, `GEOIP` and the like, without `no-resolve`) \
 resolves a domain only to match it: a direct outbound dials the address it resolved to, \
 while a proxy's server is still sent the domain.\n\n\
@@ -397,7 +401,8 @@ const ZH: Words = Words {
             支持：读取（或仅因取值被拒）。警告：丢弃并警告。报错：未实现，拒绝。",
     differences: "## 有意的差异\n\n\
 - `size-limit`：下载超过它即失败，保留原有内容；Mihomo 会在上限处截断并读取截断后的内容。\n\
-- 下载不跟随从 https 到 http 或到其他协议的重定向（Mihomo 的客户端会跟随）：请求携带的内容（如订阅令牌）会以明文传出。\n\n\
+- 下载不跟随从 https 到 http 或到其他协议的重定向（Mihomo 的客户端会跟随）：请求携带的内容（如订阅令牌）会以明文传出。\n\
+- 未设 `global-ua` 时，下载的 User-Agent 是 `sail/<版本>`，不是 `clash.meta/<版本>`。按 User-Agent 决定返回格式的订阅服务器，对不认识的 User-Agent 返回分享链接（明文或 base64），sail 同样能读取；要拿到 Clash 的 YAML，请设置 `global-ua` 或提供者的 `header`。\n\n\
 与 Mihomo 一致，地址规则（`IP-CIDR`、`GEOIP` 等，未加 `no-resolve`）解析域名只为匹配：直连出站连接解析出的地址，代理服务器收到的仍是域名。\n\n\
 `timeout`、`max-failed-times`、`expected-status` 和 `lazy` 对 `url-test` 与 `fallback` 组生效，对其他组（即表中实测的组）警告并忽略。lazy 的 `url-test` 组在闲置一个 `interval` 后暂停测试，与 Mihomo 一致；sail 自身配置中的 urltest 在 `idle_timeout`（默认 30 分钟）后暂停。\n\n\
 与 Mihomo 一致，嗅探器的 `override-destination` 在嗅探处把嗅探到的域名设为目标：之后的规则匹配该域名，地址规则会解析它。\
