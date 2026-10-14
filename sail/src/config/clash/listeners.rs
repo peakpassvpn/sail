@@ -496,15 +496,9 @@ fn reality(mut r: Fields, warnings: &mut Vec<String>) -> Result<Option<Value>> {
     }
     let (host, port) =
         split_host_port(&dest).ok_or_else(|| anyhow!("{}: {:?} names no port", dest_at, dest))?;
-    let name = match names.as_slice() {
-        [name] => name.clone(),
-        [] => return Err(anyhow!("{}: empty: no client would be taken", names_at)),
-        _ => {
-            return Err(anyhow!(
-                "{}: sail does not take more than one name yet",
-                names_at
-            ))
-        }
+    // The first name is the inbound's, any others sail's extension.
+    let Some((name, more)) = names.split_first() else {
+        return Err(anyhow!("{}: empty: no client would be taken", names_at));
     };
     if proxy.is_some() {
         return Err(anyhow!(
@@ -522,6 +516,9 @@ fn reality(mut r: Fields, warnings: &mut Vec<String>) -> Result<Option<Value>> {
     reality.insert("short_id".into(), json!(short_ids));
     if micros > 0 {
         reality.insert("max_time_difference".into(), json!(format!("{}us", micros)));
+    }
+    if !more.is_empty() {
+        reality.insert("server_names".into(), json!(more));
     }
     Ok(Some(
         json!({ "enabled": true, "server_name": name, "reality": reality }),

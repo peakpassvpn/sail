@@ -2365,6 +2365,18 @@ fn a_vless_listener_is_a_vless_inbound_and_reality_its_tls() {
     )
     .unwrap();
     assert_eq!(t["tls"]["reality"]["enabled"], true);
+    // More than one name: the first is the inbound's, the rest sail's
+    // `server_names`.
+    let (t, _) = inbound(
+        "trojan",
+        &format!(
+            ", users: [{{ password: p }}]{}",
+            reality("").replace("server-names: [www.example.com]", "server-names: [a, b, c]")
+        ),
+    )
+    .unwrap();
+    assert_eq!(t["tls"]["server_name"], "a");
+    assert_eq!(t["tls"]["reality"]["server_names"], json!(["b", "c"]));
     let e = inbound(
         "vless",
         &format!(
@@ -2429,11 +2441,6 @@ fn a_vless_listener_is_a_vless_inbound_and_reality_its_tls() {
                 reality("")
             ),
             "listeners[0].reality-config: with a certificate: Mihomo takes one of the two",
-        ),
-        (
-            "http",
-            reality("").replace("server-names: [www.example.com]", "server-names: [a, b]"),
-            "listeners[0].reality-config.server-names: sail does not take more than one name yet",
         ),
         (
             "http",
