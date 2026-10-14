@@ -1,3 +1,4 @@
+use std::future::Future;
 use std::io::{self};
 
 use crate::app::dns::FakeIp;
@@ -274,6 +275,17 @@ impl OutboundDatagram for HealthcheckUdpDatagram {
     ) {
         (Box::new(self.recv), Box::new(self.send))
     }
+}
+
+/// A connection handed over to its outbound: what its relay keeps.
+struct Established {
+    lhs: AnyStream,
+    rhs: AnyStream,
+    /// Its place among the sessions, held while it is relayed.
+    place: Option<super::sessions::Place>,
+    /// What its relay's failure is told with.
+    destination: SocksAddr,
+    path: Box<str>,
 }
 
 #[inline]
@@ -588,15 +600,64 @@ impl Dispatcher {
         &self.env
     }
 
-    pub async fn dispatch_stream<T>(&self, sess: Session, lhs: T)
+    /// Routes the connection `lhs`, of `sess`, and relays it to where the
+    /// routing sends it.
+    ///
+    /// A connection lives in two phases: its routing, dial and handshake,
+    /// in a future of their own that is freed once it is relayed, and the
+    /// relay, which is all an established connection keeps. Each relayed
+    /// connection is a task as large as what it awaits: inline, the first
+    /// phase's state (the session several times over, the routing, the
+    /// dial) was kept for as long as the connection lived.
+    pub fn dispatch_stream<T>(&self, sess: Session, lhs: T) -> impl Future<Output = ()> + Send + '_
     where
         T: 'static + AsyncRead + AsyncWrite + Unpin + Send + Sync,
     {
         let span = sess.span();
-        self.dispatch_stream_inner(sess, lhs).instrument(span).await
+        let connecting = Box::pin(self.connect_stream(sess, lhs));
+        async move {
+            if let Some(established) = connecting.await {
+                self.relay(established).await;
+            }
+        }
+        .instrument(span)
     }
 
-    async fn dispatch_stream_inner<T>(&self, mut sess: Session, lhs: T)
+    /// What a connection keeps once it is relayed.
+    async fn relay(&self, established: Established) {
+        let Established {
+            mut lhs,
+            mut rhs,
+            place: _place,
+            destination,
+            path,
+        } = established;
+        let relay = &self.env.options.relay;
+        match net::relay::copy_buf_bidirectional_with_timeout(
+            &mut lhs,
+            &mut rhs,
+            relay.buffer_size * 1024,
+            relay.buffer_max_size.max(relay.buffer_size) * 1024,
+            net::relay::RelayTimeouts {
+                write_stall: relay.write_stall_timeout,
+                a_to_b_idle: relay.uplink_idle_timeout,
+                b_to_a_idle: relay.downlink_idle_timeout,
+            },
+        )
+        .await
+        {
+            Ok(_) => {
+                debug!("transfer end");
+            }
+            Err(e) => {
+                debug!("transfer dst={} out={} err={}", destination, path, e);
+            }
+        }
+    }
+
+    /// Routes, dials and hands the connection `lhs` over to its outbound;
+    /// `None` when it goes nowhere, or is refused, or served here.
+    async fn connect_stream<T>(&self, mut sess: Session, lhs: T) -> Option<Established>
     where
         T: 'static + AsyncRead + AsyncWrite + Unpin + Send + Sync,
     {
@@ -605,27 +666,23 @@ impl Dispatcher {
         // sessions, or is refused one.
         let handshake = sess.handshake.take();
         if !admitted(&sess) {
-            return;
+            return None;
         }
         // Its place, held as long as it lives; without one, it is refused
         // as a general failure (SOCKS REP 1): the limit is sail's own, not
         // the destination refusing.
         let entered = self.enter().await;
         drop(handshake);
-        let Ok(_place) = entered else {
+        let Ok(place) = entered else {
             let mut lhs = lhs;
             let e = io::Error::other("connection limit reached");
             refuse(&sess, &mut lhs, &e).await;
-            return;
+            return None;
         };
         // Routing, which may sniff and resolve, runs in a future of its own
         // that is freed once it decides: the one relaying for the life of
         // the connection does not keep room for it.
-        let Some((mut sess, routed, matched, mut lhs)) =
-            Box::pin(self.route_stream(sess, lhs)).await
-        else {
-            return;
-        };
+        let (mut sess, routed, matched, mut lhs) = Box::pin(self.route_stream(sess, lhs)).await?;
         use crate::control::events::RouteAction;
         let outbound = match routed {
             Routed::Outbound(tag) => tag,
@@ -642,7 +699,7 @@ impl Dispatcher {
                 {
                     debug!("hijack-dns: {}", e);
                 }
-                return;
+                return None;
             }
             Routed::Drop => {
                 self.unrouted(&sess, matched, RouteAction::Drop);
@@ -656,14 +713,14 @@ impl Dispatcher {
                     tokio::io::copy(&mut lhs, &mut tokio::io::sink()),
                 )
                 .await;
-                return;
+                return None;
             }
         };
 
         let Some(h) = self.outbound_manager.load().handler(outbound.as_deref()) else {
             warn!("handler not found");
             refuse(&sess, &mut lhs, &io::Error::other("no outbound")).await;
-            return;
+            return None;
         };
         self.find_dial_domain(&mut sess).await;
         sess.outbound_tag = h.tag().clone();
@@ -677,7 +734,7 @@ impl Dispatcher {
             Err(e) => {
                 debug!("get stream handler, err={}", e);
                 refuse(&sess, &mut lhs, &e).await;
-                return;
+                return None;
             }
         };
         // Each address a resolve rule handed on, in turn, the first that
@@ -795,39 +852,13 @@ impl Dispatcher {
                     asked: asked.as_ref(),
                 };
                 self.handled(&sess, h.tag(), told, Ok(elapsed));
-                // Told: the relay does not keep it.
-                drop(asked);
-
-                match net::relay::copy_buf_bidirectional_with_timeout(
-                    &mut lhs,
-                    &mut rhs,
-                    self.env.options.relay.buffer_size * 1024,
-                    self.env
-                        .options
-                        .relay
-                        .buffer_max_size
-                        .max(self.env.options.relay.buffer_size)
-                        * 1024,
-                    net::relay::RelayTimeouts {
-                        write_stall: self.env.options.relay.write_stall_timeout,
-                        a_to_b_idle: self.env.options.relay.uplink_idle_timeout,
-                        b_to_a_idle: self.env.options.relay.downlink_idle_timeout,
-                    },
-                )
-                .await
-                {
-                    Ok(_) => {
-                        debug!("transfer end");
-                    }
-                    Err(e) => {
-                        debug!(
-                            "transfer dst={} out={} err={}",
-                            &sess.destination,
-                            outbound_path(&sess, h.tag()),
-                            e
-                        );
-                    }
-                }
+                Some(Established {
+                    lhs,
+                    rhs,
+                    place,
+                    destination: sess.destination.clone(),
+                    path: outbound_path(&sess, h.tag()).into(),
+                })
             }
             Err(e) => {
                 debug!(
@@ -844,6 +875,7 @@ impl Dispatcher {
                 };
                 self.handled(&sess, h.tag(), told, Err(e.kind()));
                 refuse(&sess, &mut lhs, &e).await;
+                None
             }
         }
     }
@@ -1589,6 +1621,34 @@ async fn refuse<T: AsyncWrite + Unpin>(sess: &Session, lhs: &mut T, e: &io::Erro
 
 #[cfg(test)]
 mod tests {
+    /// A relayed connection's task is as large as what it awaits: the
+    /// routing, dial and handshake are in a future of their own, freed
+    /// once the connection is relayed, so the task keeps room for the
+    /// relay and not for them. Inline they made it 5,856 bytes.
+    #[tokio::test]
+    async fn a_connection_s_task_keeps_room_for_its_relay_alone() {
+        use std::mem::size_of_val;
+        let config = crate::config::Config::from_json(
+            r#"{ "outbounds": [{ "type": "direct", "tag": "d" }] }"#,
+        )
+        .unwrap();
+        let instance = crate::app::instance::Instance::build(
+            &config,
+            Vec::new(),
+            std::sync::Arc::default(),
+            std::sync::Arc::default(),
+        )
+        .unwrap();
+        let d = instance.dispatcher.clone();
+        let (a, _b) = tokio::io::duplex(64);
+        let task = d.dispatch_stream(crate::session::Session::default(), a);
+        let (a, _b) = tokio::io::duplex(64);
+        let connect = d.connect_stream(crate::session::Session::default(), a);
+        assert!(size_of_val(&task) <= 1_280, "{} bytes", size_of_val(&task));
+        // What the task no longer keeps room for.
+        assert!(size_of_val(&connect) > 2 * size_of_val(&task));
+    }
+
     /// A failure names the member a group took, not the group alone: the
     /// outermost first, as each group adds its member before dialling it,
     /// a group in a group after the group.
