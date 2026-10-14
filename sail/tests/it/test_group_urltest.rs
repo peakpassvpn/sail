@@ -140,6 +140,79 @@ fn a_switch_interrupts_connections_when_asked_to() {
     });
 }
 
+/// A connection through nested groups, a selector over a urltest, is
+/// ended by a switch of either group that interrupts its connections, as
+/// sing-box 1.15 attaches it to every group on its chain: the inner
+/// group's switch ends it only when the inner group interrupts, the
+/// outer's whatever the inner does.
+#[test]
+fn a_switch_of_an_inner_or_outer_group_interrupts_connections_through_both() {
+    rt().block_on(async {
+        for inner_interrupts in [true, false] {
+            let (_a, a_delay, p_a) = serve_adjustable("a", Duration::ZERO).await;
+            let (_b, p_b) = serve("b", Duration::from_millis(100)).await;
+            let (_c, p_c) = serve("c", Duration::ZERO).await;
+            let m = manager(
+                json!([
+                    {
+                        "type": "selector",
+                        "tag": "outer",
+                        "outbounds": ["auto", "c"],
+                        "interrupt_exist_connections": true,
+                    },
+                    {
+                        "type": "urltest",
+                        "tag": "auto",
+                        "outbounds": ["a", "b"],
+                        "url": URL,
+                        "interval": "300ms",
+                        "interrupt_exist_connections": inner_interrupts,
+                    },
+                    member("a", p_a),
+                    member("b", p_b),
+                    member("c", p_c),
+                ]),
+                &env(&format!("urltest-nested-{}", inner_interrupts)),
+            )
+            .unwrap();
+            assert!(eventually(Duration::from_secs(5), || tested(&m)).await);
+            let sess = session("10.0.0.1", "example.com");
+            let mut first = connect(&m, "outer", &sess).await.unwrap();
+            assert_eq!(which(&mut first).await.unwrap(), "a");
+
+            // The inner group switches.
+            a_delay.store(1000, Ordering::Relaxed);
+            assert!(eventually(Duration::from_secs(5), || selected(&m, "auto") == "b").await);
+            let mut second = connect(&m, "outer", &sess).await.unwrap();
+            assert_eq!(which(&mut second).await.unwrap(), "b");
+            if inner_interrupts {
+                let err = which(&mut first).await.unwrap_err();
+                assert!(err.to_string().contains("switched"), "{}", err);
+            } else {
+                assert_eq!(which(&mut first).await.unwrap(), "a");
+            }
+
+            // The outer one switches: every connection through it ends.
+            m.get_selector("outer")
+                .unwrap()
+                .write()
+                .await
+                .set_selected("c")
+                .unwrap();
+            assert_eq!(reached(&m, "outer", &sess).await.unwrap(), "c");
+            for stream in [&mut first, &mut second] {
+                let err = which(stream).await.unwrap_err();
+                assert!(
+                    err.to_string().contains("switched"),
+                    "{}: {}",
+                    inner_interrupts,
+                    err
+                );
+            }
+        }
+    });
+}
+
 #[test]
 fn it_is_not_selected_by_hand() {
     let m = manager(
