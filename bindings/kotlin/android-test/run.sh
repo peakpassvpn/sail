@@ -62,6 +62,34 @@ adb shell pm path android >/dev/null || {
 	echo "the device's package manager does not answer" >&2
 	exit 1
 }
+# And on a validated Wi-Fi, as each test starts and ends on: a boot whose
+# Wi-Fi could not resolve names (its validation failing) left the default
+# network on the emulated cellular one, and every test waiting a minute
+# for Wi-Fi. Turned off and on again twice at most, which has the system
+# validate it anew; then this boot counts as failed, and CI boots again.
+wifi_validated() {
+	adb shell dumpsys connectivity 2>/dev/null | tr -d '\r' |
+		grep 'NetworkAgentInfo{' | grep 'Transports: WIFI' |
+		grep -Eq '[ &]VALIDATED(&| |$)'
+}
+validated=
+for attempt in 1 2 3; do
+	for _ in $(seq 40); do
+		wifi_validated && { validated=1; break; }
+		sleep 1
+	done
+	[ -n "$validated" ] && break
+	[ "$attempt" = 3 ] && break
+	echo "Wi-Fi not validated; turning it off and on again ($attempt)"
+	adb shell svc wifi disable
+	sleep 2
+	adb shell svc wifi enable
+done
+[ -n "$validated" ] || {
+	echo "the device's Wi-Fi was not validated (it may not resolve names)" >&2
+	adb shell dumpsys connectivity | tr -d '\r' | grep -E 'NetworkAgentInfo\{|Active default' >&2 || true
+	exit 1
+}
 mkdir -p "$ROOT/bindings/kotlin/android-test/build"
 touch "$ROOT/bindings/kotlin/android-test/build/tests-began"
 
