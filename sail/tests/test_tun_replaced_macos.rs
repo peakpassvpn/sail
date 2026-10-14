@@ -227,7 +227,14 @@ fn a_replaced_route_goes_back_by_a_sweep_after_a_kill() -> Result<()> {
     }
     child.kill()?;
     child.wait()?;
-    let after_kill = interface_of_probe();
+    // The kernel takes a dead process's utun away a moment after its
+    // exit, not at it: until then the range still goes through it.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut after_kill = interface_of_probe();
+    while after_kill.starts_with("utun") && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(100));
+        after_kill = interface_of_probe();
+    }
     let undone = sail::embed::sweep(&RunDir::Default);
     let back = interface_of_probe();
     clear();
