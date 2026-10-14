@@ -2611,7 +2611,10 @@ fn a_tuic_listener_is_a_tuic_inbound() {
         tls
     ))
     .unwrap();
-    assert_eq!(v["users"][0]["uuid"], "00000000-0000-0000-0000-000000000000");
+    assert_eq!(
+        v["users"][0]["uuid"],
+        "00000000-0000-0000-0000-000000000000"
+    );
     assert_eq!(v["congestion_control"], "cubic");
     assert_eq!(v["auth_timeout"], "1000ms");
     assert_eq!(warnings.len(), 4, "{:?}", warnings);
@@ -2628,9 +2631,9 @@ fn a_tuic_listener_is_a_tuic_inbound() {
             "uuid": "00000000-0000-0000-0000-000000000000", "password": "q" }])
     );
     assert_eq!(warnings.len(), 3, "{:?}", warnings);
-    assert!(warnings[2].starts_with(
-        "listeners[0].users.b: 00000000-0000-0000-0000-000000000000 again"
-    ));
+    assert!(
+        warnings[2].starts_with("listeners[0].users.b: 00000000-0000-0000-0000-000000000000 again")
+    );
 
     for (fields, error) in [
         (
@@ -2677,7 +2680,10 @@ fn an_anytls_listener_is_an_anytls_inbound() {
         v["tls"],
         json!({ "enabled": true, "certificate_path": "c.pem", "key_path": "k.pem" })
     );
-    assert_eq!(v["padding_scheme"], json!(["stop=8", "0=30-30", "1=100-400"]));
+    assert_eq!(
+        v["padding_scheme"],
+        json!(["stop=8", "0=30-30", "1=100-400"])
+    );
 
     // Without TLS by leave alone, as Mihomo.
     let (v, _) = inbound(", users: { alice: a }, allow-insecure: true").unwrap();
@@ -2688,6 +2694,50 @@ fn an_anytls_listener_is_an_anytls_inbound() {
         "{}",
         e
     );
+}
+
+/// A vmess listener is a vmess inbound: users by UUID, AEAD alone, TLS
+/// optional as Mihomo's, and the carriers and sing-mux of the others.
+#[test]
+fn a_vmess_listener_is_a_vmess_inbound() {
+    let inbound = |fields: &str| {
+        parse(&format!(
+            "listeners: [{{ name: V, type: vmess, port: 443{} }}]\nrules: [\"MATCH,DIRECT\"]\n",
+            fields
+        ))
+        .map(|config| {
+            let inbound = config.inbounds.iter().find(|i| i.tag == "V").unwrap();
+            (serde_json::to_value(inbound).unwrap(), config.warnings)
+        })
+        .map_err(|e| format!("{:#}", e))
+    };
+    const UUID: &str = "b831381d-6324-4d53-ad4f-8cda48b30811";
+    // No TLS and no leave asked for, as Mihomo's vmess takes it.
+    let (v, warnings) = inbound(&format!(
+        ", users: [{{ username: alice, uuid: {}, alterId: 0 }}], ws-path: /v",
+        UUID
+    ))
+    .unwrap();
+    assert!(warnings.is_empty(), "{:?}", warnings);
+    assert_eq!(v["type"], "vmess");
+    assert_eq!(v["users"], json!([{ "name": "alice", "uuid": UUID }]));
+    assert!(v.get("tls").is_none());
+    assert_eq!(v["transport"]["type"], "ws");
+    assert_eq!(v["transport"]["path"], "/v");
+    assert_eq!(v["multiplex"], json!({ "enabled": true }));
+
+    // An alterId: AEAD alone, warned of; a certificate is its TLS.
+    let (v, warnings) = inbound(&format!(
+        ", users: [{{ uuid: {}, alterId: 64 }}], certificate: c.pem, private-key: k.pem",
+        UUID
+    ))
+    .unwrap();
+    assert_eq!(v["users"], json!([{ "uuid": UUID }]));
+    assert_eq!(v["tls"]["certificate_path"], "c.pem");
+    assert_eq!(warnings.len(), 1, "{:?}", warnings);
+    assert!(warnings[0].starts_with(
+        "listeners[0].users[0].alterId: a client with an alterId above 0 cannot connect"
+    ));
 }
 
 /// A listener's client authentication, as Mihomo's: `client-auth-type`
@@ -2866,8 +2916,8 @@ fn listeners_are_inbounds_and_their_proxy_a_rule() {
 fn listener_mistakes_name_the_field() {
     for (yaml, message) in [
         (
-            "listeners: [{ name: A, type: vmess, port: 1 }]",
-            "listeners[0].type: sail does not implement \"vmess\" listeners yet",
+            "listeners: [{ name: A, type: sudoku, port: 1 }]",
+            "listeners[0].type: sail does not implement \"sudoku\" listeners yet",
         ),
         (
             "listeners: [{ type: mixed, port: 1 }]",

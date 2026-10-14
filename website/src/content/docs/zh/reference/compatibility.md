@@ -44,9 +44,9 @@ sail 直接读取 sing-box、Clash / Mihomo 与 Surge 的配置。每种格式�
 | `general` | 48 | 35 | 11 | 2 |
 | `geox-url` | 5 | 0 | 5 | 0 |
 | `iptables` | 5 | 0 | 0 | 5 |
-| `listeners[anytls]` | 45 | 0 | 0 | 45 |
+| `listeners[anytls]` | 45 | 11 | 1 | 33 |
 | `listeners[http]` | 29 | 19 | 7 | 3 |
-| `listeners[hysteria2]` | 49 | 0 | 0 | 49 |
+| `listeners[hysteria2]` | 49 | 32 | 14 | 3 |
 | `listeners[mieru]` | 10 | 0 | 0 | 10 |
 | `listeners[mixed]` | 30 | 8 | 1 | 21 |
 | `listeners[redir]` | 6 | 4 | 1 | 1 |
@@ -58,11 +58,11 @@ sail 直接读取 sing-box、Clash / Mihomo 与 Surge 的配置。每种格式�
 | `listeners[tproxy]` | 7 | 5 | 1 | 1 |
 | `listeners[trojan]` | 73 | 28 | 7 | 38 |
 | `listeners[trusttunnel]` | 18 | 0 | 0 | 18 |
-| `listeners[tuic]` | 26 | 0 | 0 | 26 |
+| `listeners[tuic]` | 26 | 12 | 11 | 3 |
 | `listeners[tun]` | 55 | 0 | 0 | 55 |
 | `listeners[tunnel]` | 8 | 0 | 0 | 8 |
 | `listeners[vless]` | 93 | 29 | 7 | 57 |
-| `listeners[vmess]` | 116 | 0 | 0 | 116 |
+| `listeners[vmess]` | 116 | 28 | 7 | 81 |
 | `ntp` | 7 | 7 | 0 | 0 |
 | `profile` | 3 | 3 | 0 | 0 |
 | `proxies[anytls]` | 38 | 23 | 3 | 12 |
@@ -100,7 +100,7 @@ sail 直接读取 sing-box、Clash / Mihomo 与 Surge 的配置。每种格式�
 | `tls` | 7 | 0 | 7 | 0 |
 | `tuic-server` | 13 | 0 | 0 | 13 |
 | `tun` | 50 | 34 | 9 | 7 |
-| **All** | **2077** | **587** | **132** | **1358** |
+| **All** | **2077** | **670** | **165** | **1242** |
 
 ## Surge
 

@@ -34,9 +34,9 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `general` | 48 | 35 | 11 | 2 |
 | `geox-url` | 5 | 0 | 5 | 0 |
 | `iptables` | 5 | 0 | 0 | 5 |
-| `listeners[anytls]` | 45 | 0 | 0 | 45 |
+| `listeners[anytls]` | 45 | 11 | 1 | 33 |
 | `listeners[http]` | 29 | 19 | 7 | 3 |
-| `listeners[hysteria2]` | 49 | 0 | 0 | 49 |
+| `listeners[hysteria2]` | 49 | 32 | 14 | 3 |
 | `listeners[mieru]` | 10 | 0 | 0 | 10 |
 | `listeners[mixed]` | 30 | 8 | 1 | 21 |
 | `listeners[redir]` | 6 | 4 | 1 | 1 |
@@ -48,11 +48,11 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `listeners[tproxy]` | 7 | 5 | 1 | 1 |
 | `listeners[trojan]` | 73 | 28 | 7 | 38 |
 | `listeners[trusttunnel]` | 18 | 0 | 0 | 18 |
-| `listeners[tuic]` | 26 | 0 | 0 | 26 |
+| `listeners[tuic]` | 26 | 12 | 11 | 3 |
 | `listeners[tun]` | 55 | 0 | 0 | 55 |
 | `listeners[tunnel]` | 8 | 0 | 0 | 8 |
 | `listeners[vless]` | 93 | 29 | 7 | 57 |
-| `listeners[vmess]` | 116 | 0 | 0 | 116 |
+| `listeners[vmess]` | 116 | 28 | 7 | 81 |
 | `ntp` | 7 | 7 | 0 | 0 |
 | `profile` | 3 | 3 | 0 | 0 |
 | `proxies[anytls]` | 38 | 23 | 3 | 12 |
@@ -90,7 +90,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `tls` | 7 | 0 | 7 | 0 |
 | `tuic-server` | 13 | 0 | 0 | 13 |
 | `tun` | 50 | 34 | 9 | 7 |
-| **All** | **2077** | **587** | **132** | **1358** |
+| **All** | **2077** | **670** | **165** | **1242** |
 
 
 ## `general`
@@ -247,7 +247,51 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 
 | 字段 | sail | sail 的说明 |
 |---|---|---|
-| `listeners[anytls]` | 报错 | listeners[0].type: sail does not implement "anytls" listeners yet |
+| `listeners[anytls].allow-insecure` | 支持 |  |
+| `listeners[anytls].certificate` | 支持 |  |
+| `listeners[anytls].client-auth-cert` | 支持 |  |
+| `listeners[anytls].client-auth-type` | 支持 |  |
+| `listeners[anytls].ech-key` | 报错 | listeners[0].ech-key: sail does not implement this field yet |
+| `listeners[anytls].jls-config` | 报错 | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[anytls].jls-config.alpn` | 报错 | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[anytls].jls-config.dest` | 报错 | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[anytls].jls-config.enable` | 报错 | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[anytls].jls-config.proxy` | 报错 | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[anytls].jls-config.rate-limit` | 报错 | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[anytls].jls-config.sni` | 报错 | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[anytls].jls-config.users` | 报错 | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[anytls].jls-config.users[].password` | 报错 | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[anytls].jls-config.users[].username` | 报错 | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[anytls].listen` | 支持 |  |
+| `listeners[anytls].name` | 支持 |  |
+| `listeners[anytls].padding-scheme` | 支持 |  |
+| `listeners[anytls].port` | 支持 | listeners[0].port: "x": sail takes one port, not ranges, yet |
+| `listeners[anytls].private-key` | 支持 |  |
+| `listeners[anytls].proxy` | 支持 | listeners[0].proxy: no proxy or group is named "x" |
+| `listeners[anytls].res-tls` | 报错 | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[anytls].res-tls.dest` | 报错 | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[anytls].res-tls.enable` | 报错 | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[anytls].res-tls.min-record-len` | 报错 | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[anytls].res-tls.password` | 报错 | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[anytls].res-tls.proxy` | 报错 | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[anytls].res-tls.rate-limit` | 报错 | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[anytls].res-tls.restls-script` | 报错 | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[anytls].routing-mark` | 警告 | listeners[0].routing-mark: sail does not implement this field; ignored |
+| `listeners[anytls].rule` | 报错 | listeners[0].rule: sail does not implement this field yet |
+| `listeners[anytls].shadow-tls` | 报错 | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[anytls].shadow-tls.enable` | 报错 | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[anytls].shadow-tls.handshake` | 报错 | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[anytls].shadow-tls.handshake-for-server-name` | 报错 | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[anytls].shadow-tls.handshake.dest` | 报错 | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[anytls].shadow-tls.handshake.proxy` | 报错 | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[anytls].shadow-tls.password` | 报错 | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[anytls].shadow-tls.strict-mode` | 报错 | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[anytls].shadow-tls.users` | 报错 | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[anytls].shadow-tls.users[].name` | 报错 | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[anytls].shadow-tls.users[].password` | 报错 | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[anytls].shadow-tls.version` | 报错 | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[anytls].shadow-tls.wildcard-sni` | 报错 | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[anytls].users` | 支持 |  |
 
 ## `listeners[http]`
 
@@ -287,7 +331,55 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 
 | 字段 | sail | sail 的说明 |
 |---|---|---|
-| `listeners[hysteria2]` | 报错 | listeners[0].type: sail does not implement "hysteria2" listeners yet |
+| `listeners[hysteria2].alpn` | 支持 |  |
+| `listeners[hysteria2].bbr-profile` | 警告 | listeners[0].bbr-profile: sail does not tune its QUIC listeners so; ignored |
+| `listeners[hysteria2].certificate` | 支持 |  |
+| `listeners[hysteria2].client-auth-cert` | 支持 |  |
+| `listeners[hysteria2].client-auth-type` | 支持 |  |
+| `listeners[hysteria2].cwnd` | 警告 | listeners[0].cwnd: sail does not tune its QUIC listeners so; ignored |
+| `listeners[hysteria2].down` | 支持 |  |
+| `listeners[hysteria2].ech-key` | 报错 | listeners[0].ech-key: sail does not implement this field yet |
+| `listeners[hysteria2].ignore-client-bandwidth` | 支持 |  |
+| `listeners[hysteria2].initial-connection-receive-window` | 警告 | listeners[0].initial-connection-receive-window: sail does not tune its QUIC listeners so; ignored |
+| `listeners[hysteria2].initial-stream-receive-window` | 警告 | listeners[0].initial-stream-receive-window: sail does not tune its QUIC listeners so; ignored |
+| `listeners[hysteria2].listen` | 支持 |  |
+| `listeners[hysteria2].masquerade` | 支持 | listeners[0].masquerade: "x": Mihomo takes an http, https or file URL |
+| `listeners[hysteria2].max-connection-receive-window` | 警告 | listeners[0].max-connection-receive-window: sail does not tune its QUIC listeners so; ignored |
+| `listeners[hysteria2].max-idle-time` | 支持 |  |
+| `listeners[hysteria2].max-stream-receive-window` | 警告 | listeners[0].max-stream-receive-window: sail does not tune its QUIC listeners so; ignored |
+| `listeners[hysteria2].mux-option` | 警告 | listeners[0].mux-option: sail serves no sing-mux over QUIC, which no client asks for; ignored |
+| `listeners[hysteria2].mux-option.brutal` | 警告 | listeners[0].mux-option: sail serves no sing-mux over QUIC, which no client asks for; ignored |
+| `listeners[hysteria2].mux-option.brutal.down` | 警告 | listeners[0].mux-option: sail serves no sing-mux over QUIC, which no client asks for; ignored |
+| `listeners[hysteria2].mux-option.brutal.enabled` | 警告 | listeners[0].mux-option: sail serves no sing-mux over QUIC, which no client asks for; ignored |
+| `listeners[hysteria2].mux-option.brutal.up` | 警告 | listeners[0].mux-option: sail serves no sing-mux over QUIC, which no client asks for; ignored |
+| `listeners[hysteria2].mux-option.padding` | 警告 | listeners[0].mux-option: sail serves no sing-mux over QUIC, which no client asks for; ignored |
+| `listeners[hysteria2].name` | 支持 |  |
+| `listeners[hysteria2].obfs` | 支持 | listeners[0].obfs-password: missing, which Mihomo requires with obfs |
+| `listeners[hysteria2].obfs-max-packet-size` | 支持 |  |
+| `listeners[hysteria2].obfs-min-packet-size` | 支持 |  |
+| `listeners[hysteria2].obfs-password` | 支持 |  |
+| `listeners[hysteria2].port` | 支持 | listeners[0].port: "x": sail takes one port, not ranges, yet |
+| `listeners[hysteria2].private-key` | 支持 |  |
+| `listeners[hysteria2].proxy` | 支持 | listeners[0].proxy: no proxy or group is named "x" |
+| `listeners[hysteria2].realm-opts` | 支持 |  |
+| `listeners[hysteria2].realm-opts.alpn` | 支持 |  |
+| `listeners[hysteria2].realm-opts.certificate` | 支持 |  |
+| `listeners[hysteria2].realm-opts.enable` | 报错 | listeners[0].realm-opts: sail does not implement Hysteria realms |
+| `listeners[hysteria2].realm-opts.fingerprint` | 支持 |  |
+| `listeners[hysteria2].realm-opts.name-cert-verify` | 支持 |  |
+| `listeners[hysteria2].realm-opts.private-key` | 支持 |  |
+| `listeners[hysteria2].realm-opts.proxy` | 支持 |  |
+| `listeners[hysteria2].realm-opts.realm-id` | 支持 |  |
+| `listeners[hysteria2].realm-opts.server-url` | 支持 |  |
+| `listeners[hysteria2].realm-opts.skip-cert-verify` | 支持 |  |
+| `listeners[hysteria2].realm-opts.sni` | 支持 |  |
+| `listeners[hysteria2].realm-opts.stun-servers` | 支持 |  |
+| `listeners[hysteria2].realm-opts.token` | 支持 |  |
+| `listeners[hysteria2].routing-mark` | 警告 | listeners[0].routing-mark: sail does not implement this field; ignored |
+| `listeners[hysteria2].rule` | 报错 | listeners[0].rule: sail does not implement this field yet |
+| `listeners[hysteria2].udp-mtu` | 警告 | listeners[0].udp-mtu: sail does not tune its QUIC listeners so; ignored |
+| `listeners[hysteria2].up` | 支持 |  |
+| `listeners[hysteria2].users` | 支持 |  |
 
 ## `listeners[mieru]`
 
@@ -575,7 +667,32 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 
 | 字段 | sail | sail 的说明 |
 |---|---|---|
-| `listeners[tuic]` | 报错 | listeners[0].type: sail does not implement "tuic" listeners yet |
+| `listeners[tuic].alpn` | 支持 |  |
+| `listeners[tuic].authentication-timeout` | 支持 |  |
+| `listeners[tuic].bbr-profile` | 警告 | listeners[0].bbr-profile: sail does not tune its QUIC listeners so; ignored |
+| `listeners[tuic].certificate` | 支持 |  |
+| `listeners[tuic].client-auth-cert` | 支持 |  |
+| `listeners[tuic].client-auth-type` | 支持 |  |
+| `listeners[tuic].congestion-controller` | 支持 |  |
+| `listeners[tuic].cwnd` | 警告 | listeners[0].cwnd: sail does not tune its QUIC listeners so; ignored |
+| `listeners[tuic].ech-key` | 报错 | listeners[0].ech-key: sail does not implement this field yet |
+| `listeners[tuic].listen` | 支持 |  |
+| `listeners[tuic].max-idle-time` | 警告 | listeners[0].max-idle-time: sail does not tune its QUIC listeners so; ignored |
+| `listeners[tuic].max-udp-relay-packet-size` | 警告 | listeners[0].max-udp-relay-packet-size: sail does not tune its QUIC listeners so; ignored |
+| `listeners[tuic].mux-option` | 警告 | listeners[0].mux-option: sail serves no sing-mux over QUIC, which no client asks for; ignored |
+| `listeners[tuic].mux-option.brutal` | 警告 | listeners[0].mux-option: sail serves no sing-mux over QUIC, which no client asks for; ignored |
+| `listeners[tuic].mux-option.brutal.down` | 警告 | listeners[0].mux-option: sail serves no sing-mux over QUIC, which no client asks for; ignored |
+| `listeners[tuic].mux-option.brutal.enabled` | 警告 | listeners[0].mux-option: sail serves no sing-mux over QUIC, which no client asks for; ignored |
+| `listeners[tuic].mux-option.brutal.up` | 警告 | listeners[0].mux-option: sail serves no sing-mux over QUIC, which no client asks for; ignored |
+| `listeners[tuic].mux-option.padding` | 警告 | listeners[0].mux-option: sail serves no sing-mux over QUIC, which no client asks for; ignored |
+| `listeners[tuic].name` | 支持 |  |
+| `listeners[tuic].port` | 支持 | listeners[0].port: "x": sail takes one port, not ranges, yet |
+| `listeners[tuic].private-key` | 支持 |  |
+| `listeners[tuic].proxy` | 支持 | listeners[0].proxy: no proxy or group is named "x" |
+| `listeners[tuic].routing-mark` | 警告 | listeners[0].routing-mark: sail does not implement this field; ignored |
+| `listeners[tuic].rule` | 报错 | listeners[0].rule: sail does not implement this field yet |
+| `listeners[tuic].token` | 报错 | listeners[0].token: TUIC v4's, which sail does not implement |
+| `listeners[tuic].users` | 支持 |  |
 
 ## `listeners[tun]`
 
@@ -691,7 +808,122 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 
 | 字段 | sail | sail 的说明 |
 |---|---|---|
-| `listeners[vmess]` | 报错 | listeners[0].type: sail does not implement "vmess" listeners yet |
+| `listeners[vmess].certificate` | 支持 |  |
+| `listeners[vmess].client-auth-cert` | 支持 |  |
+| `listeners[vmess].client-auth-type` | 支持 |  |
+| `listeners[vmess].ech-key` | 报错 | listeners[0].ech-key: sail does not implement this field yet |
+| `listeners[vmess].grpc-service-name` | 支持 |  |
+| `listeners[vmess].jls-config` | 报错 | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[vmess].jls-config.alpn` | 报错 | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[vmess].jls-config.dest` | 报错 | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[vmess].jls-config.enable` | 报错 | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[vmess].jls-config.proxy` | 报错 | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[vmess].jls-config.rate-limit` | 报错 | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[vmess].jls-config.sni` | 报错 | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[vmess].jls-config.users` | 报错 | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[vmess].jls-config.users[].password` | 报错 | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[vmess].jls-config.users[].username` | 报错 | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[vmess].listen` | 支持 |  |
+| `listeners[vmess].mekya-config` | 报错 | listeners[0].mekya-config: sail does not implement this field yet |
+| `listeners[vmess].mekya-config.enable` | 报错 | listeners[0].mekya-config: sail does not implement this field yet |
+| `listeners[vmess].mekya-config.h2-pool-size` | 报错 | listeners[0].mekya-config: sail does not implement this field yet |
+| `listeners[vmess].mekya-config.kcp` | 报错 | listeners[0].mekya-config: sail does not implement this field yet |
+| `listeners[vmess].mekya-config.kcp.congestion` | 报错 | listeners[0].mekya-config: sail does not implement this field yet |
+| `listeners[vmess].mekya-config.kcp.downlink-capacity` | 报错 | listeners[0].mekya-config: sail does not implement this field yet |
+| `listeners[vmess].mekya-config.kcp.enable` | 报错 | listeners[0].mekya-config: sail does not implement this field yet |
+| `listeners[vmess].mekya-config.kcp.header` | 报错 | listeners[0].mekya-config: sail does not implement this field yet |
+| `listeners[vmess].mekya-config.kcp.mtu` | 报错 | listeners[0].mekya-config: sail does not implement this field yet |
+| `listeners[vmess].mekya-config.kcp.read-buffer` | 报错 | listeners[0].mekya-config: sail does not implement this field yet |
+| `listeners[vmess].mekya-config.kcp.seed` | 报错 | listeners[0].mekya-config: sail does not implement this field yet |
+| `listeners[vmess].mekya-config.kcp.tti` | 报错 | listeners[0].mekya-config: sail does not implement this field yet |
+| `listeners[vmess].mekya-config.kcp.uplink-capacity` | 报错 | listeners[0].mekya-config: sail does not implement this field yet |
+| `listeners[vmess].mekya-config.kcp.write-buffer` | 报错 | listeners[0].mekya-config: sail does not implement this field yet |
+| `listeners[vmess].mekya-config.max-request-size` | 报错 | listeners[0].mekya-config: sail does not implement this field yet |
+| `listeners[vmess].mekya-config.max-simultaneous-write-connection` | 报错 | listeners[0].mekya-config: sail does not implement this field yet |
+| `listeners[vmess].mekya-config.max-write-delay` | 报错 | listeners[0].mekya-config: sail does not implement this field yet |
+| `listeners[vmess].mekya-config.max-write-duration-ms` | 报错 | listeners[0].mekya-config: sail does not implement this field yet |
+| `listeners[vmess].mekya-config.max-write-size` | 报错 | listeners[0].mekya-config: sail does not implement this field yet |
+| `listeners[vmess].mekya-config.packet-writing-buffer` | 报错 | listeners[0].mekya-config: sail does not implement this field yet |
+| `listeners[vmess].mekya-config.polling-interval-initial` | 报错 | listeners[0].mekya-config: sail does not implement this field yet |
+| `listeners[vmess].mekya-config.url` | 报错 | listeners[0].mekya-config: sail does not implement this field yet |
+| `listeners[vmess].mkcp-config` | 报错 | listeners[0].mkcp-config: sail does not implement this field yet |
+| `listeners[vmess].mkcp-config.congestion` | 报错 | listeners[0].mkcp-config: sail does not implement this field yet |
+| `listeners[vmess].mkcp-config.downlink-capacity` | 报错 | listeners[0].mkcp-config: sail does not implement this field yet |
+| `listeners[vmess].mkcp-config.enable` | 报错 | listeners[0].mkcp-config: sail does not implement this field yet |
+| `listeners[vmess].mkcp-config.header` | 报错 | listeners[0].mkcp-config: sail does not implement this field yet |
+| `listeners[vmess].mkcp-config.mtu` | 报错 | listeners[0].mkcp-config: sail does not implement this field yet |
+| `listeners[vmess].mkcp-config.read-buffer` | 报错 | listeners[0].mkcp-config: sail does not implement this field yet |
+| `listeners[vmess].mkcp-config.seed` | 报错 | listeners[0].mkcp-config: sail does not implement this field yet |
+| `listeners[vmess].mkcp-config.tti` | 报错 | listeners[0].mkcp-config: sail does not implement this field yet |
+| `listeners[vmess].mkcp-config.uplink-capacity` | 报错 | listeners[0].mkcp-config: sail does not implement this field yet |
+| `listeners[vmess].mkcp-config.write-buffer` | 报错 | listeners[0].mkcp-config: sail does not implement this field yet |
+| `listeners[vmess].mux-option` | 支持 |  |
+| `listeners[vmess].mux-option.brutal` | 支持 |  |
+| `listeners[vmess].mux-option.brutal.down` | 支持 |  |
+| `listeners[vmess].mux-option.brutal.enabled` | 支持 |  |
+| `listeners[vmess].mux-option.brutal.up` | 支持 |  |
+| `listeners[vmess].mux-option.padding` | 支持 |  |
+| `listeners[vmess].name` | 支持 |  |
+| `listeners[vmess].port` | 支持 | listeners[0].port: "x": sail takes one port, not ranges, yet |
+| `listeners[vmess].private-key` | 支持 |  |
+| `listeners[vmess].proxy` | 支持 | listeners[0].proxy: no proxy or group is named "x" |
+| `listeners[vmess].reality-config` | 支持 | listeners[0].reality-config.dest: missing |
+| `listeners[vmess].reality-config.dest` | 支持 | listeners[0].reality-config.dest: "x" names no port |
+| `listeners[vmess].reality-config.limit-fallback-download` | 支持 |  |
+| `listeners[vmess].reality-config.limit-fallback-download.after-bytes` | 警告 | listeners[0].reality-config.limit-fallback-download: sail does not limit what REALITY relays to the site it imitates; ignored |
+| `listeners[vmess].reality-config.limit-fallback-download.burst-bytes-per-sec` | 警告 | listeners[0].reality-config.limit-fallback-download: sail does not limit what REALITY relays to the site it imitates; ignored |
+| `listeners[vmess].reality-config.limit-fallback-download.bytes-per-sec` | 警告 | listeners[0].reality-config.limit-fallback-download: sail does not limit what REALITY relays to the site it imitates; ignored |
+| `listeners[vmess].reality-config.limit-fallback-upload` | 支持 |  |
+| `listeners[vmess].reality-config.limit-fallback-upload.after-bytes` | 警告 | listeners[0].reality-config.limit-fallback-upload: sail does not limit what REALITY relays to the site it imitates; ignored |
+| `listeners[vmess].reality-config.limit-fallback-upload.burst-bytes-per-sec` | 警告 | listeners[0].reality-config.limit-fallback-upload: sail does not limit what REALITY relays to the site it imitates; ignored |
+| `listeners[vmess].reality-config.limit-fallback-upload.bytes-per-sec` | 警告 | listeners[0].reality-config.limit-fallback-upload: sail does not limit what REALITY relays to the site it imitates; ignored |
+| `listeners[vmess].reality-config.max-time-difference` | 支持 |  |
+| `listeners[vmess].reality-config.private-key` | 支持 | [L] inbound: tls.reality.private_key: neither hex nor base64url |
+| `listeners[vmess].reality-config.proxy` | 报错 | listeners[0].reality-config.proxy: sail does not dial the site REALITY imitates through a proxy yet |
+| `listeners[vmess].reality-config.server-names` | 支持 |  |
+| `listeners[vmess].reality-config.short-id` | 支持 | [L] inbound: tls.reality.short_id: not hex |
+| `listeners[vmess].res-tls` | 报错 | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[vmess].res-tls.dest` | 报错 | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[vmess].res-tls.enable` | 报错 | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[vmess].res-tls.min-record-len` | 报错 | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[vmess].res-tls.password` | 报错 | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[vmess].res-tls.proxy` | 报错 | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[vmess].res-tls.rate-limit` | 报错 | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[vmess].res-tls.restls-script` | 报错 | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[vmess].routing-mark` | 警告 | listeners[0].routing-mark: sail does not implement this field; ignored |
+| `listeners[vmess].rule` | 报错 | listeners[0].rule: sail does not implement this field yet |
+| `listeners[vmess].shadow-tls` | 报错 | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[vmess].shadow-tls.enable` | 报错 | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[vmess].shadow-tls.handshake` | 报错 | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[vmess].shadow-tls.handshake-for-server-name` | 报错 | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[vmess].shadow-tls.handshake.dest` | 报错 | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[vmess].shadow-tls.handshake.proxy` | 报错 | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[vmess].shadow-tls.password` | 报错 | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[vmess].shadow-tls.strict-mode` | 报错 | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[vmess].shadow-tls.users` | 报错 | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[vmess].shadow-tls.users[].name` | 报错 | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[vmess].shadow-tls.users[].password` | 报错 | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[vmess].shadow-tls.version` | 报错 | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[vmess].shadow-tls.wildcard-sni` | 报错 | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[vmess].tlsmirror-config` | 报错 | listeners[0].tlsmirror-config: sail does not implement this field yet |
+| `listeners[vmess].tlsmirror-config.connection-enrolment` | 报错 | listeners[0].tlsmirror-config: sail does not implement this field yet |
+| `listeners[vmess].tlsmirror-config.connection-enrolment.primary-egress-outbound` | 报错 | listeners[0].tlsmirror-config: sail does not implement this field yet |
+| `listeners[vmess].tlsmirror-config.connection-enrolment.primary-ingress-outbound` | 报错 | listeners[0].tlsmirror-config: sail does not implement this field yet |
+| `listeners[vmess].tlsmirror-config.defer-instance-derived-write-time` | 报错 | listeners[0].tlsmirror-config: sail does not implement this field yet |
+| `listeners[vmess].tlsmirror-config.defer-instance-derived-write-time.base-nanoseconds` | 报错 | listeners[0].tlsmirror-config: sail does not implement this field yet |
+| `listeners[vmess].tlsmirror-config.defer-instance-derived-write-time.uniform-random-multiplier-nanoseconds` | 报错 | listeners[0].tlsmirror-config: sail does not implement this field yet |
+| `listeners[vmess].tlsmirror-config.dest` | 报错 | listeners[0].tlsmirror-config: sail does not implement this field yet |
+| `listeners[vmess].tlsmirror-config.explicit-nonce-ciphersuites` | 报错 | listeners[0].tlsmirror-config: sail does not implement this field yet |
+| `listeners[vmess].tlsmirror-config.primary-key` | 报错 | listeners[0].tlsmirror-config: sail does not implement this field yet |
+| `listeners[vmess].tlsmirror-config.proxy` | 报错 | listeners[0].tlsmirror-config: sail does not implement this field yet |
+| `listeners[vmess].tlsmirror-config.sequence-watermarking-enabled` | 报错 | listeners[0].tlsmirror-config: sail does not implement this field yet |
+| `listeners[vmess].tlsmirror-config.transport-layer-padding` | 报错 | listeners[0].tlsmirror-config: sail does not implement this field yet |
+| `listeners[vmess].tlsmirror-config.transport-layer-padding.enabled` | 报错 | listeners[0].tlsmirror-config: sail does not implement this field yet |
+| `listeners[vmess].users` | 支持 | listeners[0].users[0]: a map, not a string |
+| `listeners[vmess].users[].alterId` | 支持 |  |
+| `listeners[vmess].users[].username` | 支持 |  |
+| `listeners[vmess].users[].uuid` | 支持 |  |
+| `listeners[vmess].ws-path` | 支持 |  |
 
 ## `general`
 

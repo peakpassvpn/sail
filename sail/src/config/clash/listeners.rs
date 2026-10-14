@@ -12,7 +12,7 @@
 //! Mihomo keeps them: a rule before every other rejects the others' TCP
 //! and UDP alike.
 //!
-//! The proxy listeners (trojan, vless) serve sing-mux, as all of Mihomo's do,
+//! The proxy listeners (trojan, vless, vmess) serve sing-mux, as all of Mihomo's do,
 //! over a websocket at `ws-path` or gRPC under `grpc-service-name` where
 //! one is given. The QUIC ones (hysteria2, tuic) do not, where Mihomo's do: no
 //! client asks for it over QUIC. Nor does anytls, which is a mux itself.
@@ -48,6 +48,7 @@ const TYPES: &[(&str, &str)] = &[
     ("hysteria2", "hysteria2"),
     ("tuic", "tuic"),
     ("anytls", "anytls"),
+    ("vmess", "vmess"),
 ];
 
 /// The early data a websocket client may send in `Sec-WebSocket-Protocol`,
@@ -73,6 +74,9 @@ const FIELDS: &[(&str, Tier)] = &[
     ("kcp-tun", Unsupported),
     ("ss-option", Unsupported),
     ("xhttp-config", Unsupported),
+    ("tlsmirror-config", Unsupported),
+    ("mekya-config", Unsupported),
+    ("mkcp-config", Unsupported),
     ("simple-obfs", Unsupported),
 ];
 
@@ -189,12 +193,12 @@ pub fn lower(
                 inbound.insert("method".into(), json!(method));
                 inbound.insert("password".into(), json!(password));
             }
-            "trojan" => {
-                let users = users(&mut f, "password", warnings)?;
+            "trojan" | "vmess" => {
+                let users = users(&mut f, protocol, warnings)?;
                 inbound.insert("users".into(), Value::Array(users));
             }
             "vless" => {
-                let users = users(&mut f, "uuid", warnings)?;
+                let users = users(&mut f, "vless", warnings)?;
                 inbound.insert("users".into(), Value::Array(users));
                 // VLESS encryption, Mihomo's and Xray's: none is "none".
                 let at = f.at("decryption");
@@ -232,14 +236,18 @@ pub fn lower(
             }
             _ => {}
         }
-        if matches!(protocol, "http" | "trojan" | "vless" | "anytls") {
+        if matches!(protocol, "http" | "trojan" | "vless" | "vmess" | "anytls") {
             tls(&mut f, out.home.as_deref(), &mut inbound, warnings)?;
         }
         if matches!(protocol, "trojan" | "vless" | "anytls") {
             // As Mihomo: none of these but by leave.
             let insecure = f.bool("allow-insecure")?.unwrap_or(false);
             if !inbound.contains_key("tls") && !insecure {
-                let or_reality = if protocol == "anytls" { "" } else { " or REALITY" };
+                let or_reality = if protocol == "anytls" {
+                    ""
+                } else {
+                    " or REALITY"
+                };
                 return Err(anyhow!(
                     "{}: no certificate{}, and not allow-insecure: Mihomo refuses \
                      a {} listener without TLS",
@@ -249,7 +257,7 @@ pub fn lower(
                 ));
             }
         }
-        if matches!(protocol, "trojan" | "vless") {
+        if matches!(protocol, "trojan" | "vless" | "vmess") {
             carriers(&mut f, &mut inbound, warnings)?;
         }
         // Mihomo's are TCP alone without it; sail's carry UDP all the same.
@@ -575,7 +583,10 @@ fn hysteria2(
     match f.string("obfs")?.filter(|o| !o.is_empty()).as_deref() {
         None => {}
         Some(_) if password.is_empty() => {
-            return Err(anyhow!("{}: missing, which Mihomo requires with obfs", password_at))
+            return Err(anyhow!(
+                "{}: missing, which Mihomo requires with obfs",
+                password_at
+            ))
         }
         Some("salamander") => {
             inbound.insert(
@@ -885,10 +896,16 @@ fn quic_tuning(f: &mut Fields, warnings: &mut Vec<String>) -> Result<()> {
     Ok(())
 }
 
-/// A proxy listener's users, by `secret`, the password or the UUID, its
-/// `username` the user's name, and a vless user's `flow`; of two with one
-/// secret the last is taken, as Mihomo keys them by it.
-fn users(f: &mut Fields, secret: &str, warnings: &mut Vec<String>) -> Result<Vec<Value>> {
+/// A proxy listener's users, by their secret, a trojan user's password or
+/// a vless or vmess user's UUID, its `username` the user's name, and a
+/// vless user's `flow`; of two with one secret the last is taken, as
+/// Mihomo keys them by it.
+fn users(f: &mut Fields, protocol: &str, warnings: &mut Vec<String>) -> Result<Vec<Value>> {
+    let secret = if protocol == "trojan" {
+        "password"
+    } else {
+        "uuid"
+    };
     let at = f.at("users");
     let mut users: Vec<(String, Value)> = Vec::new();
     for (j, item) in f.list("users")?.into_iter().enumerate() {
@@ -901,10 +918,20 @@ fn users(f: &mut Fields, secret: &str, warnings: &mut Vec<String>) -> Result<Vec
             user.insert("name".into(), json!(name));
         }
         user.insert(secret.into(), json!(value));
-        if secret == "uuid" {
+        if protocol == "vless" {
             if let Some(flow) = u.string("flow")?.filter(|f| !f.is_empty()) {
                 user.insert("flow".into(), json!(flow));
             }
+        }
+        // Mihomo's sing-vmess serves AEAD headers to every user, and the
+        // legacy ones too to a user with an alterId.
+        let alter_at = u.at("alterId");
+        if protocol == "vmess" && u.int::<i64>("alterId")?.unwrap_or(0) != 0 {
+            warnings.push(format!(
+                "{}: a client with an alterId above 0 cannot connect: sail serves AEAD \
+                 headers alone, as with 0",
+                alter_at
+            ));
         }
         if let Some(k) = users.iter().position(|(v, _)| *v == value) {
             users.remove(k);

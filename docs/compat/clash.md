@@ -34,9 +34,9 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 | `general` | 48 | 35 | 11 | 2 |
 | `geox-url` | 5 | 0 | 5 | 0 |
 | `iptables` | 5 | 0 | 0 | 5 |
-| `listeners[anytls]` | 45 | 0 | 0 | 45 |
+| `listeners[anytls]` | 45 | 11 | 1 | 33 |
 | `listeners[http]` | 29 | 19 | 7 | 3 |
-| `listeners[hysteria2]` | 49 | 0 | 0 | 49 |
+| `listeners[hysteria2]` | 49 | 32 | 14 | 3 |
 | `listeners[mieru]` | 10 | 0 | 0 | 10 |
 | `listeners[mixed]` | 30 | 8 | 1 | 21 |
 | `listeners[redir]` | 6 | 4 | 1 | 1 |
@@ -48,11 +48,11 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 | `listeners[tproxy]` | 7 | 5 | 1 | 1 |
 | `listeners[trojan]` | 73 | 28 | 7 | 38 |
 | `listeners[trusttunnel]` | 18 | 0 | 0 | 18 |
-| `listeners[tuic]` | 26 | 0 | 0 | 26 |
+| `listeners[tuic]` | 26 | 12 | 11 | 3 |
 | `listeners[tun]` | 55 | 0 | 0 | 55 |
 | `listeners[tunnel]` | 8 | 0 | 0 | 8 |
 | `listeners[vless]` | 93 | 29 | 7 | 57 |
-| `listeners[vmess]` | 116 | 0 | 0 | 116 |
+| `listeners[vmess]` | 116 | 28 | 7 | 81 |
 | `ntp` | 7 | 7 | 0 | 0 |
 | `profile` | 3 | 3 | 0 | 0 |
 | `proxies[anytls]` | 38 | 23 | 3 | 12 |
@@ -90,7 +90,7 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 | `tls` | 7 | 0 | 7 | 0 |
 | `tuic-server` | 13 | 0 | 0 | 13 |
 | `tun` | 50 | 34 | 9 | 7 |
-| **All** | **2077** | **587** | **132** | **1358** |
+| **All** | **2077** | **670** | **165** | **1242** |
 
 
 ## `general`
@@ -247,7 +247,51 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 
 | Field | sail | What sail says |
 |---|---|---|
-| `listeners[anytls]` | Error | listeners[0].type: sail does not implement "anytls" listeners yet |
+| `listeners[anytls].allow-insecure` | Supported |  |
+| `listeners[anytls].certificate` | Supported |  |
+| `listeners[anytls].client-auth-cert` | Supported |  |
+| `listeners[anytls].client-auth-type` | Supported |  |
+| `listeners[anytls].ech-key` | Error | listeners[0].ech-key: sail does not implement this field yet |
+| `listeners[anytls].jls-config` | Error | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[anytls].jls-config.alpn` | Error | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[anytls].jls-config.dest` | Error | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[anytls].jls-config.enable` | Error | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[anytls].jls-config.proxy` | Error | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[anytls].jls-config.rate-limit` | Error | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[anytls].jls-config.sni` | Error | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[anytls].jls-config.users` | Error | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[anytls].jls-config.users[].password` | Error | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[anytls].jls-config.users[].username` | Error | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[anytls].listen` | Supported |  |
+| `listeners[anytls].name` | Supported |  |
+| `listeners[anytls].padding-scheme` | Supported |  |
+| `listeners[anytls].port` | Supported | listeners[0].port: "x": sail takes one port, not ranges, yet |
+| `listeners[anytls].private-key` | Supported |  |
+| `listeners[anytls].proxy` | Supported | listeners[0].proxy: no proxy or group is named "x" |
+| `listeners[anytls].res-tls` | Error | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[anytls].res-tls.dest` | Error | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[anytls].res-tls.enable` | Error | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[anytls].res-tls.min-record-len` | Error | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[anytls].res-tls.password` | Error | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[anytls].res-tls.proxy` | Error | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[anytls].res-tls.rate-limit` | Error | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[anytls].res-tls.restls-script` | Error | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[anytls].routing-mark` | Warned | listeners[0].routing-mark: sail does not implement this field; ignored |
+| `listeners[anytls].rule` | Error | listeners[0].rule: sail does not implement this field yet |
+| `listeners[anytls].shadow-tls` | Error | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[anytls].shadow-tls.enable` | Error | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[anytls].shadow-tls.handshake` | Error | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[anytls].shadow-tls.handshake-for-server-name` | Error | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[anytls].shadow-tls.handshake.dest` | Error | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[anytls].shadow-tls.handshake.proxy` | Error | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[anytls].shadow-tls.password` | Error | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[anytls].shadow-tls.strict-mode` | Error | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[anytls].shadow-tls.users` | Error | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[anytls].shadow-tls.users[].name` | Error | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[anytls].shadow-tls.users[].password` | Error | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[anytls].shadow-tls.version` | Error | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[anytls].shadow-tls.wildcard-sni` | Error | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[anytls].users` | Supported |  |
 
 ## `listeners[http]`
 
@@ -287,7 +331,55 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 
 | Field | sail | What sail says |
 |---|---|---|
-| `listeners[hysteria2]` | Error | listeners[0].type: sail does not implement "hysteria2" listeners yet |
+| `listeners[hysteria2].alpn` | Supported |  |
+| `listeners[hysteria2].bbr-profile` | Warned | listeners[0].bbr-profile: sail does not tune its QUIC listeners so; ignored |
+| `listeners[hysteria2].certificate` | Supported |  |
+| `listeners[hysteria2].client-auth-cert` | Supported |  |
+| `listeners[hysteria2].client-auth-type` | Supported |  |
+| `listeners[hysteria2].cwnd` | Warned | listeners[0].cwnd: sail does not tune its QUIC listeners so; ignored |
+| `listeners[hysteria2].down` | Supported |  |
+| `listeners[hysteria2].ech-key` | Error | listeners[0].ech-key: sail does not implement this field yet |
+| `listeners[hysteria2].ignore-client-bandwidth` | Supported |  |
+| `listeners[hysteria2].initial-connection-receive-window` | Warned | listeners[0].initial-connection-receive-window: sail does not tune its QUIC listeners so; ignored |
+| `listeners[hysteria2].initial-stream-receive-window` | Warned | listeners[0].initial-stream-receive-window: sail does not tune its QUIC listeners so; ignored |
+| `listeners[hysteria2].listen` | Supported |  |
+| `listeners[hysteria2].masquerade` | Supported | listeners[0].masquerade: "x": Mihomo takes an http, https or file URL |
+| `listeners[hysteria2].max-connection-receive-window` | Warned | listeners[0].max-connection-receive-window: sail does not tune its QUIC listeners so; ignored |
+| `listeners[hysteria2].max-idle-time` | Supported |  |
+| `listeners[hysteria2].max-stream-receive-window` | Warned | listeners[0].max-stream-receive-window: sail does not tune its QUIC listeners so; ignored |
+| `listeners[hysteria2].mux-option` | Warned | listeners[0].mux-option: sail serves no sing-mux over QUIC, which no client asks for; ignored |
+| `listeners[hysteria2].mux-option.brutal` | Warned | listeners[0].mux-option: sail serves no sing-mux over QUIC, which no client asks for; ignored |
+| `listeners[hysteria2].mux-option.brutal.down` | Warned | listeners[0].mux-option: sail serves no sing-mux over QUIC, which no client asks for; ignored |
+| `listeners[hysteria2].mux-option.brutal.enabled` | Warned | listeners[0].mux-option: sail serves no sing-mux over QUIC, which no client asks for; ignored |
+| `listeners[hysteria2].mux-option.brutal.up` | Warned | listeners[0].mux-option: sail serves no sing-mux over QUIC, which no client asks for; ignored |
+| `listeners[hysteria2].mux-option.padding` | Warned | listeners[0].mux-option: sail serves no sing-mux over QUIC, which no client asks for; ignored |
+| `listeners[hysteria2].name` | Supported |  |
+| `listeners[hysteria2].obfs` | Supported | listeners[0].obfs-password: missing, which Mihomo requires with obfs |
+| `listeners[hysteria2].obfs-max-packet-size` | Supported |  |
+| `listeners[hysteria2].obfs-min-packet-size` | Supported |  |
+| `listeners[hysteria2].obfs-password` | Supported |  |
+| `listeners[hysteria2].port` | Supported | listeners[0].port: "x": sail takes one port, not ranges, yet |
+| `listeners[hysteria2].private-key` | Supported |  |
+| `listeners[hysteria2].proxy` | Supported | listeners[0].proxy: no proxy or group is named "x" |
+| `listeners[hysteria2].realm-opts` | Supported |  |
+| `listeners[hysteria2].realm-opts.alpn` | Supported |  |
+| `listeners[hysteria2].realm-opts.certificate` | Supported |  |
+| `listeners[hysteria2].realm-opts.enable` | Error | listeners[0].realm-opts: sail does not implement Hysteria realms |
+| `listeners[hysteria2].realm-opts.fingerprint` | Supported |  |
+| `listeners[hysteria2].realm-opts.name-cert-verify` | Supported |  |
+| `listeners[hysteria2].realm-opts.private-key` | Supported |  |
+| `listeners[hysteria2].realm-opts.proxy` | Supported |  |
+| `listeners[hysteria2].realm-opts.realm-id` | Supported |  |
+| `listeners[hysteria2].realm-opts.server-url` | Supported |  |
+| `listeners[hysteria2].realm-opts.skip-cert-verify` | Supported |  |
+| `listeners[hysteria2].realm-opts.sni` | Supported |  |
+| `listeners[hysteria2].realm-opts.stun-servers` | Supported |  |
+| `listeners[hysteria2].realm-opts.token` | Supported |  |
+| `listeners[hysteria2].routing-mark` | Warned | listeners[0].routing-mark: sail does not implement this field; ignored |
+| `listeners[hysteria2].rule` | Error | listeners[0].rule: sail does not implement this field yet |
+| `listeners[hysteria2].udp-mtu` | Warned | listeners[0].udp-mtu: sail does not tune its QUIC listeners so; ignored |
+| `listeners[hysteria2].up` | Supported |  |
+| `listeners[hysteria2].users` | Supported |  |
 
 ## `listeners[mieru]`
 
@@ -575,7 +667,32 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 
 | Field | sail | What sail says |
 |---|---|---|
-| `listeners[tuic]` | Error | listeners[0].type: sail does not implement "tuic" listeners yet |
+| `listeners[tuic].alpn` | Supported |  |
+| `listeners[tuic].authentication-timeout` | Supported |  |
+| `listeners[tuic].bbr-profile` | Warned | listeners[0].bbr-profile: sail does not tune its QUIC listeners so; ignored |
+| `listeners[tuic].certificate` | Supported |  |
+| `listeners[tuic].client-auth-cert` | Supported |  |
+| `listeners[tuic].client-auth-type` | Supported |  |
+| `listeners[tuic].congestion-controller` | Supported |  |
+| `listeners[tuic].cwnd` | Warned | listeners[0].cwnd: sail does not tune its QUIC listeners so; ignored |
+| `listeners[tuic].ech-key` | Error | listeners[0].ech-key: sail does not implement this field yet |
+| `listeners[tuic].listen` | Supported |  |
+| `listeners[tuic].max-idle-time` | Warned | listeners[0].max-idle-time: sail does not tune its QUIC listeners so; ignored |
+| `listeners[tuic].max-udp-relay-packet-size` | Warned | listeners[0].max-udp-relay-packet-size: sail does not tune its QUIC listeners so; ignored |
+| `listeners[tuic].mux-option` | Warned | listeners[0].mux-option: sail serves no sing-mux over QUIC, which no client asks for; ignored |
+| `listeners[tuic].mux-option.brutal` | Warned | listeners[0].mux-option: sail serves no sing-mux over QUIC, which no client asks for; ignored |
+| `listeners[tuic].mux-option.brutal.down` | Warned | listeners[0].mux-option: sail serves no sing-mux over QUIC, which no client asks for; ignored |
+| `listeners[tuic].mux-option.brutal.enabled` | Warned | listeners[0].mux-option: sail serves no sing-mux over QUIC, which no client asks for; ignored |
+| `listeners[tuic].mux-option.brutal.up` | Warned | listeners[0].mux-option: sail serves no sing-mux over QUIC, which no client asks for; ignored |
+| `listeners[tuic].mux-option.padding` | Warned | listeners[0].mux-option: sail serves no sing-mux over QUIC, which no client asks for; ignored |
+| `listeners[tuic].name` | Supported |  |
+| `listeners[tuic].port` | Supported | listeners[0].port: "x": sail takes one port, not ranges, yet |
+| `listeners[tuic].private-key` | Supported |  |
+| `listeners[tuic].proxy` | Supported | listeners[0].proxy: no proxy or group is named "x" |
+| `listeners[tuic].routing-mark` | Warned | listeners[0].routing-mark: sail does not implement this field; ignored |
+| `listeners[tuic].rule` | Error | listeners[0].rule: sail does not implement this field yet |
+| `listeners[tuic].token` | Error | listeners[0].token: TUIC v4's, which sail does not implement |
+| `listeners[tuic].users` | Supported |  |
 
 ## `listeners[tun]`
 
@@ -691,7 +808,122 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 
 | Field | sail | What sail says |
 |---|---|---|
-| `listeners[vmess]` | Error | listeners[0].type: sail does not implement "vmess" listeners yet |
+| `listeners[vmess].certificate` | Supported |  |
+| `listeners[vmess].client-auth-cert` | Supported |  |
+| `listeners[vmess].client-auth-type` | Supported |  |
+| `listeners[vmess].ech-key` | Error | listeners[0].ech-key: sail does not implement this field yet |
+| `listeners[vmess].grpc-service-name` | Supported |  |
+| `listeners[vmess].jls-config` | Error | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[vmess].jls-config.alpn` | Error | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[vmess].jls-config.dest` | Error | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[vmess].jls-config.enable` | Error | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[vmess].jls-config.proxy` | Error | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[vmess].jls-config.rate-limit` | Error | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[vmess].jls-config.sni` | Error | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[vmess].jls-config.users` | Error | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[vmess].jls-config.users[].password` | Error | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[vmess].jls-config.users[].username` | Error | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[vmess].listen` | Supported |  |
+| `listeners[vmess].mekya-config` | Error | listeners[0].mekya-config: sail does not implement this field yet |
+| `listeners[vmess].mekya-config.enable` | Error | listeners[0].mekya-config: sail does not implement this field yet |
+| `listeners[vmess].mekya-config.h2-pool-size` | Error | listeners[0].mekya-config: sail does not implement this field yet |
+| `listeners[vmess].mekya-config.kcp` | Error | listeners[0].mekya-config: sail does not implement this field yet |
+| `listeners[vmess].mekya-config.kcp.congestion` | Error | listeners[0].mekya-config: sail does not implement this field yet |
+| `listeners[vmess].mekya-config.kcp.downlink-capacity` | Error | listeners[0].mekya-config: sail does not implement this field yet |
+| `listeners[vmess].mekya-config.kcp.enable` | Error | listeners[0].mekya-config: sail does not implement this field yet |
+| `listeners[vmess].mekya-config.kcp.header` | Error | listeners[0].mekya-config: sail does not implement this field yet |
+| `listeners[vmess].mekya-config.kcp.mtu` | Error | listeners[0].mekya-config: sail does not implement this field yet |
+| `listeners[vmess].mekya-config.kcp.read-buffer` | Error | listeners[0].mekya-config: sail does not implement this field yet |
+| `listeners[vmess].mekya-config.kcp.seed` | Error | listeners[0].mekya-config: sail does not implement this field yet |
+| `listeners[vmess].mekya-config.kcp.tti` | Error | listeners[0].mekya-config: sail does not implement this field yet |
+| `listeners[vmess].mekya-config.kcp.uplink-capacity` | Error | listeners[0].mekya-config: sail does not implement this field yet |
+| `listeners[vmess].mekya-config.kcp.write-buffer` | Error | listeners[0].mekya-config: sail does not implement this field yet |
+| `listeners[vmess].mekya-config.max-request-size` | Error | listeners[0].mekya-config: sail does not implement this field yet |
+| `listeners[vmess].mekya-config.max-simultaneous-write-connection` | Error | listeners[0].mekya-config: sail does not implement this field yet |
+| `listeners[vmess].mekya-config.max-write-delay` | Error | listeners[0].mekya-config: sail does not implement this field yet |
+| `listeners[vmess].mekya-config.max-write-duration-ms` | Error | listeners[0].mekya-config: sail does not implement this field yet |
+| `listeners[vmess].mekya-config.max-write-size` | Error | listeners[0].mekya-config: sail does not implement this field yet |
+| `listeners[vmess].mekya-config.packet-writing-buffer` | Error | listeners[0].mekya-config: sail does not implement this field yet |
+| `listeners[vmess].mekya-config.polling-interval-initial` | Error | listeners[0].mekya-config: sail does not implement this field yet |
+| `listeners[vmess].mekya-config.url` | Error | listeners[0].mekya-config: sail does not implement this field yet |
+| `listeners[vmess].mkcp-config` | Error | listeners[0].mkcp-config: sail does not implement this field yet |
+| `listeners[vmess].mkcp-config.congestion` | Error | listeners[0].mkcp-config: sail does not implement this field yet |
+| `listeners[vmess].mkcp-config.downlink-capacity` | Error | listeners[0].mkcp-config: sail does not implement this field yet |
+| `listeners[vmess].mkcp-config.enable` | Error | listeners[0].mkcp-config: sail does not implement this field yet |
+| `listeners[vmess].mkcp-config.header` | Error | listeners[0].mkcp-config: sail does not implement this field yet |
+| `listeners[vmess].mkcp-config.mtu` | Error | listeners[0].mkcp-config: sail does not implement this field yet |
+| `listeners[vmess].mkcp-config.read-buffer` | Error | listeners[0].mkcp-config: sail does not implement this field yet |
+| `listeners[vmess].mkcp-config.seed` | Error | listeners[0].mkcp-config: sail does not implement this field yet |
+| `listeners[vmess].mkcp-config.tti` | Error | listeners[0].mkcp-config: sail does not implement this field yet |
+| `listeners[vmess].mkcp-config.uplink-capacity` | Error | listeners[0].mkcp-config: sail does not implement this field yet |
+| `listeners[vmess].mkcp-config.write-buffer` | Error | listeners[0].mkcp-config: sail does not implement this field yet |
+| `listeners[vmess].mux-option` | Supported |  |
+| `listeners[vmess].mux-option.brutal` | Supported |  |
+| `listeners[vmess].mux-option.brutal.down` | Supported |  |
+| `listeners[vmess].mux-option.brutal.enabled` | Supported |  |
+| `listeners[vmess].mux-option.brutal.up` | Supported |  |
+| `listeners[vmess].mux-option.padding` | Supported |  |
+| `listeners[vmess].name` | Supported |  |
+| `listeners[vmess].port` | Supported | listeners[0].port: "x": sail takes one port, not ranges, yet |
+| `listeners[vmess].private-key` | Supported |  |
+| `listeners[vmess].proxy` | Supported | listeners[0].proxy: no proxy or group is named "x" |
+| `listeners[vmess].reality-config` | Supported | listeners[0].reality-config.dest: missing |
+| `listeners[vmess].reality-config.dest` | Supported | listeners[0].reality-config.dest: "x" names no port |
+| `listeners[vmess].reality-config.limit-fallback-download` | Supported |  |
+| `listeners[vmess].reality-config.limit-fallback-download.after-bytes` | Warned | listeners[0].reality-config.limit-fallback-download: sail does not limit what REALITY relays to the site it imitates; ignored |
+| `listeners[vmess].reality-config.limit-fallback-download.burst-bytes-per-sec` | Warned | listeners[0].reality-config.limit-fallback-download: sail does not limit what REALITY relays to the site it imitates; ignored |
+| `listeners[vmess].reality-config.limit-fallback-download.bytes-per-sec` | Warned | listeners[0].reality-config.limit-fallback-download: sail does not limit what REALITY relays to the site it imitates; ignored |
+| `listeners[vmess].reality-config.limit-fallback-upload` | Supported |  |
+| `listeners[vmess].reality-config.limit-fallback-upload.after-bytes` | Warned | listeners[0].reality-config.limit-fallback-upload: sail does not limit what REALITY relays to the site it imitates; ignored |
+| `listeners[vmess].reality-config.limit-fallback-upload.burst-bytes-per-sec` | Warned | listeners[0].reality-config.limit-fallback-upload: sail does not limit what REALITY relays to the site it imitates; ignored |
+| `listeners[vmess].reality-config.limit-fallback-upload.bytes-per-sec` | Warned | listeners[0].reality-config.limit-fallback-upload: sail does not limit what REALITY relays to the site it imitates; ignored |
+| `listeners[vmess].reality-config.max-time-difference` | Supported |  |
+| `listeners[vmess].reality-config.private-key` | Supported | [L] inbound: tls.reality.private_key: neither hex nor base64url |
+| `listeners[vmess].reality-config.proxy` | Error | listeners[0].reality-config.proxy: sail does not dial the site REALITY imitates through a proxy yet |
+| `listeners[vmess].reality-config.server-names` | Supported |  |
+| `listeners[vmess].reality-config.short-id` | Supported | [L] inbound: tls.reality.short_id: not hex |
+| `listeners[vmess].res-tls` | Error | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[vmess].res-tls.dest` | Error | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[vmess].res-tls.enable` | Error | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[vmess].res-tls.min-record-len` | Error | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[vmess].res-tls.password` | Error | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[vmess].res-tls.proxy` | Error | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[vmess].res-tls.rate-limit` | Error | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[vmess].res-tls.restls-script` | Error | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[vmess].routing-mark` | Warned | listeners[0].routing-mark: sail does not implement this field; ignored |
+| `listeners[vmess].rule` | Error | listeners[0].rule: sail does not implement this field yet |
+| `listeners[vmess].shadow-tls` | Error | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[vmess].shadow-tls.enable` | Error | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[vmess].shadow-tls.handshake` | Error | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[vmess].shadow-tls.handshake-for-server-name` | Error | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[vmess].shadow-tls.handshake.dest` | Error | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[vmess].shadow-tls.handshake.proxy` | Error | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[vmess].shadow-tls.password` | Error | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[vmess].shadow-tls.strict-mode` | Error | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[vmess].shadow-tls.users` | Error | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[vmess].shadow-tls.users[].name` | Error | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[vmess].shadow-tls.users[].password` | Error | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[vmess].shadow-tls.version` | Error | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[vmess].shadow-tls.wildcard-sni` | Error | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[vmess].tlsmirror-config` | Error | listeners[0].tlsmirror-config: sail does not implement this field yet |
+| `listeners[vmess].tlsmirror-config.connection-enrolment` | Error | listeners[0].tlsmirror-config: sail does not implement this field yet |
+| `listeners[vmess].tlsmirror-config.connection-enrolment.primary-egress-outbound` | Error | listeners[0].tlsmirror-config: sail does not implement this field yet |
+| `listeners[vmess].tlsmirror-config.connection-enrolment.primary-ingress-outbound` | Error | listeners[0].tlsmirror-config: sail does not implement this field yet |
+| `listeners[vmess].tlsmirror-config.defer-instance-derived-write-time` | Error | listeners[0].tlsmirror-config: sail does not implement this field yet |
+| `listeners[vmess].tlsmirror-config.defer-instance-derived-write-time.base-nanoseconds` | Error | listeners[0].tlsmirror-config: sail does not implement this field yet |
+| `listeners[vmess].tlsmirror-config.defer-instance-derived-write-time.uniform-random-multiplier-nanoseconds` | Error | listeners[0].tlsmirror-config: sail does not implement this field yet |
+| `listeners[vmess].tlsmirror-config.dest` | Error | listeners[0].tlsmirror-config: sail does not implement this field yet |
+| `listeners[vmess].tlsmirror-config.explicit-nonce-ciphersuites` | Error | listeners[0].tlsmirror-config: sail does not implement this field yet |
+| `listeners[vmess].tlsmirror-config.primary-key` | Error | listeners[0].tlsmirror-config: sail does not implement this field yet |
+| `listeners[vmess].tlsmirror-config.proxy` | Error | listeners[0].tlsmirror-config: sail does not implement this field yet |
+| `listeners[vmess].tlsmirror-config.sequence-watermarking-enabled` | Error | listeners[0].tlsmirror-config: sail does not implement this field yet |
+| `listeners[vmess].tlsmirror-config.transport-layer-padding` | Error | listeners[0].tlsmirror-config: sail does not implement this field yet |
+| `listeners[vmess].tlsmirror-config.transport-layer-padding.enabled` | Error | listeners[0].tlsmirror-config: sail does not implement this field yet |
+| `listeners[vmess].users` | Supported | listeners[0].users[0]: a map, not a string |
+| `listeners[vmess].users[].alterId` | Supported |  |
+| `listeners[vmess].users[].username` | Supported |  |
+| `listeners[vmess].users[].uuid` | Supported |  |
+| `listeners[vmess].ws-path` | Supported |  |
 
 ## `general`
 
