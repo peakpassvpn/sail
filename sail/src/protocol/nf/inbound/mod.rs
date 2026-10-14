@@ -9,7 +9,6 @@ use std::mem::transmute;
 use std::net::{IpAddr, SocketAddr};
 use std::os::windows::ffi::OsStringExt;
 use std::ptr::{addr_of, addr_of_mut};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::sync::{LazyLock, OnceLock};
 use std::thread;
@@ -31,7 +30,7 @@ use packed::{SOCKADDR, SOCKADDR_IN, SOCKADDR_IN6};
 use crate::adapter::inbound::Handler as InboundHandler;
 use crate::adapter::registry::{InboundContext, InboundFactory, InboundRegistry};
 use crate::adapter::AnyInboundHandler;
-use crate::app::fake_dns::{FakeDns, FakeDnsMode};
+use crate::app::fake_dns::{FakeDns, FakeDnsMode, FakePool};
 use serde_derive::Deserialize;
 
 const MAX_PATH: usize = 260;
@@ -199,6 +198,8 @@ pub static UDP_ENDPOINT: LazyLock<Mutex<HashMap<SocketAddr, EndpointId>>> =
 
 pub static UDP_OPTIONS: LazyLock<Mutex<HashMap<EndpointId, Vec<u8>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
+
+static NF_FAKE_POOL: LazyLock<FakePool> = LazyLock::new(FakePool::default);
 
 static TCP_INFO: LazyLock<Mutex<HashMap<u16, ConnInfo>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -844,7 +845,7 @@ unsafe fn init_nf_fns<P: AsRef<OsStr>>(nfapi: P) -> Result<()> {
     // Kept loaded for the life of the process: the pointers in `NF` point
     // into it.
     *NFAPI.write() = Some(nfapi);
-    // Init runs on one thread at a time (IS_NF_INITIALIZED), so this set
+    // Init runs on one thread at a time (under NF_USERS), so this set
     // cannot lose to another.
     let _ = NF.set(fns);
 
@@ -950,34 +951,57 @@ fn init_if_needed<P: AsRef<OsStr>>(driver_name: String, nfapi: P) -> Result<()> 
     Err(anyhow!("initialize nf failed"))
 }
 
-static IS_NF_INITIALIZED: AtomicBool = AtomicBool::new(false);
+/// The inbounds the driver serves: started by the first, freed by the
+/// last. A reload builds a changed inbound before it drops the one it
+/// replaces, which must not free the driver the new one goes on with.
+static NF_USERS: Mutex<Users> = Mutex::new(Users(0));
 
-fn init<P: AsRef<OsStr>>(driver_name: String, nfapi: P) -> Result<()> {
-    if !IS_NF_INITIALIZED.swap(true, Ordering::Relaxed) {
-        if let Err(e) = init_if_needed(driver_name, nfapi) {
-            // Not initialized: a later start tries again, and uninit has
-            // nothing to free.
-            IS_NF_INITIALIZED.store(false, Ordering::Relaxed);
-            return Err(e);
+/// How many inbounds share the driver.
+struct Users(usize);
+
+impl Users {
+    /// One more: `start` runs for the first, and one that fails counts
+    /// none.
+    fn acquire(&mut self, start: impl FnOnce() -> Result<()>) -> Result<()> {
+        if self.0 == 0 {
+            start()?;
+        }
+        self.0 += 1;
+        Ok(())
+    }
+
+    /// One fewer: `free` runs for the last.
+    fn release(&mut self, free: impl FnOnce()) {
+        match self.0 {
+            0 => {}
+            1 => {
+                self.0 = 0;
+                free();
+            }
+            _ => self.0 -= 1,
         }
     }
-    Ok(())
 }
 
-unsafe fn uninit_nf() {
-    if IS_NF_INITIALIZED.swap(false, Ordering::Relaxed) {
-        // Not set when nf never initialised. The library stays loaded: the
-        // pointers in `NF` point into it, and a later init reuses them.
-        if let Some(fns) = NF.get() {
-            // SAFETY: takes no arguments; the library is still loaded.
-            (fns.free)();
-        }
-    }
+fn init<P: AsRef<OsStr>>(driver_name: String, nfapi: P) -> Result<()> {
+    NF_USERS
+        .lock()
+        .acquire(|| init_if_needed(driver_name, nfapi))
 }
 
 pub fn uninit() {
-    // SAFETY: `uninit_nf` only calls `nf_free` from the loaded library.
-    unsafe { uninit_nf() };
+    // SAFETY: `nf_free` is called from the loaded library, once the last
+    // inbound using the driver is gone.
+    NF_USERS.lock().release(|| unsafe { uninit_nf() });
+}
+
+unsafe fn uninit_nf() {
+    // The library stays loaded: the pointers in `NF` point into it, and a
+    // later init reuses them.
+    if let Some(fns) = NF.get() {
+        // SAFETY: takes no arguments; the library is still loaded.
+        (fns.free)();
+    }
 }
 
 /// # Safety
@@ -1050,7 +1074,9 @@ fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
     } else {
         (FakeDnsMode::Exclude, options.fake_dns_exclude)
     };
-    let fake_dns = Arc::new(FakeDns::new(mode, filters));
+    // One pool for the process: an inbound a reload builds anew gives the
+    // addresses its apps hold the same meaning.
+    let fake_dns = Arc::new(FakeDns::in_pool(NF_FAKE_POOL.clone(), mode, filters));
     *NF_TAG.write() = Some(ctx.tag.to_owned());
     let manager = Arc::new(NfManager::new(
         options.driver_name,
@@ -1071,6 +1097,41 @@ fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A reload builds the new inbound before it drops the old: the
+    /// driver, started once, is freed only with the last.
+    #[test]
+    fn the_driver_is_freed_by_its_last_inbound_only() {
+        let (mut users, mut started, mut freed) = (Users(0), 0, 0);
+        users
+            .acquire(|| {
+                started += 1;
+                Ok(())
+            })
+            .unwrap();
+        // The replacement, then the replaced one dropped.
+        users
+            .acquire(|| {
+                started += 1;
+                Ok(())
+            })
+            .unwrap();
+        users.release(|| freed += 1);
+        assert_eq!((started, freed), (1, 0));
+        users.release(|| freed += 1);
+        assert_eq!((started, freed), (1, 1));
+        // A start that fails counts none: the next tries again.
+        assert!(users.acquire(|| Err(anyhow!("no driver"))).is_err());
+        users.release(|| freed += 1);
+        assert_eq!(freed, 1);
+        users
+            .acquire(|| {
+                started += 1;
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(started, 2);
+    }
 
     fn conn_info(inserted: Instant) -> ConnInfo {
         ConnInfo {

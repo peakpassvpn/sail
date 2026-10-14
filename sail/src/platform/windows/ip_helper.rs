@@ -392,9 +392,11 @@ pub(crate) fn best_route(destination: IpAddr) -> io::Result<(u32, IpAddr, u8)> {
     ))
 }
 
-/// The routes of one family: their interface's index, prefix, prefix
-/// length and next hop.
-pub(crate) fn routes(v6: bool) -> io::Result<Vec<(u32, IpAddr, u8, Option<IpAddr>)>> {
+/// A route: its interface's index, prefix, prefix length and next hop.
+pub(crate) type Route = (u32, IpAddr, u8, Option<IpAddr>);
+
+/// The routes of one family.
+pub(crate) fn routes(v6: bool) -> io::Result<Vec<Route>> {
     Ok(forward_rows(family(v6))?
         .iter()
         .filter_map(|row| {

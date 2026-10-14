@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr};
+use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
 use hickory_proto::op::{Message, MessageType, OpCode, ResponseCode};
@@ -14,27 +15,68 @@ pub enum FakeDnsMode {
     Exclude,
 }
 
-pub struct FakeDns(RwLock<FakeDnsImpl>);
+/// The fake addresses given, by domain and back: kept apart from the
+/// filters of who gives them, so that what a reload builds anew goes on
+/// with the same addresses, and an address an app holds stands for its
+/// domain still.
+#[derive(Clone, Default)]
+pub struct FakePool(Arc<RwLock<FakeDnsImpl>>);
+
+impl Default for FakeDnsImpl {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// A pool of fake addresses, and which domains get one from it.
+pub struct FakeDns {
+    pool: FakePool,
+    filter: Filter,
+}
+
+/// Which domains get a fake address.
+struct Filter {
+    mode: FakeDnsMode,
+    filters: Vec<String>,
+}
 
 impl FakeDns {
+    /// With a pool of its own.
     pub fn new(mode: FakeDnsMode, filters: Vec<String>) -> Self {
-        Self(RwLock::new(FakeDnsImpl::new(mode, filters)))
+        Self::in_pool(FakePool::default(), mode, filters)
+    }
+
+    /// Giving addresses from `pool`, as others built with it do.
+    pub fn in_pool(pool: FakePool, mode: FakeDnsMode, filters: Vec<String>) -> Self {
+        Self {
+            pool,
+            filter: Filter { mode, filters },
+        }
     }
 
     pub async fn query_domain(&self, ip: &IpAddr) -> Option<String> {
-        self.0.read().await.query_domain(ip)
+        self.pool.0.read().await.query_domain(ip)
     }
 
     pub async fn query_fake_ip(&self, domain: &str) -> Option<IpAddr> {
-        self.0.read().await.query_fake_ip(domain)
+        self.pool.0.read().await.query_fake_ip(domain)
     }
 
     pub async fn generate_fake_response(&self, request: &[u8]) -> Result<Vec<u8>> {
-        self.0.write().await.generate_fake_response(request)
+        let req = Message::from_vec(request)?;
+        let domain = FakeDnsImpl::domain_of(&req)?;
+        if !self.filter.accept(&domain) {
+            return Err(anyhow!("domain {} not accepted", domain));
+        }
+        self.pool
+            .0
+            .write()
+            .await
+            .generate_fake_response(&req, &domain)
     }
 
     pub async fn is_fake_ip(&self, ip: &IpAddr) -> bool {
-        self.0.read().await.is_fake_ip(ip)
+        self.pool.0.read().await.is_fake_ip(ip)
     }
 }
 
@@ -45,12 +87,33 @@ struct FakeDnsImpl {
     min_cursor: u32,
     max_cursor: u32,
     ttl: u32,
-    filters: Vec<String>,
-    mode: FakeDnsMode,
+}
+
+impl Filter {
+    fn accept(&self, domain: &str) -> bool {
+        match self.mode {
+            FakeDnsMode::Exclude => {
+                for d in &self.filters {
+                    if domain.contains(d) || d == "*" {
+                        return false;
+                    }
+                }
+                true
+            }
+            FakeDnsMode::Include => {
+                for d in &self.filters {
+                    if domain.contains(d) || d == "*" {
+                        return true;
+                    }
+                }
+                false
+            }
+        }
+    }
 }
 
 impl FakeDnsImpl {
-    pub(self) fn new(mode: FakeDnsMode, filters: Vec<String>) -> Self {
+    pub(self) fn new() -> Self {
         let min_cursor = Self::ip_to_u32(&Ipv4Addr::new(198, 18, 0, 0));
         let max_cursor = Self::ip_to_u32(&Ipv4Addr::new(198, 18, 255, 255));
         Self {
@@ -60,8 +123,6 @@ impl FakeDnsImpl {
             min_cursor,
             max_cursor,
             ttl: 1,
-            filters,
-            mode,
         }
     }
 
@@ -79,9 +140,9 @@ impl FakeDnsImpl {
             .map(|v| IpAddr::V4(Self::u32_to_ip(v.to_owned())))
     }
 
-    pub(self) fn generate_fake_response(&mut self, request: &[u8]) -> Result<Vec<u8>> {
-        let req = Message::from_vec(request)?;
-
+    /// The domain `req` asks for: of a query in class IN, for A, AAAA or
+    /// HTTPS; not the root, nor a name that is an address already.
+    fn domain_of(req: &Message) -> Result<String> {
         if req.queries().is_empty() {
             return Err(anyhow!("no queries in this DNS request"));
         }
@@ -113,10 +174,13 @@ impl FakeDnsImpl {
         if domain.is_empty() || domain.parse::<IpAddr>().is_ok() {
             return Err(anyhow!("{:?} is no domain to give a fake address", domain));
         }
+        Ok(domain)
+    }
 
-        if !self.accept(&domain) {
-            return Err(anyhow!("domain {} not accepted", domain));
-        }
+    pub(self) fn generate_fake_response(&mut self, req: &Message, domain: &str) -> Result<Vec<u8>> {
+        let query = &req.queries()[0];
+        let raw_name = query.name();
+        let domain = domain.to_owned();
 
         let ip = if let Some(ip) = self.query_fake_ip(&domain) {
             match ip {
@@ -193,27 +257,6 @@ impl FakeDnsImpl {
         Err(anyhow!("unable to prepare next cursor"))
     }
 
-    fn accept(&self, domain: &str) -> bool {
-        match self.mode {
-            FakeDnsMode::Exclude => {
-                for d in &self.filters {
-                    if domain.contains(d) || d == "*" {
-                        return false;
-                    }
-                }
-                true
-            }
-            FakeDnsMode::Include => {
-                for d in &self.filters {
-                    if domain.contains(d) || d == "*" {
-                        return true;
-                    }
-                }
-                false
-            }
-        }
-    }
-
     fn u32_to_ip(ip: u32) -> Ipv4Addr {
         Ipv4Addr::from(ip)
     }
@@ -228,23 +271,65 @@ mod tests {
     use super::*;
     use std::net::Ipv4Addr;
 
-    /// A query for the root, or for a name that is an address, gets no
-    /// fake address; a domain does.
-    #[test]
-    fn only_a_domain_gets_a_fake_address() {
+    fn query(name: &str) -> Vec<u8> {
         use hickory_proto::op::Query;
         use hickory_proto::rr::Name;
-        let mut fake = FakeDnsImpl::new(FakeDnsMode::Exclude, Vec::new());
-        let query = |name: &str| {
-            let mut message = Message::new(1, MessageType::Query, OpCode::Query);
-            message.add_query(Query::query(Name::from_ascii(name).unwrap(), RecordType::A));
-            message.to_vec().unwrap()
-        };
-        assert!(fake.generate_fake_response(&query("a.example.")).is_ok());
+        let mut message = Message::new(1, MessageType::Query, OpCode::Query);
+        message.add_query(Query::query(Name::from_ascii(name).unwrap(), RecordType::A));
+        message.to_vec().unwrap()
+    }
+
+    /// The fake address in `response`.
+    fn address(response: &[u8]) -> IpAddr {
+        match Message::from_vec(response).unwrap().answers()[0].data {
+            RData::A(a) => IpAddr::V4(a.0),
+            ref other => panic!("{:?}", other),
+        }
+    }
+
+    /// A query for the root, or for a name that is an address, gets no
+    /// fake address; a domain does.
+    #[tokio::test]
+    async fn only_a_domain_gets_a_fake_address() {
+        let fake = FakeDns::new(FakeDnsMode::Exclude, Vec::new());
+        assert!(fake
+            .generate_fake_response(&query("a.example."))
+            .await
+            .is_ok());
         for name in [".", "10.0.0.1."] {
-            let err = fake.generate_fake_response(&query(name)).unwrap_err();
+            let err = fake.generate_fake_response(&query(name)).await.unwrap_err();
             assert!(err.to_string().contains("no domain"), "{}: {}", name, err);
         }
+    }
+
+    /// What a reload builds anew, with other filters, in the same pool:
+    /// the addresses given stay with their domains, and only what is given
+    /// from now on follows the new filters.
+    #[tokio::test]
+    async fn a_fake_dns_built_anew_in_the_pool_keeps_its_addresses() {
+        let pool = FakePool::default();
+        let before = FakeDns::in_pool(pool.clone(), FakeDnsMode::Exclude, Vec::new());
+        let a = address(
+            &before
+                .generate_fake_response(&query("a.example."))
+                .await
+                .unwrap(),
+        );
+        let after = FakeDns::in_pool(pool, FakeDnsMode::Include, vec!["b.example".into()]);
+        assert_eq!(after.query_domain(&a).await.as_deref(), Some("a.example"));
+        assert!(after.is_fake_ip(&a).await);
+        assert!(after
+            .generate_fake_response(&query("a.example."))
+            .await
+            .is_err());
+        let b = address(
+            &after
+                .generate_fake_response(&query("b.example."))
+                .await
+                .unwrap(),
+        );
+        assert_ne!(a, b);
+        assert_eq!(after.query_domain(&b).await.as_deref(), Some("b.example"));
     }
 
     #[test]

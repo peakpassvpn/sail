@@ -887,6 +887,15 @@ jobs:
           for test in "${skip[@]}"; do args+=(--skip "$test"); done
           cargo test --locked -p sail --target x86_64-pc-windows-msvc -- --exact "${args[@]}"
 
+      # The NetFilter inbound is built only with inbound-nf, which sail-cli
+      # turns on and sail's defaults do not: its lints and unit tests. The
+      # driver itself is not on the runner.
+      - name: NetFilter inbound
+        run: |
+          cargo clippy --locked -p sail --features inbound-nf --target x86_64-pc-windows-msvc --lib -- -D warnings
+          cargo clippy --locked -p sail --features inbound-nf --target x86_64-pc-windows-msvc --lib --profile test -- -D warnings
+          cargo test --locked -p sail --features inbound-nf --target x86_64-pc-windows-msvc --lib -- protocol::nf app::fake_dns
+
       # A failing instance leaves nothing while its process lives on
       # (tests/test_teardown.rs): sail in the test's own process, with a
       # TUN, auto_route and strict_route (only 198.18.0.0/16, so the
