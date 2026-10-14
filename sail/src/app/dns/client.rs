@@ -225,6 +225,21 @@ impl DnsClient {
         debug!("dns cache cleared");
     }
 
+    /// Gives up the connections the servers keep that no query is on now,
+    /// as after a long sleep, which may have left them dead: those of TCP
+    /// and DoT, and DoH, DoQ and HTTP/3 connections, which go once the
+    /// queries on them end. The answers kept stay, as does which protocol
+    /// a prefer_h3 server answers over: the network is the same.
+    pub async fn close_idle(&self) {
+        for server in self.servers.values() {
+            match &server.kind {
+                server::Kind::Tcp { pool, .. } => pool.clear(),
+                server::Kind::Upstream(upstream) => upstream.close_idle().await,
+                _ => {}
+            }
+        }
+    }
+
     /// The network changed: the answers kept, and the connections the
     /// servers keep, were of the one before, and go.
     pub async fn network_changed(&self) {

@@ -4,6 +4,7 @@
 //! kept alive and taken again by the next query, as DoT's are.
 
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Result};
@@ -13,7 +14,7 @@ use tokio::sync::Mutex as TokioMutex;
 use tokio::time::timeout;
 use tracing::debug;
 
-use super::{Upstream, MAX_MESSAGE_LEN};
+use super::{Driver, Upstream, MAX_MESSAGE_LEN};
 use crate::adapter::AnyStream;
 use crate::app::dns::DnsClient;
 
@@ -36,23 +37,30 @@ pub(super) struct Pool {
 /// An HTTP/2 connection.
 struct H2 {
     send_request: h2::client::SendRequest<Bytes>,
-    /// Drives the connection; stopped with it.
-    driver: tokio::task::AbortHandle,
+    /// Drives the connection; each query on it holds it too.
+    driver: Arc<Driver>,
     /// When a query last took it.
     used: Instant,
 }
 
+/// The connection one query goes over, held for as long as it does.
+type Taken = (h2::client::SendRequest<Bytes>, Arc<Driver>);
+
 impl Pool {
-    /// Drops the connections it keeps.
+    /// Drops the connections it keeps, the queries on them too: those of a
+    /// network gone.
     pub(super) async fn clear(&self) {
-        *self.h2.lock().await = None;
+        if let Some(h2) = self.h2.lock().await.take() {
+            h2.driver.stop();
+        }
         self.http1.clear();
     }
-}
 
-impl Drop for H2 {
-    fn drop(&mut self) {
-        self.driver.abort();
+    /// Gives up the connections no query is on now: the HTTP/1.1 ones
+    /// kept, and the HTTP/2 one, which goes once the queries on it end.
+    pub(super) async fn close_idle(&self) {
+        *self.h2.lock().await = None;
+        self.http1.clear();
     }
 }
 
@@ -62,15 +70,15 @@ impl H2 {
     }
 
     /// The connection, for one more query.
-    fn take(&mut self) -> h2::client::SendRequest<Bytes> {
+    fn take(&mut self) -> Taken {
         self.used = Instant::now();
-        self.send_request.clone()
+        (self.send_request.clone(), self.driver.clone())
     }
 }
 
 impl Pool {
     /// The kept HTTP/2 connection, if it is alive.
-    async fn kept_h2(&self) -> Option<h2::client::SendRequest<Bytes>> {
+    async fn kept_h2(&self) -> Option<Taken> {
         let mut h2 = self.h2.lock().await;
         match h2.as_mut() {
             Some(l) if l.is_alive() => Some(l.take()),
@@ -81,8 +89,11 @@ impl Pool {
         }
     }
 
+    /// Drops the kept connection, found dead.
     async fn drop_h2(&self) {
-        *self.h2.lock().await = None;
+        if let Some(h2) = self.h2.lock().await.take() {
+            h2.driver.stop();
+        }
     }
 }
 
@@ -125,7 +136,7 @@ impl DnsClient {
     ) -> Result<Vec<u8>> {
         // On a kept connection first, which may have died without a word:
         // for half the query's time, the rest left for a new connection.
-        if let Some(send_request) = pool.kept_h2().await {
+        if let Some((send_request, _held)) = pool.kept_h2().await {
             match timeout(
                 self.reused_connection_timeout(),
                 exchange_h2(upstream, send_request, request.clone()),
@@ -167,7 +178,7 @@ impl DnsClient {
         let mut h2 = pool.h2.lock().await;
         // Another query may have connected while this one waited.
         if let Some(l) = h2.as_mut().filter(|l| l.is_alive()) {
-            let send_request = l.take();
+            let (send_request, _held) = l.take();
             drop(h2);
             return exchange_h2(upstream, send_request, request)
                 .await
@@ -175,7 +186,7 @@ impl DnsClient {
         }
         match self.connect_doh(upstream, addr).await? {
             Connection::H2(mut l) => {
-                let send_request = l.take();
+                let (send_request, _held) = l.take();
                 *h2 = Some(l);
                 drop(h2);
                 let res = exchange_h2(upstream, send_request, request).await;
@@ -224,7 +235,7 @@ impl DnsClient {
         debug!("{}: connected over http/2 to {}", upstream, addr);
         Ok(Connection::H2(H2 {
             send_request,
-            driver,
+            driver: Driver::new(driver),
             used: Instant::now(),
         }))
     }

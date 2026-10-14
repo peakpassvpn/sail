@@ -407,6 +407,50 @@ async fn dot_answers_and_keeps_its_connection() {
     assert_eq!(counters.connections.load(Ordering::SeqCst), 1);
 }
 
+/// After `close_idle`, as on a wake from a long sleep: the next query
+/// connects again, and the answers kept are still given.
+async fn close_idle_connects_again_and_keeps_answers(
+    server: serde_json::Value,
+    cert: &Cert,
+    counters: &Counters,
+) {
+    let client = client(std::slice::from_ref(&server), Some(cert));
+    assert_eq!(
+        lookup(&client, "a.example").await.unwrap(),
+        vec![IpAddr::V4(ANSWER)]
+    );
+    client.close_idle().await;
+    assert_eq!(
+        lookup(&client, "b.example").await.unwrap(),
+        vec![IpAddr::V4(ANSWER)]
+    );
+    assert_eq!(counters.connections.load(Ordering::SeqCst), 2, "{}", server);
+    // a.example from the cache: not asked again.
+    assert_eq!(
+        lookup(&client, "a.example").await.unwrap(),
+        vec![IpAddr::V4(ANSWER)]
+    );
+    assert_eq!(counters.queries.load(Ordering::SeqCst), 2, "{}", server);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn close_idle_gives_up_the_kept_connections() {
+    let cert = cert();
+    let (port, counters) = start_dot_server(&cert, false);
+    close_idle_connects_again_and_keeps_answers(server("tls", port, None), &cert, &counters).await;
+    let (port, counters) = start_doq_server(&cert);
+    close_idle_connects_again_and_keeps_answers(server("quic", port, None), &cert, &counters).await;
+    let (port, counters) = start_h3_server(&cert, "/dns-query");
+    close_idle_connects_again_and_keeps_answers(server("h3", port, None), &cert, &counters).await;
+    // The DoH server here is sail's TLS inbound.
+    #[cfg(all(feature = "dns-doh", feature = "inbound-tls"))]
+    for alpn in [&["h2"][..], &["http/1.1"][..]] {
+        let (port, counters) = doh::start_server(&cert, alpn, doh::Reply::Answer);
+        close_idle_connects_again_and_keeps_answers(server("https", port, None), &cert, &counters)
+            .await;
+    }
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn dot_connects_again_when_the_server_closed_the_kept_connection() {
     let cert = cert();

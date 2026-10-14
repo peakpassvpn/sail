@@ -78,6 +78,36 @@ const MAX_IDLE: usize = 4;
 /// costs a failed query before a new one.
 const IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
+/// The task that drives a connection queries take streams on (HTTP/2,
+/// HTTP/3), shared by the pool and each query on it: stopped when the last
+/// of them lets go, so that the pool can give a connection up without
+/// cutting the queries still on it, or at once with `stop`.
+#[cfg(any(feature = "dns-doh", feature = "dns-h3"))]
+pub(super) struct Driver(tokio::task::AbortHandle);
+
+#[cfg(any(feature = "dns-doh", feature = "dns-h3"))]
+impl Driver {
+    pub(super) fn new(handle: tokio::task::AbortHandle) -> std::sync::Arc<Self> {
+        std::sync::Arc::new(Driver(handle))
+    }
+
+    pub(super) fn is_finished(&self) -> bool {
+        self.0.is_finished()
+    }
+
+    /// Stops it now, the queries on it too.
+    pub(super) fn stop(&self) {
+        self.0.abort();
+    }
+}
+
+#[cfg(any(feature = "dns-doh", feature = "dns-h3"))]
+impl Drop for Driver {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
 /// The idle connections of a server that sends its messages on a stream:
 /// TCP, DoT, and DoH on HTTP/1.1.
 #[derive(Default)]
@@ -436,6 +466,31 @@ impl Upstream {
     #[cfg(not(any(feature = "tls", feature = "quic", feature = "dns-h3")))]
     pub(super) async fn reset(&self) {}
 
+    /// Gives up the connections no query is on now: those of a stream
+    /// pool, and a kept HTTP/2, QUIC or HTTP/3 connection, which goes once
+    /// the queries on it end. The cache, and prefer_h3's choice, stay.
+    #[cfg(any(feature = "tls", feature = "quic", feature = "dns-h3"))]
+    pub(super) async fn close_idle(&self) {
+        match &self.state {
+            #[cfg(feature = "tls")]
+            State::Tls(pool) => pool.clear(),
+            #[cfg(feature = "dns-doh")]
+            State::Https(pool) => pool.close_idle().await,
+            #[cfg(feature = "quic")]
+            State::Quic(pool) => pool.close_idle().await,
+            #[cfg(feature = "dns-h3")]
+            State::H3(pool) => pool.close_idle().await,
+            #[cfg(all(feature = "dns-doh", feature = "dns-h3"))]
+            State::Hybrid(hybrid) => {
+                hybrid.h2.close_idle().await;
+                hybrid.h3.close_idle().await;
+            }
+        }
+    }
+
+    #[cfg(not(any(feature = "tls", feature = "quic", feature = "dns-h3")))]
+    pub(super) async fn close_idle(&self) {}
+
     /// The TLS client of DoT and DoH.
     #[cfg(feature = "tls")]
     fn tls_client(&self) -> Result<&crate::transport::tls::TlsClient> {
@@ -720,5 +775,32 @@ impl super::DnsClient {
     #[cfg(feature = "tls")]
     fn reused_connection_timeout(&self) -> Duration {
         self.timeout / 2
+    }
+}
+
+#[cfg(all(test, any(feature = "dns-doh", feature = "dns-h3")))]
+mod tests {
+    use super::*;
+
+    /// A connection given up by its pool goes on while a query holds it,
+    /// and stops when the last lets go, or at once when stopped.
+    #[tokio::test]
+    async fn a_driver_runs_while_a_query_holds_it() {
+        let task = || tokio::spawn(std::future::pending::<()>()).abort_handle();
+        let pool = Driver::new(task());
+        let query = pool.clone();
+        drop(pool);
+        tokio::task::yield_now().await;
+        assert!(!query.is_finished());
+        let watch = query.0.clone();
+        drop(query);
+        tokio::task::yield_now().await;
+        assert!(watch.is_finished());
+
+        let stopped = Driver::new(task());
+        let held = stopped.clone();
+        stopped.stop();
+        tokio::task::yield_now().await;
+        assert!(held.is_finished());
     }
 }

@@ -61,15 +61,8 @@ struct Live {
 #[cfg(feature = "dns-h3")]
 struct H3 {
     send_request: h3::client::SendRequest<h3_quinn::OpenStreams, bytes::Bytes>,
-    /// Drives the HTTP/3 connection; stopped with it.
-    driver: tokio::task::AbortHandle,
-}
-
-#[cfg(feature = "dns-h3")]
-impl Drop for H3 {
-    fn drop(&mut self) {
-        self.driver.abort();
-    }
+    /// Drives the HTTP/3 connection; each query on it holds it too.
+    driver: std::sync::Arc<super::Driver>,
 }
 
 impl Live {
@@ -87,8 +80,19 @@ impl Pool {
         }
     }
 
-    /// Drops the connection it keeps.
+    /// Drops the connection it keeps: that of a network gone.
     pub(super) async fn clear(&self) {
+        let live = self.live.lock().await.take();
+        #[cfg(feature = "dns-h3")]
+        if let Some(h3) = live.as_ref().and_then(|l| l.h3.as_ref()) {
+            h3.driver.stop();
+        }
+        drop(live);
+    }
+
+    /// Gives up the connection it keeps: it goes once the queries on it
+    /// end, as each holds it.
+    pub(super) async fn close_idle(&self) {
         *self.live.lock().await = None;
     }
 
@@ -285,6 +289,7 @@ struct Handle {
 #[cfg(feature = "dns-h3")]
 struct H3Handle {
     send_request: h3::client::SendRequest<h3_quinn::OpenStreams, bytes::Bytes>,
+    _driver: std::sync::Arc<super::Driver>,
 }
 
 impl Handle {
@@ -294,6 +299,7 @@ impl Handle {
             #[cfg(feature = "dns-h3")]
             h3: live.h3.as_ref().map(|h3| H3Handle {
                 send_request: h3.send_request.clone(),
+                _driver: h3.driver.clone(),
             }),
             reused,
         }
@@ -347,7 +353,7 @@ async fn connect_h3(conn: quinn::Connection) -> Result<H3> {
     .abort_handle();
     Ok(H3 {
         send_request,
-        driver,
+        driver: super::Driver::new(driver),
     })
 }
 
