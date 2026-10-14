@@ -18,7 +18,7 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::sync::{Arc, Mutex};
 
 use anyhow::{anyhow, Result};
-use cidr::IpCidr;
+use cidr::IpInet;
 use tracing::warn;
 
 use crate::runtime::cache_file::{CacheFile, CacheFileSlot, FakeIpOp, FakeIps};
@@ -45,8 +45,11 @@ struct Pool {
 }
 
 impl Pool {
-    fn new(cidr: IpCidr) -> Self {
-        let (first, last, v6) = match (cidr.first_address(), cidr.last_address()) {
+    /// From `inet`'s address, as written, to its network's last: a range
+    /// written with bits past its prefix starts where it is written, as
+    /// sing-box's store takes it ("28.0.0.1/8" from 28.0.0.1 on).
+    fn new(inet: IpInet) -> Self {
+        let (first, last, v6) = match (inet.address(), inet.last_address()) {
             (IpAddr::V4(f), IpAddr::V4(l)) => (u32::from(f) as u128, u32::from(l) as u128, false),
             (IpAddr::V6(f), IpAddr::V6(l)) => (u128::from(f), u128::from(l), true),
             _ => unreachable!("a CIDR is of one family"),
@@ -190,7 +193,7 @@ impl FakeIpStore {
     ) -> Result<Self> {
         let pool = |range: Option<&str>, v6: bool, field: &str| -> Result<Option<Pool>> {
             let Some(range) = range else { return Ok(None) };
-            let cidr: IpCidr = range
+            let cidr: IpInet = range
                 .parse()
                 .map_err(|e| anyhow!("{}: invalid range \"{}\": {}", field, range, e))?;
             if cidr.is_ipv6() != v6 {
@@ -198,11 +201,11 @@ impl FakeIpStore {
             }
             // Those reserved and the last are not handed out: at least one
             // more is needed.
-            let size_bits = if v6 { 128 } else { 32 } - cidr.network_length();
-            if size_bits < 3 {
+            let pool = Pool::new(cidr);
+            if pool.last - pool.first < RESERVED + 1 {
                 return Err(anyhow!("{}: \"{}\" is too small", field, range));
             }
-            Ok(Some(Pool::new(cidr)))
+            Ok(Some(pool))
         };
         let v4 = pool(inet4_range, false, "inet4_range")?;
         let v6 = pool(inet6_range, true, "inet6_range")?;
@@ -422,6 +425,29 @@ mod tests {
         assert_eq!(
             store.lookup(ip("::ffff:198.18.0.5")),
             FakeIp::Domain("b.example".into())
+        );
+    }
+
+    /// A range written with bits past its prefix starts where it is
+    /// written, and ends where its network does, as sing-box's store has
+    /// it: "28.0.0.1/8" is taken, not refused.
+    #[test]
+    fn a_range_with_host_bits_starts_where_it_is_written() {
+        let store = FakeIpStore::new(Some("198.18.0.8/28"), None, Default::default()).unwrap();
+        let ip = |s: &str| s.parse::<IpAddr>().unwrap();
+        // .8 to .11 are reserved; .15, the network's last, is not handed out.
+        assert_eq!(store.create("a.example", false).unwrap(), ip("198.18.0.12"));
+        assert_eq!(store.create("b.example", false).unwrap(), ip("198.18.0.13"));
+        assert_eq!(store.create("c.example", false).unwrap(), ip("198.18.0.14"));
+        assert_eq!(store.create("d.example", false).unwrap(), ip("198.18.0.12"));
+        assert_eq!(store.lookup(ip("198.18.0.4")), FakeIp::NotFake);
+        // Too few left between where it is written and its network's end.
+        assert!(
+            FakeIpStore::new(Some("198.18.0.12/28"), None, Default::default())
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("too small")
         );
     }
 
