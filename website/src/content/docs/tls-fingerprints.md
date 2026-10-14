@@ -200,6 +200,8 @@ Where sing-box would take clients it should not, Sail refuses the configuration:
 
 Where sing-box ignores a field beside one it prefers, Sail ignores it too, with a warning: `client_certificate_path` beside `client_certificate`, and the pins beside CAs.
 
+The files of `client_certificate_path` are followed as the inbound's certificate files are, as in sing-box: CAs written to them are taken for the connections that come next, with no reload, and the connections open go on.
+
 A client refused gets a `bad_certificate` alert, and the inbound's handshake error says why. Client certificates are checked on TLS inbounds over TCP (Trojan, VLESS, VMess, AnyTLS, HTTP) and over QUIC (Hysteria2, TUIC, the `quic` transport) alike. Over QUIC the check is Sail's own as well: the system's roots, which the QUIC library would verify by, play no part.
 
 ## ClientHello without SNI

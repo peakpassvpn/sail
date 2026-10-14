@@ -28,14 +28,26 @@ pub(super) fn files(
     if tls.get("enabled").and_then(|v| v.as_bool()) != Some(true) {
         return Vec::new();
     }
-    ["certificate_path", "key_path"]
+    let mut files: Vec<std::path::PathBuf> = ["certificate_path", "key_path"]
         .into_iter()
         .filter_map(|field| {
             tls.get(field)
                 .and_then(|v| v.as_str())
                 .map(|path| env.data_path(path).into())
         })
-        .collect()
+        .collect();
+    // The CAs clients' certificates are verified by, one path or a list.
+    match tls.get("client_certificate_path") {
+        Some(serde_json::Value::String(path)) => files.push(env.data_path(path).into()),
+        Some(serde_json::Value::Array(paths)) => files.extend(
+            paths
+                .iter()
+                .filter_map(|v| v.as_str())
+                .map(|path| env.data_path(path).into()),
+        ),
+        _ => {}
+    }
+    files
 }
 
 pub(super) fn supported(inbound: &Inbound) -> bool {
@@ -273,6 +285,37 @@ mod tests {
                     states["local"].socks_associations.get().unwrap()
                 ));
             }
+        }
+    }
+
+    /// The files followed are the certificate's, its key's, and those of
+    /// the CAs clients' certificates are verified by, one or a list.
+    #[cfg(feature = "auto-reload")]
+    #[test]
+    fn the_client_ca_files_are_followed_with_the_certificate() {
+        let env = crate::runtime::RuntimeEnv::default();
+        for (cas, wanted) in [
+            (json!("/c/ca.pem"), vec!["/c/ca.pem"]),
+            (
+                json!(["/c/a.pem", "/c/b.pem"]),
+                vec!["/c/a.pem", "/c/b.pem"],
+            ),
+        ] {
+            let inbound: Inbound = serde_json::from_value(json!({
+                "type":"trojan", "tag":"t", "listen_port":1234, "users":[],
+                "tls":{"enabled":true,"certificate_path":"/c/cert.pem","key_path":"/c/key.pem",
+                    "client_certificate_path":cas}
+            }))
+            .unwrap();
+            let mut paths = vec!["/c/cert.pem", "/c/key.pem"];
+            paths.extend(wanted);
+            assert_eq!(
+                files(&inbound, &env),
+                paths
+                    .into_iter()
+                    .map(std::path::PathBuf::from)
+                    .collect::<Vec<_>>()
+            );
         }
     }
 

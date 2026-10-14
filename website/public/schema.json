@@ -7583,7 +7583,7 @@
        }
       }
      ],
-     "description": "The CAs, from PEM (or DER) files, as `client_certificate`."
+     "description": "The CAs, from PEM (or DER) files, as `client_certificate`. The files are followed as the certificate's are: CAs written to them are taken for the connections that come next."
     },
     "client_certificate_public_key_sha256": {
      "anyOf": [
@@ -8744,7 +8744,7 @@
        }
       }
      ],
-     "description": "The CAs, from PEM (or DER) files, as `client_certificate`."
+     "description": "The CAs, from PEM (or DER) files, as `client_certificate`. The files are followed as the certificate's are: CAs written to them are taken for the connections that come next."
     },
     "client_certificate_public_key_sha256": {
      "anyOf": [
@@ -10838,7 +10838,7 @@
        }
       }
      ],
-     "description": "The CAs, from PEM (or DER) files, as `client_certificate`."
+     "description": "The CAs, from PEM (or DER) files, as `client_certificate`. The files are followed as the certificate's are: CAs written to them are taken for the connections that come next."
     },
     "client_certificate_public_key_sha256": {
      "anyOf": [
@@ -11566,7 +11566,7 @@
        }
       }
      ],
-     "description": "The CAs, from PEM (or DER) files, as `client_certificate`."
+     "description": "The CAs, from PEM (or DER) files, as `client_certificate`. The files are followed as the certificate's are: CAs written to them are taken for the connections that come next."
     },
     "client_certificate_public_key_sha256": {
      "anyOf": [
@@ -12699,7 +12699,7 @@
        }
       }
      ],
-     "description": "The CAs, from PEM (or DER) files, as `client_certificate`."
+     "description": "The CAs, from PEM (or DER) files, as `client_certificate`. The files are followed as the certificate's are: CAs written to them are taken for the connections that come next."
     },
     "client_certificate_public_key_sha256": {
      "anyOf": [
@@ -13481,7 +13481,7 @@
        }
       }
      ],
-     "description": "The CAs, from PEM (or DER) files, as `client_certificate`."
+     "description": "The CAs, from PEM (or DER) files, as `client_certificate`. The files are followed as the certificate's are: CAs written to them are taken for the connections that come next."
     },
     "client_certificate_public_key_sha256": {
      "anyOf": [

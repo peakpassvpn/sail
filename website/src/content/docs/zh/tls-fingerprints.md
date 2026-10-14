@@ -200,6 +200,8 @@ sing-box 会放进不该放的客户端时，Sail 直接报配置错误：
 
 sing-box 因偏好另一字段而忽略的字段，Sail 同样忽略并给出警告：与 `client_certificate` 同设的 `client_certificate_path`，以及与 CA 同设的固定值。
 
+`client_certificate_path` 的文件与入站证书文件一样受到跟踪，与 sing-box 一致：写入文件的 CA 无需重载即用于之后的连接，已建立的连接不受影响。
+
 被拒绝的客户端会收到 `bad_certificate` 告警，入站的握手错误会写明原因。TCP 上的 TLS 入站（Trojan、VLESS、VMess、AnyTLS、HTTP）与 QUIC 入站（Hysteria2、TUIC、`quic` 传输层）同样校验客户端证书。QUIC 上也由 Sail 自己校验：QUIC 库本会依据的系统根证书不参与。
 
 ## 不发送 SNI

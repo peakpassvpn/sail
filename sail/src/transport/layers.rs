@@ -1544,7 +1544,9 @@ pub struct InboundTls {
     /// files are ignored with a warning, as sing-box ignores them.
     #[serde(default)]
     pub client_certificate: Option<Listable>,
-    /// The CAs, from PEM (or DER) files, as `client_certificate`.
+    /// The CAs, from PEM (or DER) files, as `client_certificate`. The files
+    /// are followed as the certificate's are: CAs written to them are taken
+    /// for the connections that come next.
     #[serde(default)]
     pub client_certificate_path: Option<Listable>,
     /// Clients' certificates taken by the SHA-256 of their public key

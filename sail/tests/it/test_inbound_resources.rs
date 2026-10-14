@@ -574,6 +574,115 @@ fn what_follows_the_files_stops_with_the_instance() -> Result<()> {
     Ok(())
 }
 
+/// The CA files an inbound verifies clients' certificates by are followed
+/// as its certificate's are: once a file is written with another CA, the
+/// clients it issued are taken on the connections that come next, and
+/// those of the CA it held refused, with no reload.
+#[cfg(feature = "auto-reload")]
+#[test]
+fn a_client_ca_file_replaced_is_taken_with_no_reload() -> Result<()> {
+    common::retry_port_clash(|| follow_client_ca_file(common::free_port()))
+}
+
+/// A CA, and a client certificate it issues with its key: PEM.
+#[cfg(feature = "auto-reload")]
+fn client_ca(name: &str) -> (String, String, String) {
+    let ca_key = rcgen::KeyPair::generate().unwrap();
+    let mut ca = rcgen::CertificateParams::new(Vec::<String>::new()).unwrap();
+    ca.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
+    ca.distinguished_name = rcgen::DistinguishedName::new();
+    ca.distinguished_name.push(rcgen::DnType::CommonName, name);
+    let ca = ca.self_signed(&ca_key).unwrap();
+    let key = rcgen::KeyPair::generate().unwrap();
+    let cert = rcgen::CertificateParams::new(vec!["client".into()])
+        .unwrap()
+        .signed_by(&key, &ca, &ca_key)
+        .unwrap();
+    (ca.pem(), cert.pem(), key.serialize_pem())
+}
+
+/// Whether the trojan inbound at `port` takes a client presenting `cert`
+/// with `key`, and relays its data.
+#[cfg(feature = "auto-reload")]
+fn taken(port: u16, cert: &str, key: &str, destination: SocketAddr) -> Result<()> {
+    let tcp = TcpStream::connect(("127.0.0.1", port))?;
+    tcp.set_read_timeout(Some(Duration::from_secs(3)))?;
+    tcp.set_write_timeout(Some(Duration::from_secs(3)))?;
+    let mut connector = SslConnector::builder(SslMethod::tls())?;
+    connector.set_verify(SslVerifyMode::NONE);
+    let cert = btls::x509::X509::from_pem(cert.as_bytes())?;
+    connector.set_certificate(&cert)?;
+    let key = btls::pkey::PKey::private_key_from_pem(key.as_bytes())?;
+    connector.set_private_key(&key)?;
+    let mut stream = connector
+        .build()
+        .connect("localhost", tcp)
+        .map_err(|e| anyhow::anyhow!("TLS: {e}"))?;
+    authenticate(&mut stream, "alice", destination)?;
+    ping(&mut stream)
+}
+
+#[cfg(feature = "auto-reload")]
+fn follow_client_ca_file(port: u16) -> Result<()> {
+    let dir = common::TempDir::new("client-ca-follow")?;
+    let (cert_path, key_path, ca_path) = (
+        dir.join("cert.pem"),
+        dir.join("key.pem"),
+        dir.join("ca.pem"),
+    );
+    let pair = rcgen::generate_simple_self_signed(vec!["localhost".into()])?;
+    std::fs::write(&cert_path, pair.cert.pem())?;
+    std::fs::write(&key_path, pair.key_pair.serialize_pem())?;
+    let (first_ca, first_cert, first_key) = client_ca("sail test first CA");
+    let (second_ca, second_cert, second_key) = client_ca("sail test second CA");
+    std::fs::write(&ca_path, &first_ca)?;
+    let config = json!({
+        "inbounds": [{"type":"trojan", "tag":"server", "listen":"127.0.0.1", "listen_port":port,
+            "users":[{"name":"alice","password":"alice"}],
+            "tls":{"enabled":true,"certificate_path":cert_path,"key_path":key_path,
+                "client_authentication":"require-and-verify",
+                "client_certificate_path":[ca_path]}}],
+        "outbounds":[{"type":"direct"}],
+    });
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()?;
+    let ids = common::run_sail_instances(&rt, vec![config.to_string()])?;
+    let _running = Running(ids[0]);
+    let manager = sail::runtime_manager(ids[0]).unwrap();
+    let reloads = manager.reloads();
+    let destination = rt.block_on(async {
+        let (address, server) = common::run_tcp_echo_server("127.0.0.1:0").await?;
+        tokio::spawn(server);
+        anyhow::Ok(address)
+    })?;
+
+    taken(port, &first_cert, &first_key, destination)?;
+    ensure!(
+        taken(port, &second_cert, &second_key, destination).is_err(),
+        "a client of a CA not configured was taken"
+    );
+    replace(&ca_path, &second_ca)?;
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while taken(port, &second_cert, &second_key, destination).is_err() {
+        ensure!(
+            Instant::now() < deadline,
+            "a client of the CA written to the file was not taken"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    ensure!(
+        taken(port, &first_cert, &first_key, destination).is_err(),
+        "a client of the CA replaced is still taken"
+    );
+    ensure!(
+        manager.reloads() == reloads,
+        "a CA file reloaded the whole instance"
+    );
+    Ok(())
+}
+
 /// An instance a host embeds (`sail::embed`, which never watches a
 /// configuration file) follows its certificate files all the same.
 #[cfg(feature = "auto-reload")]
