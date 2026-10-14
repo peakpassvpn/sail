@@ -190,7 +190,7 @@ Rust 定义：[`HttpOutboundOptions`](https://github.com/peakpassvpn/sail/blob/m
 | `skip_default_domain_resolver` | bool | `false` | sail 扩展 | A sail extension: without a `domain_resolver` of its own, the names dialled resolve as the DNS rules say, not as `route.default_domain_resolver` does; as Mihomo's DIRECT resolves apart from the proxies' servers. |
 | `tcp_concurrent` | bool | `false` | sail 扩展 | A sail extension, Mihomo's `tcp-concurrent`: a name's addresses are all connected to at once and the first to connect is taken, rather than one family's one by one, the other's raced against them after `fallback_delay` (Happy Eyeballs). With `network_strategy`, each address is still raced over the interfaces, so as many sockets open at once as there are addresses times interfaces. |
 | `version` | number | 未设置 | sail 扩展 | The HTTP version sing-box 1.15 asks for, 1, 2 or 3; unset (or 0), 2, or 1 with a `path` or a `Host` header. sail proxies over HTTP/1.1 whichever, as sing-box does with a server that speaks no other; the configuration's warnings say so. |
-| `disable_version_fallback` | bool | `false` | sail 扩展 | `version` alone, never HTTP/1.1 in its place: warned of with 2 or 3, as `version` is. |
+| `disable_version_fallback` | bool | `false` | sail 扩展 | `version` alone, never HTTP/1.1 in its place: warned of with 2 or 3, as `version` is. Read only so that it is taken: sail's own use of it is the warning (`Config::http_outbound_warnings`). |
 
 <a id="outbounds-hysteria2"></a>
 
@@ -326,6 +326,7 @@ Rust 定义：[`LoadBalanceOutboundOptions`](https://github.com/peakpassvpn/sail
 | `exclude_type` | string 或 数组，元素为 string | `[]` | sail 扩展 | The types no member may be of, the group's own outbounds too, in Mihomo's names for them, without case: `Shadowsocks`, `Vmess`, `Socks5`, `Direct`, ... |
 | `empty_fallback` | string | 未设置 | sail 扩展 | An outbound, not a group, that is the member while there is none else. Without it such a group has none, and its connections fail. |
 | `strategy` | string, 取值 `consistent-hashing`, `round-robin`, `sticky-sessions` | `consistent-hashing` | sail 扩展 | — |
+| `hash_key` | string, 取值 `user` | 未设置 | sail 扩展 | `user`: a connection's user is its key, not its destination (and source); a sail extension. Unset, or a connection of no user, as without it. round-robin keys on nothing, and refuses it. |
 | `url` | string | `default_url()` | sail 扩展 | What is requested through each member to test it. |
 | `interval` | duration | 未设置 | sail 扩展 | — |
 | `expected_status` | string | 未设置 | sail 扩展 | The HTTP statuses a test must be answered with to pass, as urltest's; any when unset. |

@@ -13,6 +13,11 @@
 //!   it went to last, picked at random at first, until the pair is left
 //!   unused for a while; its TCP and its UDP apart, as the members that
 //!   carry each may differ.
+//!
+//! `hash_key: "user"`, a sail extension (Mihomo's `hash-key: in-user`),
+//! has consistent-hashing and sticky-sessions key on the user the inbound
+//! authenticated instead: a user's connections go to one member wherever
+//! they go. A connection of no user is keyed as without it.
 
 use std::io;
 use std::net::IpAddr;
@@ -57,6 +62,15 @@ enum StrategyKind {
     StickySessions,
 }
 
+/// What consistent-hashing and sticky-sessions key on in place of the
+/// destination, and the source.
+#[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+enum HashKey {
+    /// The user the inbound authenticated, as Mihomo's `in-user`.
+    User,
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LoadBalanceOutboundOptions {
@@ -68,6 +82,11 @@ struct LoadBalanceOutboundOptions {
     providers: GroupProviders,
     #[serde(default)]
     strategy: StrategyKind,
+    /// `user`: a connection's user is its key, not its destination (and
+    /// source); a sail extension. Unset, or a connection of no user, as
+    /// without it. round-robin keys on nothing, and refuses it.
+    #[serde(default)]
+    hash_key: Option<HashKey>,
     /// What is requested through each member to test it.
     #[serde(default = "default_url")]
     url: String,
@@ -117,6 +136,13 @@ fn dependencies(tag: &str, options: &Options) -> Result<Vec<String>> {
 
 fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
     let options: LoadBalanceOutboundOptions = ctx.options()?;
+    // As Mihomo: a key asked for would give no stickiness.
+    if options.hash_key.is_some() && options.strategy == StrategyKind::RoundRobin {
+        return Err(anyhow!(
+            "[{}] outbound: hash_key: round-robin keys on nothing",
+            ctx.tag
+        ));
+    }
     let merged = merge::members(ctx, &options.outbounds, &options.providers)?;
     let members = merged.members.clone();
     let interval = options.interval.unwrap_or(health::DEFAULT_INTERVAL);
@@ -170,7 +196,7 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         })
     });
     let group = Arc::new(Group {
-        balancer: Balancer::new(options.strategy, STICKY_TTL),
+        balancer: Balancer::new(options.strategy, STICKY_TTL).keyed_by(options.hash_key),
         members,
         checker,
         dns_client: ctx.dns_client.clone(),
@@ -186,12 +212,13 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
 /// Picks a member per connection.
 struct Balancer {
     strategy: Strategy,
+    hash_key: Option<HashKey>,
 }
 
 enum Strategy {
     ConsistentHashing,
     RoundRobin(AtomicUsize),
-    /// By source, destination and network.
+    /// By source and destination, or by `hash_key`, and network.
     StickySessions(Mutex<LruCache<u64, MemberKey>>),
 }
 
@@ -204,7 +231,25 @@ impl Balancer {
                 LruCache::with_expiry_duration_and_capacity(sticky_ttl, STICKY_CAPACITY),
             )),
         };
-        Self { strategy }
+        Self {
+            strategy,
+            hash_key: None,
+        }
+    }
+
+    /// Keyed by `hash_key` where a connection has it.
+    fn keyed_by(mut self, hash_key: Option<HashKey>) -> Self {
+        self.hash_key = hash_key;
+        self
+    }
+
+    /// What `sess` is keyed on in place of its destination (and source):
+    /// its user, with `hash_key: "user"`, if it has one. Marked off, so
+    /// that no user's name is taken for a destination.
+    fn key_of(&self, sess: &Session) -> Option<String> {
+        match self.hash_key? {
+            HashKey::User => crate::user::name(&sess.user).map(|name| format!("user\0{}", name)),
+        }
     }
 
     /// The member of `members`, which are not none, for `sess` of
@@ -222,7 +267,11 @@ impl Balancer {
         let is_up = |i: usize| !any_up || is_up(&members[i]);
         match &self.strategy {
             Strategy::ConsistentHashing => {
-                let site = fnv1a(destination_key(&sess.destination).as_bytes());
+                let site = fnv1a(
+                    self.key_of(sess)
+                        .unwrap_or_else(|| destination_key(&sess.destination))
+                        .as_bytes(),
+                );
                 (0..n)
                     .filter(|&i| is_up(i))
                     .max_by_key(|&i| weight(site, &members[i].key))
@@ -239,15 +288,14 @@ impl Balancer {
                 // The network too: the TCP and the UDP of a pair may have
                 // different members to go to, and would take each other's
                 // member away.
-                let key = fnv1a(
+                let pair = self.key_of(sess).unwrap_or_else(|| {
                     format!(
-                        "{}|{}|{}",
+                        "{}|{}",
                         sess.source.ip(),
-                        destination_key(&sess.destination),
-                        network
+                        destination_key(&sess.destination)
                     )
-                    .as_bytes(),
-                );
+                });
+                let key = fnv1a(format!("{}|{}", pair, network).as_bytes());
                 let Ok(mut cache) = cache.lock() else {
                     return 0;
                 };
@@ -603,6 +651,108 @@ mod tests {
             }
         }
         assert!(differed, "the session never expired");
+    }
+
+    /// `s`, of the inbound's user `name`.
+    fn of(mut s: Session, name: &str) -> Session {
+        s.user = Some(crate::user::UserRef::unbound(name));
+        s
+    }
+
+    #[test]
+    fn hash_key_user_keeps_a_user_on_one_member_wherever_it_goes() {
+        let b = Balancer::new(StrategyKind::ConsistentHashing, STICKY_TTL)
+            .keyed_by(Some(HashKey::User));
+        let first = pick(
+            &b,
+            &of(sess("10.0.0.1", "a.example.com"), "alice"),
+            8,
+            all_up,
+        );
+        for (source, host) in [
+            ("10.0.0.2", "b.example.org"),
+            ("10.0.0.3", "c.example.net"),
+            ("10.0.0.1", "192.0.2.1"),
+        ] {
+            let s = of(sess(source, host), "alice");
+            assert_eq!(pick(&b, &s, 8, all_up), first, "{}", host);
+        }
+        // Users to one destination spread over the members.
+        let used: std::collections::HashSet<usize> = (0..40)
+            .map(|i| {
+                let s = of(sess("10.0.0.1", "a.example.com"), &format!("u{}", i));
+                pick(&b, &s, 8, all_up)
+            })
+            .collect();
+        assert!(used.len() > 1, "{:?}", used);
+        // A connection of no user is keyed as without hash_key.
+        let plain = Balancer::new(StrategyKind::ConsistentHashing, STICKY_TTL);
+        for i in 0..50 {
+            let s = sess("10.0.0.1", &format!("site{}.com", i));
+            assert_eq!(pick(&b, &s, 8, all_up), pick(&plain, &s, 8, all_up));
+        }
+    }
+
+    #[test]
+    fn hash_key_user_keeps_a_sticky_session_per_user() {
+        let b =
+            Balancer::new(StrategyKind::StickySessions, STICKY_TTL).keyed_by(Some(HashKey::User));
+        let first = pick(
+            &b,
+            &of(sess("10.0.0.1", "a.example.com"), "alice"),
+            16,
+            all_up,
+        );
+        for (source, host) in [("10.0.0.2", "b.example.org"), ("10.0.0.3", "192.0.2.1")] {
+            let s = of(sess(source, host), "alice");
+            assert_eq!(pick(&b, &s, 16, all_up), first, "{}", host);
+        }
+        // Users of one source and destination are sessions of their own:
+        // out of 16, some of a few users' differ.
+        assert!(
+            (0..8).any(|i| {
+                let s = of(sess("10.0.0.1", "a.example.com"), &format!("u{}", i));
+                pick(&b, &s, 16, all_up) != first
+            }),
+            "every user went to the first's member"
+        );
+        // A connection of no user: its pair is the session, as without
+        // hash_key, which another host of the site is too.
+        let pair = pick(&b, &sess("10.0.0.9", "example.com"), 16, all_up);
+        for _ in 0..5 {
+            let s = sess("10.0.0.9", "www.example.com");
+            assert_eq!(pick(&b, &s, 16, all_up), pair);
+        }
+    }
+
+    #[test]
+    fn hash_key_is_user_and_not_with_round_robin() {
+        use serde_json::json;
+        let check = |options: serde_json::Value| {
+            let mut lb = json!({ "type": "load-balance", "tag": "lb", "outbounds": ["direct"] });
+            lb.as_object_mut()
+                .unwrap()
+                .extend(options.as_object().unwrap().clone());
+            let config = json!({ "outbounds": [{ "type": "direct", "tag": "direct" }, lb] });
+            crate::config::from_string(&config.to_string())
+                .and_then(|c| crate::check_config(&c, &Default::default()))
+                .map_err(|e| format!("{:#}", e))
+        };
+        assert_eq!(check(json!({ "hash_key": "user" })), Ok(()));
+        assert_eq!(
+            check(json!({ "hash_key": "user", "strategy": "sticky-sessions" })),
+            Ok(())
+        );
+        assert_eq!(
+            check(json!({ "hash_key": "user", "strategy": "round-robin" })),
+            Err("[lb] outbound: hash_key: round-robin keys on nothing".into())
+        );
+        let err = check(json!({ "hash_key": "in-user" })).unwrap_err();
+        assert!(
+            err.contains("hash_key") && err.contains("unknown variant"),
+            "{}",
+            err
+        );
     }
 
     #[test]

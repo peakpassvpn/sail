@@ -1441,6 +1441,11 @@ const EXTENSIONS: &[(&str, &str, &str)] = &[
         "A group spreading connections over its members",
     ),
     (
+        "outbounds[load-balance].hash_key",
+        r#""user""#,
+        "`user`: consistent-hashing and sticky-sessions key on the user the inbound authenticated, not the destination (and source), so a user's connections go to one member wherever they go; a connection of no user is keyed as without it; not with round-robin (Mihomo's hash-key: in-user)",
+    ),
+    (
         "outbounds[load-balance].timeout",
         r#""3s""#,
         "How long a test may take before its member counts as failed (Mihomo's timeout)",

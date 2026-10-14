@@ -15087,7 +15087,7 @@
     },
     "disable_version_fallback": {
      "type": "boolean",
-     "description": "`version` alone, never HTTP/1.1 in its place: warned of with 2 or 3, as `version` is."
+     "description": "`version` alone, never HTTP/1.1 in its place: warned of with 2 or 3, as `version` is. Read only so that it is taken: sail's own use of it is the warning (`Config::http_outbound_warnings`)."
     },
     "type": {
      "const": "http"
@@ -16580,6 +16580,13 @@
       "round-robin",
       "sticky-sessions"
      ]
+    },
+    "hash_key": {
+     "type": "string",
+     "enum": [
+      "user"
+     ],
+     "description": "`user`: a connection's user is its key, not its destination (and source); a sail extension. Unset, or a connection of no user, as without it. round-robin keys on nothing, and refuses it."
     },
     "url": {
      "type": "string",

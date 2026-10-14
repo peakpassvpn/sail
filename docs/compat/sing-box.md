@@ -3219,6 +3219,7 @@ Fields and types sail accepts that sing-box does not.
 | `outbounds[fallback].url` | Several URLs to test the members at, at once, as well as one |
 | `outbounds[fallback].url_policy` | With several URLs, whether a member passes when `any` of them answers or only when `all` do |
 | `outbounds[load-balance].outbounds` | A group spreading connections over its members |
+| `outbounds[load-balance].hash_key` | `user`: consistent-hashing and sticky-sessions key on the user the inbound authenticated, not the destination (and source), so a user's connections go to one member wherever they go; a connection of no user is keyed as without it; not with round-robin (Mihomo's hash-key: in-user) |
 | `outbounds[load-balance].timeout` | How long a test may take before its member counts as failed (Mihomo's timeout) |
 | `outbounds[load-balance].max_failed_times` | How many failed connections within the timeout have the members tested again (Mihomo's max-failed-times) |
 | `outbounds[load-balance].expected_status` | The HTTP statuses a test must get to pass (Mihomo's expected-status) |
