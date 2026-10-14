@@ -402,6 +402,7 @@ jobs:
             dns-h3,dns-doh,outbound-direct \
             outbound-fallback,outbound-direct \
             config-clash,outbound-fallback,outbound-direct \
+            inbound-trojan,inbound-tls,auto-reload \
             inbound-tun,outbound-direct,fault-injection
           do
             echo "::group::$features"
