@@ -408,6 +408,18 @@ JNIEXPORT void JNICALL NATIVE(networkChanged)(JNIEnv *env, jclass cls, jlong h, 
     failed(env, sail_network_changed((SailInstance)h, (uint16_t)mtu, &err), err);
 }
 
+JNIEXPORT void JNICALL NATIVE(sleep)(JNIEnv *env, jclass cls, jlong h) {
+    (void)cls;
+    char *err = NULL;
+    failed(env, sail_sleep((SailInstance)h, &err), err);
+}
+
+JNIEXPORT void JNICALL NATIVE(wake)(JNIEnv *env, jclass cls, jlong h) {
+    (void)cls;
+    char *err = NULL;
+    failed(env, sail_wake((SailInstance)h, &err), err);
+}
+
 JNIEXPORT void JNICALL NATIVE(clearLogs)(JNIEnv *env, jclass cls, jlong h) {
     (void)cls;
     char *err = NULL;

@@ -755,6 +755,35 @@ pub extern "C" fn sail_network_changed(
     })
 }
 
+/// Tells the running instance that the system goes to sleep, as libbox's
+/// `Pause`: timed health checks and provider and rule-set updates wait
+/// until `sail_wake`. From the first call on, the host's word on sleeps
+/// replaces sail's own detection of them. The tunnel process's host tells
+/// it, as libbox's does (iOS: the extension's sleep), not a client.
+#[no_mangle]
+pub extern "C" fn sail_sleep(instance: SailInstance, err: *mut *mut c_char) -> i32 {
+    call(err, || {
+        let instance = local(instance)?;
+        instance.manager()?;
+        sail::host_sleep(instance.id, true).map_err(Failure::from)
+    })
+}
+
+/// Tells the running instance that the system woke, as libbox's `Wake`
+/// (iOS: the extension's wake). A sleep of 2 minutes or more since
+/// `sail_sleep`, by the wall clock, closes the carriers left idle (pooled
+/// connections with nothing open) and has the groups test their members
+/// again; a shorter one closes nothing. Connections in use stay either
+/// way. Nothing without a `sail_sleep` before it.
+#[no_mangle]
+pub extern "C" fn sail_wake(instance: SailInstance, err: *mut *mut c_char) -> i32 {
+    call(err, || {
+        let instance = local(instance)?;
+        instance.manager()?;
+        sail::host_sleep(instance.id, false).map_err(Failure::from)
+    })
+}
+
 /// Forgets the lines of the instance's log kept; its log subscriptions are
 /// sent `reset`.
 #[no_mangle]

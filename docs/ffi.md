@@ -211,7 +211,7 @@ and the next start with the same directories runs.
 | Inbounds | `sail_add_inbound` (one inbound's sing-box JSON), `sail_remove_inbound` (closes its connections; how many) — while it runs, not kept past a reload or a start | |
 | Mode | `sail_mode`, `sail_set_mode` (an instance has modes though its configuration has no Clash API, as libbox's apps do) | |
 | Log | `sail_clear_logs` | `SAIL_EVENT_LOG` (the lines as `log.redact` leaves them: destinations, sources or processes taken out of INFO, WARN and ERROR lines when it names them) |
-| Network | `sail_set_network_state`, `sail_network_changed` | `SAIL_EVENT_NETWORK` (each change the connections do not survive) |
+| Network | `sail_set_network_state`, `sail_network_changed`, `sail_sleep`, `sail_wake` (the system's sleep and wake, as libbox's `Pause` and `Wake`; see embed.md, "Sleep and wake") | `SAIL_EVENT_NETWORK` (each change the connections do not survive, and each wake, reason `wake`) |
 | Capabilities | `sail_capabilities`, `sail_instance_capabilities` | |
 
 Without an instance: `sail_check_config` (with the warnings a start would

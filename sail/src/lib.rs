@@ -374,6 +374,43 @@ impl RuntimeManager {
         })
     }
 
+    /// What the instance does when the system woke and the network is as
+    /// before: after a sleep of `CLOSE_IDLE_AFTER_SLEEP` or more, the
+    /// carriers left idle (pooled connections with nothing open, the DNS
+    /// servers' among them) are closed and the groups test their members
+    /// again, as sing-box does (`CloseIdleConnections`); after a shorter
+    /// one nothing is. Connections in use stay either way.
+    async fn woke(&self, _change: &net::network::NetworkChange) {
+        let asleep = self.network().last_sleep().unwrap_or_default();
+        if asleep < net::network::CLOSE_IDLE_AFTER_SLEEP {
+            info!(
+                "woke after {}s asleep: nothing closed (under {}s)",
+                asleep.as_secs(),
+                net::network::CLOSE_IDLE_AFTER_SLEEP.as_secs()
+            );
+            return;
+        }
+        let _update = self.update.lock().await;
+        self.dns_client.load().close_idle().await;
+        // Every outbound, endpoint and provider member, once, as a change
+        // of network reaches them: each closes what it holds idle, and the
+        // groups test their members again.
+        let outbounds = self.outbound_manager.load_full();
+        for handler in outbounds.handlers() {
+            handler.close_idle();
+        }
+        #[cfg(feature = "outbound-provider")]
+        for members in outbounds.providers().members().values() {
+            for member in members.load().members.iter() {
+                member.handler.close_idle();
+            }
+        }
+        info!(
+            "woke after {}s asleep: idle carriers closed, groups test again",
+            asleep.as_secs()
+        );
+    }
+
     /// What the instance does when the network changes so that connections
     /// made on the one before do not survive, as sing-box resets its
     /// network (route/network.go:493-520): the DNS answers kept and the
@@ -1582,6 +1619,21 @@ pub fn set_network_state(key: RuntimeId, json: &str) -> Result<(), Error> {
     Ok(())
 }
 
+/// Tells runtime `key` that the system goes to sleep (`asleep`) or woke:
+/// timed checks and updates wait while it sleeps, and a wake after a long
+/// sleep closes the idle carriers. From the first, the host's word on
+/// sleeps replaces sail's detection of them.
+pub fn host_sleep(key: RuntimeId, asleep: bool) -> Result<(), Error> {
+    let manager = runtime_manager(key).ok_or(Error::RuntimeManager)?;
+    if asleep {
+        info!("the host says the system sleeps");
+        manager.network().sleep();
+    } else {
+        manager.network().wake();
+    }
+    Ok(())
+}
+
 /// Tells the TUN inbound of runtime `key` that the host's network changed,
 /// with the new interface MTU when it changed too.
 pub fn network_changed(key: RuntimeId, mtu: Option<usize>) -> Result<(), Error> {
@@ -1737,10 +1789,27 @@ async fn follow_nat64(manager: &RuntimeManager) {
 /// (detection, the host, waking) comes to.
 async fn follow_network_changes(manager: Arc<RuntimeManager>) {
     let mut changes = manager.network().changes();
+    // The state the last change handled left: a wake told right after a
+    // move hides the move from this watch, and is a move then, from here.
+    let mut handled: Option<Arc<net::network::NetworkState>> = None;
     while changes.changed().await.is_ok() {
         let change = changes.borrow_and_update().clone();
-        if let Some(change) = change {
+        let Some(change) = change else {
+            continue;
+        };
+        let before = handled
+            .replace(change.new.clone())
+            .unwrap_or_else(|| change.old.clone());
+        if change.reason != net::network::ChangeReason::Wake {
             manager.network_moved(&change).await;
+        } else if *before != *change.new {
+            let moved = net::network::NetworkChange {
+                old: before,
+                ..(*change).clone()
+            };
+            manager.network_moved(&moved).await;
+        } else {
+            manager.woke(&change).await;
         }
     }
     std::future::pending().await
@@ -2409,16 +2478,12 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
     tasks.push(Box::pin(follow_default_interface(runtime_manager.clone())));
     // What was of the network before goes when it changes.
     tasks.push(Box::pin(follow_network_changes(runtime_manager.clone())));
-    // A wake from sleep is one: the connections were most likely dropped
-    // by their peers meanwhile.
+    // A wake from sleep, unless the host tells of sleeps: after a long one
+    // the idle carriers go (`RuntimeManager::woke`).
     {
         let network = runtime_manager.network().clone();
         tasks.push(Box::pin(async move {
-            platform::sleep::follow(|asleep| {
-                info!("woke after {}s asleep", asleep.as_secs());
-                network.announce(net::network::ChangeReason::Wake);
-            })
-            .await;
+            platform::sleep::follow(|asleep| network.detected_wake(asleep)).await;
             std::future::pending().await
         }));
     }

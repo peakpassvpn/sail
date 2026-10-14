@@ -572,6 +572,102 @@ async fn removing_an_inbound_closes_its_connections_only() {
     instance.stop().await.unwrap();
 }
 
+/// A host's sleep and a short wake: told as a network event of reason
+/// wake, and no connection closed by it, as sing-box keeps them across a
+/// sleep under 2 minutes.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_short_sleep_closes_no_connection() {
+    use futures::StreamExt;
+    use sail::embed::{Event, Kinds, NetworkChangeReason};
+
+    let (echo, serve) = common::run_tcp_echo_server("127.0.0.1:0").await.unwrap();
+    tokio::spawn(serve);
+    let port = common::free_port();
+    let instance = Instance::new(options()).unwrap();
+    instance
+        .start(Config::Json(config(port, 53)))
+        .await
+        .unwrap();
+    let sess = Session {
+        destination: echo.into(),
+        ..Default::default()
+    };
+    let mut stream = common::new_socks_stream("127.0.0.1", port, &sess, None, None)
+        .await
+        .unwrap();
+    round_trip(&mut stream, b"before").await;
+
+    let mut events = Box::pin(instance.events(Kinds::NETWORK));
+    instance.sleep().unwrap();
+    instance.wake().unwrap();
+    let woke = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            match events.next().await.expect("the stream goes on") {
+                Event::Network(e) if e.reason == NetworkChangeReason::Wake => break e,
+                _ => {}
+            }
+        }
+    })
+    .await
+    .expect("the wake told in time");
+    assert_eq!(
+        woke.old.interface, woke.new.interface,
+        "nothing different: {:?}",
+        woke
+    );
+    // What a wake would close is closed by now if it were: the follower
+    // handled the event before the next one is told. Give it a moment.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    round_trip(&mut stream, b"after").await;
+    // A wake with no sleep before it is nothing.
+    instance.wake().unwrap();
+    instance.stop().await.unwrap();
+}
+
+/// A wake after a long sleep closes only what is idle: a connection in use
+/// goes on, and the log says the idle carriers were closed.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_long_sleep_keeps_the_connections_in_use() {
+    use futures::StreamExt;
+    use sail::embed::{Event, Kinds, NetworkChangeReason};
+
+    let (echo, serve) = common::run_tcp_echo_server("127.0.0.1:0").await.unwrap();
+    tokio::spawn(serve);
+    let port = common::free_port();
+    let instance = Instance::new(options()).unwrap();
+    instance
+        .start(Config::Json(config(port, 53)))
+        .await
+        .unwrap();
+    let sess = Session {
+        destination: echo.into(),
+        ..Default::default()
+    };
+    let mut stream = common::new_socks_stream("127.0.0.1", port, &sess, None, None)
+        .await
+        .unwrap();
+    round_trip(&mut stream, b"before").await;
+
+    let mut events = Box::pin(instance.events(Kinds::NETWORK));
+    let manager = sail::runtime_manager(instance.id()).expect("the instance runs");
+    // As sail's own detection would see a 5 minute sleep.
+    manager.network().detected_wake(Duration::from_secs(300));
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if let Event::Network(e) = events.next().await.expect("the stream goes on") {
+                if e.reason == NetworkChangeReason::Wake {
+                    break;
+                }
+            }
+        }
+    })
+    .await
+    .expect("the wake told in time");
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    round_trip(&mut stream, b"after").await;
+    instance.stop().await.unwrap();
+}
+
 /// The network is settled when start returns: the interface (or an
 /// explicit offline) at generation 1, before any change.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

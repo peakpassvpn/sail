@@ -41,6 +41,8 @@ internal object Native {
     @JvmStatic external fun setMode(instance: Long, mode: String)
     @JvmStatic external fun setNetworkState(instance: Long, state: String)
     @JvmStatic external fun networkChanged(instance: Long, mtu: Int)
+    @JvmStatic external fun sleep(instance: Long)
+    @JvmStatic external fun wake(instance: Long)
     @JvmStatic external fun clearLogs(instance: Long)
     @JvmStatic external fun subscribe(instance: Long, kind: Int, options: String?, sink: EventSink): Long
     @JvmStatic external fun unsubscribe(subscription: Long)

@@ -97,9 +97,10 @@ pub enum NetworkChangeKind {
     /// Another default interface: a name or index differs.
     InterfaceChanged,
     /// The same interface on another network: its gateway, type or
-    /// addresses (IPv6 by /64) differ; or the host or a wake says the
-    /// network changed. A roam to another access point with the same
-    /// addresses is no change.
+    /// addresses (IPv6 by /64) differ; or the host says the network
+    /// changed. A roam to another access point with the same addresses is
+    /// no change. A wake with nothing different is told as this too, of
+    /// reason `Wake`.
     Moved,
     /// The default interface is gone.
     Offline,
@@ -117,11 +118,14 @@ pub enum NetworkChangeReason {
     Detected,
     /// The host told it (`set_network_state`, `network_changed`).
     Host,
-    /// The system woke from sleep.
+    /// The system woke from sleep (`Instance::wake`, or sail saw it):
+    /// no change of network by itself. It closes nothing, except after a
+    /// sleep of 2 minutes or more, which closes the carriers left idle.
     Wake,
 }
 
-/// A change of network that the connections made before do not survive.
+/// A change of network that the connections made before do not survive,
+/// or a wake (reason `Wake`), which most of them do.
 /// Each is settled: sail's detection waits for 100 ms without a notice
 /// from the system (1 s at most) before it looks; a state the host pushes
 /// is taken as given.

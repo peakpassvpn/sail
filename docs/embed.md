@@ -392,7 +392,7 @@ that some connections may not survive (a move), as `Event::Network`:
 | `change` | when |
 |---|---|
 | `InterfaceChanged` | another default interface: its name or index differs |
-| `Moved` | the same interface on another network: its gateway or kind differs, or one of its addresses (IPv6 by /64) is gone; or the host, or a wake, says the network changed |
+| `Moved` | the same interface on another network: its gateway or kind differs, or one of its addresses (IPv6 by /64) is gone; or the host says the network changed; or a wake, with nothing different (reason `Wake`, see below) |
 | `Offline` | the default interface is gone |
 | `Restored` | a default interface is back after none |
 
@@ -426,11 +426,29 @@ that some connections may not survive (a move), as `Event::Network`:
     timeouts end it.
   A connection whose address is not known (UDP, one not yet made) counts
   an address gone as its own. A change
-  sail cannot see into (a wake, or the host's `network_changed` alone)
+  sail cannot see into (the host's `network_changed` alone)
   closes every connection, and ends every TUN flow. A closed connection's
   TUN flow ends at the app with a reset. The log line `network changed:
   generation N, …, closed=K` counts them, and the next line names what
   differed.
+- **Sleep and wake.** A wake is no move: after a sleep shorter than 2
+  minutes nothing is closed; after one of 2 minutes or more the carriers
+  left idle (pooled connections with nothing open, the DNS servers'
+  among them) are closed and the groups test their members again, as
+  sing-box does (21ba30b8c). Connections in use stay either way, and a
+  network that changed across the sleep is a move as above. The host
+  says when the system sleeps and wakes with `Instance::sleep()` and
+  `Instance::wake()` (`sail_sleep`, `sail_wake`; on iOS from the
+  extension's `sleep(completionHandler:)` and `wake()`), as libbox's
+  hosts call `Pause` and `Wake`: the sleep is the wall-clock time between
+  the two, timed health checks and provider and rule-set updates wait
+  while it lasts, and from the first `sleep()` on sail's own detection
+  of sleeps is left. A host that never calls them gets sail's detection
+  (a clock that counts sleep against one that does not, every 5 s). The
+  2 minutes are sing-box's judgment, not measured here. A short sleep
+  can still outlast the NAT mappings of a carrier's UDP (often 30 to 120
+  s): its first use after the wake then stalls until its keep-alive or
+  idle timeout notices (15 s at most for QUIC carriers).
 - **The host's word, folded.** `network_changed` (`sail_network_changed`)
   within 2 s after a `set_network_state` is about that state, which sail
   handled as it came: it is folded into it, no second move. A host that

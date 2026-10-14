@@ -517,6 +517,17 @@ fn an_instance_is_driven_through_the_c_abi() {
         logs.wait(SAIL_EVENT_LOG, |e| {
             e["reset"] == true && e["lines"].as_array().unwrap().is_empty()
         });
+        // The host's sleep and wake, a short one: Ok, and the wake logged,
+        // after the log was cleared (it is logged as the wake is handled).
+        ok("sleep", |err| sail_sleep(instance, err));
+        ok("wake", |err| sail_wake(instance, err));
+        logs.wait(SAIL_EVENT_LOG, |e| {
+            e["lines"].as_array().unwrap().iter().any(|l| {
+                l["message"]
+                    .as_str()
+                    .is_some_and(|m| m.contains("nothing closed"))
+            })
+        });
 
         // Stopped, started again, stopped.
         stop(instance);

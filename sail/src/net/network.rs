@@ -298,6 +298,11 @@ fn networks(addresses: &[cidr::IpInet]) -> Vec<IpAddr> {
     networks
 }
 
+/// How long a sleep must last for the carriers it left idle to be closed
+/// on waking: sing-box's (21ba30b8c, v1.14.3: on iOS most sleeps, for a
+/// push or a background task, last less). A shorter sleep closes nothing.
+pub const CLOSE_IDLE_AFTER_SLEEP: std::time::Duration = std::time::Duration::from_secs(120);
+
 /// What made sail look at the network again.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ChangeReason {
@@ -307,7 +312,8 @@ pub enum ChangeReason {
     State,
     /// The host told it.
     HostPush,
-    /// The system woke from sleep.
+    /// The system woke from sleep: no change of network by itself, which
+    /// closes nothing, the time asleep told with it (`Network::last_sleep`).
     Wake,
 }
 
@@ -428,6 +434,12 @@ pub struct Network {
     /// The interfaces sail makes itself (its TUNs'), never listed as ones
     /// to go out of.
     own: Arc<std::sync::RwLock<Vec<String>>>,
+    /// Since when the host says the system sleeps, while it does.
+    asleep_since: Arc<Mutex<Option<std::time::SystemTime>>>,
+    /// Whether the host tells sail of sleeps, which detection then leaves.
+    host_tells_sleep: Arc<AtomicBool>,
+    /// How long the system slept before its last wake.
+    last_sleep: Arc<Mutex<Option<std::time::Duration>>>,
 }
 
 impl Default for Network {
@@ -441,6 +453,9 @@ impl Default for Network {
             pushed: Arc::default(),
             pushed_at: Arc::default(),
             own: Arc::default(),
+            asleep_since: Arc::default(),
+            host_tells_sleep: Arc::default(),
+            last_sleep: Arc::default(),
         }
     }
 }
@@ -549,11 +564,62 @@ impl Network {
     }
 
     /// Whether there is no network: a state was known, and now nothing is,
-    /// no default interface, address or type. Checks and updates on a
-    /// timer wait while it is, rather than find everything failing; the
-    /// change that ends it tells them to look again.
+    /// no default interface, address or type; or the host says the system
+    /// sleeps. Checks and updates on a timer wait while it is, rather than
+    /// find everything failing; the change that ends it (a wake among
+    /// them) tells them to look again.
     pub fn is_down(&self) -> bool {
-        self.known.load(Ordering::Relaxed) && *self.snapshot() == NetworkState::default()
+        self.asleep()
+            || self.known.load(Ordering::Relaxed) && *self.snapshot() == NetworkState::default()
+    }
+
+    /// Whether the host says the system sleeps now.
+    pub fn asleep(&self) -> bool {
+        self.asleep_since
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_some()
+    }
+
+    /// The host says the system goes to sleep. From then on the host tells
+    /// sail of sleeps, and its own detection leaves them.
+    pub fn sleep(&self) {
+        self.host_tells_sleep.store(true, Ordering::Relaxed);
+        let mut since = self.asleep_since.lock().unwrap_or_else(|e| e.into_inner());
+        since.get_or_insert_with(std::time::SystemTime::now);
+    }
+
+    /// The host says the system woke: the time since its `sleep`, by the
+    /// wall clock, as sing-box measures it, is the sleep. Nothing when it
+    /// said no sleep.
+    pub fn wake(&self) {
+        let since = self
+            .asleep_since
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take();
+        if let Some(since) = since {
+            self.woke(since.elapsed().unwrap_or_default());
+        }
+    }
+
+    /// A wake sail saw itself after `asleep` (platform::sleep), unless the
+    /// host tells of sleeps. Public for tests, which cannot sleep 2 minutes.
+    #[doc(hidden)]
+    pub fn detected_wake(&self, asleep: std::time::Duration) {
+        if !self.host_tells_sleep.load(Ordering::Relaxed) {
+            self.woke(asleep);
+        }
+    }
+
+    fn woke(&self, asleep: std::time::Duration) {
+        *self.last_sleep.lock().unwrap_or_else(|e| e.into_inner()) = Some(asleep);
+        self.announce(ChangeReason::Wake);
+    }
+
+    /// How long the system slept before its last wake.
+    pub fn last_sleep(&self) -> Option<std::time::Duration> {
+        *self.last_sleep.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     /// Whether the host pushes the state.
@@ -1033,6 +1099,46 @@ mod tests {
             changes.borrow_and_update().as_ref().unwrap().reason,
             ChangeReason::Wake
         );
+    }
+
+    /// The host's sleep: timed work waits while it lasts, its wake is told
+    /// with the time asleep, and sail's own detection of sleeps is left
+    /// from then on. A wake with no sleep before it is nothing.
+    #[test]
+    fn the_hosts_sleep_holds_timers_and_its_wake_is_told_with_the_time() {
+        let network = Network::default();
+        network.settle_first(Some(on("en0", &["192.168.1.2/24"])));
+        let mut changes = network.changes();
+        changes.borrow_and_update();
+
+        // sail's own detection, before the host says anything.
+        network.detected_wake(std::time::Duration::from_secs(300));
+        assert_eq!(
+            changes.borrow_and_update().as_ref().unwrap().reason,
+            ChangeReason::Wake
+        );
+        assert_eq!(
+            network.last_sleep(),
+            Some(std::time::Duration::from_secs(300))
+        );
+
+        network.wake();
+        assert!(
+            !changes.has_changed().unwrap(),
+            "a wake with no sleep before it"
+        );
+        network.sleep();
+        assert!(network.asleep() && network.is_down());
+        network.wake();
+        assert!(!network.asleep() && !network.is_down());
+        let change = changes.borrow_and_update().clone().unwrap();
+        assert_eq!(change.reason, ChangeReason::Wake);
+        assert!(change.old.differences(&change.new).is_empty());
+        assert!(network.last_sleep().unwrap() < std::time::Duration::from_secs(5));
+
+        // The host tells of sleeps now: sail's detection is left.
+        network.detected_wake(std::time::Duration::from_secs(300));
+        assert!(!changes.has_changed().unwrap());
     }
 
     #[test]

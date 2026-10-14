@@ -348,6 +348,18 @@ public final class Sail {
         try check { sail_network_changed(handle, mtu, $0) }
     }
 
+    /// The system goes to sleep (`sail_sleep`): timed checks and updates
+    /// wait. A Network Extension calls it from `sleep(completionHandler:)`.
+    public func sleep() throws {
+        try check { sail_sleep(handle, $0) }
+    }
+
+    /// The system woke (`sail_wake`): after 2 minutes or more asleep, the
+    /// idle carriers close. A Network Extension calls it from `wake()`.
+    public func wake() throws {
+        try check { sail_wake(handle, $0) }
+    }
+
     public func clearLogs() throws {
         try check { sail_clear_logs(handle, $0) }
     }

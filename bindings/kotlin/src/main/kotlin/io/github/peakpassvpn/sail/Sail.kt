@@ -167,6 +167,10 @@ class Sail private constructor(private val handle: Long) : AutoCloseable {
     fun setMode(mode: String) = Native.setMode(handle, mode)
     fun setNetworkState(state: String) = Native.setNetworkState(handle, state)
     fun networkChanged(mtu: Int = 0) = Native.networkChanged(handle, mtu)
+    /** The system goes to sleep (sail_sleep): timed checks and updates wait. */
+    fun sleep() = Native.sleep(handle)
+    /** The system woke (sail_wake): after 2 minutes or more asleep, idle carriers close. */
+    fun wake() = Native.wake(handle)
     fun clearLogs() = Native.clearLogs(handle)
 
     /**

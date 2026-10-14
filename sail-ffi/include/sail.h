@@ -574,6 +574,25 @@ int32_t sail_set_network_state(SailInstance instance, const char *state, char **
 int32_t sail_network_changed(SailInstance instance, uint16_t mtu, char **err);
 
 /*
+ Tells the running instance that the system goes to sleep, as libbox's
+ `Pause`: timed health checks and provider and rule-set updates wait
+ until `sail_wake`. From the first call on, the host's word on sleeps
+ replaces sail's own detection of them. The tunnel process's host tells
+ it, as libbox's does (iOS: the extension's sleep), not a client.
+ */
+int32_t sail_sleep(SailInstance instance, char **err);
+
+/*
+ Tells the running instance that the system woke, as libbox's `Wake`
+ (iOS: the extension's wake). A sleep of 2 minutes or more since
+ `sail_sleep`, by the wall clock, closes the carriers left idle (pooled
+ connections with nothing open) and has the groups test their members
+ again; a shorter one closes nothing. Connections in use stay either
+ way. Nothing without a `sail_sleep` before it.
+ */
+int32_t sail_wake(SailInstance instance, char **err);
+
+/*
  Forgets the lines of the instance's log kept; its log subscriptions are
  sent `reset`.
  */

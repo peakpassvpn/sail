@@ -574,6 +574,26 @@ impl Instance {
         Ok(crate::set_network_state(self.id(), json)?)
     }
 
+    /// Tells it the system goes to sleep, as libbox's `Pause`: timed
+    /// health checks and provider and rule-set updates wait until `wake`.
+    /// From the first call on, the host's word on sleeps replaces sail's
+    /// own detection of them for this run.
+    pub fn sleep(&self) -> Result<(), Error> {
+        self.manager()?;
+        Ok(crate::host_sleep(self.id(), true)?)
+    }
+
+    /// Tells it the system woke, as libbox's `Wake`. A sleep of 2 minutes
+    /// or more since `sleep` (by the wall clock) closes the carriers left
+    /// idle, pooled connections with nothing open, and the groups test
+    /// their members again; a shorter one closes nothing. Connections in
+    /// use stay either way; a change of network across the sleep is seen
+    /// as any change is. Nothing without a `sleep` before it.
+    pub fn wake(&self) -> Result<(), Error> {
+        self.manager()?;
+        Ok(crate::host_sleep(self.id(), false)?)
+    }
+
     /// Tells its TUN inbound that the host's network changed, with the new
     /// MTU when that changed too.
     pub async fn network_changed(&self, mtu: Option<usize>) -> Result<(), Error> {
