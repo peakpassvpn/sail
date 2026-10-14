@@ -9,49 +9,26 @@
 //! as a muxcore session does.
 
 use std::io;
-use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::task::{ready, Context, Poll};
 
-use bytes::{Buf, Bytes};
+use bytes::Bytes;
 use futures::future::{abortable, AbortHandle};
 use futures::FutureExt;
-use h2::{client::ResponseFuture, RecvStream, SendStream};
 use http::{Method, Request, Response, StatusCode, Uri};
-use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::mpsc;
 use tracing::debug;
 
-use crate::transport::muxcore::stall::{Guarded, Stallable};
+use crate::transport::h2connect::H2Inner;
+use crate::transport::muxcore::stall::Guarded;
 use crate::transport::muxcore::{Tuning, MAX_STREAMS};
 
 /// A connection's window, in stream windows.
 const CONNECTION_WINDOWS: u32 = 8;
-/// Written into one stream's send buffer at once.
-const MAX_WRITE: usize = 32 << 10;
 
 fn h2_error(e: h2::Error) -> io::Error {
-    if e.is_io() {
-        return e.into_io().unwrap_or_else(|| io::Error::other("h2mux: io"));
-    }
-    io::Error::other(format!("h2mux: {}", e))
-}
-
-/// Counts the streams open on a connection.
-struct Active(Arc<AtomicUsize>);
-
-impl Active {
-    fn new(count: &Arc<AtomicUsize>) -> Self {
-        count.fetch_add(1, Ordering::Relaxed);
-        Active(count.clone())
-    }
-}
-
-impl Drop for Active {
-    fn drop(&mut self) {
-        self.0.fetch_sub(1, Ordering::Relaxed);
-    }
+    crate::transport::h2connect::h2_error("h2mux", e)
 }
 
 pub struct H2Client {
@@ -109,16 +86,9 @@ impl H2Client {
             .body(())
             .map_err(io::Error::other)?;
         let (response, stream) = send.send_request(request, false).map_err(h2_error)?;
-        let stream = H2Inner {
-            response: Some(response),
-            recv: None,
-            send: stream,
-            received: Bytes::new(),
-            ended: false,
-            peer_done: false,
-            retire: Some(self.retired.clone()),
-            _active: Active::new(&self.active),
-        };
+        let stream = H2Inner::awaiting("h2mux", stream, response)
+            .retiring(self.retired.clone())
+            .counted(&self.active);
         Ok(guard(stream, &self.tuning, self.label.clone()))
     }
 
@@ -211,16 +181,7 @@ where
             if status != StatusCode::OK {
                 continue;
             }
-            let stream = H2Inner {
-                response: None,
-                recv: Some(request.into_body()),
-                send,
-                received: Bytes::new(),
-                ended: false,
-                peer_done: false,
-                retire: None,
-                _active: Active::new(&active),
-            };
+            let stream = H2Inner::new("h2mux", send, request.into_body()).counted(&active);
             let stream = guard(stream, &tuning, label.clone());
             if tx.send(stream).is_err() {
                 break;
@@ -237,157 +198,4 @@ pub type H2Stream = Guarded<H2Inner>;
 
 fn guard(stream: H2Inner, tuning: &Tuning, label: Arc<str>) -> H2Stream {
     Guarded::new(stream, "h2mux", tuning.stall_timeout, label)
-}
-
-pub struct H2Inner {
-    /// On a client, until the response comes.
-    response: Option<ResponseFuture>,
-    recv: Option<RecvStream>,
-    send: SendStream<Bytes>,
-    /// Received and not yet read.
-    received: Bytes,
-    ended: bool,
-    /// The peer is done sending: it ended or reset the stream.
-    peer_done: bool,
-    /// On a client: marks the connection retired if the stream is dropped
-    /// before the peer is done.
-    retire: Option<Arc<AtomicBool>>,
-    _active: Active,
-}
-
-impl Drop for H2Inner {
-    fn drop(&mut self) {
-        if let Some(retired) = self.retire.as_ref().filter(|_| !self.peer_done) {
-            if !retired.swap(true, Ordering::Relaxed) {
-                debug!(
-                    "h2mux connection retired: stream {} ended before the server finished",
-                    u32::from(self.send.stream_id())
-                );
-            }
-        }
-    }
-}
-
-impl Stallable for H2Inner {
-    fn id(&mut self) -> u64 {
-        u64::from(u32::from(self.send.stream_id()))
-    }
-
-    fn buffered(&mut self) -> Option<usize> {
-        let held = self
-            .recv
-            .as_mut()
-            .map_or(0, |recv| recv.flow_control().used_capacity());
-        Some(self.received.len() + held)
-    }
-
-    /// RST_STREAM: what the stream holds is dropped, and its window goes
-    /// back to the connection.
-    fn reset(&mut self) {
-        self.send.send_reset(h2::Reason::CANCEL);
-        self.recv = None;
-        self.response = None;
-        self.received = Bytes::new();
-        self.ended = true;
-    }
-}
-
-impl AsyncRead for H2Inner {
-    fn poll_read(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &mut ReadBuf<'_>,
-    ) -> Poll<io::Result<()>> {
-        let me = self.get_mut();
-        loop {
-            if !me.received.is_empty() {
-                let n = me.received.len().min(buf.remaining());
-                buf.put_slice(&me.received[..n]);
-                me.received.advance(n);
-                return Poll::Ready(Ok(()));
-            }
-            if let Some(response) = me.response.as_mut() {
-                let response = match ready!(response.poll_unpin(cx)) {
-                    Ok(response) => response,
-                    Err(e) => {
-                        me.peer_done |= e.is_remote();
-                        return Poll::Ready(Err(h2_error(e)));
-                    }
-                };
-                me.response = None;
-                if response.status() != StatusCode::OK {
-                    // Sent with the end of the stream.
-                    me.peer_done = true;
-                    return Poll::Ready(Err(io::Error::other(format!(
-                        "h2mux: unexpected status {}",
-                        response.status()
-                    ))));
-                }
-                me.recv = Some(response.into_body());
-            }
-            let Some(recv) = me.recv.as_mut() else {
-                return Poll::Ready(Ok(()));
-            };
-            match ready!(recv.poll_data(cx)) {
-                Some(Ok(data)) => {
-                    let _ = recv.flow_control().release_capacity(data.len());
-                    me.received = data;
-                }
-                Some(Err(e)) if e.reason() == Some(h2::Reason::NO_ERROR) => {
-                    me.peer_done = true;
-                    return Poll::Ready(Ok(()));
-                }
-                Some(Err(e)) => {
-                    me.peer_done |= e.is_remote();
-                    return Poll::Ready(Err(h2_error(e)));
-                }
-                None => {
-                    me.peer_done = true;
-                    return Poll::Ready(Ok(()));
-                }
-            }
-        }
-    }
-}
-
-impl AsyncWrite for H2Inner {
-    fn poll_write(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &[u8],
-    ) -> Poll<io::Result<usize>> {
-        let me = self.get_mut();
-        if me.ended {
-            return Poll::Ready(Err(io::ErrorKind::BrokenPipe.into()));
-        }
-        if buf.is_empty() {
-            return Poll::Ready(Ok(0));
-        }
-        me.send.reserve_capacity(buf.len().min(MAX_WRITE));
-        match ready!(me.send.poll_capacity(cx)) {
-            Some(Ok(n)) => {
-                let n = n.min(buf.len());
-                me.send
-                    .send_data(Bytes::copy_from_slice(&buf[..n]), false)
-                    .map_err(h2_error)?;
-                Poll::Ready(Ok(n))
-            }
-            Some(Err(e)) => Poll::Ready(Err(h2_error(e))),
-            None => Poll::Ready(Err(io::ErrorKind::BrokenPipe.into())),
-        }
-    }
-
-    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Poll::Ready(Ok(()))
-    }
-
-    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        let me = self.get_mut();
-        if !me.ended {
-            me.ended = true;
-            me.send.reserve_capacity(0);
-            me.send.send_data(Bytes::new(), true).map_err(h2_error)?;
-        }
-        Poll::Ready(Ok(()))
-    }
 }
