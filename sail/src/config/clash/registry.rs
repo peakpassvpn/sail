@@ -300,7 +300,12 @@ fn measure(field: &str, kind: &str) -> (Tier, String) {
             if let Some(w) = new.iter().find(|w| w.contains("not a field Mihomo takes")) {
                 return (Tier::Unknown, first_line(w));
             }
-            match new.iter().find(|w| not_implemented(w)) {
+            // What this platform refuses, sail takes elsewhere: the tables
+            // are the same wherever they are measured.
+            match new
+                .iter()
+                .find(|w| not_implemented(w) && !w.contains(super::NOT_ON_THIS_PLATFORM))
+            {
                 Some(w) => (Tier::Warned, first_line(w)),
                 None => (Tier::Supported, String::new()),
             }

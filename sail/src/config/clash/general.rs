@@ -65,8 +65,9 @@ pub fn lower(doc: &mut Fields, out: &mut Lowered, warnings: &mut Vec<String>) ->
                 .insert("tcp_fast_open".into(), json!(true));
         } else {
             warnings.push(format!(
-                "{}: not on this platform; ignored",
-                doc.at("inbound-tfo")
+                "{}: {}; ignored",
+                doc.at("inbound-tfo"),
+                super::NOT_ON_THIS_PLATFORM
             ));
         }
     }

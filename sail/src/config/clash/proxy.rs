@@ -337,7 +337,12 @@ fn dial(
             Ok(()) => {
                 o.insert("tcp_fast_open".into(), json!(true));
             }
-            Err(why) => w.push(format!("{}: {}; ignored", f.at("tfo"), why)),
+            Err(why) => w.push(format!(
+                "{}: {} ({}); ignored",
+                f.at("tfo"),
+                super::NOT_ON_THIS_PLATFORM,
+                why
+            )),
         }
     }
     if let Some(version) = f.string("ip-version")? {

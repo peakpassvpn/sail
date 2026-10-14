@@ -113,6 +113,10 @@ pub(crate) fn payload(s: &str) -> Result<Vec<String>> {
     doc.strings("rules")
 }
 
+/// What a warning of a field this platform refuses says, and sail takes
+/// elsewhere: the registry measures it as supported, wherever it runs.
+pub(crate) const NOT_ON_THIS_PLATFORM: &str = "not on this platform";
+
 /// The configuration being built, in sing-box's shape.
 #[derive(Default)]
 pub struct Lowered {
