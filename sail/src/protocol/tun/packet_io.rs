@@ -365,6 +365,50 @@ fn flow_groups(payloads: &[&[u8]]) -> Vec<Vec<usize>> {
     groups
 }
 
+/// A flow's segments, in order, as the runs a GSO frame each can carry:
+/// a frame holds at most 64 KiB (7 segments at an MTU of 9000), and GRO
+/// ends one at a segment shorter than its first, or at one with PSH. A
+/// flow's batch beyond one frame was written a segment at a time before:
+/// at an MTU of 9000 nearly every download batch, which offload then cost
+/// a tenth of the download (2026-10-14). Sequence numbers are not checked:
+/// a run with a retransmitted segment in it does not coalesce, and goes
+/// out a segment at a time, as rare as retransmissions are.
+#[cfg(target_os = "linux")]
+fn frame_runs(segments: &[&[u8]]) -> Vec<std::ops::Range<usize>> {
+    const PSH: u8 = 0x08;
+    // A segment's payload, the bytes before it, and whether it has PSH.
+    let shape = |segment: &[u8]| {
+        let tcp = parse_tcp_segment(parse_ip_packet(segment, false).ok()?, false).ok()?;
+        let payload = tcp.payload.len();
+        Some((
+            payload,
+            segment.len() - payload,
+            tcp.meta.flags.bits() & PSH != 0,
+        ))
+    };
+    let mut runs = Vec::new();
+    let mut start = 0;
+    while start < segments.len() {
+        let mut end = start + 1;
+        if let Some((first, headers, false)) = shape(segments[start]).filter(|s| s.0 > 0) {
+            let mut length = headers + first;
+            while let Some((size, _, push)) = segments.get(end).and_then(|s| shape(s)) {
+                if size == 0 || size > first || length + size > usize::from(u16::MAX) {
+                    break;
+                }
+                length += size;
+                end += 1;
+                if size < first || push {
+                    break;
+                }
+            }
+        }
+        runs.push(start..end);
+        start = end;
+    }
+    runs
+}
+
 /// Coalesces `payloads`, segments of one flow, into one GSO frame in
 /// `buffers`: its index, or none if they do not make exactly one.
 #[cfg(target_os = "linux")]
@@ -501,15 +545,32 @@ impl TunRsPacketIo {
         let payloads: Vec<&[u8]> = packets.iter().map(Packet::payload).collect();
         let mut written = vec![false; payloads.len()];
         let mut first = true;
-        'groups: for group in flow_groups(&payloads) {
+        // Each run of a flow's segments that one frame can carry, a run
+        // coalesced and written before the next is coalesced into the same
+        // buffers.
+        let runs: Vec<Vec<usize>> = flow_groups(&payloads)
+            .into_iter()
+            .flat_map(|group| {
+                let segments: Vec<&[u8]> = group.iter().map(|&index| payloads[index]).collect();
+                frame_runs(&segments)
+                    .into_iter()
+                    .map(|run| group[run].to_vec())
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        'groups: for group in runs {
             let segments: Vec<&[u8]> = group.iter().map(|&index| payloads[index]).collect();
-            let frame = prepare_coalesced_tcp_batch(
-                &mut self.gro_table,
-                &mut self.offload_send_packets,
-                &segments,
-            );
-            // One frame for the group (the buffer it is in), or each of
-            // its packets alone (none: copied into the first buffer).
+            let frame = (segments.len() >= 2)
+                .then(|| {
+                    prepare_coalesced_tcp_batch(
+                        &mut self.gro_table,
+                        &mut self.offload_send_packets,
+                        &segments,
+                    )
+                })
+                .flatten();
+            // One frame for the run (the buffer it is in), or each of its
+            // packets alone (none: copied into the first buffer).
             let parts: Vec<(Option<usize>, &[usize])> = match frame {
                 Some(index) => vec![(Some(index), &group[..])],
                 None => group
@@ -922,30 +983,48 @@ pub(crate) fn fuzz_coalesce(data: &[u8]) {
     let mut table = tun_rs::GROTable::default();
     let mut buffers: Vec<Vec<u8>> = (0..64).map(|_| Vec::new()).collect();
     for group in &groups {
-        let segments: Vec<&[u8]> = group.iter().map(|&i| payloads[i]).collect();
-        let Some(index) = prepare_coalesced_tcp_batch(&mut table, &mut buffers, &segments) else {
-            continue;
-        };
-        let header = tun_rs::VirtioNetHdr::decode(&buffers[index]).expect("the header decodes");
-        let mut frame = buffers[index][tun_rs::VIRTIO_NET_HDR_LEN..].to_vec();
-        let mut split = vec![vec![0_u8; 1_600]; segments.len() + 1];
-        let mut sizes = vec![0; segments.len() + 1];
-        let count = tun_rs::gso_split(&mut frame, header, &mut split, &mut sizes, 0, v6)
-            .expect("a coalesced frame splits");
-        assert_eq!(
-            count,
-            segments.len(),
-            "split into another number of segments"
+        let flow: Vec<&[u8]> = group.iter().map(|&i| payloads[i]).collect();
+        // The runs cover the flow's segments once, in order, none empty.
+        let runs = frame_runs(&flow);
+        assert!(
+            runs.first().is_some_and(|r| r.start == 0),
+            "runs from the first"
         );
-        for (k, original) in segments.iter().enumerate() {
-            let got = parse_tcp_segment(
-                parse_ip_packet(&split[k][..sizes[k]], true).expect("a split segment parses"),
-                true,
-            )
-            .expect("a split segment is TCP, its checksums right");
-            let want = parse_tcp_segment(parse_ip_packet(original, false).unwrap(), false).unwrap();
-            assert_eq!(got.payload, want.payload, "segment {k} changed");
-            assert_eq!(got.meta.sequence, want.meta.sequence, "segment {k} moved");
+        assert!(
+            runs.windows(2).all(|w| w[0].end == w[1].start),
+            "runs apart"
+        );
+        assert!(
+            runs.iter().all(|r| !r.is_empty()) && runs.last().map(|r| r.end) == Some(flow.len())
+        );
+        for run in runs {
+            let segments = &flow[run];
+            let Some(index) = prepare_coalesced_tcp_batch(&mut table, &mut buffers, segments)
+            else {
+                continue;
+            };
+            let header = tun_rs::VirtioNetHdr::decode(&buffers[index]).expect("the header decodes");
+            let mut frame = buffers[index][tun_rs::VIRTIO_NET_HDR_LEN..].to_vec();
+            let mut split = vec![vec![0_u8; 1_600]; segments.len() + 1];
+            let mut sizes = vec![0; segments.len() + 1];
+            let count = tun_rs::gso_split(&mut frame, header, &mut split, &mut sizes, 0, v6)
+                .expect("a coalesced frame splits");
+            assert_eq!(
+                count,
+                segments.len(),
+                "split into another number of segments"
+            );
+            for (k, original) in segments.iter().enumerate() {
+                let got = parse_tcp_segment(
+                    parse_ip_packet(&split[k][..sizes[k]], true).expect("a split segment parses"),
+                    true,
+                )
+                .expect("a split segment is TCP, its checksums right");
+                let want =
+                    parse_tcp_segment(parse_ip_packet(original, false).unwrap(), false).unwrap();
+                assert_eq!(got.payload, want.payload, "segment {k} changed");
+                assert_eq!(got.meta.sequence, want.meta.sequence, "segment {k} moved");
+            }
         }
     }
 }
@@ -1433,6 +1512,44 @@ mod tests {
             let header = tun_rs::VirtioNetHdr::decode(&buffers[index]).unwrap();
             assert_eq!(header.gso_type & 0x7f, tun_rs::VIRTIO_NET_HDR_GSO_TCPV4);
             assert_eq!(usize::from(header.gso_size), 512);
+        }
+    }
+
+    /// More of a flow than one frame can carry: a frame a run, each of 64
+    /// KiB at most, and each run's segments coalescing into one frame. A
+    /// short segment, or one with PSH, ends its run.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_offload_coalesces_a_long_flow_into_frames_of_at_most_64_kib() {
+        let server = SocketAddr::from((Ipv4Addr::new(10, 23, 0, 1), 443));
+        let client = SocketAddr::from((Ipv4Addr::new(10, 23, 0, 2), 50_000));
+        let mut sequence = 1_000_u32;
+        let mut segment = |size: usize, flags: TcpFlags| {
+            let wire = tcp_packet(server, client, sequence, 77, flags, &vec![7; size]);
+            sequence = sequence.wrapping_add(u32::try_from(size).unwrap());
+            wire
+        };
+        let push = TcpFlags::from_bits(TcpFlags::ACK.bits() | 0x08);
+        // 10 of 8000 bytes: 8 fit in 64 KiB; then a short one ends a run,
+        // and one with PSH ends the next.
+        let mut wires: Vec<Vec<u8>> = (0..10).map(|_| segment(8_000, TcpFlags::ACK)).collect();
+        wires.push(segment(3_000, TcpFlags::ACK));
+        wires.push(segment(8_000, TcpFlags::ACK));
+        wires.push(segment(8_000, push));
+        wires.push(segment(8_000, TcpFlags::ACK));
+        let segments: Vec<&[u8]> = wires.iter().map(Vec::as_slice).collect();
+        let runs = frame_runs(&segments);
+        assert_eq!(runs, vec![0..8, 8..11, 11..13, 13..14]);
+        let mut table = tun_rs::GROTable::default();
+        for run in runs.iter().filter(|run| run.len() >= 2) {
+            let mut buffers = gso_test_buffers(run.len());
+            let index =
+                prepare_coalesced_tcp_batch(&mut table, &mut buffers, &segments[run.clone()])
+                    .expect("a run makes one frame");
+            let header = tun_rs::VirtioNetHdr::decode(&buffers[index]).unwrap();
+            assert_eq!(header.gso_type & 0x7f, tun_rs::VIRTIO_NET_HDR_GSO_TCPV4);
+            assert_eq!(usize::from(header.gso_size), 8_000);
+            assert!(buffers[index].len() - tun_rs::VIRTIO_NET_HDR_LEN <= 65_535);
         }
     }
 
