@@ -358,11 +358,23 @@ mod tests {
         let key = "example.com".to_string();
         memory.touched();
         memory.store(&cache, std::iter::once((&key, &site)), &home);
-        let file = std::fs::read(cache.path()).unwrap();
+        // The file closed first: Windows refuses to read it while redb
+        // holds its byte-range lock. Then opened again for the rest.
+        let path = cache.path().to_path_buf();
+        drop(cache);
+        slot.close();
+        let file = std::fs::read(&path).unwrap();
         assert!(
             !file.windows(11).any(|w| w == b"example.com"),
             "a name in the file"
         );
+        slot.replace(
+            Some(&crate::runtime::cache_file::tests::enabled()),
+            &crate::runtime::cache_file::tests::env(&dir),
+        )
+        .unwrap()
+        .keep();
+        let cache = slot.get().unwrap();
 
         let again = Memory::load(&cache, "smart", ttl, 64, &configured(), &home).unwrap();
         let back = again.take("example.com").expect("the site, back");
