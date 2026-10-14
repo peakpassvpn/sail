@@ -181,6 +181,26 @@ mod tests {
         assert_eq!(sessions.live(), 2);
     }
 
+    /// On the mobile profile, as on the router's, the 513th session waits
+    /// for a place and is refused when none comes.
+    #[tokio::test]
+    async fn the_mobile_profile_s_513th_session_waits_and_is_refused() {
+        let limit = crate::runtime::RuntimeOptions::profile(crate::runtime::Profile::Mobile)
+            .inbound
+            .max_connections;
+        assert_eq!(limit, 512);
+        let sessions = Sessions::new(limit).unwrap();
+        let mut held = Vec::new();
+        for _ in 0..limit {
+            held.push(sessions.enter(Duration::ZERO).await.unwrap());
+        }
+        let started = Instant::now();
+        assert!(sessions.enter(Duration::from_millis(50)).await.is_none());
+        assert!(started.elapsed() >= Duration::from_millis(50), "it waited");
+        drop(held.pop());
+        assert!(sessions.enter(Duration::from_millis(50)).await.is_some());
+    }
+
     /// Beyond a quarter of the limit waiting, one more is refused at once.
     #[tokio::test]
     async fn no_more_than_a_quarter_of_the_limit_waits() {

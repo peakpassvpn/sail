@@ -549,6 +549,12 @@ impl RuntimeOptions {
                 },
                 inbound: Inbound {
                     multiplex_accept_concurrency: 64,
+                    // A judgment, as the router's: a phone's VPN extension
+                    // may be killed at 50 MiB, and a session costs about
+                    // 26 KiB idle, more under data (measured: 300 held
+                    // took 8 to 9 MiB; 2000 a 88 to 101 MiB peak). 512
+                    // keeps the sessions to about 13 MiB.
+                    max_connections: 512,
                     ..desktop.inbound
                 },
                 quic: Quic {
@@ -864,6 +870,17 @@ mod tests {
         }
         // A refused value changes nothing.
         assert_eq!(options.quic.udp_receive_buffer, 7168);
+    }
+
+    /// A phone's and a router's sessions are bounded, a desktop's and a
+    /// server's are not.
+    #[test]
+    fn small_profiles_bound_their_sessions() {
+        let cap = |profile| RuntimeOptions::profile(profile).inbound.max_connections;
+        assert_eq!(cap(Profile::Mobile), 512);
+        assert_eq!(cap(Profile::Router), 512);
+        assert_eq!(cap(Profile::Desktop), 0);
+        assert_eq!(cap(Profile::Server), 0);
     }
 
     #[test]
