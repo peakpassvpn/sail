@@ -17,7 +17,12 @@ mod proto;
     any(feature = "inbound-tuic", feature = "outbound-tuic")
 ))]
 pub(crate) fn fuzz(data: &[u8]) {
-    let mut reassembler = frag::Reassembler::new(4, std::time::Duration::from_secs(1));
+    use crate::transport::quic::{FragmentBudget, MAX_FRAGMENT_BYTES};
+    let mut reassembler = frag::Reassembler::new(
+        4,
+        std::time::Duration::from_secs(1),
+        FragmentBudget::new(MAX_FRAGMENT_BYTES),
+    );
     let now = std::time::Instant::now();
     for (header, payload) in proto::fuzz(data) {
         let _ = reassembler.feed(header, payload, now);

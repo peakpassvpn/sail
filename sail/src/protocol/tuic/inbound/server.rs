@@ -24,7 +24,7 @@ use tracing::{debug, trace, warn};
 
 use crate::adapter::*;
 use crate::session::{DatagramSource, Network, Session, SocksAddr, StreamId};
-use crate::transport::quic::{endpoint, server_config, Side};
+use crate::transport::quic::{endpoint, server_config, FragmentBudget, Side, MAX_FRAGMENT_BYTES};
 
 use super::super::common::{
     heartbeat, send_packet, token, tokens_equal, transport_config, ActiveGuard, Activity,
@@ -41,7 +41,8 @@ use super::super::proto::{
 const ACCEPT_CHANNEL_SIZE: usize = 1024;
 /// How long a connection may wait for room in the accept queue.
 const ACCEPT_QUEUE_TIMEOUT: Duration = Duration::from_secs(5);
-/// UDP associations one connection may hold.
+/// UDP associations one connection may hold. Judgment: the reference
+/// servers keep any number; an association is a relayed UDP session.
 const MAX_ASSOCIATIONS: usize = 256;
 /// An association with no packet from the client for this long ends.
 const ASSOCIATION_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
@@ -191,6 +192,15 @@ struct Association {
     reassembler: Reassembler,
 }
 
+/// A connection's UDP associations.
+struct Associations {
+    map: HashMap<u16, Association>,
+    /// What their unfinished packets hold, together.
+    fragments: Arc<FragmentBudget>,
+    /// When unfinished packets were last dropped for waiting too long.
+    swept: Instant,
+}
+
 /// One client's QUIC connection.
 struct Conn {
     conn: quinn::Connection,
@@ -204,7 +214,7 @@ struct Conn {
     /// How many streams of each kind the client may hold open at once.
     bidi_streams: Arc<crate::transport::quic::StreamLimit>,
     uni_streams: Arc<crate::transport::quic::StreamLimit>,
-    associations: Mutex<HashMap<u16, Association>>,
+    associations: Mutex<Associations>,
     activity: Activity,
     accepted: mpsc::Sender<AnyBaseInboundTransport>,
 }
@@ -261,7 +271,11 @@ async fn serve(
         carrier: std::sync::OnceLock::new(),
         bidi_streams,
         uni_streams,
-        associations: Mutex::new(HashMap::new()),
+        associations: Mutex::new(Associations {
+            map: HashMap::new(),
+            fragments: FragmentBudget::new(MAX_FRAGMENT_BYTES),
+            swept: Instant::now(),
+        }),
         activity: Activity::default(),
         accepted,
     });
@@ -295,6 +309,7 @@ async fn serve(
     conn.associations
         .lock()
         .unwrap_or_else(|e| e.into_inner())
+        .map
         .clear();
     Ok(())
 }
@@ -349,10 +364,9 @@ impl Conn {
                 self.authenticate(&body)
             }
             CMD_PACKET => {
-                let (header, payload) = timeout(UNI_STREAM_TIMEOUT, read_packet(&mut recv))
-                    .await
-                    .map_err(|_| timed_out())??;
-                if let Some(user) = self.authed().await {
+                if let Some((user, header, payload)) =
+                    packet_once_authed(&mut recv, self.authed()).await?
+                {
                     self.packet(header, payload, UdpRelayMode::Quic, user).await;
                 }
                 Ok(())
@@ -366,6 +380,7 @@ impl Conn {
                     self.associations
                         .lock()
                         .unwrap_or_else(|e| e.into_inner())
+                        .map
                         .remove(&assoc_id);
                 }
                 Ok(())
@@ -510,8 +525,23 @@ impl Conn {
     /// this is its first packet. Replies go the way this packet came.
     async fn packet(&self, header: PacketHeader, payload: Bytes, mode: UdpRelayMode, user: Authed) {
         let assoc_id = header.assoc_id;
+        let now = Instant::now();
         let new = {
-            let mut associations = self.associations.lock().unwrap_or_else(|e| e.into_inner());
+            let mut guard = self.associations.lock().unwrap_or_else(|e| e.into_inner());
+            let Associations {
+                map: associations,
+                fragments,
+                swept,
+            } = &mut *guard;
+            // Associations gone quiet drop their unfinished packets too,
+            // and those whose relay is done go.
+            if now.saturating_duration_since(*swept) >= FRAGMENT_TIMEOUT {
+                associations.retain(|_, a| !a.packets.is_closed());
+                for association in associations.values_mut() {
+                    association.reassembler.expire(now);
+                }
+                *swept = now;
+            }
             let live = associations
                 .get(&assoc_id)
                 .is_some_and(|a| !a.packets.is_closed());
@@ -530,16 +560,17 @@ impl Conn {
                     assoc_id,
                     Association {
                         packets: tx,
-                        reassembler: Reassembler::new(MAX_PENDING_PACKETS, FRAGMENT_TIMEOUT),
+                        reassembler: Reassembler::new(
+                            MAX_PENDING_PACKETS,
+                            FRAGMENT_TIMEOUT,
+                            fragments.clone(),
+                        ),
                     },
                 );
                 new = Some(rx);
             }
             if let Some(association) = associations.get_mut(&assoc_id) {
-                if let Some(packet) = association
-                    .reassembler
-                    .feed(header, payload, Instant::now())
-                {
+                if let Some(packet) = association.reassembler.feed(header, payload, now) {
                     if association.packets.try_send(packet).is_err() {
                         trace!("tuic association {} queue full, packet dropped", assoc_id);
                     }
@@ -584,6 +615,28 @@ impl Conn {
             debug!("tuic association {} not taken: {}", assoc_id, e);
         }
     }
+}
+
+/// A `Packet` command's packet, read from `recv` once `authed` says who
+/// sent it, as the reference server reads it: none from a connection that
+/// is closed before it authenticates. Until then the stream waits unread,
+/// held back by QUIC's flow control, and a connection that does not
+/// authenticate within `auth_timeout` is closed.
+async fn packet_once_authed<R, A>(
+    recv: &mut R,
+    authed: A,
+) -> io::Result<Option<(Authed, PacketHeader, Bytes)>>
+where
+    R: tokio::io::AsyncRead + Unpin,
+    A: std::future::Future<Output = Option<Authed>>,
+{
+    let Some(user) = authed.await else {
+        return Ok(None);
+    };
+    let (header, payload) = timeout(UNI_STREAM_TIMEOUT, read_packet(recv))
+        .await
+        .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "command timed out"))??;
+    Ok(Some((user, header, payload)))
 }
 
 /// One UDP association, as the NAT manager relays it.
@@ -677,5 +730,41 @@ impl InboundDatagramSendHalf for AssociationSendHalf {
 
     async fn close(&mut self) -> io::Result<()> {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::super::frag::fragment;
+    use super::*;
+    use futures::FutureExt;
+
+    /// A `Packet` command's packet is read only once the connection has
+    /// authenticated: until then not a byte of it is taken, and none at
+    /// all if the connection closes first.
+    #[tokio::test]
+    async fn a_packet_is_read_only_once_authenticated() {
+        let addr = SocksAddr::Domain("example.com".into(), 53);
+        let wire = fragment(1, 0, &addr, b"query", 1200).unwrap().remove(0);
+        // As the stream has it, after the command.
+        let body = &wire[2..];
+
+        let mut recv = body;
+        let read = packet_once_authed(&mut recv, futures::future::pending());
+        assert!(read.now_or_never().is_none());
+        assert_eq!(recv.len(), body.len());
+
+        let mut recv = body;
+        let read = packet_once_authed(&mut recv, futures::future::ready(None));
+        assert!(read.await.unwrap().is_none());
+        assert_eq!(recv.len(), body.len());
+
+        let mut recv = body;
+        let read = packet_once_authed(&mut recv, futures::future::ready(Some(None)));
+        let (user, header, payload) = read.await.unwrap().unwrap();
+        assert!(user.is_none());
+        assert_eq!((header.assoc_id, header.addr), (1, Some(addr)));
+        assert_eq!(&payload[..], b"query");
+        assert!(recv.is_empty());
     }
 }

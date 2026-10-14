@@ -27,9 +27,11 @@ pub enum UdpRelayMode {
     Quic,
 }
 
-/// How long an unfinished packet waits for the rest of its fragments.
+/// How long an unfinished packet waits for the rest of its fragments: as
+/// sing-quic's defragger ages one out, 10 s.
 pub const FRAGMENT_TIMEOUT: Duration = Duration::from_secs(10);
-/// Unfinished packets one association keeps at once.
+/// Unfinished packets one association keeps at once. Judgment: sing-quic
+/// keeps any number, until they age out.
 pub const MAX_PENDING_PACKETS: usize = 8;
 /// Packets waiting in one association for the relay to take them.
 pub const ASSOCIATION_QUEUE: usize = 64;

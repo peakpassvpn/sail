@@ -2,12 +2,14 @@
 
 use std::collections::HashMap;
 use std::io;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use bytes::{Bytes, BytesMut};
 
 use super::proto::{encode_packet, PacketHeader};
 use crate::session::SocksAddr;
+use crate::transport::quic::FragmentBudget;
 
 /// `Packet` commands for `payload`, each small enough for a datagram of
 /// `max_size` bytes. Only the first fragment carries the address.
@@ -67,23 +69,30 @@ struct Partial {
     started: Instant,
 }
 
+/// The largest packet put back together: a UDP packet's length is 16 bits.
+const MAX_PACKET: usize = u16::MAX as usize;
+
 /// Fragments of one association's packets waiting for the rest.
 ///
 /// Bounded: at most `max_pending` packets wait at once, the oldest giving
-/// way to a new one, and each waits at most `timeout`. UDP loses packets
-/// anyway, so dropping one is always allowed.
+/// way to a new one, each of at most `MAX_PACKET` bytes, and each waits at
+/// most `timeout`. What they hold counts against the connection's
+/// `budget`, shared by all of its associations. UDP loses packets anyway,
+/// so dropping one is always allowed.
 pub struct Reassembler {
     pending: HashMap<u16, Partial>,
     max_pending: usize,
     timeout: Duration,
+    budget: Arc<FragmentBudget>,
 }
 
 impl Reassembler {
-    pub fn new(max_pending: usize, timeout: Duration) -> Self {
+    pub fn new(max_pending: usize, timeout: Duration, budget: Arc<FragmentBudget>) -> Self {
         Self {
             pending: HashMap::new(),
             max_pending: max_pending.max(1),
             timeout,
+            budget,
         }
     }
 
@@ -102,13 +111,14 @@ impl Reassembler {
         if id >= total {
             return None;
         }
-        self.pending
-            .retain(|_, p| now.saturating_duration_since(p.started) < self.timeout);
-        if let Some(p) = self.pending.get(&header.pkt_id) {
-            // A packet id reused for another packet: the old one is lost.
-            if p.fragments.len() != total {
-                self.pending.remove(&header.pkt_id);
-            }
+        self.expire(now);
+        // A packet id reused for another packet: the old one is lost.
+        if self
+            .pending
+            .get(&header.pkt_id)
+            .is_some_and(|p| p.fragments.len() != total)
+        {
+            self.remove(header.pkt_id);
         }
         if !self.pending.contains_key(&header.pkt_id) {
             if self.pending.len() >= self.max_pending {
@@ -118,7 +128,7 @@ impl Reassembler {
                     .min_by_key(|(_, p)| p.started)
                     .map(|(k, _)| *k);
                 if let Some(oldest) = oldest {
-                    self.pending.remove(&oldest);
+                    self.remove(oldest);
                 }
             }
             self.pending.insert(
@@ -136,9 +146,10 @@ impl Reassembler {
         if p.fragments[id].is_some() {
             return None;
         }
-        // A reassembled packet is still one UDP packet.
-        if p.size + data.len() > u16::MAX as usize {
-            self.pending.remove(&header.pkt_id);
+        // A reassembled packet is still one UDP packet, and the connection
+        // holds only so much.
+        if p.size + data.len() > MAX_PACKET || !self.budget.take(data.len()) {
+            self.remove(header.pkt_id);
             return None;
         }
         if id == 0 {
@@ -151,6 +162,7 @@ impl Reassembler {
             return None;
         }
         let p = self.pending.remove(&header.pkt_id)?;
+        self.budget.give(p.size);
         let addr = p.addr?;
         let mut packet = BytesMut::with_capacity(p.size);
         for fragment in p.fragments.into_iter().flatten() {
@@ -159,9 +171,35 @@ impl Reassembler {
         Some((addr, packet.freeze()))
     }
 
+    /// Drops the packets that have waited `timeout` for the rest.
+    pub fn expire(&mut self, now: Instant) {
+        let (timeout, budget) = (self.timeout, &self.budget);
+        self.pending.retain(|_, p| {
+            let keep = now.saturating_duration_since(p.started) < timeout;
+            if !keep {
+                budget.give(p.size);
+            }
+            keep
+        });
+    }
+
+    fn remove(&mut self, pkt_id: u16) {
+        if let Some(p) = self.pending.remove(&pkt_id) {
+            self.budget.give(p.size);
+        }
+    }
+
     #[cfg(test)]
     fn pending(&self) -> usize {
         self.pending.len()
+    }
+}
+
+impl Drop for Reassembler {
+    fn drop(&mut self) {
+        for p in self.pending.values() {
+            self.budget.give(p.size);
+        }
     }
 }
 
@@ -177,6 +215,14 @@ mod tests {
         }
     }
 
+    fn reassembler(max_pending: usize, timeout: u64) -> Reassembler {
+        Reassembler::new(
+            max_pending,
+            Duration::from_secs(timeout),
+            FragmentBudget::new(crate::transport::quic::MAX_FRAGMENT_BYTES),
+        )
+    }
+
     fn addr() -> SocksAddr {
         SocksAddr::Domain("example.com".into(), 443)
     }
@@ -187,7 +233,7 @@ mod tests {
         assert_eq!(wire.len(), 1);
         let (h, p) = decode(wire[0].clone());
         assert_eq!((h.frag_total, h.frag_id), (1, 0));
-        let mut r = Reassembler::new(4, Duration::from_secs(10));
+        let mut r = reassembler(4, 10);
         assert_eq!(
             r.feed(h, p, Instant::now()),
             Some((addr(), Bytes::from("hello")))
@@ -205,7 +251,7 @@ mod tests {
         assert!(frags[1..].iter().all(|(h, _)| h.addr.is_none()));
         frags.reverse();
         let last = frags.pop().unwrap();
-        let mut r = Reassembler::new(4, Duration::from_secs(10));
+        let mut r = reassembler(4, 10);
         let now = Instant::now();
         for (h, p) in frags {
             assert_eq!(r.feed(h, p, now), None);
@@ -224,7 +270,7 @@ mod tests {
             .into_iter()
             .map(decode)
             .collect();
-        let mut r = Reassembler::new(4, Duration::from_secs(10));
+        let mut r = reassembler(4, 10);
         let now = Instant::now();
         assert_eq!(r.feed(frags[0].0.clone(), frags[0].1.clone(), now), None);
         assert_eq!(r.feed(frags[0].0.clone(), frags[0].1.clone(), now), None);
@@ -237,7 +283,7 @@ mod tests {
 
     #[test]
     fn pending_packets_are_bounded_and_expire() {
-        let mut r = Reassembler::new(2, Duration::from_secs(10));
+        let mut r = reassembler(2, 10);
         let now = Instant::now();
         let first = |pkt_id| {
             decode(
@@ -263,13 +309,72 @@ mod tests {
             .into_iter()
             .map(decode)
             .collect();
-        let mut r = Reassembler::new(4, Duration::from_secs(10));
+        let mut r = reassembler(4, 10);
         let now = Instant::now();
         // Another sender's fragment 0 without address never reaches here
         // (decoding rejects it), so feed only the rest: nothing completes.
         for (h, p) in frags.into_iter().skip(1) {
             assert_eq!(r.feed(h, p, now), None);
         }
+    }
+
+    /// A packet whose fragments come to more than a UDP packet holds is
+    /// dropped, and what it held given back.
+    #[test]
+    fn a_packet_past_the_largest_is_dropped() {
+        let budget = FragmentBudget::new(crate::transport::quic::MAX_FRAGMENT_BYTES);
+        let mut r = Reassembler::new(4, Duration::from_secs(10), budget.clone());
+        let now = Instant::now();
+        let header = |frag_id| PacketHeader {
+            assoc_id: 1,
+            pkt_id: 1,
+            frag_total: 3,
+            frag_id,
+            addr: (frag_id == 0).then(addr),
+        };
+        let big = Bytes::from(vec![0u8; 30_000]);
+        assert_eq!(r.feed(header(0), big.clone(), now), None);
+        assert_eq!(r.feed(header(1), big.clone(), now), None);
+        assert_eq!(budget.held(), 60_000);
+        assert_eq!(r.feed(header(2), big, now), None);
+        assert_eq!((r.pending(), budget.held()), (0, 0));
+    }
+
+    /// The associations of one connection share its budget: a fragment
+    /// past it is dropped with its packet, and what expires, completes or
+    /// goes with its association is given back.
+    #[test]
+    fn associations_share_their_connections_budget() {
+        let budget = FragmentBudget::new(4000);
+        let now = Instant::now();
+        let first = |pkt_id| {
+            decode(
+                fragment(1, pkt_id, &addr(), &[0u8; 3000], 1200)
+                    .unwrap()
+                    .remove(0),
+            )
+        };
+        let mut one = Reassembler::new(4, Duration::from_secs(10), budget.clone());
+        let mut two = Reassembler::new(4, Duration::from_secs(10), budget.clone());
+        let (h, p) = first(1);
+        let held = p.len();
+        // Three first fragments fit the budget, four do not.
+        assert!(3 * held <= 4000 && 4 * held > 4000, "{}", held);
+        one.feed(h, p, now);
+        let (h, p) = first(2);
+        one.feed(h, p, now);
+        assert_eq!(budget.held(), 2 * held);
+        let (h, p) = first(1);
+        two.feed(h, p, now);
+        assert_eq!(budget.held(), 3 * held);
+        // Past the budget: dropped.
+        let (h, p) = first(2);
+        two.feed(h, p, now);
+        assert_eq!((two.pending(), budget.held()), (1, 3 * held));
+        one.expire(now + Duration::from_secs(10));
+        assert_eq!((one.pending(), budget.held()), (0, held));
+        drop(two);
+        assert_eq!(budget.held(), 0);
     }
 
     #[test]

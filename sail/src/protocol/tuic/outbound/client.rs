@@ -18,7 +18,9 @@ use crate::app::SyncDnsClient;
 use crate::net::dial::BoundInterface;
 use crate::net::{peek_tcp_one_off, Dialer};
 use crate::session::{Session, SocksAddr};
-use crate::transport::quic::{endpoint_on, ClientConfigs, ClientTls, QuicStream, Side};
+use crate::transport::quic::{
+    endpoint_on, ClientConfigs, ClientTls, FragmentBudget, QuicStream, Side, MAX_FRAGMENT_BYTES,
+};
 
 use super::super::common::{
     heartbeat, send_packet, token, transport_config, ActiveGuard, Activity, CongestionControl,
@@ -30,7 +32,8 @@ use super::super::proto::{
     read_packet, Datagram, PacketHeader, CMD_PACKET,
 };
 
-/// UDP associations one connection may hold.
+/// UDP associations one connection may hold. Judgment: an association is
+/// a relayed UDP session, and the ids are 16 bits.
 const MAX_ASSOCIATIONS: usize = 1024;
 
 pub struct ClientOptions<'a> {
@@ -209,6 +212,8 @@ impl Client {
         let associations = Arc::new(Mutex::new(Associations {
             map: HashMap::new(),
             next_id: 0,
+            fragments: FragmentBudget::new(MAX_FRAGMENT_BYTES),
+            swept: Instant::now(),
         }));
         let activity = Activity::default();
         let zero_rtt = Arc::new(OnceLock::new());
@@ -280,6 +285,10 @@ struct ClientAssociation {
 struct Associations {
     map: HashMap<u16, ClientAssociation>,
     next_id: u16,
+    /// What the associations' unfinished packets hold, together.
+    fragments: Arc<FragmentBudget>,
+    /// When unfinished packets were last dropped for waiting too long.
+    swept: Instant,
 }
 
 /// A connection to the server, held by the client while it is the one in
@@ -319,11 +328,12 @@ impl ClientConn {
         }
         associations.next_id = id.wrapping_add(1);
         let (tx, rx) = mpsc::channel(ASSOCIATION_QUEUE);
+        let fragments = associations.fragments.clone();
         associations.map.insert(
             id,
             ClientAssociation {
                 packets: tx,
-                reassembler: Reassembler::new(MAX_PENDING_PACKETS, FRAGMENT_TIMEOUT),
+                reassembler: Reassembler::new(MAX_PENDING_PACKETS, FRAGMENT_TIMEOUT, fragments),
             },
         );
         Ok((id, rx))
@@ -333,15 +343,20 @@ impl ClientConn {
 /// Hands a packet to its association, once all its fragments are there.
 fn packet(associations: &Mutex<Associations>, header: PacketHeader, payload: Bytes) {
     let mut associations = associations.lock().unwrap_or_else(|e| e.into_inner());
+    let now = Instant::now();
+    // Associations gone quiet drop their unfinished packets too.
+    if now.saturating_duration_since(associations.swept) >= FRAGMENT_TIMEOUT {
+        for association in associations.map.values_mut() {
+            association.reassembler.expire(now);
+        }
+        associations.swept = now;
+    }
     let assoc_id = header.assoc_id;
     let Some(association) = associations.map.get_mut(&assoc_id) else {
         trace!("tuic packet for unknown association {}", assoc_id);
         return;
     };
-    if let Some(packet) = association
-        .reassembler
-        .feed(header, payload, Instant::now())
-    {
+    if let Some(packet) = association.reassembler.feed(header, payload, now) {
         if association.packets.try_send(packet).is_err() {
             trace!("tuic association {} queue full, packet dropped", assoc_id);
         }

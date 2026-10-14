@@ -384,8 +384,9 @@ pub fn fragment(
 /// The largest packet put back together: a UDP packet's length is 16 bits.
 pub const MAX_PACKET: usize = u16::MAX as usize;
 
-/// How long an unfinished packet waits for the rest of its fragments.
-/// Judgment, TUIC's: the reference holds one until the next packet comes.
+/// How long an unfinished packet waits for the rest of its fragments: as
+/// sing-quic's defragger ages one out, 10 s. The reference server holds one
+/// until the session's next packet comes.
 pub const FRAGMENT_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Puts fragmented packets of one session back together.
