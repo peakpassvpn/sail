@@ -121,7 +121,8 @@ fn listener(kind: &str) -> Value {
             "users": [{ "username": "u", "password": "p" }],
             "allow-insecure": true
         }),
-        "anytls" => json!({ "users": { "u": "p" } }),
+        // Without TLS, by Mihomo's leave.
+        "anytls" => json!({ "users": { "u": "p" }, "allow-insecure": true }),
         // A certificate of its own, which Mihomo would make up.
         "hysteria2" => json!({
             "users": { "u": "p" },

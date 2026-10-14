@@ -2647,6 +2647,49 @@ fn a_tuic_listener_is_a_tuic_inbound() {
     }
 }
 
+/// An anytls listener is an anytls inbound: users by name, its TLS or
+/// leave to go without, and its padding scheme.
+#[test]
+fn an_anytls_listener_is_an_anytls_inbound() {
+    let inbound = |fields: &str| {
+        parse(&format!(
+            "listeners: [{{ name: A, type: anytls, port: 443{} }}]\nrules: [\"MATCH,DIRECT\"]\n",
+            fields
+        ))
+        .map(|config| {
+            let inbound = config.inbounds.iter().find(|i| i.tag == "A").unwrap();
+            (serde_json::to_value(inbound).unwrap(), config.warnings)
+        })
+        .map_err(|e| format!("{:#}", e))
+    };
+    let (v, warnings) = inbound(
+        ", certificate: c.pem, private-key: k.pem, users: { alice: a, bob: b }, \
+         padding-scheme: \"stop=8\\n0=30-30\\n1=100-400\\n\"",
+    )
+    .unwrap();
+    assert!(warnings.is_empty(), "{:?}", warnings);
+    assert_eq!(v["type"], "anytls");
+    assert_eq!(
+        v["users"],
+        json!([{ "name": "alice", "password": "a" }, { "name": "bob", "password": "b" }])
+    );
+    assert_eq!(
+        v["tls"],
+        json!({ "enabled": true, "certificate_path": "c.pem", "key_path": "k.pem" })
+    );
+    assert_eq!(v["padding_scheme"], json!(["stop=8", "0=30-30", "1=100-400"]));
+
+    // Without TLS by leave alone, as Mihomo.
+    let (v, _) = inbound(", users: { alice: a }, allow-insecure: true").unwrap();
+    assert!(v.get("tls").is_none());
+    let e = inbound(", users: { alice: a }").unwrap_err();
+    assert!(
+        e.contains("listeners[0].certificate: no certificate, and not allow-insecure"),
+        "{}",
+        e
+    );
+}
+
 /// A listener's client authentication, as Mihomo's: `client-auth-type`
 /// and the CAs of `client-auth-cert`, CAs alone requiring and verifying.
 #[test]

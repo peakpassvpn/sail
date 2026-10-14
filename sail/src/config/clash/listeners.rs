@@ -15,7 +15,7 @@
 //! The proxy listeners (trojan, vless) serve sing-mux, as all of Mihomo's do,
 //! over a websocket at `ws-path` or gRPC under `grpc-service-name` where
 //! one is given. The QUIC ones (hysteria2, tuic) do not, where Mihomo's do: no
-//! client asks for it over QUIC.
+//! client asks for it over QUIC. Nor does anytls, which is a mux itself.
 //!
 //! Where sail does otherwise: its SOCKS, mixed and shadowsocks inbounds
 //! carry UDP whatever `udp` says, where Mihomo's listeners carry it only
@@ -47,6 +47,7 @@ const TYPES: &[(&str, &str)] = &[
     ("vless", "vless"),
     ("hysteria2", "hysteria2"),
     ("tuic", "tuic"),
+    ("anytls", "anytls"),
 ];
 
 /// The early data a websocket client may send in `Sec-WebSocket-Protocol`,
@@ -210,22 +211,45 @@ pub fn lower(
             }
             "hysteria2" => hysteria2(&mut f, out.home.as_deref(), &mut inbound, warnings)?,
             "tuic" => tuic(&mut f, out.home.as_deref(), &mut inbound, warnings)?,
+            "anytls" => {
+                inbound.insert("users".into(), Value::Array(named_users(&mut f, warnings)?));
+                // Mihomo's is lines, as sail's.
+                if let Some(scheme) = f.string("padding-scheme")?.filter(|p| !p.is_empty()) {
+                    let lines: Vec<&str> = scheme
+                        .lines()
+                        .map(str::trim)
+                        .filter(|l| !l.is_empty())
+                        .collect();
+                    inbound.insert("padding_scheme".into(), json!(lines));
+                }
+                // Mihomo's anytls listener has no REALITY.
+                if f.take("reality-config").is_some() {
+                    warnings.push(format!(
+                        "{}: not a field Mihomo's anytls listener takes; ignored",
+                        f.at("reality-config")
+                    ));
+                }
+            }
             _ => {}
         }
-        if matches!(protocol, "http" | "trojan" | "vless") {
+        if matches!(protocol, "http" | "trojan" | "vless" | "anytls") {
             tls(&mut f, out.home.as_deref(), &mut inbound, warnings)?;
         }
-        if matches!(protocol, "trojan" | "vless") {
+        if matches!(protocol, "trojan" | "vless" | "anytls") {
             // As Mihomo: none of these but by leave.
             let insecure = f.bool("allow-insecure")?.unwrap_or(false);
             if !inbound.contains_key("tls") && !insecure {
+                let or_reality = if protocol == "anytls" { "" } else { " or REALITY" };
                 return Err(anyhow!(
-                    "{}: no certificate or REALITY, and not allow-insecure: Mihomo refuses \
+                    "{}: no certificate{}, and not allow-insecure: Mihomo refuses \
                      a {} listener without TLS",
                     f.at("certificate"),
+                    or_reality,
                     protocol
                 ));
             }
+        }
+        if matches!(protocol, "trojan" | "vless") {
             carriers(&mut f, &mut inbound, warnings)?;
         }
         // Mihomo's are TCP alone without it; sail's carry UDP all the same.
@@ -539,28 +563,7 @@ fn hysteria2(
     inbound: &mut Map<String, Value>,
     warnings: &mut Vec<String>,
 ) -> Result<()> {
-    let users_at = f.at("users");
-    let mut users: Vec<(String, String)> = Vec::new();
-    if let Some(mut map) = f.map("users")? {
-        for name in map.keys() {
-            let password = map.string(&name)?.unwrap_or_default();
-            // Mihomo keys them by password, the one it meets last taken.
-            if let Some(j) = users.iter().position(|(_, p)| *p == password) {
-                warnings.push(format!(
-                    "{}.{}: the password of {:?} too: Mihomo takes one of the two, and sail \
-                     this one",
-                    users_at, name, users[j].0
-                ));
-                users.remove(j);
-            }
-            users.push((name, password));
-        }
-    }
-    let users: Vec<Value> = users
-        .into_iter()
-        .map(|(name, password)| json!({ "name": name, "password": password }))
-        .collect();
-    inbound.insert("users".into(), Value::Array(users));
+    inbound.insert("users".into(), Value::Array(named_users(f, warnings)?));
     inbound.insert("tls".into(), quic_tls(f, home, "hysteria2", warnings)?);
 
     let obfs_at = f.at("obfs");
@@ -650,6 +653,32 @@ fn hysteria2(
     // Mihomo's hysteria2 server reads no idle time of its own.
     f.take("max-idle-time");
     Ok(())
+}
+
+/// Users as a map of names to passwords, as Mihomo's hysteria2 and anytls
+/// listeners take them; of two with one password the last is taken, as
+/// Mihomo keys them by it.
+fn named_users(f: &mut Fields, warnings: &mut Vec<String>) -> Result<Vec<Value>> {
+    let users_at = f.at("users");
+    let mut users: Vec<(String, String)> = Vec::new();
+    if let Some(mut map) = f.map("users")? {
+        for name in map.keys() {
+            let password = map.string(&name)?.unwrap_or_default();
+            if let Some(j) = users.iter().position(|(_, p)| *p == password) {
+                warnings.push(format!(
+                    "{}.{}: the password of {:?} too: Mihomo takes one of the two, and sail \
+                     this one",
+                    users_at, name, users[j].0
+                ));
+                users.remove(j);
+            }
+            users.push((name, password));
+        }
+    }
+    Ok(users
+        .into_iter()
+        .map(|(name, password)| json!({ "name": name, "password": password }))
+        .collect())
 }
 
 /// A tuic listener, as Mihomo's serves one: TUIC v5, users a map of UUIDs
