@@ -1,21 +1,27 @@
-//! The HTTP/2 connections an outbound's calls are made on.
+//! The HTTP/2 connections an outbound's streams are requests on: gRPC's
+//! calls, the HTTP proxy's CONNECTs.
 //!
-//! A call goes on the least busy connection with room for it; when none has
-//! room, one more is dialled, up to `MAX_CONNECTIONS`, through the layers
-//! under the transport (dial fields, detour, tls). A connection has room
-//! while it carries fewer calls than both `MAX_STREAMS` and what the server
-//! allows (`SETTINGS_MAX_CONCURRENT_STREAMS`). With every connection full
-//! and no more to dial, the call waits in h2 for a stream on the least busy
+//! A request goes on the least busy connection with room for it; when none
+//! has room, one more is dialled, up to `MAX_CONNECTIONS`, by the pool's
+//! `Dial` (for gRPC the layers under the transport: dial fields, detour,
+//! tls). A connection has room while it carries fewer requests than both
+//! `MAX_STREAMS` and what the server allows
+//! (`SETTINGS_MAX_CONCURRENT_STREAMS`). With every connection full and no
+//! more to dial, the request waits in h2 for a stream on the least busy
 //! one to end.
 //!
 //! Until a new connection has the server's settings, h2 assumes it allows
-//! 100 streams. Calls put on it past what the server then says wait in h2,
-//! which never exceeds the server's limit.
+//! 100 streams. Requests put on it past what the server then says wait in
+//! h2, which never exceeds the server's limit.
 //!
 //! A connection that ends -- closed, cut, or given up by the keepalive -- is
-//! dropped from the pool, and the next call dials a new one. So is one that
-//! has carried no call for the idle timeout (`transport::idle`), and ended:
-//! the keepalive's pings would otherwise hold it up for good.
+//! dropped from the pool, and the next request dials a new one. So is one
+//! that has carried no request for the idle timeout (`transport::idle`),
+//! and ended: the keepalive's pings would otherwise hold it up for good.
+//!
+//! A dial may find the server speaks no HTTP/2 there (`Dialled::Other`, by
+//! its ALPN): the connection is handed back, for the caller to speak
+//! something else on, and is none of the pool's.
 
 use std::io;
 use std::pin::Pin;
@@ -24,6 +30,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::task::{Context, Poll};
 use std::time::Duration;
 
+use async_trait::async_trait;
 use bytes::Bytes;
 use futures::future::{abortable, AbortHandle};
 use h2::client::{ResponseFuture, SendRequest};
@@ -32,16 +39,18 @@ use http::Request;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tracing::debug;
 
+use crate::adapter::AnyStream;
 use crate::session::Session;
 use crate::transport::idle::{self, Idle};
-use crate::transport::layers::Connector;
+
+use super::{keepalive, Counted, Names};
 
 /// The most connections open to the server at once.
 const MAX_CONNECTIONS: usize = 8;
 
-/// The most calls one connection carries, if the server allows as many.
-/// Beyond it another connection is dialled rather than more calls sharing
-/// one's window.
+/// The most requests one connection carries, if the server allows as many.
+/// Beyond it another connection is dialled rather than more requests
+/// sharing one's window.
 const MAX_STREAMS: usize = 128;
 
 /// The pool's list, whatever a panic left it: what is done under it,
@@ -55,28 +64,66 @@ pub struct Keepalive {
     /// Unset, no pings.
     pub idle_timeout: Option<Duration>,
     pub ping_timeout: Duration,
-    /// Whether a connection carrying no calls is pinged too.
+    /// Whether a connection carrying no requests is pinged too.
     pub permit_without_stream: bool,
 }
 
-/// What a connection's tasks and calls share.
+/// A connection dialled for the pool.
+pub enum Dialled {
+    /// To speak HTTP/2 on.
+    H2(AnyStream),
+    /// The server speaks no HTTP/2 there: the caller's to speak something
+    /// else on.
+    Other(AnyStream),
+}
+
+/// How a pool's connections are made.
+#[async_trait]
+pub trait Dial: Send + Sync {
+    /// A new connection to the server, for `sess`.
+    async fn dial(&self, sess: &Session) -> io::Result<Dialled>;
+
+    /// The layers beneath hear of a change of network.
+    fn network_changed(&self, change: &crate::net::network::NetworkChange);
+
+    /// The layers beneath close the carriers they keep with nothing open.
+    fn close_idle(&self);
+}
+
+/// Every connection the layers make carries HTTP/2.
+#[async_trait]
+impl Dial for crate::transport::layers::Connector {
+    async fn dial(&self, sess: &Session) -> io::Result<Dialled> {
+        self.connect(sess).await.map(Dialled::H2)
+    }
+
+    fn network_changed(&self, change: &crate::net::network::NetworkChange) {
+        crate::transport::layers::Connector::network_changed(self, change);
+    }
+
+    fn close_idle(&self) {
+        crate::transport::layers::Connector::close_idle(self);
+    }
+}
+
+/// What a connection's tasks and requests share.
 #[derive(Default)]
 struct State {
-    /// The calls open on it.
+    /// The requests open on it.
     streams: AtomicUsize,
-    /// Whether it has ended, or failed a call, and takes no more.
+    /// Whether it has ended, or failed a request, and takes no more.
     closed: AtomicBool,
 }
 
 struct Connection {
     send: SendRequest<Bytes>,
     state: Arc<State>,
-    /// Ends the connection, and the calls on it.
+    /// Ends the connection, and the requests on it.
     abort: AbortHandle,
 }
 
 impl Connection {
-    /// Ends it, and the calls on it; it takes no more.
+    /// Ends it, and the requests on it; it takes no more.
     fn end(&self) {
         self.state.closed.store(true, Ordering::Release);
         self.abort.abort();
@@ -94,28 +141,46 @@ impl Connection {
 /// A connection of the pool's.
 struct Entry {
     connection: Arc<Connection>,
-    /// Since when it has carried no call, as last checked.
+    /// Since when it has carried no request, as last checked.
     idle: Idle,
 }
 
+/// A connection to make a request on, counted as carrying it, or one that
+/// speaks no HTTP/2.
+enum Acquired {
+    H2(Arc<Connection>, Slot),
+    Other(AnyStream),
+}
+
 pub struct Pool {
-    connector: Connector,
+    dial: Box<dyn Dial>,
+    /// How a connection is set up.
+    builder: h2::client::Builder,
     keepalive: Keepalive,
+    names: Names,
     connections: Arc<Mutex<Vec<Entry>>>,
-    /// Held while dialling, so that calls finding no room wait for one new
-    /// connection rather than each dialling their own.
+    /// Held while dialling, so that requests finding no room wait for one
+    /// new connection rather than each dialling their own.
     dialling: tokio::sync::Mutex<()>,
-    /// How long a connection is kept with no call.
+    /// How long a connection is kept with no request.
     idle_timeout: Duration,
     /// The idle check, which the first dial starts.
     checking: OnceLock<idle::Check>,
 }
 
 impl Pool {
-    pub fn new(connector: Connector, keepalive: Keepalive, idle_timeout: Duration) -> Self {
+    pub fn new(
+        dial: impl Dial + 'static,
+        builder: h2::client::Builder,
+        keepalive: Keepalive,
+        idle_timeout: Duration,
+        names: Names,
+    ) -> Self {
         Pool {
-            connector,
+            dial: Box::new(dial),
+            builder,
             keepalive,
+            names,
             connections: Arc::default(),
             dialling: tokio::sync::Mutex::new(()),
             idle_timeout,
@@ -123,83 +188,106 @@ impl Pool {
         }
     }
 
-    /// Whether the connections are made over TLS.
-    pub fn tls(&self) -> bool {
-        self.connector.tls()
-    }
-
-    /// Ends every connection, and the calls on them, as sing-box closes its
-    /// transport when the network changes; the layers beneath hear of it.
+    /// Ends every connection, and the requests on them, as sing-box closes
+    /// its transport when the network changes; the layers beneath hear of
+    /// it.
     pub fn network_changed(&self, change: &crate::net::network::NetworkChange) {
         let connections = std::mem::take(&mut *lock(&self.connections));
         for entry in connections {
             entry.connection.end();
         }
-        self.connector.network_changed(change);
+        self.dial.network_changed(change);
     }
 
-    /// Ends the connections that carry no call; the layers beneath hear
+    /// Ends the connections that carry no request; the layers beneath hear
     /// of it.
     pub fn close_idle(&self) {
         check_idle(
             &self.connections,
             Duration::ZERO,
             tokio::time::Instant::now(),
+            self.names.log,
         );
-        self.connector.close_idle();
+        self.dial.close_idle();
     }
 
-    /// Makes the call `request` builds, on a connection with room for it.
-    /// A connection that fails it is given up, and the call made once more,
-    /// on a new one if need be.
-    pub async fn call(
+    /// Makes the request `request` builds, on a connection with room for
+    /// it. A connection that fails it is given up, and the request made
+    /// once more, on a new one if need be. A new connection to a server
+    /// that speaks no HTTP/2 there is handed back instead.
+    pub async fn request(
         &self,
         sess: &Session,
         request: impl Fn() -> io::Result<Request<()>>,
-    ) -> io::Result<Call> {
+    ) -> io::Result<Requested> {
         let mut retried = false;
         loop {
-            let (connection, slot) = self.acquire(sess).await?;
+            let (connection, slot) = match self.acquire(sess).await? {
+                Acquired::H2(connection, slot) => (connection, slot),
+                Acquired::Other(stream) => return Ok(Requested::Other(stream)),
+            };
             let sent = match connection.send.clone().ready().await {
                 Ok(mut send) => send.send_request(request()?, false),
                 Err(e) => Err(e),
             };
             match sent {
                 Ok((response, send)) => {
-                    return Ok(Call {
+                    return Ok(Requested::Call(Call {
                         send,
                         response,
                         slot,
-                    })
+                    }))
                 }
                 Err(e) => {
                     connection.state.closed.store(true, Ordering::Release);
                     if retried {
-                        return Err(io::Error::other(format!("gun: {}", e)));
+                        return Err(io::Error::other(format!("{}: {}", self.names.log, e)));
                     }
-                    debug!("gun: connection failed a call, retrying: {}", e);
+                    debug!(
+                        "{}: connection failed a call, retrying: {}",
+                        self.names.log, e
+                    );
                     retried = true;
                 }
             }
         }
     }
 
-    /// A connection to make a call on, counted as carrying it.
-    async fn acquire(&self, sess: &Session) -> io::Result<(Arc<Connection>, Slot)> {
-        if let Some(taken) = self.pick(false) {
-            return Ok(taken);
+    /// `request`, on a pool whose connections all speak HTTP/2.
+    pub async fn call(
+        &self,
+        sess: &Session,
+        request: impl Fn() -> io::Result<Request<()>>,
+    ) -> io::Result<Call> {
+        match self.request(sess, request).await? {
+            Requested::Call(call) => Ok(call),
+            Requested::Other(_) => Err(io::Error::other(format!(
+                "{}: the server speaks no HTTP/2",
+                self.names.log
+            ))),
+        }
+    }
+
+    /// A connection to make a request on, counted as carrying it.
+    async fn acquire(&self, sess: &Session) -> io::Result<Acquired> {
+        if let Some((connection, slot)) = self.pick(false) {
+            return Ok(Acquired::H2(connection, slot));
         }
         let _dialling = self.dialling.lock().await;
-        // A connection dialled while this call waited may have room.
-        if let Some(taken) = self.pick(false) {
-            return Ok(taken);
+        // A connection dialled while this request waited may have room.
+        if let Some((connection, slot)) = self.pick(false) {
+            return Ok(Acquired::H2(connection, slot));
         }
         if self.live() >= MAX_CONNECTIONS {
-            if let Some(taken) = self.pick(true) {
-                return Ok(taken);
+            if let Some((connection, slot)) = self.pick(true) {
+                return Ok(Acquired::H2(connection, slot));
             }
         }
-        let connection = Arc::new(self.dial(sess).await?);
+        let stream = match self.dial.dial(sess).await? {
+            Dialled::H2(stream) => stream,
+            Dialled::Other(stream) => return Ok(Acquired::Other(stream)),
+        };
+        let connection = Arc::new(self.handshake(stream, sess).await?);
         let slot = Slot::take(&connection.state);
         lock(&self.connections).push(Entry {
             connection: connection.clone(),
@@ -207,18 +295,19 @@ impl Pool {
         });
         self.checking.get_or_init(|| {
             let idle_timeout = self.idle_timeout;
+            let log = self.names.log;
             idle::spawn_check(
-                "grpc idle check",
+                self.names.idle_check,
                 Arc::downgrade(&self.connections),
                 idle_timeout,
-                move |connections, now| check_idle(connections, idle_timeout, now),
+                move |connections, now| check_idle(connections, idle_timeout, now, log),
             )
         });
-        Ok((connection, slot))
+        Ok(Acquired::H2(connection, slot))
     }
 
-    /// The least busy live connection, with room for one more call unless
-    /// `full` is allowed.
+    /// The least busy live connection, with room for one more request
+    /// unless `full` is allowed.
     fn pick(&self, full: bool) -> Option<(Arc<Connection>, Slot)> {
         let mut connections = lock(&self.connections);
         connections.retain(|e| !e.connection.state.closed.load(Ordering::Acquire));
@@ -238,29 +327,32 @@ impl Pool {
         connections.len()
     }
 
-    async fn dial(&self, sess: &Session) -> io::Result<Connection> {
-        let stream = self.connector.connect(sess).await?;
-        let (stream, received) = super::super::Counted::new(stream);
-        let (send, mut connection) = builder()
+    /// HTTP/2 set up over `stream`, run on a task of its own.
+    async fn handshake(&self, stream: AnyStream, sess: &Session) -> io::Result<Connection> {
+        let log = self.names.log;
+        let (stream, received) = Counted::new(stream);
+        let (send, mut connection) = self
+            .builder
             .handshake::<_, Bytes>(stream)
             .await
-            .map_err(|e| io::Error::other(format!("gun: {}", e)))?;
-        debug!("gun: new connection to {}", sess.destination);
+            .map_err(|e| io::Error::other(format!("{}: {}", log, e)))?;
+        debug!("{}: new connection to {}", log, sess.destination);
         let state = Arc::new(State::default());
         let ping_pong = connection.ping_pong();
         let (connection, abort) = abortable(connection);
         let ends = abort.clone();
         let ended = state.clone();
-        crate::runtime::scope::spawn("grpc connection", async move {
+        crate::runtime::scope::spawn(self.names.connection, async move {
             if let Ok(Err(e)) = connection.await {
-                debug!("gun: connection ended: {}", e);
+                debug!("{}: connection ended: {}", log, e);
             }
             ended.closed.store(true, Ordering::Release);
         });
         if let (Some(interval), Some(ping_pong)) = (self.keepalive.idle_timeout, ping_pong) {
             let watched = state.clone();
             let permit_without_stream = self.keepalive.permit_without_stream;
-            super::super::keepalive(
+            keepalive(
+                self.names,
                 ping_pong,
                 received,
                 interval,
@@ -277,10 +369,15 @@ impl Pool {
     }
 }
 
-/// Ends the connections that have carried no call for `idle_timeout`, so
-/// that the server sees them end; the next call dials anew. Under the lock
-/// a call takes its connection under.
-fn check_idle(connections: &Mutex<Vec<Entry>>, idle_timeout: Duration, now: tokio::time::Instant) {
+/// Ends the connections that have carried no request for `idle_timeout`,
+/// so that the server sees them end; the next request dials anew. Under
+/// the lock a request takes its connection under.
+fn check_idle(
+    connections: &Mutex<Vec<Entry>>,
+    idle_timeout: Duration,
+    now: tokio::time::Instant,
+    log: &str,
+) {
     lock(connections).retain_mut(|entry| {
         let connection = &entry.connection;
         if connection.state.closed.load(Ordering::Acquire) {
@@ -289,24 +386,13 @@ fn check_idle(connections: &Mutex<Vec<Entry>>, idle_timeout: Duration, now: toki
         if !entry.idle.expired(connection.streams(), now, idle_timeout) {
             return true;
         }
-        debug!("gun: ending an idle connection");
+        debug!("{}: ending an idle connection", log);
         connection.end();
         false
     });
 }
 
-/// How a connection to the server is set up.
-pub(in crate::transport::grpc) fn builder() -> h2::client::Builder {
-    let mut builder = h2::client::Builder::new();
-    builder
-        .initial_window_size(super::super::STREAM_WINDOW)
-        .initial_connection_window_size(super::super::CONNECTION_WINDOW)
-        .max_header_list_size(super::super::MAX_HEADER_LIST)
-        .enable_push(false);
-    builder
-}
-
-/// A call counted against its connection until dropped.
+/// A request counted against its connection until dropped.
 pub struct Slot(Arc<State>);
 
 impl Slot {
@@ -322,14 +408,21 @@ impl Drop for Slot {
     }
 }
 
-/// A call made, and the room it takes on its connection.
+/// A request made, and the room it takes on its connection.
 pub struct Call {
     pub send: SendStream<Bytes>,
     pub response: ResponseFuture,
     pub slot: Slot,
 }
 
-/// A stream that holds its call's `Slot` for as long as it lives.
+/// What `Pool::request` made: a request, or a connection to a server that
+/// speaks no HTTP/2.
+pub enum Requested {
+    Call(Call),
+    Other(AnyStream),
+}
+
+/// A stream that holds its request's `Slot` for as long as it lives.
 pub struct Pooled<S> {
     pub inner: S,
     pub _slot: Slot,
@@ -375,6 +468,14 @@ mod tests {
     use crate::adapter::{AnyStream, OutboundConnect, OutboundStreamHandler};
     use crate::app::dns::DnsClient;
     use crate::session::{Network, SocksAddr};
+    use crate::transport::layers::Connector;
+
+    const NAMES: Names = Names {
+        log: "test",
+        connection: "test connection",
+        idle_check: "test idle check",
+        keepalive: "test keepalive",
+    };
 
     /// Hands over the connection dialled to `port`.
     struct Direct(u16);
@@ -454,12 +555,14 @@ mod tests {
             .build();
         Pool::new(
             Connector::around(handler, dns),
+            h2::client::Builder::new(),
             Keepalive {
                 idle_timeout: None,
                 ping_timeout: Duration::from_secs(15),
                 permit_without_stream: false,
             },
             idle_timeout,
+            NAMES,
         )
     }
 

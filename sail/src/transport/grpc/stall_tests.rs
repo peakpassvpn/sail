@@ -27,7 +27,7 @@ use tokio::task::JoinHandle;
 use tokio::time::Instant;
 
 use super::gun::GunStream;
-use super::{inbound, keepalive, outbound, Counted};
+use super::{inbound, keepalive, Counted};
 
 /// The pipe each way: small, so that writes block.
 const PIPE: usize = 64 * 1024;
@@ -87,7 +87,7 @@ where
             .await
             .unwrap()
     });
-    let (send, mut client) = outbound::pool::builder()
+    let (send, mut client) = super::client_builder()
         .handshake::<_, Bytes>(client_io)
         .await
         .unwrap();

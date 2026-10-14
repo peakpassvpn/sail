@@ -5,6 +5,8 @@
 pub mod amux;
 #[cfg(any(feature = "inbound-grpc", feature = "outbound-grpc"))]
 pub mod grpc;
+#[cfg(any(feature = "inbound-grpc", feature = "outbound-grpc"))]
+pub mod h2pool;
 #[cfg(any(
     feature = "inbound-ws",
     feature = "outbound-ws",

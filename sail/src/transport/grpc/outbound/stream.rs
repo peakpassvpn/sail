@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use http::{HeaderValue, Request, Uri};
 
 use super::super::gun::GunStream;
-use super::pool::{Keepalive, Pool, Pooled};
+use crate::transport::h2pool::{Keepalive, Pool, Pooled};
 use crate::transport::layers::Connector;
 use crate::{adapter::*, session::Session};
 
@@ -19,6 +19,8 @@ use crate::{adapter::*, session::Session};
 pub struct Handler {
     /// `/<service_name>/Tun`, escaped.
     path: String,
+    /// Whether the connections are made over TLS (or REALITY).
+    tls: bool,
     pool: Pool,
 }
 
@@ -32,13 +34,20 @@ impl Handler {
         let path = super::super::service_path(service_name)?;
         Ok(Handler {
             path,
-            pool: Pool::new(connector, keepalive, idle_timeout),
+            tls: connector.tls(),
+            pool: Pool::new(
+                connector,
+                super::super::client_builder(),
+                keepalive,
+                idle_timeout,
+                super::super::NAMES,
+            ),
         })
     }
 
     fn request(&self, sess: &Session) -> io::Result<Request<()>> {
         let uri = Uri::builder()
-            .scheme(if self.pool.tls() { "https" } else { "http" })
+            .scheme(if self.tls { "https" } else { "http" })
             .authority(sess.destination.to_string())
             .path_and_query(self.path.as_str())
             .build()
