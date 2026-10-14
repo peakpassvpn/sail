@@ -45,7 +45,7 @@ Full table: [docs/compat/clash.md](https://github.com/peakpassvpn/sail/blob/mast
 | `geox-url` | 5 | 0 | 5 | 0 |
 | `iptables` | 5 | 0 | 0 | 5 |
 | `listeners[anytls]` | 45 | 0 | 0 | 45 |
-| `listeners[http]` | 29 | 7 | 1 | 21 |
+| `listeners[http]` | 29 | 9 | 1 | 19 |
 | `listeners[hysteria2]` | 49 | 0 | 0 | 49 |
 | `listeners[mieru]` | 10 | 0 | 0 | 10 |
 | `listeners[mixed]` | 30 | 8 | 1 | 21 |
@@ -100,7 +100,7 @@ Full table: [docs/compat/clash.md](https://github.com/peakpassvpn/sail/blob/mast
 | `tls` | 7 | 0 | 7 | 0 |
 | `tuic-server` | 13 | 0 | 0 | 13 |
 | `tun` | 50 | 34 | 9 | 7 |
-| **All** | **2077** | **518** | **112** | **1447** |
+| **All** | **2077** | **520** | **112** | **1445** |
 
 ## Surge
 

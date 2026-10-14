@@ -35,7 +35,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `geox-url` | 5 | 0 | 5 | 0 |
 | `iptables` | 5 | 0 | 0 | 5 |
 | `listeners[anytls]` | 45 | 0 | 0 | 45 |
-| `listeners[http]` | 29 | 7 | 1 | 21 |
+| `listeners[http]` | 29 | 9 | 1 | 19 |
 | `listeners[hysteria2]` | 49 | 0 | 0 | 49 |
 | `listeners[mieru]` | 10 | 0 | 0 | 10 |
 | `listeners[mixed]` | 30 | 8 | 1 | 21 |
@@ -90,7 +90,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `tls` | 7 | 0 | 7 | 0 |
 | `tuic-server` | 13 | 0 | 0 | 13 |
 | `tun` | 50 | 34 | 9 | 7 |
-| **All** | **2077** | **518** | **112** | **1447** |
+| **All** | **2077** | **520** | **112** | **1445** |
 
 
 ## `general`
@@ -253,14 +253,14 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 
 | 字段 | sail | sail 的说明 |
 |---|---|---|
-| `listeners[http].certificate` | 报错 | listeners[0].certificate: sail does not implement this field yet |
+| `listeners[http].certificate` | 支持 |  |
 | `listeners[http].client-auth-cert` | 报错 | listeners[0].client-auth-cert: sail does not implement this field yet |
 | `listeners[http].client-auth-type` | 报错 | listeners[0].client-auth-type: sail does not implement this field yet |
 | `listeners[http].ech-key` | 报错 | listeners[0].ech-key: sail does not implement this field yet |
 | `listeners[http].listen` | 支持 |  |
 | `listeners[http].name` | 支持 |  |
 | `listeners[http].port` | 支持 | listeners[0].port: "x": sail takes one port, not ranges, yet |
-| `listeners[http].private-key` | 报错 | listeners[0].private-key: sail does not implement this field yet |
+| `listeners[http].private-key` | 支持 |  |
 | `listeners[http].proxy` | 支持 | listeners[0].proxy: no proxy or group is named "x" |
 | `listeners[http].reality-config` | 报错 | listeners[0].reality-config: sail does not implement this field yet |
 | `listeners[http].reality-config.dest` | 报错 | listeners[0].reality-config: sail does not implement this field yet |

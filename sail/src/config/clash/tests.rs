@@ -2133,6 +2133,62 @@ rules: ["MATCH,DIRECT"]
     assert!(open.inbounds[0].options.get("skip_auth_prefixes").is_none());
 }
 
+/// An http listener's TLS, as Mihomo's: a certificate and its key, PEM or
+/// paths in the data directory; with one alone, no TLS, as in Mihomo.
+#[test]
+fn an_http_listener_s_certificate_is_its_tls() {
+    let tls = |fields: &str| {
+        parse(&format!(
+            "listeners: [{{ name: H, type: http, port: 50000{} }}]\nrules: [\"MATCH,DIRECT\"]\n",
+            fields
+        ))
+        .map(|config| {
+            let inbound = config.inbounds.iter().find(|i| i.tag == "H").unwrap();
+            (inbound.options.get("tls").cloned(), config.warnings)
+        })
+        .map_err(|e| format!("{:#}", e))
+    };
+    assert_eq!(tls(""), Ok((None, vec![])));
+    let pem = ", certificate: \"-----BEGIN CERTIFICATE-----\\nAA\\n-----END CERTIFICATE-----\", \
+               private-key: \"-----BEGIN PRIVATE KEY-----\\nAA\\n-----END PRIVATE KEY-----\"";
+    assert_eq!(
+        tls(pem),
+        Ok((
+            Some(json!({ "enabled": true,
+                "certificate": "-----BEGIN CERTIFICATE-----\nAA\n-----END CERTIFICATE-----",
+                "key": "-----BEGIN PRIVATE KEY-----\nAA\n-----END PRIVATE KEY-----" })),
+            vec![]
+        ))
+    );
+    assert_eq!(
+        tls(", certificate: tls/cert.pem, private-key: tls/key.pem"),
+        Ok((
+            Some(json!({ "enabled": true,
+                "certificate_path": "tls/cert.pem", "key_path": "tls/key.pem" })),
+            vec![]
+        ))
+    );
+    assert_eq!(
+        tls(", certificate: cert.pem"),
+        Ok((
+            None,
+            vec![
+                "listeners[0].certificate: without private-key Mihomo listens without TLS, \
+                  and so does sail; ignored"
+                    .to_string()
+            ]
+        ))
+    );
+    assert_eq!(
+        tls(", certificate: cert.pem, private-key: ../key.pem"),
+        Err(
+            "listeners[0].private-key: \"../key.pem\" is not in the data directory, which a \
+             listener's certificate stays in, as in Mihomo"
+                .to_string()
+        )
+    );
+}
+
 const LISTENERS_CONFIG: &str = r#"
 authentication: ["alice:secret"]
 proxies:

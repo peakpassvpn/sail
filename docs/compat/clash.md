@@ -35,7 +35,7 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 | `geox-url` | 5 | 0 | 5 | 0 |
 | `iptables` | 5 | 0 | 0 | 5 |
 | `listeners[anytls]` | 45 | 0 | 0 | 45 |
-| `listeners[http]` | 29 | 7 | 1 | 21 |
+| `listeners[http]` | 29 | 9 | 1 | 19 |
 | `listeners[hysteria2]` | 49 | 0 | 0 | 49 |
 | `listeners[mieru]` | 10 | 0 | 0 | 10 |
 | `listeners[mixed]` | 30 | 8 | 1 | 21 |
@@ -90,7 +90,7 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 | `tls` | 7 | 0 | 7 | 0 |
 | `tuic-server` | 13 | 0 | 0 | 13 |
 | `tun` | 50 | 34 | 9 | 7 |
-| **All** | **2077** | **518** | **112** | **1447** |
+| **All** | **2077** | **520** | **112** | **1445** |
 
 
 ## `general`
@@ -253,14 +253,14 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 
 | Field | sail | What sail says |
 |---|---|---|
-| `listeners[http].certificate` | Error | listeners[0].certificate: sail does not implement this field yet |
+| `listeners[http].certificate` | Supported |  |
 | `listeners[http].client-auth-cert` | Error | listeners[0].client-auth-cert: sail does not implement this field yet |
 | `listeners[http].client-auth-type` | Error | listeners[0].client-auth-type: sail does not implement this field yet |
 | `listeners[http].ech-key` | Error | listeners[0].ech-key: sail does not implement this field yet |
 | `listeners[http].listen` | Supported |  |
 | `listeners[http].name` | Supported |  |
 | `listeners[http].port` | Supported | listeners[0].port: "x": sail takes one port, not ranges, yet |
-| `listeners[http].private-key` | Error | listeners[0].private-key: sail does not implement this field yet |
+| `listeners[http].private-key` | Supported |  |
 | `listeners[http].proxy` | Supported | listeners[0].proxy: no proxy or group is named "x" |
 | `listeners[http].reality-config` | Error | listeners[0].reality-config: sail does not implement this field yet |
 | `listeners[http].reality-config.dest` | Error | listeners[0].reality-config: sail does not implement this field yet |

@@ -173,6 +173,9 @@ pub fn lower(
             }
             _ => {}
         }
+        if protocol == "http" {
+            tls(&mut f, out.home.as_deref(), &mut inbound, warnings)?;
+        }
         // Mihomo's are TCP alone without it; sail's carry UDP all the same.
         let udp = f.bool("udp")?;
         if matches!(protocol, "mixed" | "socks" | "shadowsocks") && udp != Some(true) {
@@ -248,6 +251,58 @@ pub fn lower(
         listeners.kinds.push(("tunnel".to_string(), tag));
     }
     Ok(listeners)
+}
+
+/// A listener's TLS, as Mihomo's `ca.NewTLSKeyPairLoader` takes it: a
+/// certificate and its key, each PEM or else a path, which stays in the
+/// data directory (`home`) as Mihomo's IsSafePath keeps it. With one of
+/// them alone Mihomo listens without TLS, and so does sail.
+fn tls(
+    f: &mut Fields,
+    home: Option<&std::path::Path>,
+    inbound: &mut Map<String, Value>,
+    warnings: &mut Vec<String>,
+) -> Result<()> {
+    let certificate = f.string("certificate")?.filter(|c| !c.is_empty());
+    let key = f.string("private-key")?.filter(|k| !k.is_empty());
+    let (certificate, key) = match (certificate, key) {
+        (None, None) => return Ok(()),
+        (Some(certificate), Some(key)) => (certificate, key),
+        (certificate, _) => {
+            let (has, lacks) = if certificate.is_some() {
+                ("certificate", "private-key")
+            } else {
+                ("private-key", "certificate")
+            };
+            warnings.push(format!(
+                "{}: without {} Mihomo listens without TLS, and so does sail; ignored",
+                f.at(has),
+                lacks
+            ));
+            return Ok(());
+        }
+    };
+    let mut tls = Map::new();
+    tls.insert("enabled".into(), json!(true));
+    for (name, field, value) in [
+        ("certificate", "certificate", certificate),
+        ("private-key", "key", key),
+    ] {
+        if value.contains("-----BEGIN") {
+            tls.insert(field.into(), json!(value));
+        } else if crate::common::path::stays_in(home, &value) {
+            tls.insert(format!("{}_path", field), json!(value));
+        } else {
+            return Err(anyhow!(
+                "{}: {:?} is not in the data directory, which a listener's certificate \
+                 stays in, as in Mihomo",
+                f.at(name),
+                value
+            ));
+        }
+    }
+    inbound.insert("tls".into(), Value::Object(tls));
+    Ok(())
 }
 
 /// A tunnel, as Mihomo writes one: a map, or `tcp/udp,address,target`
