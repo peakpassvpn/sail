@@ -12,7 +12,11 @@ pub mod grpc;
     feature = "outbound-httpupgrade"
 ))]
 pub mod httpupgrade;
-#[cfg(any(feature = "outbound-hysteria2", feature = "outbound-quic"))]
+#[cfg(any(
+    feature = "outbound-hysteria2",
+    feature = "outbound-quic",
+    feature = "outbound-grpc"
+))]
 pub mod idle;
 #[cfg(feature = "mux")]
 pub mod mux;

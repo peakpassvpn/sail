@@ -13,12 +13,14 @@
 //! which never exceeds the server's limit.
 //!
 //! A connection that ends -- closed, cut, or given up by the keepalive -- is
-//! dropped from the pool, and the next call dials a new one.
+//! dropped from the pool, and the next call dials a new one. So is one that
+//! has carried no call for the idle timeout (`transport::idle`), and ended:
+//! the keepalive's pings would otherwise hold it up for good.
 
 use std::io;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::task::{Context, Poll};
 use std::time::Duration;
 
@@ -31,6 +33,7 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tracing::debug;
 
 use crate::session::Session;
+use crate::transport::idle::{self, Idle};
 use crate::transport::layers::Connector;
 
 /// The most connections open to the server at once.
@@ -73,6 +76,12 @@ struct Connection {
 }
 
 impl Connection {
+    /// Ends it, and the calls on it; it takes no more.
+    fn end(&self) {
+        self.state.closed.store(true, Ordering::Release);
+        self.abort.abort();
+    }
+
     fn streams(&self) -> usize {
         self.state.streams.load(Ordering::Acquire)
     }
@@ -82,22 +91,35 @@ impl Connection {
     }
 }
 
+/// A connection of the pool's.
+struct Entry {
+    connection: Arc<Connection>,
+    /// Since when it has carried no call, as last checked.
+    idle: Idle,
+}
+
 pub struct Pool {
     connector: Connector,
     keepalive: Keepalive,
-    connections: Mutex<Vec<Arc<Connection>>>,
+    connections: Arc<Mutex<Vec<Entry>>>,
     /// Held while dialling, so that calls finding no room wait for one new
     /// connection rather than each dialling their own.
     dialling: tokio::sync::Mutex<()>,
+    /// How long a connection is kept with no call.
+    idle_timeout: Duration,
+    /// The idle check, which the first dial starts.
+    checking: OnceLock<idle::Check>,
 }
 
 impl Pool {
-    pub fn new(connector: Connector, keepalive: Keepalive) -> Self {
+    pub fn new(connector: Connector, keepalive: Keepalive, idle_timeout: Duration) -> Self {
         Pool {
             connector,
             keepalive,
-            connections: Mutex::new(Vec::new()),
+            connections: Arc::default(),
             dialling: tokio::sync::Mutex::new(()),
+            idle_timeout,
+            checking: OnceLock::new(),
         }
     }
 
@@ -110,9 +132,8 @@ impl Pool {
     /// transport when the network changes; the layers beneath hear of it.
     pub fn network_changed(&self, change: &crate::net::network::NetworkChange) {
         let connections = std::mem::take(&mut *lock(&self.connections));
-        for connection in connections {
-            connection.state.closed.store(true, Ordering::Release);
-            connection.abort.abort();
+        for entry in connections {
+            entry.connection.end();
         }
         self.connector.network_changed(change);
     }
@@ -169,7 +190,19 @@ impl Pool {
         }
         let connection = Arc::new(self.dial(sess).await?);
         let slot = Slot::take(&connection.state);
-        lock(&self.connections).push(connection.clone());
+        lock(&self.connections).push(Entry {
+            connection: connection.clone(),
+            idle: Idle::default(),
+        });
+        self.checking.get_or_init(|| {
+            let idle_timeout = self.idle_timeout;
+            idle::spawn_check(
+                "grpc idle check",
+                Arc::downgrade(&self.connections),
+                idle_timeout,
+                move |connections, now| check_idle(connections, idle_timeout, now),
+            )
+        });
         Ok((connection, slot))
     }
 
@@ -177,9 +210,10 @@ impl Pool {
     /// `full` is allowed.
     fn pick(&self, full: bool) -> Option<(Arc<Connection>, Slot)> {
         let mut connections = lock(&self.connections);
-        connections.retain(|c| !c.state.closed.load(Ordering::Acquire));
+        connections.retain(|e| !e.connection.state.closed.load(Ordering::Acquire));
         let connection = connections
             .iter()
+            .map(|e| &e.connection)
             .filter(|c| full || c.has_room())
             .min_by_key(|c| c.streams())?
             .clone();
@@ -189,7 +223,7 @@ impl Pool {
 
     fn live(&self) -> usize {
         let mut connections = lock(&self.connections);
-        connections.retain(|c| !c.state.closed.load(Ordering::Acquire));
+        connections.retain(|e| !e.connection.state.closed.load(Ordering::Acquire));
         connections.len()
     }
 
@@ -230,6 +264,24 @@ impl Pool {
             abort: ends,
         })
     }
+}
+
+/// Ends the connections that have carried no call for `idle_timeout`, so
+/// that the server sees them end; the next call dials anew. Under the lock
+/// a call takes its connection under.
+fn check_idle(connections: &Mutex<Vec<Entry>>, idle_timeout: Duration, now: tokio::time::Instant) {
+    lock(connections).retain_mut(|entry| {
+        let connection = &entry.connection;
+        if connection.state.closed.load(Ordering::Acquire) {
+            return false;
+        }
+        if !entry.idle.expired(connection.streams(), now, idle_timeout) {
+            return true;
+        }
+        debug!("gun: ending an idle connection");
+        connection.end();
+        false
+    });
 }
 
 /// How a connection to the server is set up.
@@ -338,15 +390,24 @@ mod tests {
     }
 
     /// An h2 server allowing `max_streams` streams a connection, which
-    /// answers every request and keeps it open; and the connections it took.
-    async fn server(max_streams: u32) -> (u16, Arc<AtomicUsize>) {
+    /// answers every request and keeps it open; the connections it took,
+    /// and a message for each that ended.
+    async fn server(
+        max_streams: u32,
+    ) -> (
+        u16,
+        Arc<AtomicUsize>,
+        tokio::sync::mpsc::UnboundedReceiver<()>,
+    ) {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
         let connections = Arc::new(AtomicUsize::new(0));
         let counted = connections.clone();
+        let (ended, ends) = tokio::sync::mpsc::unbounded_channel();
         tokio::spawn(async move {
             while let Ok((tcp, _)) = listener.accept().await {
                 counted.fetch_add(1, Ordering::SeqCst);
+                let ended = ended.clone();
                 tokio::spawn(async move {
                     let mut connection = h2::server::Builder::new()
                         .max_concurrent_streams(max_streams)
@@ -360,13 +421,19 @@ mod tests {
                             .unwrap();
                         open.push((request, send));
                     }
+                    let _ = ended.send(());
                 });
             }
         });
-        (port, connections)
+        (port, connections, ends)
     }
 
     fn pool(port: u16) -> Pool {
+        pool_idle(port, Duration::from_secs(60))
+    }
+
+    /// A pool keeping a connection with no call for `idle_timeout`.
+    fn pool_idle(port: u16, idle_timeout: Duration) -> Pool {
         let dns = DnsClient::new(&Default::default(), Default::default(), &Default::default())
             .unwrap()
             .into_shared();
@@ -381,6 +448,7 @@ mod tests {
                 ping_timeout: Duration::from_secs(15),
                 permit_without_stream: false,
             },
+            idle_timeout,
         )
     }
 
@@ -401,7 +469,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_streams_share_a_connection_up_to_the_peers_limit() {
-        let (port, connections) = server(2).await;
+        let (port, connections, _) = server(2).await;
         let pool = pool(port);
         let sess = Session {
             destination: SocksAddr::try_from(("127.0.0.1", port)).unwrap(),
@@ -434,7 +502,7 @@ mod tests {
     /// next call dials anew.
     #[tokio::test]
     async fn a_change_of_network_ends_the_connections() {
-        let (port, connections) = server(10).await;
+        let (port, connections, _) = server(10).await;
         let pool = pool(port);
         let sess = Session {
             destination: SocksAddr::try_from(("127.0.0.1", port)).unwrap(),
@@ -456,5 +524,47 @@ mod tests {
         assert!(ended.is_ok(), "the open call did not end");
         drop(answered(&pool, &sess).await);
         assert_eq!(connections.load(Ordering::SeqCst), 2);
+    }
+
+    fn session(port: u16) -> Session {
+        Session {
+            destination: SocksAddr::try_from(("127.0.0.1", port)).unwrap(),
+            ..Default::default()
+        }
+    }
+
+    /// A connection whose calls have ended is ended once the idle timeout
+    /// has passed, which the server sees; the next call dials anew. Time
+    /// paused.
+    #[tokio::test(start_paused = true)]
+    async fn a_connection_with_no_call_is_ended() {
+        let idle = crate::runtime::Profile::Desktop.carrier_idle_timeout();
+        let (port, connections, mut ended) = server(10).await;
+        let pool = pool_idle(port, idle);
+        let sess = session(port);
+        drop(answered(&pool, &sess).await);
+        tokio::time::sleep(idle * 2).await;
+        assert_eq!(pool.live(), 0, "kept with no call");
+        let seen = tokio::time::timeout(Duration::from_secs(5), ended.recv()).await;
+        assert!(matches!(seen, Ok(Some(()))), "the server saw no end");
+        drop(answered(&pool, &sess).await);
+        assert_eq!(connections.load(Ordering::SeqCst), 2);
+    }
+
+    /// An open call keeps its connection past the idle timeout. Time
+    /// paused.
+    #[tokio::test(start_paused = true)]
+    async fn an_open_call_keeps_the_connection() {
+        let idle = crate::runtime::Profile::Desktop.carrier_idle_timeout();
+        let (port, connections, mut ended) = server(10).await;
+        let pool = pool_idle(port, idle);
+        let sess = session(port);
+        let open = answered(&pool, &sess).await;
+        tokio::time::sleep(idle * 3).await;
+        assert_eq!(pool.live(), 1, "ended with a call open");
+        assert!(ended.try_recv().is_err(), "the server saw an end");
+        drop(answered(&pool, &sess).await);
+        assert_eq!(connections.load(Ordering::SeqCst), 1);
+        drop(open);
     }
 }

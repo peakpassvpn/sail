@@ -27,11 +27,12 @@ impl Handler {
         service_name: &str,
         connector: Connector,
         keepalive: Keepalive,
+        idle_timeout: std::time::Duration,
     ) -> anyhow::Result<Self> {
         let path = super::super::service_path(service_name)?;
         Ok(Handler {
             path,
-            pool: Pool::new(connector, keepalive),
+            pool: Pool::new(connector, keepalive, idle_timeout),
         })
     }
 

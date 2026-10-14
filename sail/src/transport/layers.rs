@@ -841,6 +841,7 @@ fn layered(
             *idle_timeout,
             *ping_timeout,
             *permit_without_stream,
+            env.options.profile.carrier_idle_timeout(),
         )?;
         let whole = chain_outbound(tag, vec![grpc, core])?;
         return sing_mux_outbound(
@@ -1365,6 +1366,7 @@ fn grpc_outbound(
     idle_timeout: Option<std::time::Duration>,
     ping_timeout: Option<std::time::Duration>,
     permit_without_stream: bool,
+    carrier_idle_timeout: std::time::Duration,
 ) -> Result<AnyOutboundHandler> {
     #[cfg(feature = "outbound-grpc")]
     {
@@ -1377,6 +1379,7 @@ fn grpc_outbound(
                 ping_timeout: ping_timeout.unwrap_or(DEFAULT_PING_TIMEOUT),
                 permit_without_stream,
             },
+            carrier_idle_timeout,
         )
         .map_err(|e| anyhow!("[{}] outbound: transport: {}", tag, e))?;
         Ok(crate::adapter::outbound::HandlerBuilder::default()
