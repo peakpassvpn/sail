@@ -164,16 +164,9 @@ where
     (results, latency)
 }
 
-/// Whether the rounds test `member`. Their tests are HTTP requests, which
-/// go over a member's stream, so they say nothing of one that carries
-/// none, UDP alone, as an outbound with sing-box's `network: udp`: it is
-/// not tested. It has no last check and no standing, as a member not
-/// tested yet, and so is up; and a connection that fails through it asks
-/// for no tests, which would not tell more. A `pass` outbound is down
-/// instead, see `Checker::test`.
-pub(crate) fn is_tested(member: &AnyOutboundHandler) -> bool {
-    member.is_pass() || member.stream().is_ok()
-}
+/// Whether the rounds test `member`; in `members`, where the smart group,
+/// which has no checker, reads it too.
+pub(crate) use super::members::is_tested;
 
 /// How many rounds in a row turn a member's standing, a fallback's
 /// `debounce`: `fail_after` failed rounds take a member that is up down,

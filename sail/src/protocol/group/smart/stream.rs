@@ -44,7 +44,7 @@ pub async fn connect(group: Arc<Group>, sess: &Session) -> io::Result<AnyStream>
         return Err(io::Error::other("no outbound to try"));
     }
     let site: Arc<str> = group.site(sess).into();
-    let order = group.plan(&snapshot, &site);
+    let order = group.plan(&snapshot, &site, |m| m.stream().is_ok());
     let mut failed = Vec::new();
     let dns_client = group.dns_client.clone();
     let result = group

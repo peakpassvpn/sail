@@ -39,6 +39,24 @@ pub struct Member {
     pub kind: &'static str,
 }
 
+/// Whether a group's rounds test `member`. Their tests are HTTP requests,
+/// which go over a member's stream, so they say nothing of one that
+/// carries none, UDP alone, as an outbound with sing-box's `network: udp`:
+/// it is not tested. It has no last check and no standing, as a member
+/// not tested yet, and so is up; and a connection that fails through it
+/// asks for no tests, which would not tell more. A `pass` outbound is
+/// down instead, see `health::Checker::test`. The smart group's probes go
+/// by it too.
+#[cfg(any(
+    feature = "outbound-urltest",
+    feature = "outbound-load-balance",
+    feature = "outbound-fallback",
+    feature = "outbound-smart"
+))]
+pub(crate) fn is_tested(member: &AnyOutboundHandler) -> bool {
+    member.is_pass() || member.stream().is_ok()
+}
+
 /// The members of a group at one time, in order.
 pub struct Snapshot {
     /// Counts the snapshots of the group, from 0.

@@ -28,6 +28,13 @@
 //! `interval`, at less weight: those nothing told of for the interval,
 //! and those that failed, so that they recover; of a group of more than
 //! twelve, the most used and those probed longest ago, twelve at most.
+//! A member that carries UDP alone (an outbound with sing-box's
+//! `network: udp`) is not probed, as a probe goes over a stream: its score
+//! is of its connections alone.
+//!
+//! A connection goes to the members that carry its network only: one
+//! that carries TCP alone, or UDP alone, is passed over for the other,
+//! neither tried nor failed.
 //!
 //! A connection goes to its site's member, while that member has not
 //! failed and is not more than twice as slow for the site as the best
@@ -89,7 +96,7 @@ use tracing::debug;
 use self::score::MemberStats;
 use self::site::{Rank, Site, Tolerance};
 use super::interrupt::Until;
-use super::members::{MemberKey, MemberLatencies, Members, Snapshot, Tested};
+use super::members::{is_tested, MemberKey, MemberLatencies, Members, Snapshot, Tested};
 use super::merge;
 use super::tell::Attempt;
 use crate::adapter::outbound::HandlerBuilder;
@@ -468,14 +475,24 @@ impl Group {
     }
 
     /// The members of `snapshot` a connection to `site` is tried through,
-    /// in turn.
-    fn plan(&self, snapshot: &Snapshot, site: &str) -> Vec<usize> {
+    /// in turn: of those that carry its network, as `carries` tells; one
+    /// that does not, UDP alone or TCP alone (an outbound with sing-box's
+    /// `network`), is passed over, and so neither tried nor failed.
+    fn plan(
+        &self,
+        snapshot: &Snapshot,
+        site: &str,
+        carries: impl Fn(&AnyOutboundHandler) -> bool,
+    ) -> Vec<usize> {
         let now = Instant::now();
+        let carrying: Vec<usize> = (0..snapshot.members.len())
+            .filter(|&i| carries(&snapshot.members[i].handler))
+            .collect();
         let ranks: Vec<Rank> = {
             let mut stats = lock(&self.stats);
-            snapshot
-                .members
+            carrying
                 .iter()
+                .map(|&i| &snapshot.members[i])
                 .map(|m| {
                     let s = stats
                         .entry(m.key.clone())
@@ -488,7 +505,7 @@ impl Group {
                 })
                 .collect()
         };
-        self.with_site(site, |site| {
+        let order = self.with_site(site, |site| {
             site.retain(|key| snapshot.position(key).is_some());
             site::order(
                 &ranks,
@@ -497,7 +514,8 @@ impl Group {
                 now,
                 &mut rand::thread_rng(),
             )
-        })
+        });
+        order.into_iter().map(|r| carrying[r]).collect()
     }
 
     /// Notes that the group is being used, which resumes paused probes.
@@ -698,7 +716,8 @@ impl Group {
     /// The members to probe in a round, by index into `snapshot`: those
     /// nothing told of for `interval`, and those failed or suspected; of
     /// more than `MAX_PROBED`, the most used, then those probed longest
-    /// ago.
+    /// ago. Not one the probes would say nothing of, see
+    /// `members::is_tested`: its score is of its connections alone.
     fn to_probe(&self, snapshot: &Snapshot) -> Vec<usize> {
         let now = Instant::now();
         let suspects = std::mem::take(&mut *lock(&self.probes.suspects));
@@ -708,6 +727,7 @@ impl Group {
             .members
             .iter()
             .enumerate()
+            .filter(|(_, m)| is_tested(&m.handler))
             .map(|(i, m)| (i, stats.get(&m.key).unwrap_or(&fresh)))
             .filter(|(i, s)| {
                 suspects.contains(&snapshot.members[*i].key)

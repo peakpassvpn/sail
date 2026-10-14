@@ -4,9 +4,9 @@
 use super::score::FIRST_BYTE_TIMEOUT;
 use super::stream::MAX_REPLAY;
 use super::*;
-use crate::adapter::outbound::HandlerBuilder;
+use crate::adapter::outbound::{one_network, HandlerBuilder};
 use crate::protocol::group::members::Member;
-use crate::session::SocksAddr;
+use crate::session::{Network, SocksAddr};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 #[derive(Clone, Copy)]
@@ -79,6 +79,63 @@ impl OutboundStreamHandler for Fake {
     }
 }
 
+/// Datagrams through a fake: sent nowhere, never answered.
+struct Silent;
+
+impl OutboundDatagram for Silent {
+    fn split(
+        self: Box<Self>,
+    ) -> (
+        Box<dyn OutboundDatagramRecvHalf>,
+        Box<dyn OutboundDatagramSendHalf>,
+    ) {
+        (Box::new(Silent), Box::new(Silent))
+    }
+}
+
+#[async_trait]
+impl OutboundDatagramRecvHalf for Silent {
+    async fn recv_from(&mut self, _buf: &mut [u8]) -> io::Result<(usize, SocksAddr)> {
+        std::future::pending().await
+    }
+}
+
+#[async_trait]
+impl OutboundDatagramSendHalf for Silent {
+    async fn send_to(&mut self, buf: &[u8], _dst_addr: &SocksAddr) -> io::Result<usize> {
+        Ok(buf.len())
+    }
+
+    async fn close(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+/// Its datagrams: refused, or each session noted as `udp` among what it
+/// received.
+#[async_trait]
+impl OutboundDatagramHandler for Fake {
+    fn connect_addr(&self) -> OutboundConnect {
+        OutboundConnect::Unknown
+    }
+
+    fn transport_type(&self) -> DatagramTransportType {
+        DatagramTransportType::Unknown
+    }
+
+    async fn handle<'a>(
+        &'a self,
+        _sess: &'a Session,
+        _transport: Option<AnyOutboundTransport>,
+    ) -> io::Result<AnyOutboundDatagram> {
+        if let Behaviour::Refuse = self.behaviour {
+            return Err(io::Error::new(io::ErrorKind::ConnectionRefused, "refused"));
+        }
+        lock(&self.received).push(b"udp".to_vec());
+        Ok(Box::new(Silent))
+    }
+}
+
 struct Fakes {
     group: Arc<Group>,
     received: Vec<Arc<Mutex<Vec<Vec<u8>>>>>,
@@ -134,6 +191,35 @@ fn fake_member(name: &str, behaviour: Behaviour) -> (Member, Arc<Mutex<Vec<Vec<u
     let member = Member {
         key: MemberKey::outbound(name),
         handler,
+        kind: "",
+    };
+    (member, received)
+}
+
+/// A fake that carries UDP as well, or, with `udp_alone`, UDP alone, as
+/// an outbound with sing-box's `network: udp`.
+fn fake_udp(
+    name: &str,
+    behaviour: Behaviour,
+    udp_alone: bool,
+) -> (Member, Arc<Mutex<Vec<Vec<u8>>>>) {
+    let received = Arc::new(Mutex::new(Vec::new()));
+    let fake = Arc::new(Fake {
+        name: name.to_string(),
+        behaviour,
+        received: received.clone(),
+    });
+    let handler = HandlerBuilder::default()
+        .tag(name.to_string())
+        .stream_handler(fake.clone())
+        .datagram_handler(fake)
+        .build();
+    let member = Member {
+        key: MemberKey::outbound(name),
+        handler: match udp_alone {
+            true => one_network(handler, false),
+            false => handler,
+        },
         kind: "",
     };
     (member, received)
@@ -409,7 +495,7 @@ async fn a_member_gone_takes_its_state_and_a_new_one_is_unknown() {
     group.merged(&snapshot, true);
     assert!(!lock(&group.stats).contains_key(&MemberKey::outbound("b")));
     // c is tried after the known, until measured.
-    assert_eq!(group.plan(&snapshot, "example.com"), [0, 1]);
+    assert_eq!(group.plan(&snapshot, "example.com", |_| true), [0, 1]);
     assert_eq!(f.stats("c").score(Instant::now()), None);
     group.probed(&snapshot, &[1], &[Some(Duration::from_millis(5))]);
     assert_eq!(f.stats("c").score(Instant::now()), Some(5.0));
@@ -551,4 +637,86 @@ async fn probes_pause_while_the_network_is_down() {
     f.group.network_changed();
     tokio::time::sleep(DEFAULT_TIMEOUT + Duration::from_secs(1)).await;
     assert!(f.stats("a").last_probed.is_some());
+}
+
+/// A member that carries UDP alone: the probes, which go over a stream,
+/// would fail it each time; it is not probed, and its score stays of its
+/// connections alone.
+#[tokio::test(start_paused = true)]
+async fn a_member_that_carries_udp_alone_is_not_probed() {
+    use crate::net::network::ChangeReason;
+    let (a, _) = fake_udp("a", ANSWER, false);
+    let (u, _) = fake_udp("u", ANSWER, true);
+    let group = group_of(vec![a, u]);
+    let f = Fakes {
+        group: group.clone(),
+        received: Vec::new(),
+    };
+    group.network.detected(on("en0"), ChangeReason::State);
+    let snapshot = group.members.load();
+    // Both are stale, and suspected after a change of network: [a] alone
+    // is probed.
+    assert_eq!(group.to_probe(&snapshot), [0]);
+    group.network_changed();
+    assert_eq!(group.to_probe(&snapshot), [0]);
+    let probe = HttpProbe::new(
+        "http://example.com/",
+        group.dns_client.clone(),
+        &Default::default(),
+    )
+    .unwrap();
+    tokio::spawn(probe_loop(Arc::downgrade(&group), probe));
+    for _ in 0..3 {
+        // Each change of network has a round at once.
+        group.network_changed();
+        tokio::time::sleep(DEFAULT_TIMEOUT + Duration::from_secs(1)).await;
+    }
+    assert!(f.stats("a").last_probed.is_some());
+    if let Some(u) = f.stats_or_none("u") {
+        let now = Instant::now();
+        assert_eq!(u.last_probed, None);
+        assert!(!u.is_failed(now));
+        assert_eq!(u.score(now), None);
+    }
+}
+
+/// A connection goes to the members that carry its network only: UDP to
+/// the member that carries UDP alone when the other fails, TCP never.
+#[tokio::test(start_paused = true)]
+async fn a_connection_goes_to_the_members_that_carry_its_network() {
+    let (a, a_received) = fake_udp("a", Behaviour::Refuse, false);
+    let (u, u_received) = fake_udp("u", ANSWER, true);
+    let f = Fakes {
+        group: group_of(vec![a, u]),
+        received: vec![a_received, u_received],
+    };
+    f.known("a", 10);
+    let udp = Session {
+        network: Network::Udp,
+        ..plain_session("example.com")
+    };
+    // [a] is tried first, and refuses: [u] takes it.
+    let datagram = datagram::connect(f.group.clone(), &udp).await;
+    assert!(datagram.is_ok());
+    assert_eq!(f.received(1), [b"udp".to_vec()]);
+    drop(datagram);
+    assert_eq!(f.suspects(), ["a"]);
+    // TCP goes to [a] alone, which refuses: [u] is neither tried nor
+    // suspected with it.
+    for _ in 0..3 {
+        let stream = stream::connect(f.group.clone(), &tls_session("example.org")).await;
+        assert!(stream.is_err());
+        assert_eq!(f.suspects(), ["a"]);
+    }
+    let snapshot = f.group.members.load();
+    // Of a site new to them, in turn.
+    let by_tcp = f
+        .group
+        .plan(&snapshot, "example.net", |m| m.stream().is_ok());
+    assert_eq!(by_tcp, [0]);
+    let by_udp = f
+        .group
+        .plan(&snapshot, "example.net", |m| m.datagram().is_ok());
+    assert_eq!(by_udp, [0, 1]);
+    assert!(!f.stats("u").is_failed(Instant::now()));
 }
