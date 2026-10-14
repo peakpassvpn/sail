@@ -264,7 +264,8 @@ pub fn server_crypto(
 }
 
 /// [`server_crypto`] from an inbound's `tls` block, its errors as the
-/// inbound `tag`'s. A version range without TLS 1.3 is an error: QUIC is
+/// inbound `tag`'s, clients' certificates checked as the block says. A
+/// version range without TLS 1.3 is an error: QUIC is
 /// TLS 1.3 only. So is REALITY, which is TCP-only: sing-box takes it in the
 /// configuration and refuses it at start ("unsupported usage for
 /// reality", its REALITY server's STDConfig); here, at once.
@@ -290,16 +291,19 @@ pub fn inbound_crypto(
     tls.versions(tag)?
         .require_tls13("QUIC")
         .map_err(|e| anyhow!("[{}] inbound: tls.{}", tag, e))?;
-    if let Some(field) = tls.client_auth_field() {
-        return Err(anyhow!(
-            "[{}] inbound: tls.{}: sail does not implement this field over QUIC yet",
-            tag,
-            field
-        ));
-    }
+    let client_auth = tls.client_auth(tag, env)?;
     let certificate = tls.certificate(tag, env)?;
     let key = tls.key(tag, env)?;
-    server_crypto(&certificate, &key, alpns).map_err(|e| anyhow!("[{}] inbound: tls: {}", tag, e))
+    let mut crypto = server_crypto(&certificate, &key, alpns)
+        .map_err(|e| anyhow!("[{}] inbound: tls: {}", tag, e))?;
+    // By sail's own verification, as over TCP: quinn-btls's would verify by
+    // the context's store, which holds the system's roots.
+    if let Some(client_auth) = client_auth {
+        client_auth
+            .apply_quic(&mut crypto)
+            .map_err(|e| anyhow!("[{}] inbound: tls: {}", tag, e))?;
+    }
+    Ok(crypto)
 }
 
 /// The server configuration of `crypto`, with quinn's transport defaults.
@@ -1560,6 +1564,139 @@ mod tests {
         assert_eq!(
             err.to_string(),
             "[i] inbound: tls.max_version: QUIC is TLS 1.3 only, and 1.2 leaves it out"
+        );
+    }
+
+    /// How a server of `tls`, an inbound's block, takes a client presenting
+    /// `identity`, if any: `None` if taken, or the code the client is
+    /// closed with.
+    async fn served_over_quic(
+        crypto: quinn_btls::ServerConfig,
+        server_pem: &str,
+        identity: Option<&Identity>,
+    ) -> Option<quinn::TransportErrorCode> {
+        let server = endpoint(
+            std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap(),
+            Some(server_config(crypto).unwrap()),
+            Default::default(),
+        )
+        .unwrap();
+        let mut crypto = client_crypto(
+            Some(server_pem),
+            false,
+            &[],
+            &crate::transport::tls::tests::test_roots(),
+        )
+        .unwrap();
+        if let Some(identity) = identity {
+            present(&mut crypto, identity).unwrap();
+        }
+        let client = endpoint(
+            std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap(),
+            None,
+            Default::default(),
+        )
+        .unwrap();
+        let config = quinn::ClientConfig::new(Arc::new(crypto));
+        let accept = async { server.accept().await.unwrap().await.map(|_| ()) };
+        let connect = async {
+            client
+                .connect_with(config, server.local_addr().unwrap(), "localhost")
+                .unwrap()
+                .await
+        };
+        let (served, connected) = tokio::join!(accept, connect);
+        if served.is_ok() {
+            return None;
+        }
+        let closed = match connected {
+            Ok(conn) => conn.closed().await,
+            Err(e) => e,
+        };
+        match closed {
+            quinn::ConnectionError::ConnectionClosed(close) => Some(close.error_code),
+            other => panic!("closed otherwise: {:?}", other),
+        }
+    }
+
+    /// A QUIC inbound checks clients' certificates as over TCP, by sail's
+    /// own verification: a certificate its CA issued is taken, a client
+    /// without one is refused under require-and-verify, and one the
+    /// context's own store trusts, as the system's roots would a public
+    /// CA's, is refused when it is not of the configured CA, with the
+    /// bad_certificate alert sail's check sends.
+    #[tokio::test]
+    async fn a_quic_inbound_checks_clients_certificates_by_its_own_cas() {
+        use crate::transport::tls::tests::ClientCa;
+        let server = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
+        let pem = server.cert.pem();
+        let (ca, public) = (
+            ClientCa::new("sail test client CA"),
+            ClientCa::new("sail test public CA"),
+        );
+        let crypto = || {
+            let tls: InboundTls = serde_json::from_value(serde_json::json!({
+                "enabled": true,
+                "certificate": pem,
+                "key": server.key_pair.serialize_pem(),
+                "client_authentication": "require-and-verify",
+                "client_certificate": ca.pem,
+            }))
+            .unwrap();
+            let mut crypto = inbound_crypto("i", &tls, &RuntimeEnv::default(), &[]).unwrap();
+            // The public CA is in the context's store.
+            let public = btls::x509::X509::from_pem(public.pem.as_bytes()).unwrap();
+            crate::transport::tls::configure_quic_server(&mut crypto, |builder| {
+                builder.cert_store_mut().add_cert(public).unwrap()
+            });
+            crypto
+        };
+        let identity = |cert: &crate::transport::tls::tests::ClientCert| cert.identity(&[]);
+        let valid = identity(&ca.issue());
+        let by_public = identity(&public.issue());
+        assert_eq!(served_over_quic(crypto(), &pem, Some(&valid)).await, None);
+        assert!(served_over_quic(crypto(), &pem, None).await.is_some());
+        assert_eq!(
+            served_over_quic(crypto(), &pem, Some(&by_public)).await,
+            Some(quinn::TransportErrorCode::crypto(42))
+        );
+        // Which the context's own verification takes: it is sail's that
+        // refuses it.
+        let mut own = server_crypto(&pem, &server.key_pair.serialize_pem(), &[]).unwrap();
+        let public_ca = btls::x509::X509::from_pem(public.pem.as_bytes()).unwrap();
+        crate::transport::tls::configure_quic_server(&mut own, |builder| {
+            builder.cert_store_mut().add_cert(public_ca).unwrap()
+        });
+        own.verify_peer(true);
+        assert_eq!(served_over_quic(own, &pem, Some(&by_public)).await, None);
+    }
+
+    /// Pins over QUIC, and verify-if-given taking a client without a
+    /// certificate.
+    #[tokio::test]
+    async fn a_quic_inbound_takes_clients_by_pins() {
+        use crate::transport::tls::tests::ClientCa;
+        let server = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
+        let pem = server.cert.pem();
+        let cert = ClientCa::new("sail test client CA").issue();
+        let other = ClientCa::new("sail test other CA").issue();
+        let tls: InboundTls = serde_json::from_value(serde_json::json!({
+            "enabled": true,
+            "certificate": pem,
+            "key": server.key_pair.serialize_pem(),
+            "client_authentication": "verify-if-given",
+            "client_certificate_sha256": [cert.pin()],
+        }))
+        .unwrap();
+        let crypto = || inbound_crypto("i", &tls, &RuntimeEnv::default(), &[]).unwrap();
+        assert_eq!(
+            served_over_quic(crypto(), &pem, Some(&cert.identity(&[]))).await,
+            None
+        );
+        assert_eq!(served_over_quic(crypto(), &pem, None).await, None);
+        assert_eq!(
+            served_over_quic(crypto(), &pem, Some(&other.identity(&[]))).await,
+            Some(quinn::TransportErrorCode::crypto(42))
         );
     }
 

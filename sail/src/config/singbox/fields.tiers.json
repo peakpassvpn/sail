@@ -658,6 +658,9 @@
   "inbounds[hysteria2].tls.certificate",
   "inbounds[hysteria2].tls.certificate_path",
   "inbounds[hysteria2].tls.client_authentication",
+  "inbounds[hysteria2].tls.client_certificate",
+  "inbounds[hysteria2].tls.client_certificate_path",
+  "inbounds[hysteria2].tls.client_certificate_public_key_sha256",
   "inbounds[hysteria2].tls.key",
   "inbounds[hysteria2].tls.key_path",
   "inbounds[hysteria2].tls.reality",
@@ -914,6 +917,9 @@
   "inbounds[tuic].tls.certificate",
   "inbounds[tuic].tls.certificate_path",
   "inbounds[tuic].tls.client_authentication",
+  "inbounds[tuic].tls.client_certificate",
+  "inbounds[tuic].tls.client_certificate_path",
+  "inbounds[tuic].tls.client_certificate_public_key_sha256",
   "inbounds[tuic].tls.key",
   "inbounds[tuic].tls.key_path",
   "inbounds[tuic].tls.reality",
@@ -4229,17 +4235,6 @@
    "outbounds[hysteria2].obfs[gecko].min_packet_size",
    "outbounds[hysteria2].obfs[gecko].max_packet_size"
   ],
-  "The protocol's own check: not implemented yet": [
-   "inbounds[hysteria2].tls.client_certificate",
-   "inbounds[hysteria2].tls.client_certificate_path",
-   "inbounds[hysteria2].tls.client_certificate_public_key_sha256",
-   "inbounds[shadowtls].handshake.detour",
-   "inbounds[shadowtls].handshake.netns",
-   "inbounds[shadowtls].handshake.tcp_multi_path",
-   "inbounds[tuic].tls.client_certificate",
-   "inbounds[tuic].tls.client_certificate_path",
-   "inbounds[tuic].tls.client_certificate_public_key_sha256"
-  ],
   "Meeting peers through a Hysteria realm: connections would be made otherwise": [
    "inbounds[hysteria2].realm",
    "inbounds[hysteria2].realm.server_url",
@@ -4502,6 +4497,11 @@
    "inbounds[shadowsocks].destinations[].password",
    "inbounds[shadowsocks].destinations[].server",
    "inbounds[shadowsocks].destinations[].server_port"
+  ],
+  "The protocol's own check: not implemented yet": [
+   "inbounds[shadowtls].handshake.detour",
+   "inbounds[shadowtls].handshake.netns",
+   "inbounds[shadowtls].handshake.tcp_multi_path"
   ],
   "Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are": [
    "inbounds[trojan].transport[http].host",

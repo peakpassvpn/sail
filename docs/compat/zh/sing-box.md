@@ -33,12 +33,12 @@ Windows 无法实现的拨号字段在 Windows 上报错。已知缺口是 `tcp_
 | `http_clients` | 80 | 33 | 8 | 39 |
 | `network_namespaces` | 6 | 0 | 0 | 6 |
 | `endpoints` | 433 | 48 | 13 | 372 |
-| `inbounds` | 1367 | 645 | 116 | 606 |
+| `inbounds` | 1367 | 651 | 116 | 600 |
 | `outbounds` | 1228 | 685 | 75 | 468 |
 | `route` | 268 | 177 | 38 | 53 |
 | `services` | 751 | 1 | 166 | 584 |
 | `experimental` | 34 | 16 | 17 | 1 |
-| **全部** | **5003** | **2018** | **500** | **2485** |
+| **全部** | **5003** | **2024** | **500** | **2479** |
 
 ## `$schema`
 
@@ -1127,9 +1127,9 @@ Windows 无法实现的拨号字段在 Windows 上报错。已知缺口是 `tcp_
 | `tls.certificate` | 支持 |  |
 | `tls.certificate_path` | 支持 |  |
 | `tls.client_authentication` | 支持 |  |
-| `tls.client_certificate` | 报错 | The protocol's own check: not implemented yet |
-| `tls.client_certificate_path` | 报错 | The protocol's own check: not implemented yet |
-| `tls.client_certificate_public_key_sha256` | 报错 | The protocol's own check: not implemented yet |
+| `tls.client_certificate` | 支持 |  |
+| `tls.client_certificate_path` | 支持 |  |
+| `tls.client_certificate_public_key_sha256` | 支持 |  |
 | `tls.key` | 支持 |  |
 | `tls.key_path` | 支持 |  |
 | `tls.kernel_tx` | 警告 | The TLS stack, kernel TLS and the handshake's timeout: the same TLS without them |
@@ -1528,9 +1528,9 @@ Windows 无法实现的拨号字段在 Windows 上报错。已知缺口是 `tcp_
 | `tls.certificate` | 支持 |  |
 | `tls.certificate_path` | 支持 |  |
 | `tls.client_authentication` | 支持 |  |
-| `tls.client_certificate` | 报错 | The protocol's own check: not implemented yet |
-| `tls.client_certificate_path` | 报错 | The protocol's own check: not implemented yet |
-| `tls.client_certificate_public_key_sha256` | 报错 | The protocol's own check: not implemented yet |
+| `tls.client_certificate` | 支持 |  |
+| `tls.client_certificate_path` | 支持 |  |
+| `tls.client_certificate_public_key_sha256` | 支持 |  |
 | `tls.key` | 支持 |  |
 | `tls.key_path` | 支持 |  |
 | `tls.kernel_tx` | 警告 | The TLS stack, kernel TLS and the handshake's timeout: the same TLS without them |
@@ -3188,7 +3188,7 @@ sail 接受而 sing-box 没有的字段和类型。
 | `outbounds[direct|anytls|http|hysteria2|shadowsocks|shadowtls|socks|trojan|tuic|vless|vmess].skip_default_domain_resolver` | Names resolve as the DNS rules say, not by `route.default_domain_resolver` |
 | `outbounds[direct|anytls|http|shadowsocks|shadowtls|socks|trojan|vless|vmess].tcp_concurrent` | A name's addresses are all connected to at once and the first to connect taken, rather than Happy Eyeballs (Mihomo's tcp-concurrent) |
 | `endpoints[wireguard].skip_default_domain_resolver` | As an outbound's, for the peers' names |
-| `inbounds[anytls|http|trojan|vless|vmess].tls.client_certificate_sha256` | sing-box 1.15's, read ahead: clients' certificates taken by the SHA-256 of the whole leaf (its DER), standard base64 or hex, with a verifying `client_authentication`; looked at before `client_certificate_public_key_sha256`, either list passing |
+| `inbounds[anytls|http|hysteria2|trojan|tuic|vless|vmess].tls.client_certificate_sha256` | sing-box 1.15's, read ahead: clients' certificates taken by the SHA-256 of the whole leaf (its DER), standard base64 or hex, with a verifying `client_authentication`; looked at before `client_certificate_public_key_sha256`, either list passing |
 | `inbounds[http|mixed].realm` | The realm a 407 names, which clients show when asking for credentials; `sail` when unset (sing-box sends `sing-box`) |
 | `inbounds[http|socks|mixed].skip_auth_prefixes` | The clients that go in without credentials, by the IP prefixes they connect from (Mihomo's skip-auth-prefixes) |
 | `inbounds[shadowtls].handshake.skip_default_domain_resolver` | As an outbound's, for the handshake server's name |

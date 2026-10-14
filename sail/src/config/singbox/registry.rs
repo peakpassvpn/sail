@@ -292,7 +292,7 @@ fn object(key: &str) -> Value {
 /// name several types, as `inbounds[trojan|vless]`.
 const CONTEXT: &[(&str, &str, &str)] = &[
     (
-        "inbounds[anytls|http|trojan|vless|vmess].tls.client_certificate_sha256",
+        "inbounds[anytls|http|hysteria2|trojan|tuic|vless|vmess].tls.client_certificate_sha256",
         r#"{ "tls": { "client_authentication": "require-and-verify" } }"#,
         "[]",
     ),
@@ -1303,7 +1303,7 @@ const EXTENSIONS: &[(&str, &str, &str)] = &[
         "As an outbound's, for the peers' names",
     ),
     (
-        "inbounds[anytls|http|trojan|vless|vmess].tls.client_certificate_sha256",
+        "inbounds[anytls|http|hysteria2|trojan|tuic|vless|vmess].tls.client_certificate_sha256",
         r#"["q6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6s="]"#,
         "sing-box 1.15's, read ahead: clients' certificates taken by the SHA-256 of the whole leaf (its DER), standard base64 or hex, with a verifying `client_authentication`; looked at before `client_certificate_public_key_sha256`, either list passing",
     ),
