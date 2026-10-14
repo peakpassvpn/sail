@@ -189,6 +189,8 @@ Rust: [`HttpOutboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sa
 | `domain_strategy` | string | unset | Supported (deprecated in sing-box) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
 | `skip_default_domain_resolver` | bool | `false` | sail extension | A sail extension: without a `domain_resolver` of its own, the names dialled resolve as the DNS rules say, not as `route.default_domain_resolver` does; as Mihomo's DIRECT resolves apart from the proxies' servers. |
 | `tcp_concurrent` | bool | `false` | sail extension | A sail extension, Mihomo's `tcp-concurrent`: a name's addresses are all connected to at once and the first to connect is taken, rather than one family's one by one, the other's raced against them after `fallback_delay` (Happy Eyeballs). With `network_strategy`, each address is still raced over the interfaces, so as many sockets open at once as there are addresses times interfaces. |
+| `version` | number | unset | sail extension | The HTTP version sing-box 1.15 asks for, 1, 2 or 3; unset (or 0), 2, or 1 with a `path` or a `Host` header. sail proxies over HTTP/1.1 whichever, as sing-box does with a server that speaks no other; the configuration's warnings say so. |
+| `disable_version_fallback` | bool | `false` | sail extension | `version` alone, never HTTP/1.1 in its place: warned of with 2 or 3, as `version` is. |
 
 <a id="outbounds-hysteria2"></a>
 

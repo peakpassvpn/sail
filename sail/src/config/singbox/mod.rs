@@ -58,6 +58,7 @@ fn read(s: &str, zero_unset: bool) -> Result<Config> {
     config.validate()?;
     config.warnings = warnings;
     config.warnings.extend(config.http_client_warnings());
+    config.warnings.extend(config.http_outbound_warnings());
     Ok(config)
 }
 
@@ -356,6 +357,20 @@ mod tests {
             ]
         );
         assert!(!config.outbounds[0].options.contains_key("tcp_multi_path"));
+    }
+
+    /// sing-box 1.15's `on_demand`, ahead of its stable release: the
+    /// endpoint connects at start all the same.
+    #[test]
+    fn an_endpoint_s_on_demand_is_dropped_with_a_warning() {
+        let config =
+            parse(r#"{ "endpoints": [{ "type": "wireguard", "tag": "wg", "on_demand": true }] }"#)
+                .unwrap();
+        assert_eq!(
+            config.warnings,
+            ["endpoints[0].on_demand: sail does not implement this field; ignored"]
+        );
+        assert!(!config.endpoints[0].options.contains_key("on_demand"));
     }
 
     #[test]

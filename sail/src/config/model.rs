@@ -298,6 +298,35 @@ pub fn check_headers(headers: &BTreeMap<String, HeaderValues>) -> Result<()> {
     Ok(())
 }
 
+/// Checks an HTTP `version` as sing-box does: 1, 2 or 3, or 0 for unset.
+pub fn check_http_version(version: Option<u8>) -> Result<()> {
+    match version.filter(|v| *v > 3) {
+        Some(version) => Err(anyhow!("version: {} is none of 1, 2 and 3", version)),
+        None => Ok(()),
+    }
+}
+
+/// The warning for a `disable_version_fallback` that asks for HTTP/2 or 3
+/// alone, of which sail speaks neither: what it does, `what`, goes over
+/// HTTP/1.1 all the same. `version` is what the configuration says,
+/// `default` what sing-box takes when it says nothing (or 0); the client
+/// or outbound is at `at`.
+pub fn http_fallback_warning(
+    at: &str,
+    version: Option<u8>,
+    default: u8,
+    disable_version_fallback: bool,
+    what: &str,
+) -> Option<String> {
+    let version = version.filter(|v| *v != 0).unwrap_or(default);
+    (disable_version_fallback && version != 1).then(|| {
+        format!(
+            "{}.disable_version_fallback: sail {} over HTTP/1.1, not HTTP/{}; ignored",
+            at, what, version
+        )
+    })
+}
+
 /// The values of a header: one, or a list.
 #[derive(Serialize, Deserialize, Clone, Default, PartialEq)]
 #[serde(transparent)]
@@ -325,13 +354,13 @@ impl HttpClient {
                 at
             ));
         }
-        if self.disable_version_fallback && self.version != Some(1) {
-            warnings.push(format!(
-                "{}.disable_version_fallback: sail downloads over HTTP/1.1, not HTTP/{}; ignored",
-                at,
-                self.version.filter(|v| *v != 0).unwrap_or(2)
-            ));
-        }
+        warnings.extend(http_fallback_warning(
+            at,
+            self.version,
+            2,
+            self.disable_version_fallback,
+            "downloads",
+        ));
         warnings
     }
 
@@ -355,9 +384,7 @@ impl HttpClient {
         // take nothing away from it.
         crate::net::dial::DialSpec::resolve(&self.dial, &Default::default())?;
         check_headers(&self.headers)?;
-        if let Some(version) = self.version.filter(|v| !(0..=3).contains(v)) {
-            return Err(anyhow!("version: {} is none of 1, 2 and 3", version));
-        }
+        check_http_version(self.version)?;
         if let Some(engine) = self
             .engine
             .as_deref()
@@ -3466,6 +3493,53 @@ impl Config {
         for (i, provider) in self.outbound_providers.iter().enumerate() {
             if let Some(client) = inline(&provider.http_client) {
                 warnings.extend(client.warnings(&format!("outbound_providers[{}].http_client", i)));
+            }
+        }
+        warnings
+    }
+
+    /// What its HTTP outbounds ask for that sail's, which proxies over
+    /// HTTP/1.1, does otherwise: HTTP/2 or 3, which sing-box falls back
+    /// from to HTTP/1.1 with a server that speaks no other, a warning each.
+    /// A value of the wrong type is the outbound's to refuse.
+    pub fn http_outbound_warnings(&self) -> Vec<String> {
+        let mut warnings = Vec::new();
+        for (i, outbound) in self.outbounds.iter().enumerate() {
+            if outbound.protocol != "http" {
+                continue;
+            }
+            let options = &outbound.options;
+            let at = format!("outbounds[{}]", i);
+            let version = options
+                .get("version")
+                .and_then(|v| v.as_u64())
+                .and_then(|v| u8::try_from(v).ok());
+            let disable_version_fallback = options
+                .get("disable_version_fallback")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            // sing-box's default: HTTP/1.1 with a path or a Host header,
+            // which only it carries, else HTTP/2.
+            let path = options
+                .get("path")
+                .and_then(|v| v.as_str())
+                .is_some_and(|p| !p.is_empty());
+            let host = options
+                .get("headers")
+                .and_then(|v| v.as_object())
+                .is_some_and(|h| h.keys().any(|k| k.eq_ignore_ascii_case("host")));
+            let default = if path || host { 1 } else { 2 };
+            match http_fallback_warning(&at, version, default, disable_version_fallback, "proxies")
+            {
+                Some(warning) => warnings.push(warning),
+                None => {
+                    if let Some(version @ (2 | 3)) = version {
+                        warnings.push(format!(
+                            "{}.version: sail proxies over HTTP/1.1, not HTTP/{}; ignored",
+                            at, version
+                        ));
+                    }
+                }
             }
         }
         warnings

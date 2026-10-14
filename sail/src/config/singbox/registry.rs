@@ -1311,6 +1311,16 @@ const EXTENSIONS: &[(&str, &str, &str)] = &[
         "The ECHConfigList is never looked up in DNS",
     ),
     (
+        "outbounds[http].version",
+        "1",
+        "sing-box 1.15's, read ahead: the HTTP version, 1, 2 or 3 (2 when unset, 1 with a `path` or `Host` header). sail proxies over HTTP/1.1 whichever, as sing-box does with a server that speaks no other, and warns of 2 and 3",
+    ),
+    (
+        "outbounds[http].disable_version_fallback",
+        "false",
+        "sing-box 1.15's, read ahead: `version` alone, never HTTP/1.1 in its place; warned of with HTTP/2 or 3, as sail proxies over HTTP/1.1",
+    ),
+    (
         "outbounds[shadowsocks].prefix",
         r#""%16%03%01""#,
         "Bytes sent before the first payload, percent-encoded (Outline's prefix); not with the 2022 methods",

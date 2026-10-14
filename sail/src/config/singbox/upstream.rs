@@ -623,6 +623,12 @@ pub const GROUPS: &[Group] = &[
             "endpoints.*.tcp_multi_path",
         ],
     ),
+    // sing-box 1.15's, read ahead of its stable release.
+    g(
+        "Connects at start and stays up; on_demand waits for sing-box 1.15 stable",
+        Ignored,
+        &["endpoints.*.on_demand"],
+    ),
 ];
 
 /// Fields of `GROUPS` that sail implements for some types of entry, by

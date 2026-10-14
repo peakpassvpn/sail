@@ -3193,6 +3193,8 @@ Fields and types sail accepts that sing-box does not.
 | `inbounds[shadowtls].handshake.skip_default_domain_resolver` | As an outbound's, for the handshake server's name |
 | `inbounds[http|trojan|vless|vmess].tls.reality.handshake.skip_default_domain_resolver` | As an outbound's, for the REALITY handshake server's name |
 | `outbounds[anytls|http|hysteria2|shadowtls|trojan|tuic|vless|vmess].tls.ech.disable_dns_lookup` | The ECHConfigList is never looked up in DNS |
+| `outbounds[http].version` | sing-box 1.15's, read ahead: the HTTP version, 1, 2 or 3 (2 when unset, 1 with a `path` or `Host` header). sail proxies over HTTP/1.1 whichever, as sing-box does with a server that speaks no other, and warns of 2 and 3 |
+| `outbounds[http].disable_version_fallback` | sing-box 1.15's, read ahead: `version` alone, never HTTP/1.1 in its place; warned of with HTTP/2 or 3, as sail proxies over HTTP/1.1 |
 | `outbounds[shadowsocks].prefix` | Bytes sent before the first payload, percent-encoded (Outline's prefix); not with the 2022 methods |
 | `outbounds[shadowsocks|trojan|vless|vmess].multiplex.max_accepts` | With `protocol: amux` (sail's own, to be removed): the streams a session carries in all |
 | `outbounds[shadowsocks|trojan|vless|vmess].multiplex.concurrency` | With `protocol: amux`: the streams a session carries at once |
