@@ -11,7 +11,8 @@
 //! - `round-robin`: each connection goes to the next member.
 //! - `sticky-sessions`: a source and destination pair goes to the member
 //!   it went to last, picked at random at first, until the pair is left
-//!   unused for a while.
+//!   unused for a while; its TCP and its UDP apart, as the members that
+//!   carry each may differ.
 
 use std::io;
 use std::net::IpAddr;
@@ -38,7 +39,7 @@ use crate::adapter::*;
 use crate::app::healthcheck::{HttpProbe, StatusRanges};
 use crate::app::SyncDnsClient;
 use crate::config::model::GroupProviders;
-use crate::session::{Session, SocksAddr};
+use crate::session::{Network, Session, SocksAddr};
 
 pub(crate) fn register(registry: &mut OutboundRegistry) {
     registry.register(
@@ -190,6 +191,7 @@ struct Balancer {
 enum Strategy {
     ConsistentHashing,
     RoundRobin(AtomicUsize),
+    /// By source, destination and network.
     StickySessions(Mutex<LruCache<u64, MemberKey>>),
 }
 
@@ -205,10 +207,16 @@ impl Balancer {
         Self { strategy }
     }
 
-    /// The member of `members`, which are not none, for `sess`, among
-    /// those `is_up`; when none is, among all, since a test can be wrong
-    /// and trying beats refusing.
-    fn pick(&self, sess: &Session, members: &[Member], is_up: impl Fn(&Member) -> bool) -> usize {
+    /// The member of `members`, which are not none, for `sess` of
+    /// `network`, among those `is_up`; when none is, among all, since a
+    /// test can be wrong and trying beats refusing.
+    fn pick(
+        &self,
+        sess: &Session,
+        network: Network,
+        members: &[Member],
+        is_up: impl Fn(&Member) -> bool,
+    ) -> usize {
         let n = members.len();
         let any_up = members.iter().any(&is_up);
         let is_up = |i: usize| !any_up || is_up(&members[i]);
@@ -228,11 +236,15 @@ impl Balancer {
                     .unwrap_or(start % n)
             }
             Strategy::StickySessions(cache) => {
+                // The network too: the TCP and the UDP of a pair may have
+                // different members to go to, and would take each other's
+                // member away.
                 let key = fnv1a(
                     format!(
-                        "{}|{}",
+                        "{}|{}|{}",
                         sess.source.ip(),
-                        destination_key(&sess.destination)
+                        destination_key(&sess.destination),
+                        network
                     )
                     .as_bytes(),
                 );
@@ -304,16 +316,19 @@ struct Group {
 }
 
 impl Group {
-    /// The member of `snapshot` for `sess`, of those that carry its
-    /// network, as `carries` tells, and are up; when none of them is up,
-    /// of those that carry it; when none does, of all, and its error
-    /// tells.
+    /// The member of `snapshot` for `sess` of `network`, of those that
+    /// carry it and are up; when none of them is up, of those that carry
+    /// it; when none does, of all, and its error tells.
     fn pick<'s>(
         &self,
         sess: &Session,
         snapshot: &'s Snapshot,
-        carries: impl Fn(&AnyOutboundHandler) -> bool,
+        network: Network,
     ) -> io::Result<&'s Member> {
+        let carries = |m: &AnyOutboundHandler| match network {
+            Network::Tcp => m.stream().is_ok(),
+            Network::Udp => m.datagram().is_ok(),
+        };
         self.checker.used();
         let members = &snapshot.members;
         if members.is_empty() {
@@ -321,8 +336,10 @@ impl Group {
         }
         let up = |m: &Member| carries(&m.handler) && self.checker.is_up(&m.key);
         let i = match members.iter().any(up) {
-            true => self.balancer.pick(sess, members, up),
-            false => self.balancer.pick(sess, members, |m| carries(&m.handler)),
+            true => self.balancer.pick(sess, network, members, up),
+            false => self
+                .balancer
+                .pick(sess, network, members, |m| carries(&m.handler)),
         };
         Ok(&members[i])
     }
@@ -360,7 +377,7 @@ impl OutboundStreamHandler for Group {
         _stream: Option<AnyStream>,
     ) -> io::Result<AnyStream> {
         let snapshot = self.members.load();
-        let member = self.pick(sess, &snapshot, |m| m.stream().is_ok())?;
+        let member = self.pick(sess, &snapshot, Network::Tcp)?;
         let a = &member.handler;
         debug!(
             "load-balance handles [{}] to [{}]",
@@ -392,7 +409,7 @@ impl OutboundDatagramHandler for Group {
         _transport: Option<AnyOutboundTransport>,
     ) -> io::Result<AnyOutboundDatagram> {
         let snapshot = self.members.load();
-        let member = self.pick(sess, &snapshot, |m| m.datagram().is_ok())?;
+        let member = self.pick(sess, &snapshot, Network::Udp)?;
         let a = &member.handler;
         debug!(
             "load-balance handles [{}] to [{}]",
@@ -431,7 +448,9 @@ mod tests {
     /// `Balancer::pick` over `n` members, `m0` on, by index.
     fn pick(b: &Balancer, s: &Session, n: usize, is_up: impl Fn(usize) -> bool) -> usize {
         let members: Vec<Member> = (0..n).map(|i| member(None, &format!("m{}", i))).collect();
-        b.pick(s, &members, |m| is_up(m.key.name[1..].parse().unwrap()))
+        b.pick(s, Network::Tcp, &members, |m| {
+            is_up(m.key.name[1..].parse().unwrap())
+        })
     }
 
     #[test]
@@ -505,8 +524,8 @@ mod tests {
         let mut moved = 0;
         for i in 0..400 {
             let s = sess("10.0.0.1", &format!("site{}.com", i));
-            let before = &all[b.pick(&s, &all, |_| true)].key;
-            let after = &rest[b.pick(&s, &rest, |_| true)].key;
+            let before = &all[b.pick(&s, Network::Tcp, &all, |_| true)].key;
+            let after = &rest[b.pick(&s, Network::Tcp, &rest, |_| true)].key;
             if *before == gone {
                 moved += 1;
             } else {
@@ -524,10 +543,15 @@ mod tests {
         let mut members: Vec<Member> = (0..6)
             .map(|i| member(Some("p"), &format!("m{}", i)))
             .collect();
-        let first = members[b.pick(&s, &members, |_| true)].key.clone();
+        let first = members[b.pick(&s, Network::Tcp, &members, |_| true)]
+            .key
+            .clone();
         members.reverse();
         members.insert(0, member(Some("q"), "new"));
-        assert_eq!(members[b.pick(&s, &members, |_| true)].key, first);
+        assert_eq!(
+            members[b.pick(&s, Network::Tcp, &members, |_| true)].key,
+            first
+        );
     }
 
     #[test]
@@ -608,16 +632,16 @@ mod tests {
     }
 
     /// The members the connections to sixty sites through `group` go to,
-    /// of the network `carries` tells, sorted; sites no connection went to
-    /// before, so that no session sticks.
-    fn taken(group: &Group, carries: fn(&AnyOutboundHandler) -> bool) -> Vec<String> {
+    /// of `network`, sorted; sites no connection went to before, so that
+    /// no session sticks.
+    fn taken(group: &Group, network: Network) -> Vec<String> {
         static SITES: AtomicUsize = AtomicUsize::new(0);
         let snapshot = group.members.load();
         let mut taken: Vec<String> = (0..60)
             .map(|_| {
                 let site = SITES.fetch_add(1, Ordering::Relaxed);
                 let s = sess("10.0.0.1", &format!("site{}.test", site));
-                let member = group.pick(&s, &snapshot, carries).unwrap();
+                let member = group.pick(&s, &snapshot, network).unwrap();
                 member.key.name.to_string()
             })
             .collect();
@@ -626,13 +650,8 @@ mod tests {
         taken
     }
 
-    fn tcp(member: &AnyOutboundHandler) -> bool {
-        member.stream().is_ok()
-    }
-
-    fn udp(member: &AnyOutboundHandler) -> bool {
-        member.datagram().is_ok()
-    }
+    const TCP: Network = Network::Tcp;
+    const UDP: Network = Network::Udp;
 
     #[tokio::test]
     async fn connections_go_to_the_members_that_carry_their_network() {
@@ -650,22 +669,51 @@ mod tests {
                 member(None, "c"),
             ];
             let group = group(kind, members);
-            assert_eq!(taken(&group, tcp), ["b", "c", "t"], "{:?}", kind);
-            assert_eq!(taken(&group, udp), ["b", "c", "u"], "{:?}", kind);
+            assert_eq!(taken(&group, TCP), ["b", "c", "t"], "{:?}", kind);
+            assert_eq!(taken(&group, UDP), ["b", "c", "u"], "{:?}", kind);
             // [u] is not tested, and stays up, round after round.
             for _ in 0..3 {
                 group.checker.round(&[ms, None, ms, None]);
-                assert_eq!(taken(&group, tcp), ["b", "t"], "{:?}", kind);
-                assert_eq!(taken(&group, udp), ["b", "u"], "{:?}", kind);
+                assert_eq!(taken(&group, TCP), ["b", "t"], "{:?}", kind);
+                assert_eq!(taken(&group, UDP), ["b", "u"], "{:?}", kind);
             }
             group.checker.round(&[ms, None, None, None]);
-            assert_eq!(taken(&group, tcp), ["t"], "{:?}", kind);
-            assert_eq!(taken(&group, udp), ["u"], "{:?}", kind);
+            assert_eq!(taken(&group, TCP), ["t"], "{:?}", kind);
+            assert_eq!(taken(&group, UDP), ["u"], "{:?}", kind);
             // None that carries it is up: one that does is tried.
             group.checker.round(&[None, None, None, None]);
-            assert_eq!(taken(&group, tcp), ["b", "c", "t"], "{:?}", kind);
-            assert_eq!(taken(&group, udp), ["u"], "{:?}", kind);
+            assert_eq!(taken(&group, TCP), ["b", "c", "t"], "{:?}", kind);
+            assert_eq!(taken(&group, UDP), ["u"], "{:?}", kind);
         }
+    }
+
+    /// The TCP and the UDP of one pair go to members of their own, which
+    /// the other does not take away: here UDP has [u] to go to, which TCP
+    /// does not.
+    #[tokio::test]
+    async fn tcp_and_udp_of_a_pair_keep_their_own_sticky_members() {
+        use crate::protocol::group::members::tests::one;
+        let members = vec![member(None, "a"), one("u", false), member(None, "b")];
+        let group = group(StrategyKind::StickySessions, members);
+        let snapshot = group.members.load();
+        let mut udp_took = Vec::new();
+        for pair in 0..40 {
+            let s = sess("10.0.0.1", &format!("pair{}.test", pair));
+            let pick = |network| {
+                let member = group.pick(&s, &snapshot, network).unwrap();
+                member.key.name.to_string()
+            };
+            // UDP first: its member, when [u], is one TCP cannot take.
+            let udp = pick(UDP);
+            let tcp = pick(TCP);
+            assert_ne!(tcp, "u");
+            for _ in 0..5 {
+                assert_eq!(pick(TCP), tcp, "{}", pair);
+                assert_eq!(pick(UDP), udp, "{}", pair);
+            }
+            udp_took.push(udp);
+        }
+        assert!(udp_took.iter().any(|m| m == "u"), "{:?}", udp_took);
     }
 
     #[test]
