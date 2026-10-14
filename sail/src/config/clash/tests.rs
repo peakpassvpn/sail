@@ -2654,6 +2654,17 @@ fn a_proxy_s_fingerprint_is_certificate_sha256() {
         "{}",
         err
     );
+    // Hex alone, as Mihomo takes it: the base64 sing-box's field takes,
+    // lowered to lower case, would be another hash.
+    let err = error(
+        "proxies: [{ name: T, type: trojan, server: a.example, port: 443, password: p, \
+         fingerprint: 'q6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6s=' }]\n",
+    );
+    assert!(
+        err.contains("proxies[0].fingerprint: not the hex of a SHA-256 hash"),
+        "{}",
+        err
+    );
 }
 
 /// SOCKS5 over TLS is refused where it is read: the socks outbound has no

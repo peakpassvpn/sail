@@ -3184,7 +3184,7 @@ Fields and types sail accepts that sing-box does not.
 | `route.rule_set[inline].rules[].process_name_regex` | As a routing rule's |
 | `route.rule_set[inline].rules[].wifi_ssid_regex` | As a routing rule's |
 | `route.rule_set[inline].rules[].no_resolve` | As a routing rule's |
-| `outbounds[anytls|http|hysteria2|shadowtls|trojan|tuic|vless|vmess].tls.certificate_sha256` | In any outbound's `tls`: whole certificates pinned by SHA-256, hex (Mihomo's fingerprint); the server's own is trusted for any name, a CA's in its chain is the only CA it is verified by |
+| `outbounds[anytls|http|hysteria2|shadowtls|trojan|tuic|vless|vmess].tls.certificate_sha256` | In any outbound's `tls`: whole certificates pinned by SHA-256, hex (Mihomo's fingerprint) or base64 (sing-box 1.15's field, read as it is); the server's own is trusted for any name, and, beyond sing-box, a CA's in its chain is the only CA it is verified by; with `certificate_public_key_sha256` either list passing is enough, as in sing-box 1.15 |
 | `outbounds[direct|anytls|http|hysteria2|shadowsocks|shadowtls|socks|trojan|tuic|vless|vmess].skip_default_domain_resolver` | Names resolve as the DNS rules say, not by `route.default_domain_resolver` |
 | `outbounds[direct|anytls|http|shadowsocks|shadowtls|socks|trojan|vless|vmess].tcp_concurrent` | A name's addresses are all connected to at once and the first to connect taken, rather than Happy Eyeballs (Mihomo's tcp-concurrent) |
 | `endpoints[wireguard].skip_default_domain_resolver` | As an outbound's, for the peers' names |

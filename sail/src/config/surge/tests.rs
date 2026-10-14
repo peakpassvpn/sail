@@ -1270,6 +1270,17 @@ fn a_pinned_server_certificate_is_certificate_sha256() {
             line
         );
     }
+    // Hex alone: base64, which sing-box's field takes, is a mistake here.
+    let err = error(
+        "[Proxy]\nA = trojan, a.example, 443, password=p, \
+         server-cert-fingerprint-sha256=q6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6s=\n\
+         [Rule]\nFINAL,A\n",
+    );
+    assert!(
+        err.contains("server-cert-fingerprint-sha256: not the hex of a SHA-256 hash"),
+        "{}",
+        err
+    );
 }
 
 /// WireGuard sections no policy names are told of in the profile's order,

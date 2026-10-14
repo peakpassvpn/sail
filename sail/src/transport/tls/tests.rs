@@ -1066,6 +1066,119 @@ async fn test_certificate_pin_of_a_ca() {
         .is_err());
 }
 
+/// Options from a client's `tls` block, `tls` the fields beside `enabled`.
+fn tls_options(tls: serde_json::Value) -> super::ClientOptions {
+    let mut json = serde_json::json!({ "enabled": true });
+    json.as_object_mut()
+        .unwrap()
+        .extend(tls.as_object().unwrap().clone());
+    serde_json::from_value::<crate::transport::layers::OutboundTls>(json)
+        .unwrap()
+        .client_options()
+        .unwrap()
+}
+
+/// The `certificate_sha256` pin of a certificate as sing-box 1.15 writes
+/// it: the SHA-256 of its DER, standard base64.
+fn certificate_pin_base64(pem: &str) -> String {
+    let der = X509::from_pem(pem.as_bytes()).unwrap().to_der().unwrap();
+    btls::base64::encode_block(&btls::sha::sha256(&der))
+}
+
+// sing-box 1.15's base64 pins a certificate as the hex does: the leaf for
+// any name, a CA in its chain for the leaf's name; a wrong one of either
+// form fails.
+#[tokio::test]
+async fn test_certificate_pin_in_base64() {
+    let chain = cert_chain();
+    let full = server_presenting(
+        &[&chain.leaf, &chain.intermediate, &chain.root],
+        &chain.leaf_key,
+    );
+    let leaf = certificate_pin_base64(&chain.leaf);
+    let root = certificate_pin_base64(&chain.root);
+    let unrelated = certificate_pin_base64(&chain.unrelated);
+    for (pins, name, taken) in [
+        (vec![&leaf], "localhost", true),
+        (vec![&leaf], "example.com", true),
+        (vec![&chain.leaf_pin], "example.com", true),
+        (vec![&root], "localhost", true),
+        (vec![&root], "example.com", false),
+        (vec![&unrelated], "localhost", false),
+        (vec![&chain.unrelated_pin], "localhost", false),
+        // The two forms mixed in one list.
+        (vec![&chain.unrelated_pin, &leaf], "localhost", true),
+        (vec![&unrelated, &chain.leaf_pin], "localhost", true),
+    ] {
+        let options = tls_options(serde_json::json!({ "certificate_sha256": pins }));
+        for insecure in [false, true] {
+            let result = connects(&full, insecure, None, &options, name).await;
+            assert_eq!(result.is_ok(), taken, "{:?} {} {:?}", pins, name, result);
+        }
+    }
+    let options = tls_options(serde_json::json!({ "certificate_sha256": [&unrelated] }));
+    let err = connects(&full, false, None, &options, "localhost")
+        .await
+        .unwrap_err();
+    assert!(
+        err.contains(&leaf) && err.contains(&chain.leaf_pin),
+        "{}",
+        err
+    );
+}
+
+// Both lists set, the server is taken if either takes it, as sing-box
+// 1.15 takes it; neither, and the error says why for each.
+#[tokio::test]
+async fn test_certificate_and_key_pins_either() {
+    let chain = cert_chain();
+    let server = server_presenting(&[&chain.leaf, &chain.intermediate], &chain.leaf_key);
+    let key = {
+        let cert = X509::from_pem(chain.leaf.as_bytes()).unwrap();
+        let spki = cert.public_key().unwrap().public_key_to_der().unwrap();
+        btls::base64::encode_block(&super::PublicKeyPins::hash(&spki))
+    };
+    let other_key = btls::base64::encode_block(&[9; 32]);
+    let leaf = certificate_pin_base64(&chain.leaf);
+    let unrelated = certificate_pin_base64(&chain.unrelated);
+    for (certificates, keys, taken) in [
+        (&leaf, &other_key, true),
+        (&unrelated, &key, true),
+        (&leaf, &key, true),
+        (&unrelated, &other_key, false),
+    ] {
+        let options = tls_options(serde_json::json!({
+            "certificate_sha256": [certificates],
+            "certificate_public_key_sha256": [keys],
+        }));
+        for fingerprint in [None, Some(super::Fingerprint::Chrome)] {
+            for insecure in [false, true] {
+                let result =
+                    connects(&server, insecure, fingerprint, &options, "example.com").await;
+                assert_eq!(
+                    result.is_ok(),
+                    taken,
+                    "{} {} {:?}",
+                    certificates,
+                    keys,
+                    result
+                );
+                if let Err(err) = result {
+                    assert!(
+                        err.contains("certificate_sha256: the server's certificate")
+                            && err.contains(&leaf)
+                            && err
+                                .contains("certificate_public_key_sha256: the server's public key")
+                            && err.contains(&key),
+                        "{}",
+                        err
+                    );
+                }
+            }
+        }
+    }
+}
+
 /// A day in the one year `in_2100` makes a certificate valid for:
 /// 2100-04-11, in seconds since 1970.
 pub(crate) const IN_2100: u64 = 4_102_444_800 + 100 * 86_400;
@@ -1165,8 +1278,10 @@ async fn test_certificate_pin_not_sent_fails() {
                     .unwrap_err();
                 assert!(
                     err.contains(&format!(
-                        "certificate_sha256: the server's certificate, {}, is not pinned",
-                        chain.leaf_pin
+                        "certificate_sha256: the server's certificate, {} (base64 {}), is not \
+                         pinned",
+                        chain.leaf_pin,
+                        certificate_pin_base64(&chain.leaf)
                     )),
                     "{}",
                     err

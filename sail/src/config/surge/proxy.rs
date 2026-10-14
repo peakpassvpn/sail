@@ -784,6 +784,7 @@ fn tls(proxy: &Proxy, p: &mut Params, on: bool, over: Over) -> Result<Option<Val
     // The server's certificate, pinned: sail's `certificate_sha256`, which
     // also takes a certificate after it as the only CA, with the name
     // checked, where Surge's manual says nothing.
+    let pin_at = p.at("server-cert-fingerprint-sha256");
     let pin = p
         .string("server-cert-fingerprint-sha256")
         .filter(|pin| !pin.trim().is_empty());
@@ -812,10 +813,9 @@ fn tls(proxy: &Proxy, p: &mut Params, on: bool, over: Over) -> Result<Option<Val
         tls.insert("alpn".into(), json!(alpn));
     }
     if let Some(pin) = pin {
-        tls.insert(
-            "certificate_sha256".into(),
-            json!([crate::config::certificate_hash(&pin)]),
-        );
+        let pin =
+            crate::config::certificate_hash(&pin).map_err(|e| anyhow!("{}: {}", pin_at, e))?;
+        tls.insert("certificate_sha256".into(), json!([pin]));
     }
     if let Some((name, at)) = client_cert.filter(|(name, _)| !name.is_empty()) {
         let cert = proxy.keystore.client_cert(&name, &at)?;

@@ -144,7 +144,7 @@ Rust 定义：[`OutboundTls`](https://github.com/peakpassvpn/sail/blob/master/sa
 | `ech` | object → [对象](/sail/zh/reference/shared/#ech-dns-servers) | — | 报错：Not for a dns server | — |
 | `utls` | object → [对象](#dns-servers-h3-tls-utls) | — | 报错：Not for a h3 server | The browser the ClientHello imitates. Unset, it is Chrome's. |
 | `reality` | object → [对象](/sail/zh/reference/shared/#reality-dns-servers) | 未设置 | 支持 | — |
-| `certificate_sha256` | string 或 数组，元素为 string | 未设置 | sail 扩展 | A sail extension, Mihomo's `fingerprint`: the SHA-256 hashes, hex, of whole certificates (DER) to take a server by, in place of the certificates trusted and `insecure`. A hash of the server's own certificate takes it outright: no CA and no name are checked, so that exact certificate is trusted for any server name. A hash of a certificate sent after it, an intermediate or a root, is the only CA the server's certificate is verified by, with the server name. |
+| `certificate_sha256` | string 或 数组，元素为 string | 未设置 | sail 扩展 | sing-box 1.15's, with Mihomo's `fingerprint` semantics beyond it: the SHA-256 hashes, hex or base64, of whole certificates (DER) to take a server by, in place of the certificates trusted and `insecure`. A hash of the server's own certificate takes it outright: no CA and no name are checked, so that exact certificate is trusted for any server name. A hash of a certificate sent after it, an intermediate or a root, is the only CA the server's certificate is verified by, with the server name. With `certificate_public_key_sha256`, either passing is enough. |
 
 <a id="dns-servers-h3-tls-utls"></a>
 
@@ -246,7 +246,7 @@ Rust 定义：[`OutboundTls`](https://github.com/peakpassvpn/sail/blob/master/sa
 | `ech` | object → [对象](/sail/zh/reference/shared/#ech-dns-servers) | — | 报错：Not for a dns server | — |
 | `utls` | object → [对象](/sail/zh/reference/shared/#utls-dns-servers-outbounds) | 未设置 | 支持 | The browser the ClientHello imitates. Unset, it is Chrome's. |
 | `reality` | object → [对象](/sail/zh/reference/shared/#reality-dns-servers) | 未设置 | 支持 | — |
-| `certificate_sha256` | string 或 数组，元素为 string | 未设置 | sail 扩展 | A sail extension, Mihomo's `fingerprint`: the SHA-256 hashes, hex, of whole certificates (DER) to take a server by, in place of the certificates trusted and `insecure`. A hash of the server's own certificate takes it outright: no CA and no name are checked, so that exact certificate is trusted for any server name. A hash of a certificate sent after it, an intermediate or a root, is the only CA the server's certificate is verified by, with the server name. |
+| `certificate_sha256` | string 或 数组，元素为 string | 未设置 | sail 扩展 | sing-box 1.15's, with Mihomo's `fingerprint` semantics beyond it: the SHA-256 hashes, hex or base64, of whole certificates (DER) to take a server by, in place of the certificates trusted and `insecure`. A hash of the server's own certificate takes it outright: no CA and no name are checked, so that exact certificate is trusted for any server name. A hash of a certificate sent after it, an intermediate or a root, is the only CA the server's certificate is verified by, with the server name. With `certificate_public_key_sha256`, either passing is enough. |
 
 <a id="dns-servers-local"></a>
 
@@ -420,7 +420,7 @@ Rust 定义：[`OutboundTls`](https://github.com/peakpassvpn/sail/blob/master/sa
 | `ech` | object → [对象](/sail/zh/reference/shared/#ech-dns-servers) | — | 报错：Not for a dns server | — |
 | `utls` | object → [对象](#dns-servers-quic-tls-utls) | — | 报错：Not for a quic server | The browser the ClientHello imitates. Unset, it is Chrome's. |
 | `reality` | object → [对象](/sail/zh/reference/shared/#reality-dns-servers) | 未设置 | 支持 | — |
-| `certificate_sha256` | string 或 数组，元素为 string | 未设置 | sail 扩展 | A sail extension, Mihomo's `fingerprint`: the SHA-256 hashes, hex, of whole certificates (DER) to take a server by, in place of the certificates trusted and `insecure`. A hash of the server's own certificate takes it outright: no CA and no name are checked, so that exact certificate is trusted for any server name. A hash of a certificate sent after it, an intermediate or a root, is the only CA the server's certificate is verified by, with the server name. |
+| `certificate_sha256` | string 或 数组，元素为 string | 未设置 | sail 扩展 | sing-box 1.15's, with Mihomo's `fingerprint` semantics beyond it: the SHA-256 hashes, hex or base64, of whole certificates (DER) to take a server by, in place of the certificates trusted and `insecure`. A hash of the server's own certificate takes it outright: no CA and no name are checked, so that exact certificate is trusted for any server name. A hash of a certificate sent after it, an intermediate or a root, is the only CA the server's certificate is verified by, with the server name. With `certificate_public_key_sha256`, either passing is enough. |
 
 <a id="dns-servers-quic-tls-utls"></a>
 
@@ -567,7 +567,7 @@ Rust 定义：[`OutboundTls`](https://github.com/peakpassvpn/sail/blob/master/sa
 | `ech` | object → [对象](/sail/zh/reference/shared/#ech-dns-servers) | — | 报错：Not for a dns server | — |
 | `utls` | object → [对象](/sail/zh/reference/shared/#utls-dns-servers-outbounds) | 未设置 | 支持 | The browser the ClientHello imitates. Unset, it is Chrome's. |
 | `reality` | object → [对象](/sail/zh/reference/shared/#reality-dns-servers) | 未设置 | 支持 | — |
-| `certificate_sha256` | string 或 数组，元素为 string | 未设置 | sail 扩展 | A sail extension, Mihomo's `fingerprint`: the SHA-256 hashes, hex, of whole certificates (DER) to take a server by, in place of the certificates trusted and `insecure`. A hash of the server's own certificate takes it outright: no CA and no name are checked, so that exact certificate is trusted for any server name. A hash of a certificate sent after it, an intermediate or a root, is the only CA the server's certificate is verified by, with the server name. |
+| `certificate_sha256` | string 或 数组，元素为 string | 未设置 | sail 扩展 | sing-box 1.15's, with Mihomo's `fingerprint` semantics beyond it: the SHA-256 hashes, hex or base64, of whole certificates (DER) to take a server by, in place of the certificates trusted and `insecure`. A hash of the server's own certificate takes it outright: no CA and no name are checked, so that exact certificate is trusted for any server name. A hash of a certificate sent after it, an intermediate or a root, is the only CA the server's certificate is verified by, with the server name. With `certificate_public_key_sha256`, either passing is enough. |
 
 <a id="dns-servers-udp"></a>
 

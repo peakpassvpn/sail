@@ -655,7 +655,7 @@ Rust: [`OutboundTls`](https://github.com/peakpassvpn/sail/blob/master/sail/src/t
 | `ech` | object → [object](#ech-outbounds) | unset | Supported | — |
 | `utls` | object → [object](#utls-dns-servers-outbounds) | unset | Supported | The browser the ClientHello imitates. Unset, it is Chrome's. |
 | `reality` | object → [object](#reality-outbounds) | unset | Supported | — |
-| `certificate_sha256` | string or array of string | unset | sail extension | A sail extension, Mihomo's `fingerprint`: the SHA-256 hashes, hex, of whole certificates (DER) to take a server by, in place of the certificates trusted and `insecure`. A hash of the server's own certificate takes it outright: no CA and no name are checked, so that exact certificate is trusted for any server name. A hash of a certificate sent after it, an intermediate or a root, is the only CA the server's certificate is verified by, with the server name. |
+| `certificate_sha256` | string or array of string | unset | sail extension | sing-box 1.15's, with Mihomo's `fingerprint` semantics beyond it: the SHA-256 hashes, hex or base64, of whole certificates (DER) to take a server by, in place of the certificates trusted and `insecure`. A hash of the server's own certificate takes it outright: no CA and no name are checked, so that exact certificate is trusted for any server name. A hash of a certificate sent after it, an intermediate or a root, is the only CA the server's certificate is verified by, with the server name. With `certificate_public_key_sha256`, either passing is enough. |
 
 <a id="transport-inbounds"></a>
 

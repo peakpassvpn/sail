@@ -101,7 +101,7 @@ Relative certificate paths are resolved against the data directory configured wi
 
 ### Pin a certificate
 
-`certificate_sha256`, a sail extension with the semantics of Mihomo's `fingerprint`, takes a server by the SHA-256 hash of a whole certificate (its DER), in hex of either case, with or without colons, as `openssl x509 -noout -fingerprint -sha256` prints it. It replaces the trusted roots and `insecure`, which play no part. It cannot be combined with `certificate` or `certificate_path`, nor with sing-box's `certificate_public_key_sha256`, which pins public keys instead.
+`certificate_sha256` takes a server by the SHA-256 hash of a whole certificate (its DER). Each entry is in hex of either case, with or without colons, as `openssl x509 -noout -fingerprint -sha256` prints it and Mihomo's `fingerprint` takes it, or in standard padded base64, as sing-box 1.15's field of the same name takes it (`openssl x509 -outform der | openssl dgst -sha256 -binary | openssl enc -base64`). It replaces the trusted roots and `insecure`, which play no part. It cannot be combined with `certificate` or `certificate_path`. Set beside sing-box's `certificate_public_key_sha256`, which pins public keys instead, a server either list takes is accepted, as in sing-box 1.15.
 
 ```json
 {
@@ -114,7 +114,7 @@ Relative certificate paths are resolved against the data directory configured wi
 ```
 
 - A hash of the server's own (leaf) certificate accepts it outright: no CA, no expiry and no name are checked. **A leaf pin trusts that exact certificate for any server name.**
-- A hash of an intermediate or root the server sends in its chain makes that certificate the only CA: the leaf must chain to it and must be valid for `server_name`, whatever `insecure` says.
+- A hash of an intermediate or root the server sends in its chain makes that certificate the only CA: the leaf must chain to it and must be valid for `server_name`, whatever `insecure` says. This is Mihomo's meaning, and goes beyond sing-box, which compares the leaf alone.
 - Anything else fails the handshake, and the error names the hash of the certificate the server sent.
 
 The field works over TCP and QUIC, and in the `tls` of DNS servers. REALITY verifies the server itself and ignores it with a warning.

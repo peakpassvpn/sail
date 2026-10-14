@@ -577,7 +577,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `proxies[anytls].ech-opts.config` | 支持 |  |
 | `proxies[anytls].ech-opts.enable` | 支持 |  |
 | `proxies[anytls].ech-opts.query-server-name` | 支持 |  |
-| `proxies[anytls].fingerprint` | 支持 |  |
+| `proxies[anytls].fingerprint` | 支持 | proxies[0].fingerprint: not the hex of a SHA-256 hash |
 | `proxies[anytls].idle-session-check-interval` | 支持 |  |
 | `proxies[anytls].idle-session-timeout` | 支持 |  |
 | `proxies[anytls].interface-name` | 支持 |  |
@@ -648,7 +648,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 |---|---|---|
 | `proxies[http].certificate` | 支持 |  |
 | `proxies[http].dialer-proxy` | 支持 |  |
-| `proxies[http].fingerprint` | 支持 |  |
+| `proxies[http].fingerprint` | 支持 | proxies[0].fingerprint: not the hex of a SHA-256 hash |
 | `proxies[http].headers` | 支持 |  |
 | `proxies[http].interface-name` | 支持 |  |
 | `proxies[http].ip-version` | 支持 | proxies[0].ip-version: "1" is none of dual, ipv4, ipv6, ipv4-prefer and ipv6-prefer |
@@ -680,7 +680,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `proxies[hysteria2].ech-opts.config` | 支持 |  |
 | `proxies[hysteria2].ech-opts.enable` | 支持 |  |
 | `proxies[hysteria2].ech-opts.query-server-name` | 支持 |  |
-| `proxies[hysteria2].fingerprint` | 支持 |  |
+| `proxies[hysteria2].fingerprint` | 支持 | proxies[0].fingerprint: not the hex of a SHA-256 hash |
 | `proxies[hysteria2].handshake-timeout` | 警告 | proxies[0].handshake-timeout: sail does not implement this field; ignored |
 | `proxies[hysteria2].hop-interval` | 支持 | proxies[0].hop-interval: not a number in range |
 | `proxies[hysteria2].initial-connection-receive-window` | 警告 | proxies[0].initial-connection-receive-window: sail does not implement this field; ignored |
@@ -781,7 +781,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 |---|---|---|
 | `proxies[socks5].certificate` | 支持 |  |
 | `proxies[socks5].dialer-proxy` | 支持 |  |
-| `proxies[socks5].fingerprint` | 支持 |  |
+| `proxies[socks5].fingerprint` | 支持 | proxies[0].fingerprint: not the hex of a SHA-256 hash |
 | `proxies[socks5].interface-name` | 支持 |  |
 | `proxies[socks5].ip-version` | 支持 | proxies[0].ip-version: "1" is none of dual, ipv4, ipv6, ipv4-prefer and ipv6-prefer |
 | `proxies[socks5].mptcp` | 警告 | proxies[0].mptcp: sail does not implement this field; ignored |
@@ -932,7 +932,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `proxies[trojan].ech-opts.config` | 支持 |  |
 | `proxies[trojan].ech-opts.enable` | 支持 |  |
 | `proxies[trojan].ech-opts.query-server-name` | 支持 |  |
-| `proxies[trojan].fingerprint` | 支持 |  |
+| `proxies[trojan].fingerprint` | 支持 | proxies[0].fingerprint: not the hex of a SHA-256 hash |
 | `proxies[trojan].grpc-opts` | 支持 |  |
 | `proxies[trojan].grpc-opts.grpc-service-name` | 支持 |  |
 | `proxies[trojan].grpc-opts.grpc-user-agent` | 支持 |  |
@@ -1004,7 +1004,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `proxies[tuic].ech-opts.enable` | 支持 |  |
 | `proxies[tuic].ech-opts.query-server-name` | 支持 |  |
 | `proxies[tuic].fast-open` | 警告 | proxies[0].fast-open: sail does not implement this field; ignored |
-| `proxies[tuic].fingerprint` | 支持 |  |
+| `proxies[tuic].fingerprint` | 支持 | proxies[0].fingerprint: not the hex of a SHA-256 hash |
 | `proxies[tuic].heartbeat-interval` | 支持 |  |
 | `proxies[tuic].interface-name` | 支持 |  |
 | `proxies[tuic].ip` | 支持 |  |
@@ -1046,7 +1046,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `proxies[vless].ech-opts.enable` | 支持 |  |
 | `proxies[vless].ech-opts.query-server-name` | 支持 |  |
 | `proxies[vless].encryption` | 报错 | proxies[0].encryption: sail does not implement VLESS encryption yet |
-| `proxies[vless].fingerprint` | 支持 |  |
+| `proxies[vless].fingerprint` | 支持 | proxies[0].fingerprint: not the hex of a SHA-256 hash |
 | `proxies[vless].flow` | 支持 |  |
 | `proxies[vless].grpc-opts` | 支持 |  |
 | `proxies[vless].grpc-opts.grpc-service-name` | 支持 |  |
@@ -1190,7 +1190,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `proxies[vmess].ech-opts.config` | 支持 |  |
 | `proxies[vmess].ech-opts.enable` | 支持 |  |
 | `proxies[vmess].ech-opts.query-server-name` | 支持 |  |
-| `proxies[vmess].fingerprint` | 支持 |  |
+| `proxies[vmess].fingerprint` | 支持 | proxies[0].fingerprint: not the hex of a SHA-256 hash |
 | `proxies[vmess].global-padding` | 支持 |  |
 | `proxies[vmess].grpc-opts` | 支持 |  |
 | `proxies[vmess].grpc-opts.grpc-service-name` | 支持 |  |

@@ -440,7 +440,9 @@ fn certificate_pin(f: &mut Fields) -> Result<Option<String>> {
             at
         ));
     }
-    Ok(Some(super::super::certificate_hash(&pin)))
+    super::super::certificate_hash(&pin)
+        .map(Some)
+        .map_err(|e| anyhow!("{}: {}", at, e))
 }
 
 fn tls(

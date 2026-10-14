@@ -227,9 +227,10 @@ impl PublicKeyPins {
 }
 
 /// The SHA-256 hashes of whole certificates (their DER) a client takes a
-/// server by, a sail extension with Mihomo's `fingerprint` semantics. The
-/// certificates the server sends are looked through in order, leaf first,
-/// for one that hashes to a pin:
+/// server by: sing-box 1.15's `certificate_sha256`, which pins the leaf,
+/// with Mihomo's `fingerprint` semantics beyond it. The certificates the
+/// server sends are looked through in order, leaf first, for one that
+/// hashes to a pin:
 ///
 /// - the leaf: the server is taken, with no CA consulted, no name checked
 ///   and no validity period either. A leaf pin trusts that exact
@@ -257,24 +258,40 @@ impl CertificatePins {
 
     /// From `certificate_sha256`: each a SHA-256 hash in hex, either case,
     /// colons between the digits or not, as `openssl x509 -noout
-    /// -fingerprint -sha256` writes it. None when there are none. Errors
-    /// name the field and the entry.
+    /// -fingerprint -sha256` writes it and Mihomo's `fingerprint` takes it,
+    /// or in standard, padded base64, as sing-box 1.15 takes it. The two
+    /// cannot be confused: the base64 of 32 bytes ends in `=`. None when
+    /// there are none. Errors name the field and the entry.
     pub fn parse(hashes: &[String]) -> Result<Option<Self>> {
         let mut pins = Vec::with_capacity(hashes.len());
         for (i, hash) in hashes.iter().enumerate() {
+            let invalid = || {
+                anyhow!(
+                    "{}[{}]: neither the hex nor the base64 (standard, padded) of a \
+                     SHA-256 hash",
+                    Self::FIELD,
+                    i
+                )
+            };
             let digits: Vec<u8> = hash.bytes().filter(|&b| b != b':').collect();
-            let invalid = || anyhow!("{}[{}]: not the hex of a SHA-256 hash", Self::FIELD, i);
-            if !digits.len().is_multiple_of(2) {
-                return Err(invalid());
-            }
-            let bytes = digits
-                .chunks(2)
-                .map(|pair| {
-                    let digit = |d: u8| (d as char).to_digit(16);
-                    Some((digit(pair[0])? * 16 + digit(pair[1])?) as u8)
-                })
-                .collect::<Option<Vec<u8>>>()
-                .ok_or_else(invalid)?;
+            let bytes = if !digits.is_empty() && digits.iter().all(u8::is_ascii_hexdigit) {
+                if !digits.len().is_multiple_of(2) {
+                    return Err(invalid());
+                }
+                digits
+                    .chunks(2)
+                    .map(|pair| {
+                        let digit = |d: u8| (d as char).to_digit(16);
+                        Some((digit(pair[0])? * 16 + digit(pair[1])?) as u8)
+                    })
+                    .collect::<Option<Vec<u8>>>()
+                    .ok_or_else(invalid)?
+            } else {
+                if hash.is_empty() || hash.len() % 4 != 0 || hash.trim() != hash {
+                    return Err(invalid());
+                }
+                btls::base64::decode_block(hash).map_err(|_| invalid())?
+            };
             let pin: [u8; 32] = bytes.try_into().map_err(|b: Vec<u8>| {
                 anyhow!(
                     "{}[{}]: {} bytes, where a SHA-256 hash has 32",
@@ -328,10 +345,13 @@ impl CertificatePins {
                 )
             });
         }
+        let leaf_hash = leaf_hash.as_ref().expect("the leaf's");
         Err(format!(
-            "{}: the server's certificate, {}, is not pinned, nor is any sent with it",
+            "{}: the server's certificate, {} (base64 {}), is not pinned, nor is any sent \
+             with it",
             field,
-            hex(leaf_hash.as_ref().expect("the leaf's"))
+            hex(leaf_hash),
+            btls::base64::encode_block(leaf_hash)
         ))
     }
 }
@@ -388,15 +408,27 @@ fn hex(bytes: &[u8]) -> String {
 }
 
 /// How a client takes a server's certificate in place of the certificates
-/// trusted and of `insecure`: by its public key, as sing-box does, or by
-/// the whole certificate, as Mihomo does.
+/// trusted and of `insecure`: by its public key, as sing-box does, by the
+/// whole certificate, as sing-box 1.15 and Mihomo do, or by either, as
+/// sing-box 1.15 takes both lists set: the certificate pins are looked at
+/// first, then the key pins, and one passing is enough.
 #[derive(Clone, Debug)]
 pub enum Pins {
     PublicKeys(PublicKeyPins),
     Certificates(CertificatePins),
+    Either(CertificatePins, PublicKeyPins),
 }
 
 impl Pins {
+    /// The fields the pins are from, under `tls`, as errors name them.
+    pub fn field(&self) -> &'static str {
+        match self {
+            Self::PublicKeys(_) => "certificate_public_key_sha256",
+            Self::Certificates(_) => "certificate_sha256",
+            Self::Either(..) => "certificate_sha256 and certificate_public_key_sha256",
+        }
+    }
+
     /// Verifies servers by the pins, in place of the certificates trusted
     /// and of `insecure`: BoringSSL runs no verification of its own
     /// beside it. A server the pins do not take fails the handshake, with
@@ -410,6 +442,12 @@ impl Pins {
                     let checked = match &pins {
                         Self::PublicKeys(pins) => pins.check_peer(ssl),
                         Self::Certificates(pins) => pins.check_peer(ssl),
+                        Self::Either(certificates, keys) => {
+                            certificates.check_peer(ssl).or_else(|by_certificate| {
+                                keys.check_peer(ssl)
+                                    .map_err(|by_key| format!("{}; {}", by_certificate, by_key))
+                            })
+                        }
                     };
                     checked.map_err(|why| {
                         tracing::warn!("tls: {}", why);
@@ -508,6 +546,38 @@ mod tests {
             .require_tls13("QUIC")
             .unwrap_err();
         assert!(err.to_string().starts_with("max_version: QUIC"), "{}", err);
+    }
+
+    // sing-box 1.15's base64 and Mihomo's hex of one hash are one pin.
+    #[test]
+    fn test_certificate_pins_hex_or_base64() {
+        let digest = CertificatePins::hash(b"a certificate");
+        let base64 = btls::base64::encode_block(&digest);
+        let lower = hex(&digest);
+        let colons = lower
+            .to_uppercase()
+            .as_bytes()
+            .chunks(2)
+            .map(|p| std::str::from_utf8(p).unwrap())
+            .collect::<Vec<_>>()
+            .join(":");
+        for form in [&base64, &lower, &colons] {
+            let pins = CertificatePins::parse(std::slice::from_ref(form))
+                .unwrap()
+                .unwrap();
+            assert_eq!(&pins.0[..], &[digest], "{}", form);
+        }
+        let err = CertificatePins::parse(&[lower, "abc=".to_string()]).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "certificate_sha256[1]: 2 bytes, where a SHA-256 hash has 32"
+        );
+        let err = CertificatePins::parse(&["not a hash".to_string()]).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "certificate_sha256[0]: neither the hex nor the base64 (standard, padded) of a \
+             SHA-256 hash"
+        );
     }
 
     #[test]

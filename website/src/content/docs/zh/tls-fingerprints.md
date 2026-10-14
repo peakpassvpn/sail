@@ -101,7 +101,7 @@ Sail 通过 `btls` 绑定使用 BoringSSL，处理 TCP 和 QUIC 上的 TLS。TCP
 
 ### 证书固定
 
-`certificate_sha256` 是 sail 的扩展字段，语义同 Mihomo 的 `fingerprint`：按整张证书（DER）的 SHA-256 接受服务器，十六进制，大小写均可，冒号可有可无，即 `openssl x509 -noout -fingerprint -sha256` 的输出。它取代受信任的根证书与 `insecure`，二者都不再起作用。它不能与 `certificate` 或 `certificate_path` 同时使用，也不能与固定公钥的 sing-box 字段 `certificate_public_key_sha256` 同时使用。
+`certificate_sha256` 按整张证书（DER）的 SHA-256 接受服务器。每一项可以是十六进制，大小写均可，冒号可有可无，即 `openssl x509 -noout -fingerprint -sha256` 的输出，也是 Mihomo 的 `fingerprint` 的写法；也可以是标准、带填充的 base64，即 sing-box 1.15 同名字段的写法（`openssl x509 -outform der | openssl dgst -sha256 -binary | openssl enc -base64`）。它取代受信任的根证书与 `insecure`，二者都不再起作用。它不能与 `certificate` 或 `certificate_path` 同时使用。与固定公钥的 sing-box 字段 `certificate_public_key_sha256` 同时设置时，任一列表接受即接受服务器，与 sing-box 1.15 相同。
 
 ```json
 {
@@ -114,7 +114,7 @@ Sail 通过 `btls` 绑定使用 BoringSSL，处理 TCP 和 QUIC 上的 TLS。TCP
 ```
 
 - 匹配服务器自身（叶子）证书：直接接受，不校验 CA、有效期和名称。**固定叶子证书即信任这张证书用于任意服务器名。**
-- 匹配服务器链中的中间证书或根证书：以该证书为唯一 CA，叶子证书必须链到它且对 `server_name` 有效，无论 `insecure` 如何设置。
+- 匹配服务器链中的中间证书或根证书：以该证书为唯一 CA，叶子证书必须链到它且对 `server_name` 有效，无论 `insecure` 如何设置。这是 Mihomo 的语义，超出 sing-box：sing-box 只比对叶子证书。
 - 都不匹配：握手失败，错误信息给出服务器所发证书的哈希。
 
 TCP 与 QUIC 均支持，DNS 服务器的 `tls` 也支持。REALITY 自行验证服务器，会忽略该字段并给出警告。

@@ -172,13 +172,15 @@ pub struct OutboundTls {
     /// `insecure`.
     #[serde(default)]
     pub certificate_public_key_sha256: Option<Listable>,
-    /// A sail extension, Mihomo's `fingerprint`: the SHA-256 hashes, hex,
-    /// of whole certificates (DER) to take a server by, in place of the
-    /// certificates trusted and `insecure`. A hash of the server's own
-    /// certificate takes it outright: no CA and no name are checked, so
-    /// that exact certificate is trusted for any server name. A hash of a
-    /// certificate sent after it, an intermediate or a root, is the only
-    /// CA the server's certificate is verified by, with the server name.
+    /// sing-box 1.15's, with Mihomo's `fingerprint` semantics beyond it: the
+    /// SHA-256 hashes, hex or base64, of whole certificates (DER) to take a
+    /// server by, in place of the certificates trusted and `insecure`. A
+    /// hash of the server's own certificate takes it outright: no CA and no
+    /// name are checked, so that exact certificate is trusted for any
+    /// server name. A hash of a certificate sent after it, an intermediate
+    /// or a root, is the only CA the server's certificate is verified by,
+    /// with the server name. With `certificate_public_key_sha256`, either
+    /// passing is enough.
     #[serde(default)]
     pub certificate_sha256: Option<Listable>,
     /// An inline PEM certificate, its chain after it, presented when the
@@ -270,25 +272,20 @@ impl OutboundTls {
             Some(hashes) => CertificatePins::parse(&hashes.clone().into_vec())?,
             None => None,
         };
+        // Both lists set, either passing is enough, as in sing-box 1.15.
         let pins = match (keys, certificates) {
-            (Some(_), Some(_)) => {
-                return Err(anyhow!(
-                    "certificate_sha256: not with certificate_public_key_sha256"
-                ))
-            }
+            (Some(keys), Some(certificates)) => Some(Pins::Either(certificates, keys)),
             (Some(keys), None) => Some(Pins::PublicKeys(keys)),
             (None, Some(certificates)) => Some(Pins::Certificates(certificates)),
             (None, None) => None,
         };
-        if pins.is_some() && (self.certificate.is_some() || self.certificate_path.is_some()) {
-            let field = match pins {
-                Some(Pins::Certificates(_)) => "certificate_sha256",
-                _ => "certificate_public_key_sha256",
-            };
-            return Err(anyhow!(
-                "{}: not with certificate or certificate_path",
-                field
-            ));
+        if let Some(pins) = &pins {
+            if self.certificate.is_some() || self.certificate_path.is_some() {
+                return Err(anyhow!(
+                    "{}: not with certificate or certificate_path",
+                    pins.field()
+                ));
+            }
         }
         Ok(ClientOptions { versions, pins })
     }
@@ -318,7 +315,7 @@ impl OutboundTls {
         context: &str,
     ) -> Result<crate::transport::tls::ClientOptions> {
         use crate::transport::tls::options::Version;
-        use crate::transport::tls::{ClientOptions, Fingerprint, Pins, TlsVersionRange};
+        use crate::transport::tls::{ClientOptions, Fingerprint, TlsVersionRange};
         let mut options = self.client_options()?;
         let versions = options.versions;
         if self.reality.as_ref().is_some_and(|r| r.enabled) {
@@ -330,10 +327,7 @@ impl OutboundTls {
                 );
             }
             if let Some(pins) = &options.pins {
-                let field = match pins {
-                    Pins::PublicKeys(_) => "certificate_public_key_sha256",
-                    Pins::Certificates(_) => "certificate_sha256",
-                };
+                let field = pins.field();
                 tracing::warn!(
                     "{}: tls.{}: ignored with tls.reality, which verifies the server by its \
                      public_key",
@@ -2601,31 +2595,40 @@ mod tests {
                 .into())
         );
 
-        // Whole certificates, hex: each entry checked, the pins exclusive of
-        // the certificate to trust and of the keys pinned.
+        // Whole certificates, hex or base64 (sing-box 1.15's): each entry
+        // checked, the pins exclusive of the certificate to trust.
         let hex = "ab".repeat(32);
         let colons = vec!["AB"; 32].join(":");
-        assert!(build(json!({"enabled": true, "certificate_sha256": [&hex, &colons]})).is_ok());
+        let base64 = btls::base64::encode_block(&[0xab; 32]);
+        assert!(build(
+            json!({"enabled": true, "certificate_sha256": [&hex, &colons, &base64, &pin]})
+        )
+        .is_ok());
+        let neither = "tls.certificate_sha256[1]: neither the hex nor the base64 \
+                       (standard, padded) of a SHA-256 hash";
         for (bad, why) in [
-            (
-                "xy".repeat(32),
-                "tls.certificate_sha256[1]: not the hex of a SHA-256 hash",
-            ),
-            (
-                "abc".to_string(),
-                "tls.certificate_sha256[1]: not the hex of a SHA-256 hash",
-            ),
+            ("xy".repeat(31), neither.to_string()),
+            ("abc".to_string(), neither.to_string()),
+            ("".to_string(), neither.to_string()),
             (
                 "ab".repeat(20),
-                "tls.certificate_sha256[1]: 20 bytes, where a SHA-256 hash has 32",
+                "tls.certificate_sha256[1]: 20 bytes, where a SHA-256 hash has 32".to_string(),
+            ),
+            (format!(" {}", hex), neither.to_string()),
+            // Unpadded, base64url, or with spaces.
+            (
+                base64.trim_end_matches('=').to_string(),
+                neither.to_string(),
             ),
             (
-                format!(" {}", hex),
-                "tls.certificate_sha256[1]: not the hex of a SHA-256 hash",
+                "q6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6_=".to_string(),
+                neither.to_string(),
             ),
+            (format!("{} ", base64), neither.to_string()),
+            // A SHA-1 hash in base64, 20 bytes.
             (
-                pin.clone(),
-                "tls.certificate_sha256[1]: not the hex of a SHA-256 hash",
+                btls::base64::encode_block(&[0; 20]),
+                "tls.certificate_sha256[1]: 20 bytes, where a SHA-256 hash has 32".to_string(),
             ),
         ] {
             let err =
@@ -2647,12 +2650,33 @@ mod tests {
                     .into())
             );
         }
+        // With the keys pinned too, either passing is enough, as in
+        // sing-box 1.15; the two still exclusive of the certificate to
+        // trust, and each checked.
+        let both = options(json!({"enabled": true, "certificate_sha256": &hex,
+            "certificate_public_key_sha256": pin}))
+        .unwrap();
+        assert!(
+            format!("{:?}", both.pins).starts_with("Some(Either("),
+            "{:?}",
+            both.pins
+        );
         assert_eq!(
             build(json!({"enabled": true, "certificate_sha256": &hex,
-                "certificate_public_key_sha256": pin})),
-            Err("[t] outbound: tls.certificate_sha256: \
-                 not with certificate_public_key_sha256"
-                .into())
+                "certificate_public_key_sha256": pin, "certificate_path": "ca.pem"})),
+            Err(
+                "[t] outbound: tls.certificate_sha256 and certificate_public_key_sha256: \
+                 not with certificate or certificate_path"
+                    .into()
+            )
+        );
+        let err = build(json!({"enabled": true, "certificate_sha256": [&hex, "x"],
+            "certificate_public_key_sha256": pin}))
+        .unwrap_err();
+        assert!(
+            err.starts_with("[t] outbound: tls.certificate_sha256[1]: "),
+            "{}",
+            err
         );
         let reality = json!({"enabled": true, "public_key": "x"});
         let ignored = options(json!({"enabled": true, "reality": reality,

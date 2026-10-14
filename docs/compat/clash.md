@@ -577,7 +577,7 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 | `proxies[anytls].ech-opts.config` | Supported |  |
 | `proxies[anytls].ech-opts.enable` | Supported |  |
 | `proxies[anytls].ech-opts.query-server-name` | Supported |  |
-| `proxies[anytls].fingerprint` | Supported |  |
+| `proxies[anytls].fingerprint` | Supported | proxies[0].fingerprint: not the hex of a SHA-256 hash |
 | `proxies[anytls].idle-session-check-interval` | Supported |  |
 | `proxies[anytls].idle-session-timeout` | Supported |  |
 | `proxies[anytls].interface-name` | Supported |  |
@@ -648,7 +648,7 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 |---|---|---|
 | `proxies[http].certificate` | Supported |  |
 | `proxies[http].dialer-proxy` | Supported |  |
-| `proxies[http].fingerprint` | Supported |  |
+| `proxies[http].fingerprint` | Supported | proxies[0].fingerprint: not the hex of a SHA-256 hash |
 | `proxies[http].headers` | Supported |  |
 | `proxies[http].interface-name` | Supported |  |
 | `proxies[http].ip-version` | Supported | proxies[0].ip-version: "1" is none of dual, ipv4, ipv6, ipv4-prefer and ipv6-prefer |
@@ -680,7 +680,7 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 | `proxies[hysteria2].ech-opts.config` | Supported |  |
 | `proxies[hysteria2].ech-opts.enable` | Supported |  |
 | `proxies[hysteria2].ech-opts.query-server-name` | Supported |  |
-| `proxies[hysteria2].fingerprint` | Supported |  |
+| `proxies[hysteria2].fingerprint` | Supported | proxies[0].fingerprint: not the hex of a SHA-256 hash |
 | `proxies[hysteria2].handshake-timeout` | Warned | proxies[0].handshake-timeout: sail does not implement this field; ignored |
 | `proxies[hysteria2].hop-interval` | Supported | proxies[0].hop-interval: not a number in range |
 | `proxies[hysteria2].initial-connection-receive-window` | Warned | proxies[0].initial-connection-receive-window: sail does not implement this field; ignored |
@@ -781,7 +781,7 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 |---|---|---|
 | `proxies[socks5].certificate` | Supported |  |
 | `proxies[socks5].dialer-proxy` | Supported |  |
-| `proxies[socks5].fingerprint` | Supported |  |
+| `proxies[socks5].fingerprint` | Supported | proxies[0].fingerprint: not the hex of a SHA-256 hash |
 | `proxies[socks5].interface-name` | Supported |  |
 | `proxies[socks5].ip-version` | Supported | proxies[0].ip-version: "1" is none of dual, ipv4, ipv6, ipv4-prefer and ipv6-prefer |
 | `proxies[socks5].mptcp` | Warned | proxies[0].mptcp: sail does not implement this field; ignored |
@@ -932,7 +932,7 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 | `proxies[trojan].ech-opts.config` | Supported |  |
 | `proxies[trojan].ech-opts.enable` | Supported |  |
 | `proxies[trojan].ech-opts.query-server-name` | Supported |  |
-| `proxies[trojan].fingerprint` | Supported |  |
+| `proxies[trojan].fingerprint` | Supported | proxies[0].fingerprint: not the hex of a SHA-256 hash |
 | `proxies[trojan].grpc-opts` | Supported |  |
 | `proxies[trojan].grpc-opts.grpc-service-name` | Supported |  |
 | `proxies[trojan].grpc-opts.grpc-user-agent` | Supported |  |
@@ -1004,7 +1004,7 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 | `proxies[tuic].ech-opts.enable` | Supported |  |
 | `proxies[tuic].ech-opts.query-server-name` | Supported |  |
 | `proxies[tuic].fast-open` | Warned | proxies[0].fast-open: sail does not implement this field; ignored |
-| `proxies[tuic].fingerprint` | Supported |  |
+| `proxies[tuic].fingerprint` | Supported | proxies[0].fingerprint: not the hex of a SHA-256 hash |
 | `proxies[tuic].heartbeat-interval` | Supported |  |
 | `proxies[tuic].interface-name` | Supported |  |
 | `proxies[tuic].ip` | Supported |  |
@@ -1046,7 +1046,7 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 | `proxies[vless].ech-opts.enable` | Supported |  |
 | `proxies[vless].ech-opts.query-server-name` | Supported |  |
 | `proxies[vless].encryption` | Error | proxies[0].encryption: sail does not implement VLESS encryption yet |
-| `proxies[vless].fingerprint` | Supported |  |
+| `proxies[vless].fingerprint` | Supported | proxies[0].fingerprint: not the hex of a SHA-256 hash |
 | `proxies[vless].flow` | Supported |  |
 | `proxies[vless].grpc-opts` | Supported |  |
 | `proxies[vless].grpc-opts.grpc-service-name` | Supported |  |
@@ -1190,7 +1190,7 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 | `proxies[vmess].ech-opts.config` | Supported |  |
 | `proxies[vmess].ech-opts.enable` | Supported |  |
 | `proxies[vmess].ech-opts.query-server-name` | Supported |  |
-| `proxies[vmess].fingerprint` | Supported |  |
+| `proxies[vmess].fingerprint` | Supported | proxies[0].fingerprint: not the hex of a SHA-256 hash |
 | `proxies[vmess].global-padding` | Supported |  |
 | `proxies[vmess].grpc-opts` | Supported |  |
 | `proxies[vmess].grpc-opts.grpc-service-name` | Supported |  |

@@ -113,12 +113,19 @@ pub fn from_file_for(path: &str, host: &crate::runtime::Host) -> Result<Config> 
 
 /// A certificate's SHA-256 hash as a front-end writes it (colons, spaces,
 /// either case), as `certificate_sha256` has it: lowercase hex alone.
+/// Anything but hex is an error, as Mihomo's `fingerprint` takes nothing
+/// else: the base64 `certificate_sha256` also takes is sing-box's alone.
 #[cfg(any(feature = "config-clash", feature = "config-surge"))]
-pub(crate) fn certificate_hash(hash: &str) -> String {
-    hash.chars()
+pub(crate) fn certificate_hash(hash: &str) -> Result<String> {
+    let hex = hash
+        .chars()
         .filter(|c| *c != ':' && !c.is_whitespace())
         .collect::<String>()
-        .to_ascii_lowercase()
+        .to_ascii_lowercase();
+    if !hex.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(anyhow!("not the hex of a SHA-256 hash"));
+    }
+    Ok(hex)
 }
 
 #[cfg(test)]

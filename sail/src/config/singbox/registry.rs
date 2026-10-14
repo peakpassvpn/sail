@@ -1268,7 +1268,7 @@ const EXTENSIONS: &[(&str, &str, &str)] = &[
     (
         "outbounds[anytls|http|hysteria2|shadowtls|trojan|tuic|vless|vmess].tls.certificate_sha256",
         r#"["abababababababababababababababababababababababababababababababab"]"#,
-        "In any outbound's `tls`: whole certificates pinned by SHA-256, hex (Mihomo's fingerprint); the server's own is trusted for any name, a CA's in its chain is the only CA it is verified by",
+        "In any outbound's `tls`: whole certificates pinned by SHA-256, hex (Mihomo's fingerprint) or base64 (sing-box 1.15's field, read as it is); the server's own is trusted for any name, and, beyond sing-box, a CA's in its chain is the only CA it is verified by; with `certificate_public_key_sha256` either list passing is enough, as in sing-box 1.15",
     ),
     (
         "outbounds[direct|anytls|http|hysteria2|shadowsocks|shadowtls|socks|trojan|tuic|vless|vmess].skip_default_domain_resolver",
