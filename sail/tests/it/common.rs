@@ -368,6 +368,70 @@ pub fn shutdown_instances(rt: &tokio::runtime::Runtime, ids: Vec<sail::RuntimeId
     }
 }
 
+/// Echoes on `stream` until it ends, and says why it did: reading goes on
+/// while a write waits, what is read being kept until it is written back.
+/// `read` and `written` are told each count of bytes as it happens.
+///
+/// An echo that reads, then writes all of it before it reads again, stops
+/// reading whenever its peer is slow to take what comes back. Linux 6.17
+/// can then leave the connection standing for good: with no room to
+/// receive in, the echo's socket takes its window back, and after that
+/// each end refuses the other's acknowledgements as beyond the window
+/// (fixed in Linux 7.1, "tcp: implement RFC 7323 window retraction
+/// receiver requirements"). A program of four sockets and no sail in it
+/// stood still so 169 times in 4.9 million transfers on 6.17, never in 2.4
+/// million on 6.8, and never in 780,000 on 6.17 once its echo read while
+/// it wrote. It is what stopped `test_reality_sail_to_sail` twice in CI.
+pub async fn echo(
+    stream: tokio::net::TcpStream,
+    read: impl Fn(usize) + Send + 'static,
+    written: impl Fn(usize) + Send + 'static,
+) -> String {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let (mut reader, mut writer) = stream.into_split();
+    let (kept, mut to_write) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
+    let reading = tokio::spawn(async move {
+        let mut buf = vec![0u8; 16 * 1024];
+        loop {
+            match reader.read(&mut buf).await {
+                Ok(0) => return "its client closed".to_string(),
+                Ok(n) => {
+                    read(n);
+                    if kept.send(buf[..n].to_vec()).is_err() {
+                        return "writing ended".to_string();
+                    }
+                }
+                Err(e) => return format!("reading failed: {}", e),
+            }
+        }
+    });
+    while let Some(data) = to_write.recv().await {
+        let mut done = 0;
+        while done < data.len() {
+            match writer.write(&data[done..]).await {
+                Ok(0) => {
+                    reading.abort();
+                    return "writing took nothing".to_string();
+                }
+                Ok(taken) => {
+                    done += taken;
+                    written(taken);
+                }
+                Err(e) => {
+                    reading.abort();
+                    return format!("writing failed: {}", e);
+                }
+            }
+        }
+    }
+    // All that was read is written back: the client's close, or what
+    // reading failed with.
+    reading
+        .await
+        .unwrap_or_else(|e| format!("reading stopped: {}", e))
+}
+
 pub async fn run_tcp_echo_server(
     addr: &str,
 ) -> anyhow::Result<(
@@ -383,11 +447,8 @@ pub async fn run_tcp_echo_server(
     let fut = async move {
         loop {
             match listener.accept().await {
-                Ok((mut stream, _)) => {
-                    tokio::spawn(async move {
-                        let (mut r, mut w) = stream.split();
-                        let _ = tokio::io::copy(&mut r, &mut w).await;
-                    });
+                Ok((stream, _)) => {
+                    tokio::spawn(echo(stream, |_| {}, |_| {}));
                 }
                 Err(e) => {
                     return Err(anyhow::anyhow!("accept tcp failed: {}", e));

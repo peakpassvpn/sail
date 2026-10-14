@@ -586,34 +586,23 @@ struct Progress {
 /// and what the system has taken of what it writes back, and says there
 /// why it stopped serving a connection.
 async fn counting_echo(listener: tokio::net::TcpListener, progress: std::sync::Arc<Progress>) {
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-
     loop {
-        let Ok((mut stream, _)) = listener.accept().await else {
+        let Ok((stream, _)) = listener.accept().await else {
             return;
         };
         let progress = progress.clone();
         tokio::spawn(async move {
-            let mut buf = vec![0u8; 16 * 1024];
-            let ended = 'serving: loop {
-                let n = match stream.read(&mut buf).await {
-                    Ok(0) => break "its client closed".to_string(),
-                    Ok(n) => n,
-                    Err(e) => break format!("reading failed: {}", e),
-                };
-                progress.reached.fetch_add(n, Ordering::Relaxed);
-                let mut written = 0;
-                while written < n {
-                    match stream.write(&buf[written..n]).await {
-                        Ok(0) => break 'serving "writing took nothing".to_string(),
-                        Ok(taken) => {
-                            written += taken;
-                            progress.returned.fetch_add(taken, Ordering::Relaxed);
-                        }
-                        Err(e) => break 'serving format!("writing failed: {}", e),
-                    }
-                }
-            };
+            let (reached, returned) = (progress.clone(), progress.clone());
+            let ended = common::echo(
+                stream,
+                move |n| {
+                    reached.reached.fetch_add(n, Ordering::Relaxed);
+                },
+                move |n| {
+                    returned.returned.fetch_add(n, Ordering::Relaxed);
+                },
+            )
+            .await;
             *progress.ended.lock().unwrap_or_else(|e| e.into_inner()) = Some(ended);
         });
     }
