@@ -2566,6 +2566,87 @@ fn a_hysteria2_listener_is_a_hysteria2_inbound() {
     }
 }
 
+/// A tuic listener is a TUIC v5 inbound: users by UUID, its own
+/// certificate, and Mihomo's congestion control, time to authenticate and
+/// 0-RTT.
+#[test]
+fn a_tuic_listener_is_a_tuic_inbound() {
+    let inbound = |fields: &str| {
+        parse(&format!(
+            "listeners: [{{ name: T, type: tuic, port: 443{} }}]\nrules: [\"MATCH,DIRECT\"]\n",
+            fields
+        ))
+        .map(|config| {
+            let inbound = config.inbounds.iter().find(|i| i.tag == "T").unwrap();
+            (serde_json::to_value(inbound).unwrap(), config.warnings)
+        })
+        .map_err(|e| format!("{:#}", e))
+    };
+    const UUID: &str = "b831381d-6324-4d53-ad4f-8cda48b30811";
+    let tls = ", certificate: c.pem, private-key: k.pem";
+    let (v, warnings) = inbound(&format!(
+        "{}, users: {{ {}: p }}, congestion-controller: bbr, authentication-timeout: 2000",
+        tls, UUID
+    ))
+    .unwrap();
+    assert!(warnings.is_empty(), "{:?}", warnings);
+    assert_eq!(v["type"], "tuic");
+    assert_eq!(
+        v["users"],
+        json!([{ "name": UUID, "uuid": UUID, "password": "p" }])
+    );
+    assert_eq!(
+        v["tls"],
+        json!({ "enabled": true, "certificate_path": "c.pem", "key_path": "k.pem" })
+    );
+    assert_eq!(v["congestion_control"], "bbr");
+    assert_eq!(v["auth_timeout"], "2000ms");
+    assert_eq!(v["zero_rtt_handshake"], true);
+
+    // Mihomo's defaults; a key that is no UUID is the nil one; tuning
+    // and sing-mux are warned of.
+    let (v, warnings) = inbound(&format!(
+        "{}, users: {{ nope: p }}, congestion-controller: vegas, max-idle-time: 30000, \
+         mux-option: {{ padding: true }}",
+        tls
+    ))
+    .unwrap();
+    assert_eq!(v["users"][0]["uuid"], "00000000-0000-0000-0000-000000000000");
+    assert_eq!(v["congestion_control"], "cubic");
+    assert_eq!(v["auth_timeout"], "1000ms");
+    assert_eq!(warnings.len(), 4, "{:?}", warnings);
+    assert!(warnings[0].starts_with("listeners[0].users.nope: not a UUID"));
+    assert!(warnings[1].starts_with("listeners[0].congestion-controller: \"vegas\""));
+    assert!(warnings[2].starts_with("listeners[0].max-idle-time: sail does not tune"));
+    assert!(warnings[3].starts_with("listeners[0].mux-option: sail serves no sing-mux"));
+
+    // Two of them are one, the last.
+    let (v, warnings) = inbound(&format!("{}, users: {{ a: p, b: q }}", tls)).unwrap();
+    assert_eq!(
+        v["users"],
+        json!([{ "name": "00000000-0000-0000-0000-000000000000",
+            "uuid": "00000000-0000-0000-0000-000000000000", "password": "q" }])
+    );
+    assert_eq!(warnings.len(), 3, "{:?}", warnings);
+    assert!(warnings[2].starts_with(
+        "listeners[0].users.b: 00000000-0000-0000-0000-000000000000 again"
+    ));
+
+    for (fields, error) in [
+        (
+            format!("{}, token: [t]", tls),
+            "listeners[0].token: TUIC v4's",
+        ),
+        (
+            String::new(),
+            "listeners[0].certificate: missing: Mihomo serves a random self-signed certificate",
+        ),
+    ] {
+        let e = inbound(&fields).unwrap_err();
+        assert!(e.contains(error), "{}: {}", fields, e);
+    }
+}
+
 /// A listener's client authentication, as Mihomo's: `client-auth-type`
 /// and the CAs of `client-auth-cert`, CAs alone requiring and verifying.
 #[test]

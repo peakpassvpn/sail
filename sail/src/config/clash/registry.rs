@@ -128,7 +128,11 @@ fn listener(kind: &str) -> Value {
             "certificate": "c.pem",
             "private-key": "k.pem"
         }),
-        "tuic" => json!({ "users": { "b831381d-6324-4d53-ad4f-8cda48b30811": "p" } }),
+        "tuic" => json!({
+            "users": { "b831381d-6324-4d53-ad4f-8cda48b30811": "p" },
+            "certificate": "c.pem",
+            "private-key": "k.pem"
+        }),
         "tunnel" => json!({ "network": ["tcp"], "target": "a.example:80" }),
         "tun" => json!({ "port": null }),
         _ => json!({}),

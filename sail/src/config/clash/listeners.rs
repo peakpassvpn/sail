@@ -14,7 +14,7 @@
 //!
 //! The proxy listeners (trojan, vless) serve sing-mux, as all of Mihomo's do,
 //! over a websocket at `ws-path` or gRPC under `grpc-service-name` where
-//! one is given. The QUIC ones (hysteria2) do not, where Mihomo's do: no
+//! one is given. The QUIC ones (hysteria2, tuic) do not, where Mihomo's do: no
 //! client asks for it over QUIC.
 //!
 //! Where sail does otherwise: its SOCKS, mixed and shadowsocks inbounds
@@ -46,6 +46,7 @@ const TYPES: &[(&str, &str)] = &[
     ("trojan", "trojan"),
     ("vless", "vless"),
     ("hysteria2", "hysteria2"),
+    ("tuic", "tuic"),
 ];
 
 /// The early data a websocket client may send in `Sec-WebSocket-Protocol`,
@@ -208,6 +209,7 @@ pub fn lower(
                 }
             }
             "hysteria2" => hysteria2(&mut f, out.home.as_deref(), &mut inbound, warnings)?,
+            "tuic" => tuic(&mut f, out.home.as_deref(), &mut inbound, warnings)?,
             _ => {}
         }
         if matches!(protocol, "http" | "trojan" | "vless") {
@@ -648,6 +650,90 @@ fn hysteria2(
     // Mihomo's hysteria2 server reads no idle time of its own.
     f.take("max-idle-time");
     Ok(())
+}
+
+/// A tuic listener, as Mihomo's serves one: TUIC v5, users a map of UUIDs
+/// to passwords, each user its UUID to the rules as Mihomo has it, its own
+/// TLS (`quic_tls`), 0-RTT, and Mihomo's congestion control and time to
+/// authenticate.
+fn tuic(
+    f: &mut Fields,
+    home: Option<&std::path::Path>,
+    inbound: &mut Map<String, Value>,
+    warnings: &mut Vec<String>,
+) -> Result<()> {
+    let token_at = f.at("token");
+    if !f.strings("token")?.is_empty() {
+        return Err(anyhow!(
+            "{}: TUIC v4's, which sail does not implement",
+            token_at
+        ));
+    }
+    let users_at = f.at("users");
+    let mut users: Vec<(String, String)> = Vec::new();
+    if let Some(mut map) = f.map("users")? {
+        for key in map.keys() {
+            let password = map.string(&key)?.unwrap_or_default();
+            let uuid = match uuid::Uuid::parse_str(&key) {
+                Ok(uuid) => uuid.to_string(),
+                Err(_) => {
+                    warnings.push(format!(
+                        "{}.{}: not a UUID: Mihomo takes it as the nil UUID, and so does \
+                         sail: the user is 00000000-0000-0000-0000-000000000000 with its password",
+                        users_at, key
+                    ));
+                    uuid::Uuid::nil().to_string()
+                }
+            };
+            if let Some(j) = users.iter().position(|(u, _)| *u == uuid) {
+                warnings.push(format!(
+                    "{}.{}: {} again: Mihomo takes one of the two, and sail this one",
+                    users_at, key, uuid
+                ));
+                users.remove(j);
+            }
+            users.push((uuid, password));
+        }
+    }
+    let users: Vec<Value> = users
+        .into_iter()
+        .map(|(uuid, password)| json!({ "name": uuid, "uuid": uuid, "password": password }))
+        .collect();
+    inbound.insert("users".into(), Value::Array(users));
+    inbound.insert("tls".into(), quic_tls(f, home, "tuic", warnings)?);
+
+    // Mihomo's quic-go controller where it names none it knows: cubic.
+    let cc_at = f.at("congestion-controller");
+    let cc = match f.string("congestion-controller")?.as_deref() {
+        None | Some("" | "cubic") => "cubic",
+        Some("new_reno") => "new_reno",
+        Some("bbr" | "bbr_meta_v1" | "bbr_meta_v2") => "bbr",
+        Some(other) => {
+            warnings.push(format!(
+                "{}: {:?} is none of Mihomo's, which then takes cubic, as sail does",
+                cc_at, other
+            ));
+            "cubic"
+        }
+    };
+    inbound.insert("congestion_control".into(), json!(cc));
+    let timeout = f
+        .int::<u64>("authentication-timeout")?
+        .filter(|t| *t > 0)
+        .unwrap_or(1000);
+    inbound.insert("auth_timeout".into(), json!(format!("{}ms", timeout)));
+    // Mihomo's server always takes 0-RTT.
+    inbound.insert("zero_rtt_handshake".into(), json!(true));
+    for key in ["max-idle-time", "max-udp-relay-packet-size"] {
+        let at = f.at(key);
+        if f.int::<i64>(key)?.unwrap_or(0) != 0 {
+            warnings.push(format!(
+                "{}: sail does not tune its QUIC listeners so; ignored",
+                at
+            ));
+        }
+    }
+    quic_tuning(f, warnings)
 }
 
 /// A rate as Mihomo's `StringToBps` reads it, in Mbps: a bare number is
