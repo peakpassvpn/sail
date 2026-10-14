@@ -35,7 +35,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `geox-url` | 5 | 0 | 5 | 0 |
 | `iptables` | 5 | 0 | 0 | 5 |
 | `listeners[anytls]` | 45 | 0 | 0 | 45 |
-| `listeners[http]` | 29 | 9 | 1 | 19 |
+| `listeners[http]` | 29 | 17 | 7 | 5 |
 | `listeners[hysteria2]` | 49 | 0 | 0 | 49 |
 | `listeners[mieru]` | 10 | 0 | 0 | 10 |
 | `listeners[mixed]` | 30 | 8 | 1 | 21 |
@@ -46,12 +46,12 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `listeners[socks]` | 30 | 8 | 1 | 21 |
 | `listeners[sudoku]` | 29 | 0 | 0 | 29 |
 | `listeners[tproxy]` | 7 | 5 | 1 | 1 |
-| `listeners[trojan]` | 73 | 18 | 1 | 54 |
+| `listeners[trojan]` | 73 | 26 | 7 | 40 |
 | `listeners[trusttunnel]` | 18 | 0 | 0 | 18 |
 | `listeners[tuic]` | 26 | 0 | 0 | 26 |
 | `listeners[tun]` | 55 | 0 | 0 | 55 |
 | `listeners[tunnel]` | 8 | 0 | 0 | 8 |
-| `listeners[vless]` | 93 | 0 | 0 | 93 |
+| `listeners[vless]` | 93 | 27 | 7 | 59 |
 | `listeners[vmess]` | 116 | 0 | 0 | 116 |
 | `ntp` | 7 | 7 | 0 | 0 |
 | `profile` | 3 | 3 | 0 | 0 |
@@ -90,7 +90,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `tls` | 7 | 0 | 7 | 0 |
 | `tuic-server` | 13 | 0 | 0 | 13 |
 | `tun` | 50 | 34 | 9 | 7 |
-| **All** | **2077** | **538** | **113** | **1426** |
+| **All** | **2077** | **581** | **132** | **1364** |
 
 
 ## `general`
@@ -262,21 +262,21 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `listeners[http].port` | 支持 | listeners[0].port: "x": sail takes one port, not ranges, yet |
 | `listeners[http].private-key` | 支持 |  |
 | `listeners[http].proxy` | 支持 | listeners[0].proxy: no proxy or group is named "x" |
-| `listeners[http].reality-config` | 报错 | listeners[0].reality-config: sail does not implement this field yet |
-| `listeners[http].reality-config.dest` | 报错 | listeners[0].reality-config: sail does not implement this field yet |
-| `listeners[http].reality-config.limit-fallback-download` | 报错 | listeners[0].reality-config: sail does not implement this field yet |
-| `listeners[http].reality-config.limit-fallback-download.after-bytes` | 报错 | listeners[0].reality-config: sail does not implement this field yet |
-| `listeners[http].reality-config.limit-fallback-download.burst-bytes-per-sec` | 报错 | listeners[0].reality-config: sail does not implement this field yet |
-| `listeners[http].reality-config.limit-fallback-download.bytes-per-sec` | 报错 | listeners[0].reality-config: sail does not implement this field yet |
-| `listeners[http].reality-config.limit-fallback-upload` | 报错 | listeners[0].reality-config: sail does not implement this field yet |
-| `listeners[http].reality-config.limit-fallback-upload.after-bytes` | 报错 | listeners[0].reality-config: sail does not implement this field yet |
-| `listeners[http].reality-config.limit-fallback-upload.burst-bytes-per-sec` | 报错 | listeners[0].reality-config: sail does not implement this field yet |
-| `listeners[http].reality-config.limit-fallback-upload.bytes-per-sec` | 报错 | listeners[0].reality-config: sail does not implement this field yet |
-| `listeners[http].reality-config.max-time-difference` | 报错 | listeners[0].reality-config: sail does not implement this field yet |
-| `listeners[http].reality-config.private-key` | 报错 | listeners[0].reality-config: sail does not implement this field yet |
-| `listeners[http].reality-config.proxy` | 报错 | listeners[0].reality-config: sail does not implement this field yet |
-| `listeners[http].reality-config.server-names` | 报错 | listeners[0].reality-config: sail does not implement this field yet |
-| `listeners[http].reality-config.short-id` | 报错 | listeners[0].reality-config: sail does not implement this field yet |
+| `listeners[http].reality-config` | 支持 | listeners[0].reality-config.dest: missing |
+| `listeners[http].reality-config.dest` | 支持 | listeners[0].reality-config.dest: "x" names no port |
+| `listeners[http].reality-config.limit-fallback-download` | 支持 |  |
+| `listeners[http].reality-config.limit-fallback-download.after-bytes` | 警告 | listeners[0].reality-config.limit-fallback-download: sail does not limit what REALITY relays to the site it imitates; ignored |
+| `listeners[http].reality-config.limit-fallback-download.burst-bytes-per-sec` | 警告 | listeners[0].reality-config.limit-fallback-download: sail does not limit what REALITY relays to the site it imitates; ignored |
+| `listeners[http].reality-config.limit-fallback-download.bytes-per-sec` | 警告 | listeners[0].reality-config.limit-fallback-download: sail does not limit what REALITY relays to the site it imitates; ignored |
+| `listeners[http].reality-config.limit-fallback-upload` | 支持 |  |
+| `listeners[http].reality-config.limit-fallback-upload.after-bytes` | 警告 | listeners[0].reality-config.limit-fallback-upload: sail does not limit what REALITY relays to the site it imitates; ignored |
+| `listeners[http].reality-config.limit-fallback-upload.burst-bytes-per-sec` | 警告 | listeners[0].reality-config.limit-fallback-upload: sail does not limit what REALITY relays to the site it imitates; ignored |
+| `listeners[http].reality-config.limit-fallback-upload.bytes-per-sec` | 警告 | listeners[0].reality-config.limit-fallback-upload: sail does not limit what REALITY relays to the site it imitates; ignored |
+| `listeners[http].reality-config.max-time-difference` | 支持 |  |
+| `listeners[http].reality-config.private-key` | 支持 | [L] inbound: tls.reality.private_key: neither hex nor base64url |
+| `listeners[http].reality-config.proxy` | 报错 | listeners[0].reality-config.proxy: sail does not dial the site REALITY imitates through a proxy yet |
+| `listeners[http].reality-config.server-names` | 支持 |  |
+| `listeners[http].reality-config.short-id` | 支持 | [L] inbound: tls.reality.short_id: not hex |
 | `listeners[http].routing-mark` | 警告 | listeners[0].routing-mark: sail does not implement this field; ignored |
 | `listeners[http].rule` | 报错 | listeners[0].rule: sail does not implement this field yet |
 | `listeners[http].users` | 支持 | listeners[0].users[0]: a map, not a string |
@@ -518,21 +518,21 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `listeners[trojan].port` | 支持 | listeners[0].port: "x": sail takes one port, not ranges, yet |
 | `listeners[trojan].private-key` | 支持 |  |
 | `listeners[trojan].proxy` | 支持 | listeners[0].proxy: no proxy or group is named "x" |
-| `listeners[trojan].reality-config` | 报错 | listeners[0].reality-config: sail does not implement this field yet |
-| `listeners[trojan].reality-config.dest` | 报错 | listeners[0].reality-config: sail does not implement this field yet |
-| `listeners[trojan].reality-config.limit-fallback-download` | 报错 | listeners[0].reality-config: sail does not implement this field yet |
-| `listeners[trojan].reality-config.limit-fallback-download.after-bytes` | 报错 | listeners[0].reality-config: sail does not implement this field yet |
-| `listeners[trojan].reality-config.limit-fallback-download.burst-bytes-per-sec` | 报错 | listeners[0].reality-config: sail does not implement this field yet |
-| `listeners[trojan].reality-config.limit-fallback-download.bytes-per-sec` | 报错 | listeners[0].reality-config: sail does not implement this field yet |
-| `listeners[trojan].reality-config.limit-fallback-upload` | 报错 | listeners[0].reality-config: sail does not implement this field yet |
-| `listeners[trojan].reality-config.limit-fallback-upload.after-bytes` | 报错 | listeners[0].reality-config: sail does not implement this field yet |
-| `listeners[trojan].reality-config.limit-fallback-upload.burst-bytes-per-sec` | 报错 | listeners[0].reality-config: sail does not implement this field yet |
-| `listeners[trojan].reality-config.limit-fallback-upload.bytes-per-sec` | 报错 | listeners[0].reality-config: sail does not implement this field yet |
-| `listeners[trojan].reality-config.max-time-difference` | 报错 | listeners[0].reality-config: sail does not implement this field yet |
-| `listeners[trojan].reality-config.private-key` | 报错 | listeners[0].reality-config: sail does not implement this field yet |
-| `listeners[trojan].reality-config.proxy` | 报错 | listeners[0].reality-config: sail does not implement this field yet |
-| `listeners[trojan].reality-config.server-names` | 报错 | listeners[0].reality-config: sail does not implement this field yet |
-| `listeners[trojan].reality-config.short-id` | 报错 | listeners[0].reality-config: sail does not implement this field yet |
+| `listeners[trojan].reality-config` | 支持 | listeners[0].reality-config.dest: missing |
+| `listeners[trojan].reality-config.dest` | 支持 | listeners[0].reality-config.dest: "x" names no port |
+| `listeners[trojan].reality-config.limit-fallback-download` | 支持 |  |
+| `listeners[trojan].reality-config.limit-fallback-download.after-bytes` | 警告 | listeners[0].reality-config.limit-fallback-download: sail does not limit what REALITY relays to the site it imitates; ignored |
+| `listeners[trojan].reality-config.limit-fallback-download.burst-bytes-per-sec` | 警告 | listeners[0].reality-config.limit-fallback-download: sail does not limit what REALITY relays to the site it imitates; ignored |
+| `listeners[trojan].reality-config.limit-fallback-download.bytes-per-sec` | 警告 | listeners[0].reality-config.limit-fallback-download: sail does not limit what REALITY relays to the site it imitates; ignored |
+| `listeners[trojan].reality-config.limit-fallback-upload` | 支持 |  |
+| `listeners[trojan].reality-config.limit-fallback-upload.after-bytes` | 警告 | listeners[0].reality-config.limit-fallback-upload: sail does not limit what REALITY relays to the site it imitates; ignored |
+| `listeners[trojan].reality-config.limit-fallback-upload.burst-bytes-per-sec` | 警告 | listeners[0].reality-config.limit-fallback-upload: sail does not limit what REALITY relays to the site it imitates; ignored |
+| `listeners[trojan].reality-config.limit-fallback-upload.bytes-per-sec` | 警告 | listeners[0].reality-config.limit-fallback-upload: sail does not limit what REALITY relays to the site it imitates; ignored |
+| `listeners[trojan].reality-config.max-time-difference` | 支持 |  |
+| `listeners[trojan].reality-config.private-key` | 支持 | [L] inbound: tls.reality.private_key: neither hex nor base64url |
+| `listeners[trojan].reality-config.proxy` | 报错 | listeners[0].reality-config.proxy: sail does not dial the site REALITY imitates through a proxy yet |
+| `listeners[trojan].reality-config.server-names` | 支持 |  |
+| `listeners[trojan].reality-config.short-id` | 支持 | [L] inbound: tls.reality.short_id: not hex |
 | `listeners[trojan].res-tls` | 报错 | listeners[0].res-tls: sail does not implement this field yet |
 | `listeners[trojan].res-tls.dest` | 报错 | listeners[0].res-tls: sail does not implement this field yet |
 | `listeners[trojan].res-tls.enable` | 报错 | listeners[0].res-tls: sail does not implement this field yet |
@@ -593,7 +593,99 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 
 | 字段 | sail | sail 的说明 |
 |---|---|---|
-| `listeners[vless]` | 报错 | listeners[0].type: sail does not implement "vless" listeners yet |
+| `listeners[vless].allow-insecure` | 支持 |  |
+| `listeners[vless].certificate` | 支持 |  |
+| `listeners[vless].client-auth-cert` | 报错 | listeners[0].client-auth-cert: sail does not implement this field yet |
+| `listeners[vless].client-auth-type` | 报错 | listeners[0].client-auth-type: sail does not implement this field yet |
+| `listeners[vless].decryption` | 报错 | listeners[0].decryption: "x": sail does not implement VLESS encryption |
+| `listeners[vless].ech-key` | 报错 | listeners[0].ech-key: sail does not implement this field yet |
+| `listeners[vless].grpc-service-name` | 支持 |  |
+| `listeners[vless].jls-config` | 报错 | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[vless].jls-config.alpn` | 报错 | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[vless].jls-config.dest` | 报错 | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[vless].jls-config.enable` | 报错 | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[vless].jls-config.proxy` | 报错 | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[vless].jls-config.rate-limit` | 报错 | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[vless].jls-config.sni` | 报错 | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[vless].jls-config.users` | 报错 | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[vless].jls-config.users[].password` | 报错 | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[vless].jls-config.users[].username` | 报错 | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[vless].listen` | 支持 |  |
+| `listeners[vless].mux-option` | 支持 |  |
+| `listeners[vless].mux-option.brutal` | 支持 |  |
+| `listeners[vless].mux-option.brutal.down` | 支持 |  |
+| `listeners[vless].mux-option.brutal.enabled` | 支持 |  |
+| `listeners[vless].mux-option.brutal.up` | 支持 |  |
+| `listeners[vless].mux-option.padding` | 支持 |  |
+| `listeners[vless].name` | 支持 |  |
+| `listeners[vless].port` | 支持 | listeners[0].port: "x": sail takes one port, not ranges, yet |
+| `listeners[vless].private-key` | 支持 |  |
+| `listeners[vless].proxy` | 支持 | listeners[0].proxy: no proxy or group is named "x" |
+| `listeners[vless].reality-config` | 支持 | listeners[0].reality-config.dest: missing |
+| `listeners[vless].reality-config.dest` | 支持 | listeners[0].reality-config.dest: "x" names no port |
+| `listeners[vless].reality-config.limit-fallback-download` | 支持 |  |
+| `listeners[vless].reality-config.limit-fallback-download.after-bytes` | 警告 | listeners[0].reality-config.limit-fallback-download: sail does not limit what REALITY relays to the site it imitates; ignored |
+| `listeners[vless].reality-config.limit-fallback-download.burst-bytes-per-sec` | 警告 | listeners[0].reality-config.limit-fallback-download: sail does not limit what REALITY relays to the site it imitates; ignored |
+| `listeners[vless].reality-config.limit-fallback-download.bytes-per-sec` | 警告 | listeners[0].reality-config.limit-fallback-download: sail does not limit what REALITY relays to the site it imitates; ignored |
+| `listeners[vless].reality-config.limit-fallback-upload` | 支持 |  |
+| `listeners[vless].reality-config.limit-fallback-upload.after-bytes` | 警告 | listeners[0].reality-config.limit-fallback-upload: sail does not limit what REALITY relays to the site it imitates; ignored |
+| `listeners[vless].reality-config.limit-fallback-upload.burst-bytes-per-sec` | 警告 | listeners[0].reality-config.limit-fallback-upload: sail does not limit what REALITY relays to the site it imitates; ignored |
+| `listeners[vless].reality-config.limit-fallback-upload.bytes-per-sec` | 警告 | listeners[0].reality-config.limit-fallback-upload: sail does not limit what REALITY relays to the site it imitates; ignored |
+| `listeners[vless].reality-config.max-time-difference` | 支持 |  |
+| `listeners[vless].reality-config.private-key` | 支持 | [L] inbound: tls.reality.private_key: neither hex nor base64url |
+| `listeners[vless].reality-config.proxy` | 报错 | listeners[0].reality-config.proxy: sail does not dial the site REALITY imitates through a proxy yet |
+| `listeners[vless].reality-config.server-names` | 支持 |  |
+| `listeners[vless].reality-config.short-id` | 支持 | [L] inbound: tls.reality.short_id: not hex |
+| `listeners[vless].res-tls` | 报错 | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[vless].res-tls.dest` | 报错 | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[vless].res-tls.enable` | 报错 | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[vless].res-tls.min-record-len` | 报错 | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[vless].res-tls.password` | 报错 | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[vless].res-tls.proxy` | 报错 | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[vless].res-tls.rate-limit` | 报错 | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[vless].res-tls.restls-script` | 报错 | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[vless].routing-mark` | 警告 | listeners[0].routing-mark: sail does not implement this field; ignored |
+| `listeners[vless].rule` | 报错 | listeners[0].rule: sail does not implement this field yet |
+| `listeners[vless].shadow-tls` | 报错 | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[vless].shadow-tls.enable` | 报错 | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[vless].shadow-tls.handshake` | 报错 | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[vless].shadow-tls.handshake-for-server-name` | 报错 | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[vless].shadow-tls.handshake.dest` | 报错 | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[vless].shadow-tls.handshake.proxy` | 报错 | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[vless].shadow-tls.password` | 报错 | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[vless].shadow-tls.strict-mode` | 报错 | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[vless].shadow-tls.users` | 报错 | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[vless].shadow-tls.users[].name` | 报错 | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[vless].shadow-tls.users[].password` | 报错 | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[vless].shadow-tls.version` | 报错 | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[vless].shadow-tls.wildcard-sni` | 报错 | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[vless].users` | 支持 | listeners[0].users[0]: a map, not a string |
+| `listeners[vless].users[].flow` | 支持 |  |
+| `listeners[vless].users[].username` | 支持 |  |
+| `listeners[vless].users[].uuid` | 支持 |  |
+| `listeners[vless].ws-path` | 支持 |  |
+| `listeners[vless].xhttp-config` | 报错 | listeners[0].xhttp-config: sail does not implement this field yet |
+| `listeners[vless].xhttp-config.host` | 报错 | listeners[0].xhttp-config: sail does not implement this field yet |
+| `listeners[vless].xhttp-config.mode` | 报错 | listeners[0].xhttp-config: sail does not implement this field yet |
+| `listeners[vless].xhttp-config.no-sse-header` | 报错 | listeners[0].xhttp-config: sail does not implement this field yet |
+| `listeners[vless].xhttp-config.path` | 报错 | listeners[0].xhttp-config: sail does not implement this field yet |
+| `listeners[vless].xhttp-config.sc-max-buffered-posts` | 报错 | listeners[0].xhttp-config: sail does not implement this field yet |
+| `listeners[vless].xhttp-config.sc-max-each-post-bytes` | 报错 | listeners[0].xhttp-config: sail does not implement this field yet |
+| `listeners[vless].xhttp-config.sc-stream-up-server-secs` | 报错 | listeners[0].xhttp-config: sail does not implement this field yet |
+| `listeners[vless].xhttp-config.seq-key` | 报错 | listeners[0].xhttp-config: sail does not implement this field yet |
+| `listeners[vless].xhttp-config.seq-placement` | 报错 | listeners[0].xhttp-config: sail does not implement this field yet |
+| `listeners[vless].xhttp-config.session-key` | 报错 | listeners[0].xhttp-config: sail does not implement this field yet |
+| `listeners[vless].xhttp-config.session-placement` | 报错 | listeners[0].xhttp-config: sail does not implement this field yet |
+| `listeners[vless].xhttp-config.uplink-chunk-size` | 报错 | listeners[0].xhttp-config: sail does not implement this field yet |
+| `listeners[vless].xhttp-config.uplink-data-key` | 报错 | listeners[0].xhttp-config: sail does not implement this field yet |
+| `listeners[vless].xhttp-config.uplink-data-placement` | 报错 | listeners[0].xhttp-config: sail does not implement this field yet |
+| `listeners[vless].xhttp-config.uplink-http-method` | 报错 | listeners[0].xhttp-config: sail does not implement this field yet |
+| `listeners[vless].xhttp-config.x-padding-bytes` | 报错 | listeners[0].xhttp-config: sail does not implement this field yet |
+| `listeners[vless].xhttp-config.x-padding-header` | 报错 | listeners[0].xhttp-config: sail does not implement this field yet |
+| `listeners[vless].xhttp-config.x-padding-key` | 报错 | listeners[0].xhttp-config: sail does not implement this field yet |
+| `listeners[vless].xhttp-config.x-padding-method` | 报错 | listeners[0].xhttp-config: sail does not implement this field yet |
+| `listeners[vless].xhttp-config.x-padding-obfs-mode` | 报错 | listeners[0].xhttp-config: sail does not implement this field yet |
+| `listeners[vless].xhttp-config.x-padding-placement` | 报错 | listeners[0].xhttp-config: sail does not implement this field yet |
 
 ## `listeners[vmess]`
 

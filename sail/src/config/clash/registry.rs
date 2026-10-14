@@ -108,9 +108,14 @@ fn listener(kind: &str) -> Value {
     let mut l = json!({ "name": "L", "type": kind, "port": 10808 });
     let extra = match kind {
         "shadowsocks" => json!({ "cipher": "aes-128-gcm", "password": "p" }),
-        "vmess" | "vless" => {
+        "vmess" => {
             json!({ "users": [{ "username": "u", "uuid": "b831381d-6324-4d53-ad4f-8cda48b30811" }] })
         }
+        // Without TLS, by Mihomo's leave.
+        "vless" => json!({
+            "users": [{ "username": "u", "uuid": "b831381d-6324-4d53-ad4f-8cda48b30811" }],
+            "allow-insecure": true
+        }),
         // Without TLS, by Mihomo's leave.
         "trojan" => json!({
             "users": [{ "username": "u", "password": "p" }],
@@ -174,8 +179,20 @@ fn skeleton(p: &Path) -> (Value, Vec<String>) {
                 "url": "https://a.example/r.txt" } } })
         }
         ("listeners", Some(kind)) => {
+            let mut l = listener(kind);
+            // A field of REALITY's is measured in a whole block, which
+            // Mihomo requires the rest of.
+            if p.keys.len() > 1 && p.keys[0] == "reality-config" {
+                merge(
+                    &mut l,
+                    json!({ "reality-config": {
+                        "dest": "a.example:443",
+                        "private-key": "aGVsbG8taGVsbG8taGVsbG8taGVsbG8taGVsbG8tMTI",
+                        "short-id": [""], "server-names": ["a.example"] } }),
+                );
+            }
             at.extend(["listeners".to_string(), "0".to_string()]);
-            json!({ "listeners": [listener(kind)] })
+            json!({ "listeners": [l] })
         }
         ("dns", _) => json!({ "dns": { "enable": true, "nameserver": ["1.1.1.1"] } }),
         ("tun", _) => json!({ "tun": { "enable": true } }),

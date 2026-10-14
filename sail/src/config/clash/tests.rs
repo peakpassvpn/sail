@@ -2290,7 +2290,7 @@ fn a_trojan_listener_is_a_trojan_inbound() {
     for (fields, error) in [
         (
             ", users: [{ password: a }]".to_string(),
-            "listeners[0].certificate: no certificate, and not allow-insecure",
+            "listeners[0].certificate: no certificate or REALITY, and not allow-insecure",
         ),
         (
             format!("{}, users: [{{ username: a }}]", tls),
@@ -2304,6 +2304,170 @@ fn a_trojan_listener_is_a_trojan_inbound() {
         let e = inbound(&fields).unwrap_err();
         assert!(e.contains(error), "{}: {}", fields, e);
     }
+}
+
+/// A vless listener: its users with their flow, and REALITY, which a
+/// trojan or http listener takes too, in place of a certificate.
+#[test]
+fn a_vless_listener_is_a_vless_inbound_and_reality_its_tls() {
+    let inbound = |kind: &str, fields: &str| {
+        parse(&format!(
+            "listeners: [{{ name: V, type: {}, port: 443{} }}]\nrules: [\"MATCH,DIRECT\"]\n",
+            kind, fields
+        ))
+        .map(|config| {
+            let inbound = config.inbounds.iter().find(|i| i.tag == "V").unwrap();
+            (serde_json::to_value(inbound).unwrap(), config.warnings)
+        })
+        .map_err(|e| format!("{:#}", e))
+    };
+    const UUID: &str = "b831381d-6324-4d53-ad4f-8cda48b30811";
+    let reality = |extra: &str| {
+        format!(
+            ", reality-config: {{ dest: \"www.example.com:443\", \
+             private-key: \"aGVsbG8taGVsbG8taGVsbG8taGVsbG8taGVsbG8tMTI\", \
+             short-id: [\"\", 0123abcd], server-names: [www.example.com]{} }}",
+            extra
+        )
+    };
+    let (v, warnings) = inbound(
+        "vless",
+        &format!(
+            ", users: [{{ username: alice, uuid: {}, flow: xtls-rprx-vision }}], \
+             decryption: none{}",
+            UUID,
+            reality(", max-time-difference: 60000000")
+        ),
+    )
+    .unwrap();
+    assert!(warnings.is_empty(), "{:?}", warnings);
+    assert_eq!(v["type"], "vless");
+    assert_eq!(
+        v["users"],
+        json!([{ "name": "alice", "uuid": UUID, "flow": "xtls-rprx-vision" }])
+    );
+    assert_eq!(
+        v["tls"],
+        json!({ "enabled": true, "server_name": "www.example.com", "reality": {
+            "enabled": true,
+            "handshake": { "server": "www.example.com", "server_port": 443 },
+            "private_key": "aGVsbG8taGVsbG8taGVsbG8taGVsbG8taGVsbG8tMTI",
+            "short_id": ["", "0123abcd"],
+            "max_time_difference": "60000000us" } })
+    );
+    assert_eq!(v["multiplex"], json!({ "enabled": true }));
+
+    // A trojan listener takes REALITY as well; no private key, no REALITY,
+    // and then a certificate or leave is wanted.
+    let (t, _) = inbound(
+        "trojan",
+        &format!(", users: [{{ password: p }}]{}", reality("")),
+    )
+    .unwrap();
+    assert_eq!(t["tls"]["reality"]["enabled"], true);
+    let e = inbound(
+        "vless",
+        &format!(
+            ", users: [{{ uuid: {} }}], reality-config: {{ dest: \"a:443\", private-key: \"\", \
+             short-id: [], server-names: [] }}",
+            UUID
+        ),
+    )
+    .unwrap_err();
+    assert!(
+        e.contains("no certificate or REALITY, and not allow-insecure"),
+        "{}",
+        e
+    );
+
+    // The fallback limits are not kept, with a warning.
+    let (_, warnings) = inbound(
+        "vless",
+        &format!(
+            ", users: [{{ uuid: {} }}]{}",
+            UUID,
+            reality(", limit-fallback-upload: { after-bytes: 1024, bytes-per-sec: 0 }")
+        ),
+    )
+    .unwrap();
+    assert_eq!(
+        warnings,
+        [
+            "listeners[0].reality-config.limit-fallback-upload: sail does not limit what \
+          REALITY relays to the site it imitates; ignored"
+        ]
+    );
+
+    for (kind, fields, error) in [
+        (
+            "vless",
+            format!(
+                ", users: [{{ uuid: {} }}], decryption: mlkem768x25519plus.native.0rtt.x",
+                UUID
+            ),
+            "listeners[0].decryption: \"mlkem768x25519plus.native.0rtt.x\": sail does not \
+             implement VLESS encryption",
+        ),
+        (
+            "vless",
+            format!(
+                ", users: [{{ uuid: {} }}], allow-insecure: true, xhttp-config: {{ path: /x }}",
+                UUID
+            ),
+            "listeners[0].xhttp-config: sail does not implement this field yet",
+        ),
+        (
+            "vless",
+            ", users: [{ username: a }], allow-insecure: true".to_string(),
+            "listeners[0].users[0].uuid: missing",
+        ),
+        (
+            "vless",
+            format!(
+                ", users: [{{ uuid: {} }}], certificate: c.pem, private-key: k.pem{}",
+                UUID,
+                reality("")
+            ),
+            "listeners[0].reality-config: with a certificate: Mihomo takes one of the two",
+        ),
+        (
+            "http",
+            reality("").replace("server-names: [www.example.com]", "server-names: [a, b]"),
+            "listeners[0].reality-config.server-names: sail does not take more than one name yet",
+        ),
+        (
+            "http",
+            reality(", proxy: DIRECT"),
+            "listeners[0].reality-config.proxy: sail does not dial the site REALITY imitates \
+             through a proxy yet",
+        ),
+        (
+            "http",
+            ", reality-config: { private-key: k, short-id: [], server-names: [a] }".to_string(),
+            "listeners[0].reality-config.dest: missing",
+        ),
+    ] {
+        let e = inbound(kind, &fields).unwrap_err();
+        assert!(e.contains(error), "{}: {}", fields, e);
+    }
+
+    // Of two users with one UUID, the last, as Mihomo keys them.
+    let (v, warnings) = inbound(
+        "vless",
+        &format!(
+            ", allow-insecure: true, users: [{{ username: a, uuid: {} }}, {{ username: b, uuid: {} }}]",
+            UUID, UUID
+        ),
+    )
+    .unwrap();
+    assert_eq!(v["users"], json!([{ "name": "b", "uuid": UUID }]));
+    assert_eq!(
+        warnings,
+        [
+            "listeners[0].users[1].uuid: the uuid of a user before it: Mihomo takes this one \
+          alone, and so does sail"
+        ]
+    );
 }
 
 const LISTENERS_CONFIG: &str = r#"

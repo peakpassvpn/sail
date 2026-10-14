@@ -35,7 +35,7 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 | `geox-url` | 5 | 0 | 5 | 0 |
 | `iptables` | 5 | 0 | 0 | 5 |
 | `listeners[anytls]` | 45 | 0 | 0 | 45 |
-| `listeners[http]` | 29 | 9 | 1 | 19 |
+| `listeners[http]` | 29 | 17 | 7 | 5 |
 | `listeners[hysteria2]` | 49 | 0 | 0 | 49 |
 | `listeners[mieru]` | 10 | 0 | 0 | 10 |
 | `listeners[mixed]` | 30 | 8 | 1 | 21 |
@@ -46,12 +46,12 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 | `listeners[socks]` | 30 | 8 | 1 | 21 |
 | `listeners[sudoku]` | 29 | 0 | 0 | 29 |
 | `listeners[tproxy]` | 7 | 5 | 1 | 1 |
-| `listeners[trojan]` | 73 | 18 | 1 | 54 |
+| `listeners[trojan]` | 73 | 26 | 7 | 40 |
 | `listeners[trusttunnel]` | 18 | 0 | 0 | 18 |
 | `listeners[tuic]` | 26 | 0 | 0 | 26 |
 | `listeners[tun]` | 55 | 0 | 0 | 55 |
 | `listeners[tunnel]` | 8 | 0 | 0 | 8 |
-| `listeners[vless]` | 93 | 0 | 0 | 93 |
+| `listeners[vless]` | 93 | 27 | 7 | 59 |
 | `listeners[vmess]` | 116 | 0 | 0 | 116 |
 | `ntp` | 7 | 7 | 0 | 0 |
 | `profile` | 3 | 3 | 0 | 0 |
@@ -90,7 +90,7 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 | `tls` | 7 | 0 | 7 | 0 |
 | `tuic-server` | 13 | 0 | 0 | 13 |
 | `tun` | 50 | 34 | 9 | 7 |
-| **All** | **2077** | **538** | **113** | **1426** |
+| **All** | **2077** | **581** | **132** | **1364** |
 
 
 ## `general`
@@ -262,21 +262,21 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 | `listeners[http].port` | Supported | listeners[0].port: "x": sail takes one port, not ranges, yet |
 | `listeners[http].private-key` | Supported |  |
 | `listeners[http].proxy` | Supported | listeners[0].proxy: no proxy or group is named "x" |
-| `listeners[http].reality-config` | Error | listeners[0].reality-config: sail does not implement this field yet |
-| `listeners[http].reality-config.dest` | Error | listeners[0].reality-config: sail does not implement this field yet |
-| `listeners[http].reality-config.limit-fallback-download` | Error | listeners[0].reality-config: sail does not implement this field yet |
-| `listeners[http].reality-config.limit-fallback-download.after-bytes` | Error | listeners[0].reality-config: sail does not implement this field yet |
-| `listeners[http].reality-config.limit-fallback-download.burst-bytes-per-sec` | Error | listeners[0].reality-config: sail does not implement this field yet |
-| `listeners[http].reality-config.limit-fallback-download.bytes-per-sec` | Error | listeners[0].reality-config: sail does not implement this field yet |
-| `listeners[http].reality-config.limit-fallback-upload` | Error | listeners[0].reality-config: sail does not implement this field yet |
-| `listeners[http].reality-config.limit-fallback-upload.after-bytes` | Error | listeners[0].reality-config: sail does not implement this field yet |
-| `listeners[http].reality-config.limit-fallback-upload.burst-bytes-per-sec` | Error | listeners[0].reality-config: sail does not implement this field yet |
-| `listeners[http].reality-config.limit-fallback-upload.bytes-per-sec` | Error | listeners[0].reality-config: sail does not implement this field yet |
-| `listeners[http].reality-config.max-time-difference` | Error | listeners[0].reality-config: sail does not implement this field yet |
-| `listeners[http].reality-config.private-key` | Error | listeners[0].reality-config: sail does not implement this field yet |
-| `listeners[http].reality-config.proxy` | Error | listeners[0].reality-config: sail does not implement this field yet |
-| `listeners[http].reality-config.server-names` | Error | listeners[0].reality-config: sail does not implement this field yet |
-| `listeners[http].reality-config.short-id` | Error | listeners[0].reality-config: sail does not implement this field yet |
+| `listeners[http].reality-config` | Supported | listeners[0].reality-config.dest: missing |
+| `listeners[http].reality-config.dest` | Supported | listeners[0].reality-config.dest: "x" names no port |
+| `listeners[http].reality-config.limit-fallback-download` | Supported |  |
+| `listeners[http].reality-config.limit-fallback-download.after-bytes` | Warned | listeners[0].reality-config.limit-fallback-download: sail does not limit what REALITY relays to the site it imitates; ignored |
+| `listeners[http].reality-config.limit-fallback-download.burst-bytes-per-sec` | Warned | listeners[0].reality-config.limit-fallback-download: sail does not limit what REALITY relays to the site it imitates; ignored |
+| `listeners[http].reality-config.limit-fallback-download.bytes-per-sec` | Warned | listeners[0].reality-config.limit-fallback-download: sail does not limit what REALITY relays to the site it imitates; ignored |
+| `listeners[http].reality-config.limit-fallback-upload` | Supported |  |
+| `listeners[http].reality-config.limit-fallback-upload.after-bytes` | Warned | listeners[0].reality-config.limit-fallback-upload: sail does not limit what REALITY relays to the site it imitates; ignored |
+| `listeners[http].reality-config.limit-fallback-upload.burst-bytes-per-sec` | Warned | listeners[0].reality-config.limit-fallback-upload: sail does not limit what REALITY relays to the site it imitates; ignored |
+| `listeners[http].reality-config.limit-fallback-upload.bytes-per-sec` | Warned | listeners[0].reality-config.limit-fallback-upload: sail does not limit what REALITY relays to the site it imitates; ignored |
+| `listeners[http].reality-config.max-time-difference` | Supported |  |
+| `listeners[http].reality-config.private-key` | Supported | [L] inbound: tls.reality.private_key: neither hex nor base64url |
+| `listeners[http].reality-config.proxy` | Error | listeners[0].reality-config.proxy: sail does not dial the site REALITY imitates through a proxy yet |
+| `listeners[http].reality-config.server-names` | Supported |  |
+| `listeners[http].reality-config.short-id` | Supported | [L] inbound: tls.reality.short_id: not hex |
 | `listeners[http].routing-mark` | Warned | listeners[0].routing-mark: sail does not implement this field; ignored |
 | `listeners[http].rule` | Error | listeners[0].rule: sail does not implement this field yet |
 | `listeners[http].users` | Supported | listeners[0].users[0]: a map, not a string |
@@ -518,21 +518,21 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 | `listeners[trojan].port` | Supported | listeners[0].port: "x": sail takes one port, not ranges, yet |
 | `listeners[trojan].private-key` | Supported |  |
 | `listeners[trojan].proxy` | Supported | listeners[0].proxy: no proxy or group is named "x" |
-| `listeners[trojan].reality-config` | Error | listeners[0].reality-config: sail does not implement this field yet |
-| `listeners[trojan].reality-config.dest` | Error | listeners[0].reality-config: sail does not implement this field yet |
-| `listeners[trojan].reality-config.limit-fallback-download` | Error | listeners[0].reality-config: sail does not implement this field yet |
-| `listeners[trojan].reality-config.limit-fallback-download.after-bytes` | Error | listeners[0].reality-config: sail does not implement this field yet |
-| `listeners[trojan].reality-config.limit-fallback-download.burst-bytes-per-sec` | Error | listeners[0].reality-config: sail does not implement this field yet |
-| `listeners[trojan].reality-config.limit-fallback-download.bytes-per-sec` | Error | listeners[0].reality-config: sail does not implement this field yet |
-| `listeners[trojan].reality-config.limit-fallback-upload` | Error | listeners[0].reality-config: sail does not implement this field yet |
-| `listeners[trojan].reality-config.limit-fallback-upload.after-bytes` | Error | listeners[0].reality-config: sail does not implement this field yet |
-| `listeners[trojan].reality-config.limit-fallback-upload.burst-bytes-per-sec` | Error | listeners[0].reality-config: sail does not implement this field yet |
-| `listeners[trojan].reality-config.limit-fallback-upload.bytes-per-sec` | Error | listeners[0].reality-config: sail does not implement this field yet |
-| `listeners[trojan].reality-config.max-time-difference` | Error | listeners[0].reality-config: sail does not implement this field yet |
-| `listeners[trojan].reality-config.private-key` | Error | listeners[0].reality-config: sail does not implement this field yet |
-| `listeners[trojan].reality-config.proxy` | Error | listeners[0].reality-config: sail does not implement this field yet |
-| `listeners[trojan].reality-config.server-names` | Error | listeners[0].reality-config: sail does not implement this field yet |
-| `listeners[trojan].reality-config.short-id` | Error | listeners[0].reality-config: sail does not implement this field yet |
+| `listeners[trojan].reality-config` | Supported | listeners[0].reality-config.dest: missing |
+| `listeners[trojan].reality-config.dest` | Supported | listeners[0].reality-config.dest: "x" names no port |
+| `listeners[trojan].reality-config.limit-fallback-download` | Supported |  |
+| `listeners[trojan].reality-config.limit-fallback-download.after-bytes` | Warned | listeners[0].reality-config.limit-fallback-download: sail does not limit what REALITY relays to the site it imitates; ignored |
+| `listeners[trojan].reality-config.limit-fallback-download.burst-bytes-per-sec` | Warned | listeners[0].reality-config.limit-fallback-download: sail does not limit what REALITY relays to the site it imitates; ignored |
+| `listeners[trojan].reality-config.limit-fallback-download.bytes-per-sec` | Warned | listeners[0].reality-config.limit-fallback-download: sail does not limit what REALITY relays to the site it imitates; ignored |
+| `listeners[trojan].reality-config.limit-fallback-upload` | Supported |  |
+| `listeners[trojan].reality-config.limit-fallback-upload.after-bytes` | Warned | listeners[0].reality-config.limit-fallback-upload: sail does not limit what REALITY relays to the site it imitates; ignored |
+| `listeners[trojan].reality-config.limit-fallback-upload.burst-bytes-per-sec` | Warned | listeners[0].reality-config.limit-fallback-upload: sail does not limit what REALITY relays to the site it imitates; ignored |
+| `listeners[trojan].reality-config.limit-fallback-upload.bytes-per-sec` | Warned | listeners[0].reality-config.limit-fallback-upload: sail does not limit what REALITY relays to the site it imitates; ignored |
+| `listeners[trojan].reality-config.max-time-difference` | Supported |  |
+| `listeners[trojan].reality-config.private-key` | Supported | [L] inbound: tls.reality.private_key: neither hex nor base64url |
+| `listeners[trojan].reality-config.proxy` | Error | listeners[0].reality-config.proxy: sail does not dial the site REALITY imitates through a proxy yet |
+| `listeners[trojan].reality-config.server-names` | Supported |  |
+| `listeners[trojan].reality-config.short-id` | Supported | [L] inbound: tls.reality.short_id: not hex |
 | `listeners[trojan].res-tls` | Error | listeners[0].res-tls: sail does not implement this field yet |
 | `listeners[trojan].res-tls.dest` | Error | listeners[0].res-tls: sail does not implement this field yet |
 | `listeners[trojan].res-tls.enable` | Error | listeners[0].res-tls: sail does not implement this field yet |
@@ -593,7 +593,99 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 
 | Field | sail | What sail says |
 |---|---|---|
-| `listeners[vless]` | Error | listeners[0].type: sail does not implement "vless" listeners yet |
+| `listeners[vless].allow-insecure` | Supported |  |
+| `listeners[vless].certificate` | Supported |  |
+| `listeners[vless].client-auth-cert` | Error | listeners[0].client-auth-cert: sail does not implement this field yet |
+| `listeners[vless].client-auth-type` | Error | listeners[0].client-auth-type: sail does not implement this field yet |
+| `listeners[vless].decryption` | Error | listeners[0].decryption: "x": sail does not implement VLESS encryption |
+| `listeners[vless].ech-key` | Error | listeners[0].ech-key: sail does not implement this field yet |
+| `listeners[vless].grpc-service-name` | Supported |  |
+| `listeners[vless].jls-config` | Error | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[vless].jls-config.alpn` | Error | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[vless].jls-config.dest` | Error | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[vless].jls-config.enable` | Error | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[vless].jls-config.proxy` | Error | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[vless].jls-config.rate-limit` | Error | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[vless].jls-config.sni` | Error | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[vless].jls-config.users` | Error | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[vless].jls-config.users[].password` | Error | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[vless].jls-config.users[].username` | Error | listeners[0].jls-config: sail does not implement this field yet |
+| `listeners[vless].listen` | Supported |  |
+| `listeners[vless].mux-option` | Supported |  |
+| `listeners[vless].mux-option.brutal` | Supported |  |
+| `listeners[vless].mux-option.brutal.down` | Supported |  |
+| `listeners[vless].mux-option.brutal.enabled` | Supported |  |
+| `listeners[vless].mux-option.brutal.up` | Supported |  |
+| `listeners[vless].mux-option.padding` | Supported |  |
+| `listeners[vless].name` | Supported |  |
+| `listeners[vless].port` | Supported | listeners[0].port: "x": sail takes one port, not ranges, yet |
+| `listeners[vless].private-key` | Supported |  |
+| `listeners[vless].proxy` | Supported | listeners[0].proxy: no proxy or group is named "x" |
+| `listeners[vless].reality-config` | Supported | listeners[0].reality-config.dest: missing |
+| `listeners[vless].reality-config.dest` | Supported | listeners[0].reality-config.dest: "x" names no port |
+| `listeners[vless].reality-config.limit-fallback-download` | Supported |  |
+| `listeners[vless].reality-config.limit-fallback-download.after-bytes` | Warned | listeners[0].reality-config.limit-fallback-download: sail does not limit what REALITY relays to the site it imitates; ignored |
+| `listeners[vless].reality-config.limit-fallback-download.burst-bytes-per-sec` | Warned | listeners[0].reality-config.limit-fallback-download: sail does not limit what REALITY relays to the site it imitates; ignored |
+| `listeners[vless].reality-config.limit-fallback-download.bytes-per-sec` | Warned | listeners[0].reality-config.limit-fallback-download: sail does not limit what REALITY relays to the site it imitates; ignored |
+| `listeners[vless].reality-config.limit-fallback-upload` | Supported |  |
+| `listeners[vless].reality-config.limit-fallback-upload.after-bytes` | Warned | listeners[0].reality-config.limit-fallback-upload: sail does not limit what REALITY relays to the site it imitates; ignored |
+| `listeners[vless].reality-config.limit-fallback-upload.burst-bytes-per-sec` | Warned | listeners[0].reality-config.limit-fallback-upload: sail does not limit what REALITY relays to the site it imitates; ignored |
+| `listeners[vless].reality-config.limit-fallback-upload.bytes-per-sec` | Warned | listeners[0].reality-config.limit-fallback-upload: sail does not limit what REALITY relays to the site it imitates; ignored |
+| `listeners[vless].reality-config.max-time-difference` | Supported |  |
+| `listeners[vless].reality-config.private-key` | Supported | [L] inbound: tls.reality.private_key: neither hex nor base64url |
+| `listeners[vless].reality-config.proxy` | Error | listeners[0].reality-config.proxy: sail does not dial the site REALITY imitates through a proxy yet |
+| `listeners[vless].reality-config.server-names` | Supported |  |
+| `listeners[vless].reality-config.short-id` | Supported | [L] inbound: tls.reality.short_id: not hex |
+| `listeners[vless].res-tls` | Error | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[vless].res-tls.dest` | Error | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[vless].res-tls.enable` | Error | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[vless].res-tls.min-record-len` | Error | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[vless].res-tls.password` | Error | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[vless].res-tls.proxy` | Error | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[vless].res-tls.rate-limit` | Error | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[vless].res-tls.restls-script` | Error | listeners[0].res-tls: sail does not implement this field yet |
+| `listeners[vless].routing-mark` | Warned | listeners[0].routing-mark: sail does not implement this field; ignored |
+| `listeners[vless].rule` | Error | listeners[0].rule: sail does not implement this field yet |
+| `listeners[vless].shadow-tls` | Error | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[vless].shadow-tls.enable` | Error | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[vless].shadow-tls.handshake` | Error | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[vless].shadow-tls.handshake-for-server-name` | Error | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[vless].shadow-tls.handshake.dest` | Error | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[vless].shadow-tls.handshake.proxy` | Error | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[vless].shadow-tls.password` | Error | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[vless].shadow-tls.strict-mode` | Error | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[vless].shadow-tls.users` | Error | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[vless].shadow-tls.users[].name` | Error | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[vless].shadow-tls.users[].password` | Error | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[vless].shadow-tls.version` | Error | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[vless].shadow-tls.wildcard-sni` | Error | listeners[0].shadow-tls: sail does not implement this field yet |
+| `listeners[vless].users` | Supported | listeners[0].users[0]: a map, not a string |
+| `listeners[vless].users[].flow` | Supported |  |
+| `listeners[vless].users[].username` | Supported |  |
+| `listeners[vless].users[].uuid` | Supported |  |
+| `listeners[vless].ws-path` | Supported |  |
+| `listeners[vless].xhttp-config` | Error | listeners[0].xhttp-config: sail does not implement this field yet |
+| `listeners[vless].xhttp-config.host` | Error | listeners[0].xhttp-config: sail does not implement this field yet |
+| `listeners[vless].xhttp-config.mode` | Error | listeners[0].xhttp-config: sail does not implement this field yet |
+| `listeners[vless].xhttp-config.no-sse-header` | Error | listeners[0].xhttp-config: sail does not implement this field yet |
+| `listeners[vless].xhttp-config.path` | Error | listeners[0].xhttp-config: sail does not implement this field yet |
+| `listeners[vless].xhttp-config.sc-max-buffered-posts` | Error | listeners[0].xhttp-config: sail does not implement this field yet |
+| `listeners[vless].xhttp-config.sc-max-each-post-bytes` | Error | listeners[0].xhttp-config: sail does not implement this field yet |
+| `listeners[vless].xhttp-config.sc-stream-up-server-secs` | Error | listeners[0].xhttp-config: sail does not implement this field yet |
+| `listeners[vless].xhttp-config.seq-key` | Error | listeners[0].xhttp-config: sail does not implement this field yet |
+| `listeners[vless].xhttp-config.seq-placement` | Error | listeners[0].xhttp-config: sail does not implement this field yet |
+| `listeners[vless].xhttp-config.session-key` | Error | listeners[0].xhttp-config: sail does not implement this field yet |
+| `listeners[vless].xhttp-config.session-placement` | Error | listeners[0].xhttp-config: sail does not implement this field yet |
+| `listeners[vless].xhttp-config.uplink-chunk-size` | Error | listeners[0].xhttp-config: sail does not implement this field yet |
+| `listeners[vless].xhttp-config.uplink-data-key` | Error | listeners[0].xhttp-config: sail does not implement this field yet |
+| `listeners[vless].xhttp-config.uplink-data-placement` | Error | listeners[0].xhttp-config: sail does not implement this field yet |
+| `listeners[vless].xhttp-config.uplink-http-method` | Error | listeners[0].xhttp-config: sail does not implement this field yet |
+| `listeners[vless].xhttp-config.x-padding-bytes` | Error | listeners[0].xhttp-config: sail does not implement this field yet |
+| `listeners[vless].xhttp-config.x-padding-header` | Error | listeners[0].xhttp-config: sail does not implement this field yet |
+| `listeners[vless].xhttp-config.x-padding-key` | Error | listeners[0].xhttp-config: sail does not implement this field yet |
+| `listeners[vless].xhttp-config.x-padding-method` | Error | listeners[0].xhttp-config: sail does not implement this field yet |
+| `listeners[vless].xhttp-config.x-padding-obfs-mode` | Error | listeners[0].xhttp-config: sail does not implement this field yet |
+| `listeners[vless].xhttp-config.x-padding-placement` | Error | listeners[0].xhttp-config: sail does not implement this field yet |
 
 ## `listeners[vmess]`
 

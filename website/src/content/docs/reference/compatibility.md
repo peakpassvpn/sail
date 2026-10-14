@@ -45,7 +45,7 @@ Full table: [docs/compat/clash.md](https://github.com/peakpassvpn/sail/blob/mast
 | `geox-url` | 5 | 0 | 5 | 0 |
 | `iptables` | 5 | 0 | 0 | 5 |
 | `listeners[anytls]` | 45 | 0 | 0 | 45 |
-| `listeners[http]` | 29 | 9 | 1 | 19 |
+| `listeners[http]` | 29 | 17 | 7 | 5 |
 | `listeners[hysteria2]` | 49 | 0 | 0 | 49 |
 | `listeners[mieru]` | 10 | 0 | 0 | 10 |
 | `listeners[mixed]` | 30 | 8 | 1 | 21 |
@@ -56,12 +56,12 @@ Full table: [docs/compat/clash.md](https://github.com/peakpassvpn/sail/blob/mast
 | `listeners[socks]` | 30 | 8 | 1 | 21 |
 | `listeners[sudoku]` | 29 | 0 | 0 | 29 |
 | `listeners[tproxy]` | 7 | 5 | 1 | 1 |
-| `listeners[trojan]` | 73 | 18 | 1 | 54 |
+| `listeners[trojan]` | 73 | 26 | 7 | 40 |
 | `listeners[trusttunnel]` | 18 | 0 | 0 | 18 |
 | `listeners[tuic]` | 26 | 0 | 0 | 26 |
 | `listeners[tun]` | 55 | 0 | 0 | 55 |
 | `listeners[tunnel]` | 8 | 0 | 0 | 8 |
-| `listeners[vless]` | 93 | 0 | 0 | 93 |
+| `listeners[vless]` | 93 | 27 | 7 | 59 |
 | `listeners[vmess]` | 116 | 0 | 0 | 116 |
 | `ntp` | 7 | 7 | 0 | 0 |
 | `profile` | 3 | 3 | 0 | 0 |
@@ -100,7 +100,7 @@ Full table: [docs/compat/clash.md](https://github.com/peakpassvpn/sail/blob/mast
 | `tls` | 7 | 0 | 7 | 0 |
 | `tuic-server` | 13 | 0 | 0 | 13 |
 | `tun` | 50 | 34 | 9 | 7 |
-| **All** | **2077** | **538** | **113** | **1426** |
+| **All** | **2077** | **581** | **132** | **1364** |
 
 ## Surge
 

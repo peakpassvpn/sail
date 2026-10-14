@@ -12,7 +12,7 @@
 //! Mihomo keeps them: a rule before every other rejects the others' TCP
 //! and UDP alike.
 //!
-//! The proxy listeners (trojan) serve sing-mux, as all of Mihomo's do,
+//! The proxy listeners (trojan, vless) serve sing-mux, as all of Mihomo's do,
 //! over a websocket at `ws-path` or gRPC under `grpc-service-name` where
 //! one is given.
 //!
@@ -43,6 +43,7 @@ const TYPES: &[(&str, &str)] = &[
     ("tproxy", "tproxy"),
     ("shadowsocks", "shadowsocks"),
     ("trojan", "trojan"),
+    ("vless", "vless"),
 ];
 
 /// The early data a websocket client may send in `Sec-WebSocket-Protocol`,
@@ -67,6 +68,7 @@ const FIELDS: &[(&str, Tier)] = &[
     ("jls-config", Unsupported),
     ("kcp-tun", Unsupported),
     ("ss-option", Unsupported),
+    ("xhttp-config", Unsupported),
     ("simple-obfs", Unsupported),
 ];
 
@@ -184,24 +186,39 @@ pub fn lower(
                 inbound.insert("password".into(), json!(password));
             }
             "trojan" => {
-                inbound.insert(
-                    "users".into(),
-                    Value::Array(trojan_users(&mut f, warnings)?),
-                );
+                let users = users(&mut f, "password", warnings)?;
+                inbound.insert("users".into(), Value::Array(users));
+            }
+            "vless" => {
+                let users = users(&mut f, "uuid", warnings)?;
+                inbound.insert("users".into(), Value::Array(users));
+                // VLESS encryption, Mihomo's and Xray's: none is "none".
+                let at = f.at("decryption");
+                if let Some(d) = f
+                    .string("decryption")?
+                    .filter(|d| !d.is_empty() && d != "none")
+                {
+                    return Err(anyhow!(
+                        "{}: {:?}: sail does not implement VLESS encryption",
+                        at,
+                        d
+                    ));
+                }
             }
             _ => {}
         }
-        if matches!(protocol, "http" | "trojan") {
+        if matches!(protocol, "http" | "trojan" | "vless") {
             tls(&mut f, out.home.as_deref(), &mut inbound, warnings)?;
         }
-        if protocol == "trojan" {
+        if matches!(protocol, "trojan" | "vless") {
             // As Mihomo: none of these but by leave.
             let insecure = f.bool("allow-insecure")?.unwrap_or(false);
             if !inbound.contains_key("tls") && !insecure {
                 return Err(anyhow!(
-                    "{}: no certificate, and not allow-insecure: Mihomo refuses a trojan \
-                     listener without TLS",
-                    f.at("certificate")
+                    "{}: no certificate or REALITY, and not allow-insecure: Mihomo refuses \
+                     a {} listener without TLS",
+                    f.at("certificate"),
+                    protocol
                 ));
             }
             carriers(&mut f, &mut inbound, warnings)?;
@@ -286,7 +303,8 @@ pub fn lower(
 /// A listener's TLS, as Mihomo's `ca.NewTLSKeyPairLoader` takes it: a
 /// certificate and its key, each PEM or else a path, which stays in the
 /// data directory (`home`) as Mihomo's IsSafePath keeps it. With one of
-/// them alone Mihomo listens without TLS, and so does sail.
+/// them alone Mihomo listens without TLS, and so does sail. Or REALITY,
+/// `reality-config`, never with a certificate, as Mihomo has it.
 fn tls(
     f: &mut Fields,
     home: Option<&std::path::Path>,
@@ -295,6 +313,19 @@ fn tls(
 ) -> Result<()> {
     let certificate = f.string("certificate")?.filter(|c| !c.is_empty());
     let key = f.string("private-key")?.filter(|k| !k.is_empty());
+    let reality_at = f.at("reality-config");
+    if let Some(r) = f.map("reality-config")? {
+        if let Some(tls) = reality(r, warnings)? {
+            if certificate.is_some() && key.is_some() {
+                return Err(anyhow!(
+                    "{}: with a certificate: Mihomo takes one of the two",
+                    reality_at
+                ));
+            }
+            inbound.insert("tls".into(), tls);
+            return Ok(());
+        }
+    }
     let (certificate, key) = match (certificate, key) {
         (None, None) => return Ok(()),
         (Some(certificate), Some(key)) => (certificate, key),
@@ -335,31 +366,115 @@ fn tls(
     Ok(())
 }
 
-/// A trojan listener's users, its `username` the user's name; of two
-/// with one password the last is taken, as Mihomo keys them by password.
-fn trojan_users(f: &mut Fields, warnings: &mut Vec<String>) -> Result<Vec<Value>> {
+/// REALITY, as Mihomo's `reality-config`, in place of a certificate; none
+/// with no `private-key`, as Mihomo has it. Mihomo's `max-time-difference`
+/// is in microseconds, as its code multiplies it, and so it is here: a
+/// profile runs as Mihomo runs it, though Xray's same field is in
+/// milliseconds, and an Xray value copied gives a window 1000 times
+/// shorter.
+fn reality(mut r: Fields, warnings: &mut Vec<String>) -> Result<Option<Value>> {
+    // What Mihomo requires of the block, private-key among them.
+    for key in ["dest", "private-key", "short-id", "server-names"] {
+        if !r.has(key) {
+            return Err(anyhow!("{}: missing", r.at(key)));
+        }
+    }
+    let key = r.string("private-key")?.unwrap_or_default();
+    let dest_at = r.at("dest");
+    let dest = r.string("dest")?.unwrap_or_default();
+    let short_ids = r.strings("short-id")?;
+    let names_at = r.at("server-names");
+    let names = r.strings("server-names")?;
+    let micros = r.int::<u64>("max-time-difference")?.unwrap_or(0);
+    let proxy_at = r.at("proxy");
+    let proxy = r.string("proxy")?.filter(|p| !p.is_empty());
+    for key in ["limit-fallback-upload", "limit-fallback-download"] {
+        let at = r.at(key);
+        if let Some(mut limit) = r.map(key)? {
+            let mut set = false;
+            for rate in ["after-bytes", "bytes-per-sec", "burst-bytes-per-sec"] {
+                set |= limit.int::<u64>(rate)?.unwrap_or(0) > 0;
+            }
+            limit.finish(&[], |_| false, warnings)?;
+            if set {
+                warnings.push(format!(
+                    "{}: sail does not limit what REALITY relays to the site it imitates; \
+                     ignored",
+                    at
+                ));
+            }
+        }
+    }
+    r.finish(&[], |_| false, warnings)?;
+    if key.is_empty() {
+        return Ok(None);
+    }
+    let (host, port) =
+        split_host_port(&dest).ok_or_else(|| anyhow!("{}: {:?} names no port", dest_at, dest))?;
+    let name = match names.as_slice() {
+        [name] => name.clone(),
+        [] => return Err(anyhow!("{}: empty: no client would be taken", names_at)),
+        _ => {
+            return Err(anyhow!(
+                "{}: sail does not take more than one name yet",
+                names_at
+            ))
+        }
+    };
+    if proxy.is_some() {
+        return Err(anyhow!(
+            "{}: sail does not dial the site REALITY imitates through a proxy yet",
+            proxy_at
+        ));
+    }
+    let mut reality = Map::new();
+    reality.insert("enabled".into(), json!(true));
+    reality.insert(
+        "handshake".into(),
+        json!({ "server": host, "server_port": port }),
+    );
+    reality.insert("private_key".into(), json!(key));
+    reality.insert("short_id".into(), json!(short_ids));
+    if micros > 0 {
+        reality.insert("max_time_difference".into(), json!(format!("{}us", micros)));
+    }
+    Ok(Some(
+        json!({ "enabled": true, "server_name": name, "reality": reality }),
+    ))
+}
+
+/// A proxy listener's users, by `secret`, the password or the UUID, its
+/// `username` the user's name, and a vless user's `flow`; of two with one
+/// secret the last is taken, as Mihomo keys them by it.
+fn users(f: &mut Fields, secret: &str, warnings: &mut Vec<String>) -> Result<Vec<Value>> {
     let at = f.at("users");
     let mut users: Vec<(String, Value)> = Vec::new();
     for (j, item) in f.list("users")?.into_iter().enumerate() {
         let mut u = Fields::of(item, &format!("{}[{}]", at, j))?;
-        let password = u
-            .string("password")?
-            .ok_or_else(|| anyhow!("{}: missing", u.at("password")))?;
+        let value = u
+            .string(secret)?
+            .ok_or_else(|| anyhow!("{}: missing", u.at(secret)))?;
         let mut user = Map::new();
         if let Some(name) = u.string("username")?.filter(|n| !n.is_empty()) {
             user.insert("name".into(), json!(name));
         }
-        user.insert("password".into(), json!(password));
-        if let Some(k) = users.iter().position(|(p, _)| *p == password) {
+        user.insert(secret.into(), json!(value));
+        if secret == "uuid" {
+            if let Some(flow) = u.string("flow")?.filter(|f| !f.is_empty()) {
+                user.insert("flow".into(), json!(flow));
+            }
+        }
+        if let Some(k) = users.iter().position(|(v, _)| *v == value) {
             users.remove(k);
             warnings.push(format!(
-                "{}: the password of a user before it: Mihomo takes this one alone, \
+                "{}: the {} of a user before it: Mihomo takes this one alone, \
                  and so does sail",
-                u.at("password")
+                u.at(secret),
+                secret
             ));
         }
         u.finish(&[], |_| false, warnings)?;
-        users.push((password, Value::Object(user)));
+        users.push((value, Value::Object(user)));
     }
     Ok(users.into_iter().map(|(_, user)| user).collect())
 }
