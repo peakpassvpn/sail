@@ -80,6 +80,15 @@ impl Profile {
             Profile::Server | Profile::Router => ProfileThreads::PerCpu,
         }
     }
+
+    /// How long an outbound keeps a carrier, the connection its streams
+    /// and UDP sessions go over, with none open (`transport::idle`). 60 s
+    /// on every profile: a judgment, mux's idle timeout, not measured. The
+    /// profile's rather than a runtime option, so that a phone can go
+    /// lower once measured, without a setting nobody needs.
+    pub fn carrier_idle_timeout(self) -> Duration {
+        Duration::from_secs(60)
+    }
 }
 
 impl FromStr for Profile {

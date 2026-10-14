@@ -1,13 +1,14 @@
 //! The client's one QUIC connection to its server: dialled, authenticated
 //! and shared by every stream and UDP session, and dialled again once it
-//! is gone.
+//! is gone. One without either for the idle timeout is closed
+//! (`transport::idle`): the keep-alive would hold it up for good.
 
 use std::collections::HashMap;
 use std::io;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::task::{ready, Context, Poll};
 use std::time::{Duration, Instant};
 
@@ -23,6 +24,7 @@ use crate::app::SyncDnsClient;
 use crate::net::dial::BoundInterface;
 use crate::net::Dialer;
 use crate::session::{Session, SocksAddr};
+use crate::transport::idle::{self, Count, Idle, Open};
 use crate::transport::quic::{
     endpoint_on, ClientTls, FragmentBudget, QuicStream, Side, MAX_FRAGMENT_BYTES,
 };
@@ -41,6 +43,9 @@ const UDP_SESSION_QUEUE: usize = 256;
 /// What a connection closed for a network change is closed with.
 const NETWORK_CHANGED_CODE: quinn::VarInt = quinn::VarInt::from_u32(0);
 const NETWORK_CHANGED: &[u8] = b"network changed";
+/// What a connection closed for having nothing open is closed with.
+const IDLE_CODE: quinn::VarInt = quinn::VarInt::from_u32(0);
+const IDLE: &[u8] = b"idle";
 
 /// What the client is configured with.
 pub struct ClientOptions {
@@ -56,6 +61,8 @@ pub struct ClientOptions {
     pub obfs: Option<Salamander>,
     pub tls: ClientTls,
     pub tuning: crate::runtime::options::Quic,
+    /// How long the connection is kept with no stream or UDP session.
+    pub idle_timeout: Duration,
     pub dns_client: SyncDnsClient,
     pub dialer: Dialer,
 }
@@ -67,11 +74,15 @@ pub struct Client {
     /// Held while dialling, so that requests arriving meanwhile wait for
     /// the one connection being made.
     dialing: tokio::sync::Mutex<()>,
+    /// The idle check, which the first dial starts.
+    checking: OnceLock<idle::Check>,
 }
 
 #[derive(Default)]
 struct Current {
     conn: Option<Arc<Connection>>,
+    /// Since when `conn` has had nothing open, as last checked.
+    idle: Idle,
     /// Counts the network changes; a connection dialled across one is
     /// not kept.
     network: u64,
@@ -83,6 +94,7 @@ impl Client {
             options,
             conn: Mutex::default(),
             dialing: tokio::sync::Mutex::new(()),
+            checking: OnceLock::new(),
         }
     }
 
@@ -90,12 +102,13 @@ impl Client {
         self.conn.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// The live connection, if there is one.
-    fn live(&self) -> Option<Arc<Connection>> {
+    /// The live connection, if there is one, counted as carrying one more
+    /// stream or UDP session while the guard lives.
+    fn live(&self) -> Option<(Arc<Connection>, Open)> {
         let mut current = self.slot();
         let conn = current.conn.as_ref()?;
         if conn.conn.close_reason().is_none() {
-            return Some(conn.clone());
+            return Some((conn.clone(), conn.open.open()));
         }
         debug!(
             "hysteria2 connection closed: {:?}",
@@ -111,14 +124,15 @@ impl Client {
         self.slot().conn.as_ref().map(|c| c.conn.clone())
     }
 
-    /// The live connection, dialling one if there is none.
-    pub async fn connection(&self) -> io::Result<Arc<Connection>> {
-        if let Some(conn) = self.live() {
-            return Ok(conn);
+    /// The live connection, dialling one if there is none, counted as
+    /// carrying one more stream or UDP session while the guard lives.
+    pub async fn connection(self: &Arc<Self>) -> io::Result<(Arc<Connection>, Open)> {
+        if let Some(live) = self.live() {
+            return Ok(live);
         }
         let _dialing = self.dialing.lock().await;
-        if let Some(conn) = self.live() {
-            return Ok(conn);
+        if let Some(live) = self.live() {
+            return Ok(live);
         }
         let network = self.slot().network;
         let conn = Arc::new(
@@ -131,8 +145,35 @@ impl Client {
             conn.conn.close(NETWORK_CHANGED_CODE, NETWORK_CHANGED);
             return Err(io::Error::other("hysteria2: network changed"));
         }
+        let open = conn.open.open();
         current.conn = Some(conn.clone());
-        Ok(conn)
+        current.idle = Idle::default();
+        drop(current);
+        self.checking.get_or_init(|| {
+            idle::spawn_check(
+                "hysteria2 idle check",
+                Arc::downgrade(self),
+                self.options.idle_timeout,
+                Client::check_idle,
+            )
+        });
+        Ok((conn, open))
+    }
+
+    /// Closes the connection if it has had no stream or UDP session for
+    /// the idle timeout; the next request dials anew. Under the lock that
+    /// hands it out, so that none is opened on it meanwhile.
+    fn check_idle(&self, now: tokio::time::Instant) {
+        let mut current = self.slot();
+        let Some(conn) = current.conn.clone() else {
+            return;
+        };
+        let open = conn.open.get();
+        if current.idle.expired(open, now, self.options.idle_timeout) {
+            debug!("hysteria2: closing the connection, idle");
+            conn.conn.close(IDLE_CODE, IDLE);
+            current.conn = None;
+        }
     }
 
     /// Forgets `conn` if it is the current connection, so that the next
@@ -160,8 +201,12 @@ impl Client {
     /// along with the request; where the connection went out recorded on
     /// `sess`. The stream is returned once the request is sent, and the
     /// server's answer read at its first read (`ProxiedStream`).
-    pub async fn open_stream(&self, sess: &Session, payload: &[u8]) -> io::Result<ProxiedStream> {
-        let conn = self.connection().await?;
+    pub async fn open_stream(
+        self: &Arc<Self>,
+        sess: &Session,
+        payload: &[u8],
+    ) -> io::Result<ProxiedStream> {
+        let (conn, open) = self.connection().await?;
         let (mut send, recv) = match conn.conn.open_bi().await {
             Ok(s) => s,
             Err(e) => {
@@ -174,7 +219,7 @@ impl Client {
             .map_err(io::Error::other)?;
         conn.bound.onto(sess);
         Ok(ProxiedStream {
-            inner: QuicStream::new(send, recv),
+            inner: QuicStream::guarded(send, recv, open),
             response: Some(Vec::new()),
         })
     }
@@ -263,6 +308,7 @@ impl Client {
             _control: control,
             udp: auth.udp,
             sessions,
+            open: Count::default(),
             next_session: AtomicU32::new(0),
             next_packet: AtomicU32::new(0),
             _tasks: tasks,
@@ -317,7 +363,8 @@ impl Client {
 /// does: until either side closes it, the relay's idle timeouts once one
 /// has, or the connection's idle timeout once the server is gone.
 pub struct ProxiedStream {
-    inner: QuicStream,
+    /// Counted on its connection while it lives.
+    inner: QuicStream<Open>,
     /// The response read so far, until it is whole and OK.
     response: Option<Vec<u8>>,
 }
@@ -442,14 +489,20 @@ pub struct Connection {
     _control: quinn::SendStream,
     udp: bool,
     sessions: Arc<Sessions>,
+    /// The streams and UDP sessions open on it.
+    open: Count,
     next_session: AtomicU32,
     next_packet: AtomicU32,
     _tasks: Tasks,
 }
 
 impl Connection {
-    /// A new UDP session: its ID, and where its packets arrive.
-    pub fn open_session(self: &Arc<Self>) -> io::Result<(UdpSession, mpsc::Receiver<Packet>)> {
+    /// A new UDP session, counted by `open`: its ID, and where its packets
+    /// arrive.
+    pub fn open_session(
+        self: &Arc<Self>,
+        open: Open,
+    ) -> io::Result<(UdpSession, mpsc::Receiver<Packet>)> {
         if !self.udp {
             return Err(io::Error::other("hysteria2: UDP disabled by the server"));
         }
@@ -473,6 +526,7 @@ impl Connection {
             UdpSession {
                 conn: self.clone(),
                 id,
+                _open: open,
             },
             rx,
         ))
@@ -483,6 +537,8 @@ impl Connection {
 pub struct UdpSession {
     conn: Arc<Connection>,
     id: u32,
+    /// Counted on its connection while it lives.
+    _open: Open,
 }
 
 impl UdpSession {

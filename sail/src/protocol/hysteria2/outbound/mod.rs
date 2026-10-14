@@ -132,6 +132,7 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         obfs,
         tls: client_tls,
         tuning: ctx.env.options.quic.clone(),
+        idle_timeout: ctx.env.options.profile.carrier_idle_timeout(),
         dns_client: ctx.dns_client.clone(),
         dialer: ctx.dialer.clone(),
     }));
@@ -187,8 +188,8 @@ impl OutboundDatagramHandler for DatagramHandler {
         sess: &'a Session,
         _transport: Option<AnyOutboundTransport>,
     ) -> io::Result<AnyOutboundDatagram> {
-        let conn = self.0.connection().await?;
-        let (session, rx) = conn.open_session()?;
+        let (conn, open) = self.0.connection().await?;
+        let (session, rx) = conn.open_session(open)?;
         conn.bound.onto(sess);
         Ok(Box::new(Datagram {
             session: Arc::new(session),
@@ -284,6 +285,12 @@ mod tests {
 
     /// A client of a server in process, and what the server accepts.
     async fn fixture() -> (Arc<Client>, AnyIncomingTransport) {
+        fixture_idle(Duration::from_secs(60)).await
+    }
+
+    /// `fixture`, the client keeping its connection with nothing open for
+    /// `idle_timeout`.
+    async fn fixture_idle(idle_timeout: Duration) -> (Arc<Client>, AnyIncomingTransport) {
         let rcgen::CertifiedKey { cert, key_pair } =
             rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
         let alpns = alpn_protocols(None, quic::DEFAULT_ALPN);
@@ -307,12 +314,18 @@ mod tests {
         let InboundTransport::Incoming(incoming) = transport else {
             panic!("not incoming");
         };
-        (client_to(port, &cert.pem()), incoming)
+        (client_idle(port, &cert.pem(), idle_timeout), incoming)
     }
 
     /// A client of a server on `port` of 127.0.0.1 with the certificate
     /// `cert`.
     fn client_to(port: u16, cert: &str) -> Arc<Client> {
+        client_idle(port, cert, Duration::from_secs(60))
+    }
+
+    /// `client_to`, keeping its connection with nothing open for
+    /// `idle_timeout`.
+    fn client_idle(port: u16, cert: &str, idle_timeout: Duration) -> Arc<Client> {
         let alpns = alpn_protocols(None, quic::DEFAULT_ALPN);
         let dns = crate::app::dns::DnsClient::new(
             &crate::config::Dns::default(),
@@ -342,6 +355,7 @@ mod tests {
                 ech_lookup: false,
             },
             tuning: Default::default(),
+            idle_timeout,
             dns_client: dns,
             dialer: crate::net::Dialer::system(),
         }))
@@ -532,7 +546,9 @@ mod tests {
         let mut got = [0; 4];
         served.read_exact(&mut got).await.unwrap();
         let old = client.current().expect("connected");
-        let (session, mut rx) = client.connection().await.unwrap().open_session().unwrap();
+        let (conn, counted) = client.connection().await.unwrap();
+        let (session, mut rx) = conn.open_session(counted).unwrap();
+        drop(conn);
 
         // Both handlers hear of it, as an outbound's do.
         StreamHandler(client.clone()).network_changed(&change(1));
@@ -556,5 +572,70 @@ mod tests {
         open.write_all(b"pong").await.unwrap();
         served.read_exact(&mut got).await.unwrap();
         assert_eq!(&got, b"pong");
+    }
+
+    /// What the idle tests keep a connection with nothing open for: short,
+    /// as quinn's timers run in real time.
+    const IDLE: Duration = Duration::from_millis(200);
+
+    /// A connection whose streams and UDP sessions have all ended is
+    /// closed once the idle timeout has passed, and the next stream dials
+    /// anew.
+    #[tokio::test]
+    async fn a_connection_with_nothing_open_is_closed() {
+        let (client, mut incoming) = fixture_idle(IDLE).await;
+        let (mut open, mut served) = stream(&client, &mut incoming).await;
+        open.write_all(b"ping").await.unwrap();
+        let mut got = [0; 4];
+        served.read_exact(&mut got).await.unwrap();
+        let old = client.current().expect("connected");
+        drop((open, served));
+
+        let closed = timeout(IDLE * 25, old.closed()).await;
+        assert!(
+            matches!(closed, Ok(quinn::ConnectionError::LocallyClosed)),
+            "not closed with nothing open: {:?}",
+            closed
+        );
+        assert!(client.current().is_none());
+        let (mut open, mut served) = stream(&client, &mut incoming).await;
+        assert_ne!(client.current().unwrap().stable_id(), old.stable_id());
+        open.write_all(b"pong").await.unwrap();
+        served.read_exact(&mut got).await.unwrap();
+        assert_eq!(&got, b"pong");
+    }
+
+    /// An open stream keeps the connection past the idle timeout, and so
+    /// does an open UDP session once the stream has ended.
+    #[tokio::test]
+    async fn an_open_stream_or_udp_session_keeps_the_connection() {
+        let (client, mut incoming) = fixture_idle(IDLE).await;
+        let (mut open, mut served) = stream(&client, &mut incoming).await;
+        let conn = client.current().expect("connected");
+        tokio::time::sleep(IDLE * 4).await;
+        assert!(conn.close_reason().is_none(), "closed with a stream open");
+        open.write_all(b"ping").await.unwrap();
+        let mut got = [0; 4];
+        served.read_exact(&mut got).await.unwrap();
+
+        let udp = Session {
+            network: crate::session::Network::Udp,
+            ..session()
+        };
+        let datagram = DatagramHandler(client.clone())
+            .handle(&udp, None)
+            .await
+            .unwrap();
+        drop((open, served));
+        tokio::time::sleep(IDLE * 4).await;
+        assert!(
+            conn.close_reason().is_none(),
+            "closed with a UDP session open"
+        );
+        assert_eq!(client.current().unwrap().stable_id(), conn.stable_id());
+
+        drop(datagram);
+        let closed = timeout(IDLE * 25, conn.closed()).await;
+        assert!(closed.is_ok(), "not closed once the UDP session ended");
     }
 }
