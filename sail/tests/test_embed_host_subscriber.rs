@@ -31,6 +31,7 @@ fn free_port() -> u16 {
     const FROM: u16 = 10_000;
     // Linux gives 32768 and up unless told otherwise, which is read;
     // macOS and Windows 49152 and up.
+    #[allow(unused_mut)]
     let mut below = 32_768;
     #[cfg(target_os = "linux")]
     if let Some(low) = std::fs::read_to_string("/proc/sys/net/ipv4/ip_local_port_range")

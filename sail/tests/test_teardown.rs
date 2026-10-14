@@ -52,6 +52,7 @@ const WINDOWS_TUN: &str = "sadtd0";
 /// process's.
 static ONE_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+#[cfg(not(target_os = "windows"))]
 fn run(program: &str, args: &str) -> Result<String> {
     let out = Command::new(program)
         .args(args.split_whitespace())

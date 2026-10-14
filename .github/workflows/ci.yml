@@ -887,13 +887,16 @@ jobs:
           for test in "${skip[@]}"; do args+=(--skip "$test"); done
           cargo test --locked -p sail --target x86_64-pc-windows-msvc -- --exact "${args[@]}"
 
-      # The NetFilter inbound is built only with inbound-nf, which sail-cli
-      # turns on and sail's defaults do not: its lints and unit tests. The
+      # Clippy on Windows, which no other job runs: the library with
+      # inbound-nf (built only so: sail-cli turns it on, sail's defaults do
+      # not) and its tests, then the NetFilter inbound's unit tests. The
       # driver itself is not on the runner.
-      - name: NetFilter inbound
+      - name: clippy, and the NetFilter inbound
         run: |
           cargo clippy --locked -p sail --features inbound-nf --target x86_64-pc-windows-msvc --lib -- -D warnings
           cargo clippy --locked -p sail --features inbound-nf --target x86_64-pc-windows-msvc --lib --profile test -- -D warnings
+          # The tests' own code, Windows-only lints there too.
+          cargo clippy --locked -p sail --features inbound-nf --target x86_64-pc-windows-msvc --tests -- -D warnings
           cargo test --locked -p sail --features inbound-nf --target x86_64-pc-windows-msvc --lib -- protocol::nf app::fake_dns
 
       # A failing instance leaves nothing while its process lives on

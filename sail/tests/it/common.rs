@@ -102,6 +102,8 @@ pub fn scoped<F: std::future::Future>(fut: F) -> impl std::future::Future<Output
 /// up, as IANA has it.
 fn handed_out_ports() -> std::ops::Range<u16> {
     const FROM: u16 = 10_000;
+    // Lowered on Linux only.
+    #[allow(unused_mut)]
     let mut below = 32_768;
     #[cfg(target_os = "linux")]
     if let Some(low) = std::fs::read_to_string("/proc/sys/net/ipv4/ip_local_port_range")
