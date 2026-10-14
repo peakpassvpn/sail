@@ -585,7 +585,6 @@ fn a_client_ca_file_replaced_is_taken_with_no_reload() -> Result<()> {
 }
 
 /// A CA, and a client certificate it issues with its key: PEM.
-#[cfg(feature = "auto-reload")]
 fn client_ca(name: &str) -> (String, String, String) {
     let ca_key = rcgen::KeyPair::generate().unwrap();
     let mut ca = rcgen::CertificateParams::new(Vec::<String>::new()).unwrap();
@@ -605,15 +604,27 @@ fn client_ca(name: &str) -> (String, String, String) {
 /// with `key`, and relays its data.
 #[cfg(feature = "auto-reload")]
 fn taken(port: u16, cert: &str, key: &str, destination: SocketAddr) -> Result<()> {
+    taken_presenting(port, Some((cert, key)), destination)
+}
+
+/// `taken`, of a client presenting the certificate and key of `identity`,
+/// if any.
+fn taken_presenting(
+    port: u16,
+    identity: Option<(&str, &str)>,
+    destination: SocketAddr,
+) -> Result<()> {
     let tcp = TcpStream::connect(("127.0.0.1", port))?;
     tcp.set_read_timeout(Some(Duration::from_secs(3)))?;
     tcp.set_write_timeout(Some(Duration::from_secs(3)))?;
     let mut connector = SslConnector::builder(SslMethod::tls())?;
     connector.set_verify(SslVerifyMode::NONE);
-    let cert = btls::x509::X509::from_pem(cert.as_bytes())?;
-    connector.set_certificate(&cert)?;
-    let key = btls::pkey::PKey::private_key_from_pem(key.as_bytes())?;
-    connector.set_private_key(&key)?;
+    if let Some((cert, key)) = identity {
+        let cert = btls::x509::X509::from_pem(cert.as_bytes())?;
+        connector.set_certificate(&cert)?;
+        let key = btls::pkey::PKey::private_key_from_pem(key.as_bytes())?;
+        connector.set_private_key(&key)?;
+    }
     let mut stream = connector
         .build()
         .connect("localhost", tcp)
@@ -680,6 +691,94 @@ fn follow_client_ca_file(port: u16) -> Result<()> {
         manager.reloads() == reloads,
         "a CA file reloaded the whole instance"
     );
+    Ok(())
+}
+
+/// A reload that edits how an inbound checks clients' certificates, inline,
+/// is taken as one that edits its certificate is: the inbound's resources
+/// are built again, and the connections that come next are checked as the
+/// configuration now says, with the listener and the connections open
+/// kept. Were it refused, the inbound would be replaced instead.
+#[test]
+fn a_reload_changes_how_clients_certificates_are_checked() -> Result<()> {
+    common::retry_port_clash(|| reload_client_authentication(common::free_port()))
+}
+
+fn reload_client_authentication(port: u16) -> Result<()> {
+    let pair = rcgen::generate_simple_self_signed(vec!["localhost".into()])?;
+    let (first_ca, first_cert, first_key) = client_ca("sail test first CA");
+    let (second_ca, second_cert, second_key) = client_ca("sail test second CA");
+    let config = |client_auth: Value| {
+        let mut tls = json!({"enabled":true,"certificate":pair.cert.pem(),
+            "key":pair.key_pair.serialize_pem()});
+        if let (Some(tls), Value::Object(client_auth)) = (tls.as_object_mut(), client_auth) {
+            tls.extend(client_auth);
+        }
+        json!({
+            "inbounds": [{"type":"trojan", "tag":"server", "listen":"127.0.0.1",
+                "listen_port":port, "users":[{"name":"alice","password":"alice"}], "tls":tls}],
+            "outbounds":[{"type":"direct"}],
+        })
+    };
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()?;
+    let ids = common::run_sail_instances(&rt, vec![config(json!({})).to_string()])?;
+    let _running = Running(ids[0]);
+    let manager = sail::runtime_manager(ids[0]).unwrap();
+    // Reloaded in place: its listener and its connections kept, not
+    // replaced by another inbound.
+    let reload = |client_auth: Value| -> Result<()> {
+        let config = sail::config::from_string(&config(client_auth).to_string())
+            .map_err(|e| anyhow::anyhow!("{}", e))?;
+        let report = rt
+            .block_on(manager.reload_with_reporting(config))
+            .map_err(|e| anyhow::anyhow!("reload: {}", e))?;
+        ensure!(
+            report.inbounds == [("server".to_string(), sail::control::InboundChange::Reloaded)],
+            "the inbound was not reloaded in place: {:?}",
+            report.inbounds
+        );
+        Ok(())
+    };
+    let destination = rt.block_on(async {
+        let (address, server) = common::run_tcp_echo_server("127.0.0.1:0").await?;
+        tokio::spawn(server);
+        anyhow::Ok(address)
+    })?;
+    let first = Some((first_cert.as_str(), first_key.as_str()));
+    let second = Some((second_cert.as_str(), second_key.as_str()));
+    let kept = |identity: Option<(&str, &str)>, wanted: bool, what: &str| -> Result<()> {
+        let got = taken_presenting(port, identity, destination);
+        ensure!(got.is_ok() == wanted, "{}: {:?}", what, got.err());
+        Ok(())
+    };
+    kept(None, true, "no client authentication, no certificate")?;
+    // A connection open before the reloads goes on through them.
+    let mut open = connect(port)?;
+    authenticate(&mut open, "alice", destination)?;
+    ping(&mut open)?;
+
+    reload(json!({"client_authentication":"require-and-verify",
+        "client_certificate":first_ca}))?;
+    kept(None, false, "require-and-verify, no certificate")?;
+    kept(first, true, "require-and-verify, the CA's client")?;
+    kept(second, false, "require-and-verify, another CA's client")?;
+
+    // The inline CA replaced.
+    reload(json!({"client_authentication":"require-and-verify",
+        "client_certificate":second_ca}))?;
+    kept(second, true, "the new CA's client")?;
+    kept(first, false, "the CA replaced's client")?;
+
+    // The mode changed alone.
+    reload(json!({"client_authentication":"verify-if-given",
+        "client_certificate":second_ca}))?;
+    kept(None, true, "verify-if-given, no certificate")?;
+    kept(second, true, "verify-if-given, the CA's client")?;
+    kept(first, false, "verify-if-given, another CA's client")?;
+    ping(&mut open)?;
     Ok(())
 }
 

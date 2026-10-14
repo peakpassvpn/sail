@@ -103,7 +103,19 @@ pub(super) fn check_change(old: &Inbound, new: &Inbound) -> Result<()> {
                 value.options.remove("users");
             }
             if let Some(tls) = value.options.get_mut("tls").and_then(|v| v.as_object_mut()) {
-                for field in ["certificate", "certificate_path", "key", "key_path"] {
+                // The certificate and its key, and how clients' certificates
+                // are checked: the resources are built again from them.
+                for field in [
+                    "certificate",
+                    "certificate_path",
+                    "key",
+                    "key_path",
+                    "client_authentication",
+                    "client_certificate",
+                    "client_certificate_path",
+                    "client_certificate_public_key_sha256",
+                    "client_certificate_sha256",
+                ] {
                     tls.remove(field);
                 }
                 if let Some(reality) = tls.get_mut("reality").and_then(|v| v.as_object_mut()) {
@@ -331,6 +343,17 @@ mod tests {
         new.options.insert("users".into(), json!([]));
         new.options["tls"]["certificate"] = json!("new");
         assert!(check_change(&old, &new).is_ok());
+        for (field, value) in [
+            ("client_authentication", json!("require-and-verify")),
+            ("client_certificate", json!("a CA")),
+            ("client_certificate_path", json!(["ca.pem"])),
+            ("client_certificate_public_key_sha256", json!(["a pin"])),
+            ("client_certificate_sha256", json!(["a pin"])),
+        ] {
+            let mut new = new.clone();
+            new.options["tls"][field] = value;
+            assert!(check_change(&old, &new).is_ok(), "{}", field);
+        }
         new.listen_port = Some(4321);
         assert!(check_change(&old, &new).is_err());
         for protocol in ["tun", "nf"] {
