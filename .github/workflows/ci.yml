@@ -887,15 +887,17 @@ jobs:
           args=()
           for test in "${skip[@]}"; do args+=(--skip "$test"); done
           # With inbound-nf, which sail-cli turns on and sail's defaults do
-          # not: the NetFilter inbound's unit tests run here too.
-          cargo test --locked -p sail --features inbound-nf --target x86_64-pc-windows-msvc -- --exact "${args[@]}"
+          # not: the NetFilter inbound's unit tests run here too. With
+          # fault-injection too, which arms nothing unless a test does: the
+          # teardown step below runs on this build, not one of its own.
+          cargo test --locked -p sail --features inbound-nf,fault-injection --target x86_64-pc-windows-msvc -- --exact "${args[@]}"
 
       # Clippy on Windows, which no other job runs, in one pass: the
       # library, with and without its tests' cfg, and the tests, with
       # inbound-nf as the tests above. The NetFilter driver itself is not
       # on the runner.
       - name: clippy
-        run: cargo clippy --locked -p sail --features inbound-nf --target x86_64-pc-windows-msvc --lib --tests -- -D warnings
+        run: cargo clippy --locked -p sail --features inbound-nf,fault-injection --target x86_64-pc-windows-msvc --lib --tests -- -D warnings
 
       # A failing instance leaves nothing while its process lives on
       # (tests/test_teardown.rs): sail in the test's own process, with a
@@ -919,15 +921,15 @@ jobs:
           $deps = "target\x86_64-pc-windows-msvc\debug\deps"
           New-Item -ItemType Directory -Force $deps | Out-Null
           Copy-Item "$env:RUNNER_TEMP\wintun\wintun\bin\amd64\wintun.dll" $deps
-          cargo test --locked -p sail --features fault-injection --target x86_64-pc-windows-msvc --test test_teardown -- --ignored --test-threads 1 --nocapture
+          cargo test --locked -p sail --features inbound-nf,fault-injection --target x86_64-pc-windows-msvc --test test_teardown -- --ignored --test-threads 1 --nocapture
           $status = $LASTEXITCODE
           # What someone else changes of the TUN's routes and DNS servers is
           # told, and left (tests/test_tun_integrity_windows.rs).
-          cargo test --locked -p sail --features fault-injection --target x86_64-pc-windows-msvc --test test_tun_integrity_windows -- --ignored --test-threads 1 --nocapture
+          cargo test --locked -p sail --features inbound-nf,fault-injection --target x86_64-pc-windows-msvc --test test_tun_integrity_windows -- --ignored --test-threads 1 --nocapture
           if ($LASTEXITCODE -ne 0) { $status = $LASTEXITCODE }
           # The system's split DNS (NRPT) is followed, and a rule reached
           # through sail's own TUN passed over (tests/test_split_dns_windows.rs).
-          cargo test --locked -p sail --features fault-injection --target x86_64-pc-windows-msvc --test test_split_dns_windows -- --ignored --test-threads 1 --nocapture
+          cargo test --locked -p sail --features inbound-nf,fault-injection --target x86_64-pc-windows-msvc --test test_split_dns_windows -- --ignored --test-threads 1 --nocapture
           if ($LASTEXITCODE -ne 0) { $status = $LASTEXITCODE }
           exit $status
 

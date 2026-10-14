@@ -91,7 +91,11 @@ async fn a_contained_panic_on_the_hosts_runtime_leaves_it_running() {
 static ONE_AT_A_TIME: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 async fn contained_panic(options: Options) {
-    assert!(sail::embed::PANICS_ARE_CAUGHT, "this build unwinds");
+    // A constant of the build's profile: what this test is to be run in.
+    #[allow(clippy::assertions_on_constants)]
+    {
+        assert!(sail::embed::PANICS_ARE_CAUGHT, "this build unwinds");
+    }
     let _one = ONE_AT_A_TIME.lock().await;
     let echo = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let target = echo.local_addr().unwrap();
