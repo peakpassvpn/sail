@@ -335,6 +335,19 @@ fn round(
         runtime.block_on(traffic())
     })();
     seen.extend(runtime.block_on(told(events)));
+    // What the system had of the TUN when the traffic failed, and what
+    // sail told meanwhile: a change someone else made explains it first.
+    let result = result.map_err(|e| {
+        let state = powershell(&format!(
+            "Get-NetIPAddress -InterfaceAlias '{0}' -ErrorAction SilentlyContinue | \
+             Format-Table -AutoSize AddressFamily,IPAddress,PrefixLength,PrefixOrigin,AddressState | Out-String -Width 200; \
+             Get-NetIPInterface -InterfaceAlias '{0}' -ErrorAction SilentlyContinue | \
+             Format-Table -AutoSize AddressFamily,Dhcp,DadTransmits,ConnectionState,NlMtu | Out-String -Width 200",
+            tun
+        ))
+        .unwrap_or_else(|e| format!("(state not read: {})", e));
+        e.context(format!("told meanwhile: {:?}\n{} as it was then:\n{}", seen, tun, state))
+    });
     sail.blocking_stop(Duration::from_secs(10))?;
     seen.extend(runtime.block_on(told(events)));
     result?;
