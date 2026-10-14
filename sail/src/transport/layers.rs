@@ -852,7 +852,7 @@ fn layered(
             whole,
             dns_client,
             sing_mux,
-            &env.options.mux,
+            &env.options,
             abort_handles,
         );
     }
@@ -948,7 +948,7 @@ fn layered(
         whole,
         layering.dns_client,
         sing_mux,
-        &layering.env.options.mux,
+        &layering.env.options,
         layering.abort_handles,
     )
 }
@@ -962,7 +962,7 @@ fn sing_mux_outbound(
     whole: AnyOutboundHandler,
     dns_client: &SyncDnsClient,
     options: Option<SingMuxOptions>,
-    tuning: &crate::runtime::options::Mux,
+    tuning: &crate::runtime::options::RuntimeOptions,
     abort_handles: &mut Vec<AbortHandle>,
 ) -> Result<AnyOutboundHandler> {
     let Some(options) = options else {
@@ -1481,7 +1481,7 @@ fn amux_outbound(
             mux.max_lifetime.unwrap_or(0),
             dns_client.clone(),
             dialer.clone(),
-            (&env.options.mux).into(),
+            (&env.options).into(),
             format!("outbound={}", tag),
         );
         abort_handles.append(&mut handles);
@@ -2227,7 +2227,7 @@ fn amux_inbound(
         format!("{}/amux", tag),
         Some(Arc::new(crate::transport::amux::inbound::StreamHandler {
             actors,
-            tuning: (&env.options.mux).into(),
+            tuning: (&env.options).into(),
         })),
         None,
     )));

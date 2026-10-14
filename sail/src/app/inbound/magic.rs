@@ -162,7 +162,7 @@ async fn serve_mux(
     use tracing::Instrument;
 
     let handshake_timeout = dispatcher.env().options.inbound.handshake_timeout;
-    let tuning = (&dispatcher.env().options.mux).into();
+    let tuning = (&dispatcher.env().options).into();
     let label = format!(
         "inbound={} user={}",
         inbound_tag,

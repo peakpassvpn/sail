@@ -20,6 +20,11 @@
 //!   `Tuning::stall_timeout` is reset, alone: its data dropped, the peer
 //!   told as the protocol tells it. A stream that is read, however slowly,
 //!   never is.
+//! - Without windows, a session whose connection takes nothing written to
+//!   it for `Tuning::write_stall`, the reader having stopped for a full
+//!   inbox meanwhile, fails: when neither end reads, a TCP connection may
+//!   never move again (as on Linux 6.17 to 7.0), and a write to it never
+//!   ends of itself.
 //! - Control frames -- acknowledgements, window updates, pings -- go out
 //!   ahead of data, in a queue of their own the reader never waits on.
 //! - Streams the peer opens are never turned away for being many at
@@ -61,7 +66,8 @@ pub use session::{Session, Stream, MAX_STREAMS};
 /// The window every stream starts with, where there are windows.
 pub const INITIAL_WINDOW: u32 = 256 << 10;
 
-/// What sessions run with: `runtime::options::Mux`.
+/// What sessions run with: `runtime::options::Mux`, and the relay's write
+/// stall timeout.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Tuning {
     /// The largest a stream's receive window grows to.
@@ -71,6 +77,10 @@ pub struct Tuning {
     pub inbox: usize,
     /// A stream whose data nothing has read for this long is reset.
     pub stall_timeout: Duration,
+    /// Without windows: a session whose connection has taken nothing
+    /// written to it for this long, while its reader stopped for a full
+    /// inbox, fails.
+    pub write_stall: Duration,
     /// h2mux: every stream's window, which does not grow; the
     /// connection's is eight times as much.
     pub h2_stream_window: u32,
@@ -78,18 +88,20 @@ pub struct Tuning {
 
 impl Default for Tuning {
     fn default() -> Self {
-        Tuning::from(&crate::runtime::options::Mux::default())
+        Tuning::from(&crate::runtime::options::RuntimeOptions::default())
     }
 }
 
-impl From<&crate::runtime::options::Mux> for Tuning {
-    fn from(mux: &crate::runtime::options::Mux) -> Self {
+impl From<&crate::runtime::options::RuntimeOptions> for Tuning {
+    fn from(options: &crate::runtime::options::RuntimeOptions) -> Self {
+        let mux = &options.mux;
         Tuning {
             window_max: u32::try_from(mux.stream_window_max.saturating_mul(1024))
                 .unwrap_or(u32::MAX)
                 .max(INITIAL_WINDOW),
             inbox: mux.stream_buffer.saturating_mul(1024).max(16 << 10),
             stall_timeout: mux.stall_timeout.max(Duration::from_secs(1)),
+            write_stall: options.relay.write_stall_timeout,
             // A quarter of what a window grows to: 4 MiB, 2 on the mobile
             // and router profiles.
             h2_stream_window: u32::try_from(mux.stream_window_max.saturating_mul(1024) / 4)
@@ -363,7 +375,7 @@ mod tests {
 
     #[test]
     fn windows_grow_to_16_mib_or_8_on_small_devices() {
-        let tuning = |profile| Tuning::from(&RuntimeOptions::profile(profile).mux);
+        let tuning = |profile| Tuning::from(&RuntimeOptions::profile(profile));
         for (profile, max, h2) in [
             (Profile::Desktop, 16 << 20, 4 << 20),
             (Profile::Server, 16 << 20, 4 << 20),

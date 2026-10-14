@@ -84,6 +84,8 @@ The streams of multiplexed connections (sing-mux smux and yamux, AnyTLS, amux) t
 | `mux.stream_buffer` | `256` (KiB) | What a stream of a protocol without windows (smux, AnyTLS) holds unread before its connection stops being read. |
 | `mux.stall_timeout` | `60s` | A stream whose data nothing has read for this long is reset, alone, and logged as `event=stream_stalled`; h2mux streams too. QUIC streams (Hysteria2, TUIC) are reset after 60 s. |
 
+A session of a protocol without windows (smux, AnyTLS) whose connection takes nothing written to it for `relay.write_stall_timeout` (`300s`), once it has stopped reading the connection for a stream holding `mux.stream_buffer` unread, ends with all its streams: when neither end reads, a TCP connection may never move again.
+
 The API's `/api/v1/runtime/stat/mux` counts their sessions, streams and stalled streams per protocol.
 
 The UDP sockets of QUIC (Hysteria2, TUIC, the `quic` transport, DNS over QUIC) take two, the same on every profile:

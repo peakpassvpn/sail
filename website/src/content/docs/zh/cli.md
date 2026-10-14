@@ -72,6 +72,8 @@ sail -c config.json --profile server \
 | `mux.stream_buffer` | `256`（KiB） | 无窗口协议（smux、AnyTLS）的单条流最多积压的未读数据，超过后暂停读取整条连接。 |
 | `mux.stall_timeout` | `60s` | 数据积压且这么久没人读的流被单独重置，并记录 `event=stream_stalled`；h2mux 的流同样适用。QUIC 流（Hysteria2、TUIC）固定 60 秒。 |
 
+无窗口协议（smux、AnyTLS）的会话因某条流积压满 `mux.stream_buffer` 而暂停读取连接后，若连接在 `relay.write_stall_timeout`（`300s`）内一个字节也没写出去，会话连同其所有流一起结束：两端都不读时，TCP 连接可能再也不动。
+
 API 的 `/api/v1/runtime/stat/mux` 按协议给出会话数、流数和被重置的停滞流数。
 
 QUIC（Hysteria2、TUIC、`quic` 传输、DNS over QUIC）的 UDP 套接字使用其中两项，各配置档相同：

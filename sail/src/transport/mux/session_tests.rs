@@ -579,3 +579,142 @@ async fn idle_streams_give_their_grown_windows_back() {
     }
     sender.await.unwrap();
 }
+
+/// A connection read from a pipe, which takes what is written to it a
+/// byte every `every`, or, without, never.
+struct Stuck {
+    read: tokio::io::DuplexStream,
+    every: Option<Duration>,
+    next: std::pin::Pin<Box<tokio::time::Sleep>>,
+}
+
+impl tokio::io::AsyncRead for Stuck {
+    fn poll_read(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<io::Result<()>> {
+        std::pin::Pin::new(&mut self.read).poll_read(cx, buf)
+    }
+}
+
+impl tokio::io::AsyncWrite for Stuck {
+    fn poll_write(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<io::Result<usize>> {
+        use std::future::Future;
+        let Some(every) = self.every else {
+            return std::task::Poll::Pending;
+        };
+        std::task::ready!(self.next.as_mut().poll(cx));
+        let next = tokio::time::Instant::now() + every;
+        self.next.as_mut().reset(next);
+        std::task::Poll::Ready(Ok(buf.len().min(1)))
+    }
+
+    fn poll_flush(
+        self: std::pin::Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<io::Result<()>> {
+        std::task::Poll::Ready(Ok(()))
+    }
+
+    fn poll_shutdown(
+        self: std::pin::Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<io::Result<()>> {
+        std::task::Poll::Ready(Ok(()))
+    }
+}
+
+/// A smux client session over a `Stuck` connection taking a byte every
+/// `every`, or nothing, with a stream that has written to it; when
+/// `fill`, the peer has sent the stream more than its inbox holds, which
+/// nothing reads, and the session stops reading.
+async fn stuck_session(
+    every: Option<Duration>,
+    fill: bool,
+    tuning: Tuning,
+) -> (Session, crate::transport::muxcore::Stream) {
+    let smux = Flavor::Smux.codec();
+    let (read, mut peer) = tokio::io::duplex(256 << 10);
+    let conn = Stuck {
+        read,
+        every,
+        next: Box::pin(tokio::time::sleep(Duration::ZERO)),
+    };
+    let (client, _) = Session::new(conn, smux.clone(), false, tuning, "test");
+    let mut stream = client.open().unwrap();
+    stream.write_all(&[1u8; 32 << 10]).await.unwrap();
+    if fill {
+        let chunk = vec![2u8; 8 << 10];
+        for _ in 0..(2 * tuning.inbox) / chunk.len() {
+            peer.write_all(&smux.data(stream.id(), &chunk))
+                .await
+                .unwrap();
+        }
+        // The reader stops once the inbox is full, before all of it.
+        let full = tuning.inbox as u64;
+        assert!(
+            until(|| client.received() >= full).await,
+            "the data never came"
+        );
+    }
+    // The peer stays: its end gone, the session would read the end.
+    tokio::spawn(async move {
+        let _peer = peer;
+        std::future::pending::<()>().await;
+    });
+    (client, stream)
+}
+
+fn small_inbox() -> Tuning {
+    Tuning {
+        inbox: 16 << 10,
+        ..Tuning::default()
+    }
+}
+
+/// A connection that takes nothing written to it while the session has
+/// stopped reading it, for a full inbox, ends the session after the write
+/// stall timeout, though the stall timer resets the stream and reading
+/// starts again: neither end reading, a TCP connection may never move
+/// again.
+#[tokio::test(start_paused = true)]
+async fn a_connection_that_takes_nothing_while_not_read_ends_the_session() {
+    let tuning = small_inbox();
+    let start = tokio::time::Instant::now();
+    let (client, _stream) = stuck_session(None, true, tuning).await;
+    tokio::time::sleep_until(start + tuning.write_stall - Duration::from_secs(10)).await;
+    assert!(!client.is_closed(), "ended before the write stall timeout");
+    tokio::time::sleep_until(start + tuning.write_stall + Duration::from_secs(10)).await;
+    assert!(
+        client.is_closed(),
+        "still open past the write stall timeout"
+    );
+    let Err(err) = client.open() else {
+        panic!("a stream opened on the session ended");
+    };
+    assert!(err.to_string().contains("write timed out"), "{}", err);
+}
+
+/// A session goes on with a connection that takes nothing while its
+/// reader does not stop, or that takes what it is given slowly while the
+/// reader has stopped.
+#[tokio::test(start_paused = true)]
+async fn a_slow_connection_or_one_still_read_keeps_the_session() {
+    let tuning = small_inbox();
+    let (unpaused, _a) = stuck_session(None, false, tuning).await;
+    // Paused throughout: the stream is never reset for stalling.
+    let paused = Tuning {
+        stall_timeout: Duration::from_secs(3600),
+        ..tuning
+    };
+    let slow = Some(tuning.write_stall / 3);
+    let (slowly, _b) = stuck_session(slow, true, paused).await;
+    tokio::time::sleep(tuning.write_stall * 3).await;
+    assert!(!unpaused.is_closed(), "ended while still reading");
+    assert!(!slowly.is_closed(), "ended while writes moved");
+}

@@ -5,7 +5,10 @@
 //! (`driver`). The reader hands what it reads to the streams' inboxes and
 //! never waits for a stream to take it: with windows it has no need to,
 //! and without, it stops reading the connection while an inbox is full,
-//! which the stall timer ends in `Tuning::stall_timeout` at most. What
+//! which the stall timer ends in `Tuning::stall_timeout` at most; a
+//! connection that, meanwhile, takes nothing written to it for
+//! `Tuning::write_stall` ends the session, as neither end then reads it
+//! and it may never move again. What
 //! streams write waits in one queue, and a stream stops being taken writes
 //! while that queue holds `OUT_SOFT_LIMIT`; control frames wait in one of
 //! their own, written first, and a peer that makes it grow past
@@ -173,6 +176,12 @@ struct State {
     /// Without windows: the streams whose inbox is full, which stop the
     /// reader.
     full: usize,
+    /// Since when the writer has had frames to write and the connection
+    /// has taken none of them: `None` while it has nothing to write.
+    write_waiting: Option<Instant>,
+    /// Without windows: the reader stopped for a full inbox while the
+    /// writer waited, since `write_waiting`.
+    paused_while_waiting: bool,
     /// With windows: what the streams' windows have grown by, together.
     grown: u64,
     /// With windows: the shortest round trip measured.
@@ -397,6 +406,7 @@ impl Shared {
         slot.recv.push_back(data);
         if self.flow == Flow::Pause && !was_full && slot.inbox >= self.tuning.inbox {
             state.full += 1;
+            state.paused_while_waiting |= state.write_waiting.is_some();
         }
         if let Some(w) = slot.read_waker.take() {
             w.wake();
@@ -468,6 +478,35 @@ impl Shared {
         self.writer.notify_one();
     }
 
+    /// The connection took some of what the writer has, or the writer
+    /// starts on more: it waits from now.
+    fn wrote(&self) {
+        let mut state = self.lock();
+        state.write_waiting = Some(Instant::now());
+        state.paused_while_waiting = state.full > 0;
+    }
+
+    /// Says why the session ends if its connection has taken nothing for
+    /// `Tuning::write_stall` while the reader stopped for a full inbox:
+    /// neither end then reads it, and a TCP connection where neither does
+    /// may never move again (Linux 6.17 to 7.0), while a write to it waits
+    /// for as long as it does not.
+    fn check_write_stall(&self) -> Option<String> {
+        let state = self.lock();
+        let since = state.write_waiting?;
+        if state.error.is_some() || !state.paused_while_waiting {
+            return None;
+        }
+        let idle = Instant::now().saturating_duration_since(since);
+        if idle < self.tuning.write_stall {
+            return None;
+        }
+        Some(format!(
+            "write timed out: nothing taken for {}s, and not read for a full inbox",
+            idle.as_secs()
+        ))
+    }
+
     /// Measures the round trip, which windows grow with.
     fn ping(&self) {
         if self.flow != Flow::Window {
@@ -529,6 +568,8 @@ impl Session {
                 next_id: codec.first_id(server),
                 received: 0,
                 full: 0,
+                write_waiting: None,
+                paused_while_waiting: false,
                 grown: 0,
                 rtt: None,
                 rtt_pinned: false,
@@ -734,17 +775,18 @@ async fn write_loop<W: AsyncWrite + Unpin>(shared: &Shared, mut w: W) -> String 
             notified.await;
             continue;
         }
+        shared.wrote();
         let result = async {
             match shaper.as_mut().filter(|_| shaped) {
                 Some(shaper) => {
                     for record in shaper.shape(batch.split()) {
-                        w.write_all(&record).await?;
+                        write_all(shared, &mut w, &record).await?;
                         w.flush().await?;
                     }
                     Ok(())
                 }
                 None => {
-                    w.write_all(&batch).await?;
+                    write_all(shared, &mut w, &batch).await?;
                     w.flush().await
                 }
             }
@@ -756,6 +798,7 @@ async fn write_loop<W: AsyncWrite + Unpin>(shared: &Shared, mut w: W) -> String 
         }
         trace!("{} wrote {} bytes", shared.codec.name(), control + data);
         let mut state = shared.lock();
+        state.write_waiting = None;
         state.control.bytes -= control;
         state.data.bytes -= data;
         if data > 0 && state.data.bytes < OUT_SOFT_LIMIT {
@@ -766,6 +809,24 @@ async fn write_loop<W: AsyncWrite + Unpin>(shared: &Shared, mut w: W) -> String 
             }
         }
     }
+}
+
+/// Writes all of `buf`, and tells the session each time the connection
+/// takes some of it.
+async fn write_all<W: AsyncWrite + Unpin>(
+    shared: &Shared,
+    w: &mut W,
+    mut buf: &[u8],
+) -> io::Result<()> {
+    while !buf.is_empty() {
+        let n = w.write(buf).await?;
+        if n == 0 {
+            return Err(io::ErrorKind::WriteZero.into());
+        }
+        buf = &buf[n..];
+        shared.wrote();
+    }
+    Ok(())
 }
 
 /// Moves frames from `out` to `batch` while it has room, or only one,
@@ -783,8 +844,9 @@ fn take(out: &mut Out, batch: &mut BytesMut, one: bool) -> usize {
     taken
 }
 
-/// Looks for stalled streams and measures the round trip, until the
-/// session has ended and had its while to write what it had left.
+/// Looks for stalled streams and a stalled connection, and measures the
+/// round trip, until the session has ended and had its while to write
+/// what it had left.
 async fn tick_loop(shared: &Shared) -> String {
     let every = shared.tuning.stall_check();
     loop {
@@ -792,6 +854,9 @@ async fn tick_loop(shared: &Shared) -> String {
         if shared.lock().error.is_some() {
             tokio::time::sleep(CLOSE_GRACE).await;
             return "closed, and could not write what it had left".to_string();
+        }
+        if let Some(reason) = shared.check_write_stall() {
+            return reason;
         }
         shared.check_stalls();
         if !shared.lock().streams.is_empty() {

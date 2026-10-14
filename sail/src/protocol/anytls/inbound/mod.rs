@@ -106,7 +106,7 @@ fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
         Arc::new(padding),
         ctx.env.options.inbound.handshake_timeout,
         fallback,
-        (&ctx.env.options.mux).into(),
+        (&ctx.env.options).into(),
     ));
     let core: AnyInboundHandler = Arc::new(Handler::new(tag.to_owned(), Some(stream), None));
     layers::inbound(core, &blocks, ctx)
