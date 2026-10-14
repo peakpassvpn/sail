@@ -8,6 +8,8 @@ use super::super::client::{Identity, TlsClient};
 use super::super::ech::decode_ech_config_list;
 use super::super::fingerprint::Fingerprint;
 use super::super::options::ClientOptions;
+use super::super::BoringConnection;
+use crate::transport::tls_stream::TlsStream;
 use crate::{adapter::*, app::SyncDnsClient, session::Session, transport::vision::VisionState};
 
 pub struct Handler {
@@ -67,6 +69,44 @@ impl Handler {
         })
     }
 
+    /// TLS over `stream` for `sess`, as `handle` makes it, the stream as it
+    /// is: for a protocol that reads what the handshake negotiated, its
+    /// ALPN.
+    pub async fn connect_tls(
+        &self,
+        sess: &Session,
+        stream: AnyStream,
+    ) -> io::Result<TlsStream<BoringConnection, AnyStream>> {
+        let name = if !self.server_name.is_empty() {
+            self.server_name.clone()
+        } else {
+            sess.destination.host()
+        };
+        let ech_config_list = self.select_ech_config_list(&name, sess).await?;
+        trace!(
+            "handling TLS {}, ech_enabled={}, ech_config_selected={}",
+            &name,
+            self.ech.is_some(),
+            ech_config_list.is_some()
+        );
+        let tls_stream = self
+            .client
+            .connect(
+                &name,
+                stream,
+                Some(VisionState::of(sess)),
+                ech_config_list.as_deref(),
+            )
+            .await
+            .map_err(|e| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!("connect tls failed: {}", e),
+                )
+            })?;
+        Ok(tls_stream)
+    }
+
     /// The DNS client's own connections must not look ECH up in DNS.
     fn should_skip_ech_dns_lookup_for_session(sess: &Session) -> bool {
         sess.inbound_tag == "dnsclient"
@@ -117,34 +157,7 @@ impl OutboundStreamHandler for Handler {
     ) -> io::Result<AnyStream> {
         trace!("handling outbound stream");
         let stream = stream.ok_or_else(|| io::Error::other("invalid tls input"))?;
-        let name = if !self.server_name.is_empty() {
-            self.server_name.clone()
-        } else {
-            sess.destination.host()
-        };
-        let ech_config_list = self.select_ech_config_list(&name, sess).await?;
-        trace!(
-            "handling TLS {}, ech_enabled={}, ech_config_selected={}",
-            &name,
-            self.ech.is_some(),
-            ech_config_list.is_some()
-        );
-        let tls_stream = self
-            .client
-            .connect(
-                &name,
-                stream,
-                Some(VisionState::of(sess)),
-                ech_config_list.as_deref(),
-            )
-            .await
-            .map_err(|e| {
-                io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    format!("connect tls failed: {}", e),
-                )
-            })?;
-        Ok(Box::new(tls_stream))
+        Ok(Box::new(self.connect_tls(sess, stream).await?))
     }
 }
 

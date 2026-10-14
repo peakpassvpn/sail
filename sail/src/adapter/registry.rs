@@ -711,6 +711,9 @@ pub struct InboundFactory {
     pub blocks: Blocks,
     /// Checks its options against its blocks; see `OutboundFactory::check`.
     pub check: fn(&str, &Options, &InboundBlocks) -> Result<()>,
+    /// The ALPN its TLS offers, from its options, for a `tls.alpn` left
+    /// unset; see `OutboundFactory::alpn`.
+    pub alpn: fn(&Options) -> &'static [&'static str],
 }
 
 impl InboundFactory {
@@ -721,6 +724,7 @@ impl InboundFactory {
             build,
             blocks: Blocks::NONE,
             check: |_, _, _| Ok(()),
+            alpn: |_| &[],
         }
     }
 
@@ -734,12 +738,19 @@ impl InboundFactory {
             build,
             blocks: Blocks::NONE,
             check: |_, _, _| Ok(()),
+            alpn: |_| &[],
         }
     }
 
     pub fn with_blocks(mut self, blocks: Blocks) -> Self {
         debug_assert!(!blocks.detour, "an inbound cannot detour");
         self.blocks = blocks;
+        self
+    }
+
+    /// Offers `alpn` over TLS directly under it, see `alpn`.
+    pub fn with_alpn(mut self, alpn: fn(&Options) -> &'static [&'static str]) -> Self {
+        self.alpn = alpn;
         self
     }
 
@@ -869,7 +880,8 @@ pub(crate) fn build_inbounds(
         .map(|i| {
             let factory = registry.require(&i.tag, &i.protocol)?;
             let (options, blocks) = factory.blocks.split(&i.options);
-            let blocks = InboundBlocks::parse(&i.tag, &blocks)?;
+            let mut blocks = InboundBlocks::parse(&i.tag, &blocks)?;
+            blocks.protocol_alpn((factory.alpn)(&options));
             (factory.check)(&i.tag, &options, &blocks)?;
             let dependencies = (factory.dependencies)(&i.tag, &options)?;
             Ok(Node {

@@ -792,20 +792,31 @@ pub fn outbound(
     blocks: &OutboundBlocks,
     layering: OutboundLayering<'_>,
 ) -> Result<AnyOutboundHandler> {
-    layered(core, blocks, layering, true)
+    layered(core, blocks, layering, Layers::All)
 }
 
-/// `outbound`, or without the transport and multiplex blocks when not
-/// `with_transport`: the layers beneath the transport, for a transport
-/// that dials through them itself. Multiplex is not among them: it runs
-/// over the protocol, which runs over the transport.
+/// Which of the layers the blocks configure are built.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Layers {
+    All,
+    /// Those beneath the transport, for a transport that dials through
+    /// them itself. Multiplex is not among them: it runs over the
+    /// protocol, which runs over the transport.
+    BeneathTransport,
+    /// Those beneath TLS as well, the dialer and its detour: for a
+    /// protocol that runs TLS itself, to read what it negotiated.
+    BeneathTls,
+}
+
+/// `outbound`, with the layers `layers` says.
 fn layered(
     core: AnyOutboundHandler,
     blocks: &OutboundBlocks,
     layering: OutboundLayering<'_>,
-    with_transport: bool,
+    layers: Layers,
 ) -> Result<AnyOutboundHandler> {
     let tag = layering.tag;
+    let with_transport = layers == Layers::All;
     let transport = blocks.transport.as_ref().filter(|_| with_transport);
     let multiplex = blocks.multiplex().filter(|_| with_transport);
 
@@ -855,7 +866,7 @@ fn layered(
             dialer,
             env,
         };
-        let connector = Connector::build(blocks, beneath, false)?;
+        let connector = Connector::build(blocks, beneath, Layers::BeneathTransport)?;
         let grpc = grpc_outbound(
             tag,
             service_name,
@@ -906,7 +917,7 @@ fn layered(
         )?);
     } else {
         let mut under_mux = Vec::new();
-        if let Some(tls) = blocks.tls() {
+        if let Some(tls) = blocks.tls().filter(|_| layers != Layers::BeneathTls) {
             under_mux.push(tls_outbound(tag, tls, layering.dns_client, layering.env)?);
         }
         if let Some(OutboundTransport::Ws {
@@ -1017,15 +1028,14 @@ pub struct Connector {
 
 impl Connector {
     pub fn new(blocks: &OutboundBlocks, layering: OutboundLayering<'_>) -> Result<Self> {
-        Self::build(blocks, layering, true)
+        Self::build(blocks, layering, Layers::All)
     }
 
-    /// Through the layers `blocks` configure, the transport too unless not
-    /// `with_transport`.
+    /// Through the layers `blocks` configure, those `layers` says.
     fn build(
         blocks: &OutboundBlocks,
         layering: OutboundLayering<'_>,
-        with_transport: bool,
+        layers: Layers,
     ) -> Result<Self> {
         let (server, port) = server(layering.tag, layering.options, &layering.dialer)?;
         let dns_client = layering.dns_client.clone();
@@ -1038,9 +1048,9 @@ impl Connector {
             }))
             .build();
         Ok(Connector {
-            layers: layered(handover, blocks, layering, with_transport)?,
+            layers: layered(handover, blocks, layering, layers)?,
             dns_client,
-            tls: blocks.tls().is_some(),
+            tls: blocks.tls().is_some() && layers != Layers::BeneathTls,
         })
     }
 
@@ -1116,6 +1126,139 @@ impl Connector {
             .handle(sess, None, Some(Box::new(tcp)))
             .await?;
         Ok((stream, socket))
+    }
+}
+
+/// Connections to a protocol's server whose TLS the protocol reads the
+/// outcome of, the ALPN negotiated: the HTTP proxy's, which speaks HTTP/2
+/// where the server picks `h2` and HTTP/1.1 where it does not. The layers
+/// beneath TLS (the dialer, its detour) make the connection, as a
+/// `Connector`, and TLS is run on it here.
+#[derive(Clone)]
+pub struct TlsConnector {
+    beneath: Connector,
+    tls: Option<NegotiatingTls>,
+}
+
+#[derive(Clone)]
+enum NegotiatingTls {
+    /// TLS whose ALPN is read: offering the configuration's, or with a
+    /// fallback the protocol's fallback alone.
+    #[cfg(feature = "outbound-tls")]
+    Read {
+        offer: Arc<crate::transport::tls::outbound::StreamHandler>,
+        fallback: Arc<crate::transport::tls::outbound::StreamHandler>,
+    },
+    /// TLS that tells no ALPN: REALITY.
+    Untold(AnyOutboundHandler),
+}
+
+impl TlsConnector {
+    /// Through the layers `blocks` configure, TLS last. A fallback offers
+    /// `fallback_alpn` alone where TLS offers it among others, as the ALPN
+    /// a protocol fills an unset `tls.alpn` with does (`protocol_alpn`);
+    /// where not, what TLS offers.
+    #[cfg_attr(not(feature = "outbound-tls"), allow(unused_variables))]
+    pub fn new(
+        blocks: &OutboundBlocks,
+        layering: OutboundLayering<'_>,
+        fallback_alpn: &str,
+    ) -> Result<Self> {
+        let (tag, dns_client, env) = (layering.tag, layering.dns_client, layering.env);
+        let tls = match blocks.tls() {
+            None => None,
+            Some(tls) if tls.reality.as_ref().is_some_and(|r| r.enabled) => Some(
+                NegotiatingTls::Untold(tls_outbound(tag, tls, dns_client, env)?),
+            ),
+            Some(tls) => {
+                #[cfg(feature = "outbound-tls")]
+                {
+                    Some(Self::read(tag, tls, dns_client, env, fallback_alpn)?)
+                }
+                #[cfg(not(feature = "outbound-tls"))]
+                return Err(not_compiled(tag, "outbound", "tls", "outbound-tls"));
+            }
+        };
+        Ok(TlsConnector {
+            beneath: Connector::build(blocks, layering, Layers::BeneathTls)?,
+            tls,
+        })
+    }
+
+    #[cfg(feature = "outbound-tls")]
+    fn read(
+        tag: &str,
+        tls: &OutboundTls,
+        dns_client: &SyncDnsClient,
+        env: &RuntimeEnv,
+        fallback_alpn: &str,
+    ) -> Result<NegotiatingTls> {
+        if tls.disable_sni && tls.utls.as_ref().is_some_and(|u| u.enabled) {
+            tracing::warn!(
+                "[{}] outbound: tls.disable_sni: the ClientHello, with no SNI, is no longer \
+                 the one tls.utls's browser sends",
+                tag
+            );
+        }
+        let offer = tls.alpn.clone().map(Listable::into_vec).unwrap_or_default();
+        let fallback = if offer.iter().any(|p| p == fallback_alpn) {
+            vec![fallback_alpn.to_string()]
+        } else {
+            offer.clone()
+        };
+        Ok(NegotiatingTls::Read {
+            offer: Arc::new(tls_stream_handler(tag, tls, offer, dns_client, env)?),
+            fallback: Arc::new(tls_stream_handler(tag, tls, fallback, dns_client, env)?),
+        })
+    }
+
+    /// Whether the connections are made over TLS (or REALITY).
+    pub fn tls(&self) -> bool {
+        self.tls.is_some()
+    }
+
+    /// The layers hear of a change of network, for the connections they
+    /// keep.
+    pub fn network_changed(&self, change: &crate::net::network::NetworkChange) {
+        self.beneath.network_changed(change);
+    }
+
+    /// The layers close the carriers they keep with nothing open.
+    pub fn close_idle(&self) {
+        self.beneath.close_idle();
+    }
+
+    /// A new connection to the server, for `sess`, its TLS offering the
+    /// fallback's ALPN if `fallback`; and the ALPN negotiated, if TLS tells
+    /// it.
+    #[cfg_attr(not(feature = "outbound-tls"), allow(unused_variables))]
+    pub async fn connect(
+        &self,
+        sess: &crate::session::Session,
+        fallback: bool,
+    ) -> std::io::Result<(crate::adapter::AnyStream, Option<Vec<u8>>)> {
+        let stream = self.beneath.connect(sess).await?;
+        match &self.tls {
+            None => Ok((stream, None)),
+            Some(NegotiatingTls::Untold(tls)) => {
+                let stream = tls.stream()?.handle(sess, None, Some(stream)).await?;
+                Ok((stream, None))
+            }
+            #[cfg(feature = "outbound-tls")]
+            Some(NegotiatingTls::Read {
+                offer,
+                fallback: offer_fallback,
+            }) => {
+                let tls = if fallback { offer_fallback } else { offer };
+                let stream = tls.connect_tls(sess, stream).await?;
+                let alpn = stream
+                    .conn()
+                    .ssl()
+                    .selected_alpn_protocol()
+                    .map(<[u8]>::to_vec);
+                Ok((Box::new(stream), alpn))
+            }
+        }
     }
 }
 
@@ -1246,33 +1389,6 @@ fn tls_outbound(
     }
     #[cfg(feature = "outbound-tls")]
     {
-        let ech = tls.ech.as_ref().filter(|e| e.enabled);
-        // The outer ClientHello names the ECH config's public name.
-        if ech.is_some() && tls.disable_sni {
-            return Err(anyhow!(
-                "[{}] outbound: tls.disable_sni: not with tls.ech",
-                tag
-            ));
-        }
-        // A configured list is the only one used, as in sing-box: DNS is
-        // asked only without one, so with it the lookup is off anyway, and
-        // without it, ECH would be.
-        if ech.is_some_and(|e| e.disable_dns_lookup && e.config.is_none()) {
-            return Err(anyhow!(
-                "[{}] outbound: tls.ech.disable_dns_lookup: needs tls.ech.config",
-                tag
-            ));
-        }
-        let ech_config_list = match ech.and_then(|e| e.config.clone()) {
-            Some(config) => Some(ech_config_list(tag, config)?),
-            None => None,
-        };
-        let identity = tls
-            .client_identity(env)
-            .map_err(|e| anyhow!("[{}] outbound: tls.{}", tag, e))?;
-        let options = tls
-            .stream_options(&format!("[{}] outbound", tag))
-            .map_err(|e| anyhow!("[{}] outbound: tls.{}", tag, e))?;
         // Browsers send the name of a domain: a ClientHello without it is
         // one no browser sends, whatever it imitates otherwise.
         if tls.disable_sni && tls.utls.as_ref().is_some_and(|u| u.enabled) {
@@ -1282,21 +1398,8 @@ fn tls_outbound(
                 tag
             );
         }
-        let handler = crate::transport::tls::outbound::StreamHandler::new(
-            server_name,
-            tls.alpn.clone().map(Listable::into_vec).unwrap_or_default(),
-            trusted_certificate(tls, env),
-            tls.insecure,
-            tls.fingerprint(tag)?,
-            tls.disable_sni,
-            identity.as_ref(),
-            ech.is_some(),
-            ech.is_some_and(|e| e.disable_dns_lookup),
-            ech_config_list,
-            dns_client.clone(),
-            &env.tls_roots.get()?,
-            &options,
-        )?;
+        let alpn = tls.alpn.clone().map(Listable::into_vec).unwrap_or_default();
+        let handler = tls_stream_handler(tag, tls, alpn, dns_client, env)?;
         Ok(HandlerBuilder::default()
             .tag(format!("{}/tls", tag))
             .stream_handler(Arc::new(handler))
@@ -1304,6 +1407,60 @@ fn tls_outbound(
     }
     #[cfg(not(feature = "outbound-tls"))]
     Err(not_compiled(tag, "outbound", "tls", "outbound-tls"))
+}
+
+/// The TLS handler `tls` configures, REALITY aside, offering `alpn`.
+#[cfg(feature = "outbound-tls")]
+fn tls_stream_handler(
+    tag: &str,
+    tls: &OutboundTls,
+    alpn: Vec<String>,
+    dns_client: &SyncDnsClient,
+    env: &RuntimeEnv,
+) -> Result<crate::transport::tls::outbound::StreamHandler> {
+    let server_name = tls.server_name.clone().unwrap_or_default();
+    let ech = tls.ech.as_ref().filter(|e| e.enabled);
+    // The outer ClientHello names the ECH config's public name.
+    if ech.is_some() && tls.disable_sni {
+        return Err(anyhow!(
+            "[{}] outbound: tls.disable_sni: not with tls.ech",
+            tag
+        ));
+    }
+    // A configured list is the only one used, as in sing-box: DNS is
+    // asked only without one, so with it the lookup is off anyway, and
+    // without it, ECH would be.
+    if ech.is_some_and(|e| e.disable_dns_lookup && e.config.is_none()) {
+        return Err(anyhow!(
+            "[{}] outbound: tls.ech.disable_dns_lookup: needs tls.ech.config",
+            tag
+        ));
+    }
+    let ech_config_list = match ech.and_then(|e| e.config.clone()) {
+        Some(config) => Some(ech_config_list(tag, config)?),
+        None => None,
+    };
+    let identity = tls
+        .client_identity(env)
+        .map_err(|e| anyhow!("[{}] outbound: tls.{}", tag, e))?;
+    let options = tls
+        .stream_options(&format!("[{}] outbound", tag))
+        .map_err(|e| anyhow!("[{}] outbound: tls.{}", tag, e))?;
+    crate::transport::tls::outbound::StreamHandler::new(
+        server_name,
+        alpn,
+        trusted_certificate(tls, env),
+        tls.insecure,
+        tls.fingerprint(tag)?,
+        tls.disable_sni,
+        identity.as_ref(),
+        ech.is_some(),
+        ech.is_some_and(|e| e.disable_dns_lookup),
+        ech_config_list,
+        dns_client.clone(),
+        &env.tls_roots.get()?,
+        &options,
+    )
 }
 
 /// An ECHConfigList as the TLS handler takes it: base64, from base64 or from
@@ -1830,6 +1987,31 @@ impl InboundBlocks {
     /// Whether TLS (or REALITY) is on.
     pub fn has_tls(&self) -> bool {
         self.tls.as_ref().is_some_and(|t| t.enabled)
+    }
+
+    /// The ALPN TLS directly under a protocol that speaks HTTP itself
+    /// offers, `alpn`, the protocol's (empty for none), as
+    /// `OutboundBlocks::protocol_alpn` settles a client's: an unset (or
+    /// empty) `tls.alpn` takes it; one set is the configuration's. REALITY
+    /// negotiates none.
+    pub fn protocol_alpn(&mut self, alpn: &[&str]) {
+        let multiplex = self.multiplex.as_ref().is_some_and(|m| m.enabled);
+        if alpn.is_empty() || self.transport.is_some() || multiplex {
+            return;
+        }
+        let Some(tls) = self.tls.as_mut().filter(|t| t.enabled) else {
+            return;
+        };
+        if tls.reality.as_ref().is_some_and(|r| r.enabled) {
+            return;
+        }
+        let unset = match &tls.alpn {
+            None => true,
+            Some(alpn) => alpn.clone().into_vec().is_empty(),
+        };
+        if unset {
+            tls.alpn = Some(Listable::Many(alpn.iter().map(|p| p.to_string()).collect()));
+        }
     }
 }
 
