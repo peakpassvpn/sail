@@ -671,6 +671,28 @@ impl OutboundBlocks {
         Ok(())
     }
 
+    /// Settles the ALPN of TLS directly under a protocol that speaks HTTP
+    /// itself, `alpn`, the protocol's (empty for none). Unset (or empty),
+    /// it is the protocol's, whatever the `fingerprint`: a browser's
+    /// ClientHello offers `h2` before `http/1.1`, and a server that picks
+    /// h2 is then sent HTTP/1.1. Set, it is the configuration's, as
+    /// sing-box takes it.
+    pub fn protocol_alpn(&mut self, alpn: &[&str]) {
+        if alpn.is_empty() || self.transport.is_some() || self.multiplex().is_some() {
+            return;
+        }
+        let Some(tls) = self.tls.as_mut().filter(|t| t.enabled) else {
+            return;
+        };
+        let unset = match &tls.alpn {
+            None => true,
+            Some(alpn) => alpn.clone().into_vec().is_empty(),
+        };
+        if unset {
+            tls.alpn = Some(Listable::Many(alpn.iter().map(|p| p.to_string()).collect()));
+        }
+    }
+
     /// Whether TLS (or REALITY) is on.
     pub fn has_tls(&self) -> bool {
         self.tls().is_some()

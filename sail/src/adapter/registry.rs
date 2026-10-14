@@ -104,6 +104,10 @@ pub struct OutboundFactory {
     /// Checks its options against its blocks, for protocols whose options
     /// only make sense over some layerings.
     pub check: fn(&str, &Options, &OutboundBlocks) -> Result<()>,
+    /// The ALPN the protocol speaks over TLS directly under it, from its
+    /// options, for a `tls.alpn` left unset: empty for none, the TLS
+    /// client's own then. See `OutboundBlocks::protocol_alpn`.
+    pub alpn: fn(&Options) -> &'static [&'static str],
 }
 
 impl OutboundFactory {
@@ -116,6 +120,7 @@ impl OutboundFactory {
             blocks: Blocks::NONE,
             over_connector: false,
             check: |_, _, _| Ok(()),
+            alpn: |_| &[],
         }
     }
 
@@ -131,6 +136,7 @@ impl OutboundFactory {
             blocks: Blocks::NONE,
             over_connector: false,
             check: |_, _, _| Ok(()),
+            alpn: |_| &[],
         }
     }
 
@@ -142,6 +148,12 @@ impl OutboundFactory {
     /// Its blocks make its connections, see `over_connector`.
     pub fn over_connector(mut self) -> Self {
         self.over_connector = true;
+        self
+    }
+
+    /// Speaks `alpn` over TLS directly under it, see `alpn`.
+    pub fn with_alpn(mut self, alpn: fn(&Options) -> &'static [&'static str]) -> Self {
+        self.alpn = alpn;
         self
     }
 
@@ -360,7 +372,8 @@ pub fn build_outbounds_as(
             own.remove(*field);
         }
         let (options, blocks) = factory.blocks.split(&own);
-        let blocks = OutboundBlocks::parse(&o.tag, &blocks)?;
+        let mut blocks = OutboundBlocks::parse(&o.tag, &blocks)?;
+        blocks.protocol_alpn((factory.alpn)(&options));
         (factory.check)(&o.tag, &options, &blocks)?;
         let mut dependencies = (factory.dependencies)(&o.tag, &options)?;
         dependencies.extend(blocks.dial.detour.clone());

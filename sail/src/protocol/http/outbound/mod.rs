@@ -22,12 +22,16 @@ pub use stream::Handler as StreamHandler;
 pub(crate) fn register(registry: &mut OutboundRegistry) {
     registry.register(
         "http",
-        OutboundFactory::standalone(build).with_blocks(Blocks {
-            dial: true,
-            detour: true,
-            tls: true,
-            ..Blocks::NONE
-        }),
+        OutboundFactory::standalone(build)
+            .with_blocks(Blocks {
+                dial: true,
+                detour: true,
+                tls: true,
+                ..Blocks::NONE
+            })
+            // HTTP/1.1 alone, which a browser fingerprint would offer h2
+            // before.
+            .with_alpn(|_| &["http/1.1"]),
     );
 }
 
@@ -228,6 +232,87 @@ mod tests {
         assert_eq!(
             check(json!({ "version": 3, "headers": { "Host": "a" } })),
             Err("[h] outbound: version: 3: a path and a Host header go over HTTP/1.1 alone".into())
+        );
+    }
+
+    /// The ALPN of the ClientHello an outbound `h` with `tls` writes first.
+    #[cfg(feature = "outbound-tls")]
+    async fn offered_alpn(tls: serde_json::Value) -> Option<Vec<u8>> {
+        use crate::transport::tls::hello::{ClientHello, EXT_ALPN};
+        use tokio::io::AsyncReadExt;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let config = crate::config::Config::from_json(
+            &serde_json::json!({ "outbounds": [{ "type": "http", "tag": "h",
+                "server": "127.0.0.1", "server_port": port, "tls": tls }] })
+            .to_string(),
+        )
+        .unwrap();
+        let dial = crate::net::DialDefaults::default();
+        let dns = crate::app::dns::DnsClient::new(
+            &config.dns,
+            std::sync::Arc::new(dial.clone()),
+            &Default::default(),
+        )
+        .unwrap()
+        .into_shared();
+        let manager = crate::app::outbound::manager::OutboundManager::new(
+            &config.outbounds,
+            &dial,
+            &Default::default(),
+            dns.clone(),
+        )
+        .unwrap();
+        let handler = manager.get("h").unwrap();
+        let sess = crate::session::Session {
+            destination: crate::session::SocksAddr::Domain("example.com".into(), 443),
+            ..Default::default()
+        };
+        let dial = async {
+            let stream = crate::net::connect_stream_outbound(&sess, dns, &handler).await?;
+            handler.stream()?.handle(&sess, None, stream).await
+        };
+        let hello = async {
+            let (mut conn, _) = listener.accept().await.unwrap();
+            let mut header = [0; 5];
+            conn.read_exact(&mut header).await.unwrap();
+            let mut record = header.to_vec();
+            record.resize(5 + u16::from_be_bytes([header[3], header[4]]) as usize, 0);
+            conn.read_exact(&mut record[5..]).await.unwrap();
+            // Dropped, which fails the dial.
+            ClientHello::from_records(&record)
+        };
+        let (dialled, hello) = tokio::join!(dial, hello);
+        assert!(dialled.is_err());
+        hello.extension(EXT_ALPN).map(<[u8]>::to_vec)
+    }
+
+    /// An HTTP proxy speaks HTTP/1.1 over its TLS, and offers that alone,
+    /// with a browser's fingerprint as without; a `tls.alpn` set is the
+    /// configuration's, as sing-box takes it.
+    #[cfg(feature = "outbound-tls")]
+    #[tokio::test]
+    async fn tls_offers_http1_alone_whatever_the_fingerprint() {
+        use serde_json::json;
+        let http1 = Some(b"\x00\x09\x08http/1.1".to_vec());
+        for utls in [
+            json!(null),
+            json!({ "enabled": true, "fingerprint": "chrome" }),
+            json!({ "enabled": true, "fingerprint": "firefox" }),
+            json!({ "enabled": false }),
+        ] {
+            let mut tls = json!({ "enabled": true, "server_name": "localhost" });
+            if !utls.is_null() {
+                tls["utls"] = utls.clone();
+            }
+            assert_eq!(offered_alpn(tls.clone()).await, http1, "{}", utls);
+            tls["alpn"] = json!([]);
+            assert_eq!(offered_alpn(tls).await, http1, "{} alpn []", utls);
+        }
+        assert_eq!(
+            offered_alpn(json!({ "enabled": true, "server_name": "localhost", "alpn": ["h2"] }))
+                .await,
+            Some(b"\x00\x03\x02h2".to_vec())
         );
     }
 }
