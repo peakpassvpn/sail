@@ -62,6 +62,11 @@ ECH_PUBLIC_NAME = "ech-public.invalid"
 WS_PATH = "/ws"
 UP_PATH = "/up"
 GRPC_SERVICE = "interop"
+# A padding scheme no default could give: writes 1 to 3 as one record each,
+# of sizes the capture looks for (under the 1208-byte records Go's TLS sends
+# first, so that none is split).
+ANYTLS_PADDING = ["stop=4", "0=333-333", "1=777-777", "2=888-888", "3=999-999"]
+ANYTLS_PADDING_SIZES = [777, 888, 999]
 
 # info names each destination, which the check that traffic went through
 # the server reads; --log-level debug for a failure's details.
@@ -136,7 +141,12 @@ def cases():
     out.append(Case("tuic", "quic", "tls", relay="native", cc="cubic", variant="cubic"))
     out.append(Case("tuic", "quic", "ech", relay="native"))
     out.append(Case("hysteria2", "quic", "ech"))
-    out.append(Case("anytls", "tcp", "tls"))
+    # AnyTLS also checks datagrams past the MTU, a burst of small ones, the
+    # session pool (connections after the first reuse its sessions), and a
+    # server's own padding scheme, which its clients take for later sessions.
+    out.append(Case("anytls", "tcp", "tls", big_udp=True, reuse=True))
+    out.append(Case("anytls", "tcp", "tls", big_udp=True, reuse=True, padding=ANYTLS_PADDING,
+                    variant="padding"))
     out.append(Case("anytls", "tcp", "ech"))
     out.append(Case("shadowtls", "tcp", "tls", udp=False, method="2022-blake3-aes-128-gcm",
                     variant="v3+ss2022"))
@@ -341,8 +351,11 @@ def sb_server(case, m, port):
                              congestion_control=case.opt.get("cc", "bbr"),
                              tls=sb_tls_server(case, m, alpn=["h3"])))
     elif p == "anytls":
-        inbounds.append(dict(base, type="anytls", users=[{"name": USER, "password": PASSWORD}],
-                             tls=sb_tls_server(case, m)))
+        ib = dict(base, type="anytls", users=[{"name": USER, "password": PASSWORD}],
+                  tls=sb_tls_server(case, m))
+        if case.opt.get("padding"):
+            ib["padding_scheme"] = case.opt["padding"]
+        inbounds.append(ib)
     elif p == "shadowtls":
         inbounds.append(dict(base, type="shadowtls", version=3,
                              users=[{"name": USER, "password": PASSWORD}],
@@ -509,6 +522,8 @@ def mh_server(case, m, port):
         mh_tls_listener(case, m, li)
     elif p == "anytls":
         li.update(type="anytls", users={USER: PASSWORD})
+        if case.opt.get("padding"):
+            li["padding-scheme"] = "\n".join(case.opt["padding"])
         mh_tls_listener(case, m, li)
     elif p == "shadowtls":
         li.update(type="shadowsocks", cipher=case.opt["method"],
@@ -869,6 +884,10 @@ def socks_udp(port, timeout=10):
 # ------------------------------------------------------------- checks
 TCP_SIZES = [1, 7, 1000, 16384, 65536, 200000]
 UDP_SIZES = [16, 200, 512, 1000, 1200]
+# Past the MTU too, for protocols that carry a datagram in a stream. No
+# more than 16000: sing-box drops larger ones itself (sb>sb, 1.14 and 1.15:
+# 16300 bytes through its SOCKS inbound, 17000 through its AnyTLS server).
+BIG_UDP_SIZES = UDP_SIZES + [1400, 1472, 1500, 2000, 4096, 8192, 16000]
 
 
 def check_tcp(socks_port):
@@ -906,13 +925,13 @@ def warm_up(socks_port, procs, deadline=10):
     return None
 
 
-def check_udp(socks_port):
+def check_udp(socks_port, sizes=UDP_SIZES):
     ctl, relay = socks_udp(socks_port)
     u = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     u.settimeout(1.5)
     head = b"\x00\x00\x00\x01" + socket.inet_aton(TARGET) + struct.pack(">H", ECHO_PORT)
     try:
-        for i, n in enumerate(UDP_SIZES):
+        for i, n in enumerate(sizes):
             msg = random.Random(100 + i).randbytes(n)
             for attempt in range(4):
                 u.sendto(head + msg, relay)
@@ -929,6 +948,219 @@ def check_udp(socks_port):
     finally:
         u.close()
         ctl.close()
+
+
+def check_udp_burst(socks_port, count=50, size=60):
+    """DNS-like: count small datagrams sent at once, each with its index;
+    those not echoed are sent again, up to 3 more rounds. The result says
+    how many came back in the first round."""
+    ctl, relay = socks_udp(socks_port)
+    u = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    u.settimeout(1.5)
+    head = b"\x00\x00\x00\x01" + socket.inet_aton(TARGET) + struct.pack(">H", ECHO_PORT)
+    msgs = {i: struct.pack(">H", i) + random.Random(500 + i).randbytes(size - 2)
+            for i in range(count)}
+    got, first = set(), None
+    try:
+        for _ in range(4):
+            for i in sorted(set(msgs) - got):
+                u.sendto(head + msgs[i], relay)
+            try:
+                while len(got) < count:
+                    b, _ = u.recvfrom(65536)
+                    if len(b) >= 12 and b[3] == 1:
+                        i = struct.unpack(">H", b[10:12])[0]
+                        if msgs.get(i) == b[10:]:
+                            got.add(i)
+            except socket.timeout:
+                pass
+            if first is None:
+                first = len(got)
+            if len(got) == count:
+                break
+        if len(got) < count:
+            raise RuntimeError(f"{len(got)} of {count} datagrams echoed in 4 rounds")
+    finally:
+        u.close()
+        ctl.close()
+    return {"first_round": first, "of": count}
+
+
+def client_ports(server_port):
+    """The local ports of the established TCP connections to server_port:
+    the client's sessions (their server ends have server_port as local)."""
+    out = set()
+    for path in ("/proc/net/tcp", "/proc/net/tcp6"):
+        try:
+            for line in open(path).read().splitlines()[1:]:
+                f = line.split()
+                if f[3] == "01" and int(f[2].split(":")[1], 16) == server_port:
+                    out.add(int(f[1].split(":")[1], 16))
+        except OSError:
+            pass
+    return out
+
+
+def check_reuse(socks_port, server_port, n=6):
+    """The session pool: n connections one after another, n side by side,
+    then both again. Each connection echoes 3 messages. After the first
+    session, one-after-another opens no session, and the second side-by-side
+    round finds the first round's sessions idle. The result: the sessions
+    each phase opened."""
+    seen = set(client_ports(server_port))
+    before = len(seen)
+
+    def echo(s, i):
+        for j, size in enumerate((1, 100, 3000)):
+            msg = random.Random(1000 * i + j).randbytes(size)
+            s.sendall(msg)
+            if recv_exact(s, size) != msg:
+                raise RuntimeError(f"connection {i}: echo of {size} bytes differs")
+
+    def sequential(base):
+        for i in range(n):
+            s = socks_connect(socks_port, TARGET, ECHO_PORT)
+            try:
+                s.settimeout(15)
+                echo(s, base + i)
+                seen.update(client_ports(server_port))
+            finally:
+                s.close()
+            time.sleep(0.2)
+
+    def parallel(base):
+        socks = [socks_connect(socks_port, TARGET, ECHO_PORT) for _ in range(n)]
+        try:
+            for s in socks:
+                s.settimeout(15)
+            errors = []
+
+            def run(s, i):
+                try:
+                    echo(s, base + i)
+                except Exception as e:
+                    errors.append(f"{type(e).__name__}: {e}")
+            threads = [threading.Thread(target=run, args=(s, i)) for i, s in enumerate(socks)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+            seen.update(client_ports(server_port))
+            if errors:
+                raise RuntimeError(errors[0])
+        finally:
+            for s in socks:
+                s.close()
+        time.sleep(0.5)
+
+    phases = {}
+    for name, fn, base in (("seq1", sequential, 0), ("par1", parallel, 100),
+                           ("seq2", sequential, 200), ("par2", parallel, 300)):
+        k = len(seen)
+        fn(base)
+        phases[name] = len(seen) - k
+    phases["before"] = before
+    phases["open_now"] = len(client_ports(server_port))
+    # seq1 may open one: the session of the UDP checks can still be busy.
+    if phases["seq1"] > 1 or phases["seq2"] or phases["par2"]:
+        raise RuntimeError(f"sessions not reused: new sessions by phase {phases}")
+    return phases
+
+
+class Capture:
+    """The first bytes of each TCP connection to a port, from a packet
+    socket on lo in this namespace: for reading TLS record sizes."""
+
+    LIMIT = 1 << 16
+
+    def __init__(self, port):
+        self.port = port
+        self.flows = {}      # (sport, dport) -> {"isn": int, "data": {off: bytes}}
+        self.sock = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.htons(0x0003))
+        self.sock.bind(("lo", 0))
+        self.sock.settimeout(0.2)
+        self.stop_ = False
+        self.thread = threading.Thread(target=self.loop, daemon=True)
+        self.thread.start()
+
+    def loop(self):
+        while not self.stop_:
+            try:
+                pkt, addr = self.sock.recvfrom(1 << 17)
+            except socket.timeout:
+                continue
+            except OSError:
+                return
+            if addr[2] == socket.PACKET_OUTGOING:
+                continue   # lo shows each packet going out and coming in
+            ip = pkt[14:]
+            if len(ip) < 20 or ip[0] >> 4 != 4 or ip[9] != 6:
+                continue
+            ihl = (ip[0] & 15) * 4
+            tcp = ip[ihl:]
+            sport, dport, seq = struct.unpack(">HHI", tcp[:8])
+            if self.port not in (sport, dport):
+                continue
+            flags = tcp[13]
+            payload = tcp[(tcp[12] >> 4) * 4:struct.unpack(">H", ip[2:4])[0] - ihl]
+            flow = self.flows.setdefault((sport, dport), {"isn": None, "data": {}})
+            if flags & 0x02:
+                flow["isn"] = (seq + 1) & 0xffffffff
+                continue
+            if flow["isn"] is None or not payload:
+                continue
+            off = (seq - flow["isn"]) & 0xffffffff
+            if off < self.LIMIT:
+                flow["data"].setdefault(off, payload)
+
+    def stop(self):
+        self.stop_ = True
+        self.thread.join()
+        self.sock.close()
+
+    def records(self, to_server=True):
+        """Per connection, in the order they opened, the plaintext lengths
+        of its TLS application-data records (record length less 17, the
+        content type and AEAD tag of TLS 1.3)."""
+        out = []
+        for (sport, dport), flow in self.flows.items():
+            if (dport == self.port) != to_server:
+                continue
+            buf, pos = bytearray(), 0
+            for off in sorted(flow["data"]):
+                b = flow["data"][off]
+                if off + len(b) <= pos:
+                    continue
+                if off > pos:
+                    break   # a gap: what follows cannot be read
+                buf += b[pos - off:]
+                pos = off + len(b)
+            lens, i = [], 0
+            while i + 5 <= len(buf):
+                ctype, ln = buf[i], struct.unpack(">H", buf[i + 3:i + 5])[0]
+                if ctype == 23:
+                    lens.append(ln - 17)
+                i += 5 + ln
+            out.append({"port": sport if to_server else dport, "lens": lens})
+        return out
+
+
+def check_padding(cap, sizes):
+    """Some connection after the first carries records of exactly the
+    scheme's sizes, in order: the client took the server's scheme."""
+    conns = cap.records(True)
+    hits = []
+    for c in conns[1:]:
+        lens = c["lens"]
+        for k in range(len(lens)):
+            if lens[k:k + len(sizes)] == sizes or lens[k:k + 2] == sizes[:2]:
+                hits.append(c["port"])
+                break
+    first = conns[0]["lens"][:8] if conns else []
+    later = [c["lens"][:8] for c in conns[1:4]]
+    if not hits:
+        raise RuntimeError(f"no later session padded {sizes}: first {first}, later {later}")
+    return {"sessions": len(conns), "padded": len(hits), "first": first, "later": later}
 
 
 def check_bulk(socks_port, way, total, timeout):
@@ -1068,8 +1300,13 @@ def run_cell(args, m, case, client, server, worker, out, nth=0):
     os.makedirs(cell_dir, exist_ok=True)
     res = {"case": case.id, "client": client, "server": server, "checks": {}}
     procs = []
+    cap = None
     t0 = time.time()
     try:
+        if case.opt.get("padding"):
+            # Before the client starts: its first session is the one whose
+            # padding is the default.
+            cap = Capture(port)
         if server in ("mh", "sailY"):
             cfg = mh_server(case, m, port)
             spath = os.path.join(cell_dir, "server.yaml")
@@ -1102,16 +1339,27 @@ def run_cell(args, m, case, client, server, worker, out, nth=0):
             res["warmup_s"] = warm_up(socks_port, procs)
         checks = [("tcp", lambda: check_tcp(socks_port))]
         if case.udp:
-            checks.append(("udp", lambda: check_udp(socks_port)))
+            sizes = BIG_UDP_SIZES if case.opt.get("big_udp") else UDP_SIZES
+            checks.append(("udp", lambda: check_udp(socks_port, sizes)))
+        if case.opt.get("big_udp"):
+            checks.append(("udp_burst", lambda: check_udp_burst(socks_port)))
+        if case.opt.get("reuse"):
+            checks.append(("reuse", lambda: check_reuse(socks_port, port)))
+        if cap:
+            checks.append(("padding", lambda: check_padding(cap, ANYTLS_PADDING_SIZES)))
         total = args.bulk_mib << 20
         checks.append(("up", lambda: check_bulk(socks_port, b"U", total, args.bulk_timeout)))
         checks.append(("down", lambda: check_bulk(socks_port, b"D", total, args.bulk_timeout)))
         for name, fn in checks:
+            r = None
             try:
                 r = fn()
                 res["checks"][name] = {"ok": True, **({"MBps": r} if r else {})}
             except Exception as e:
                 res["checks"][name] = {"ok": False, "error": f"{type(e).__name__}: {e}"}
+            if isinstance(r, dict):
+                res["checks"][name].pop("MBps", None)
+                res["checks"][name]["detail"] = r
             for who, p in (("server", sp), ("client", cp)):
                 if not p.alive():
                     res["checks"][name].setdefault("error", "")
@@ -1135,6 +1383,8 @@ def run_cell(args, m, case, client, server, worker, out, nth=0):
     finally:
         for p in reversed(procs):
             p.stop()
+        if cap:
+            cap.stop()
     res["seconds"] = round(time.time() - t0, 1)
     if not res["ok"]:
         res["server_log"] = tail(os.path.join(cell_dir, "server.log"))
