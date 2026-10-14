@@ -37,18 +37,31 @@ impl VisionParser {
         }
     }
 
-    pub fn parse(&mut self, data: &[u8]) -> Vec<u8> {
+    /// What `data`, the next of what the peer sent, carries; an error if
+    /// the response header is not one.
+    pub fn parse(&mut self, data: &[u8]) -> std::io::Result<Vec<u8>> {
         self.v_buffer.extend_from_slice(data);
         let mut to_client = Vec::new();
         let mut offset = 0;
 
         if !self.vless_response_header_parsed {
-            if self.v_buffer.len() >= 2 {
-                self.vless_response_header_parsed = true;
-                offset += 2; // Skip 0x00 0x00 VLESS response header
-            } else {
-                return to_client; // Wait for more data
+            // The response header: the request's version, and addons,
+            // which are skipped, as Xray and sing-box read it.
+            let Some(&[version, addons]) = self.v_buffer.get(..2) else {
+                return Ok(to_client); // Wait for more data
+            };
+            if version != super::request::VERSION {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("unknown VLESS response version {}", version),
+                ));
             }
+            let header = 2 + addons as usize;
+            if self.v_buffer.len() < header {
+                return Ok(to_client); // Wait for more data
+            }
+            self.vless_response_header_parsed = true;
+            offset = header;
         }
 
         while offset < self.v_buffer.len() {
@@ -156,7 +169,7 @@ impl VisionParser {
             self.v_buffer.clear();
         }
 
-        to_client
+        Ok(to_client)
     }
 }
 
@@ -442,7 +455,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> AsyncRead for VlessStream<S> {
                         return Poll::Ready(Ok(()));
                     }
 
-                    let decrypted = this.vision_parser.parse(&temp_buf[..bytes_read]);
+                    let decrypted = this.vision_parser.parse(&temp_buf[..bytes_read])?;
 
                     if this.vision_parser.v_direct_copy_rx && !this.is_direct_copy {
                         tracing::debug!("vision switched to direct copy");
@@ -567,7 +580,10 @@ pub(crate) fn fuzz(data: &[u8]) {
         let (mut taken, mut given) = (0, 0);
         for chunk in data.chunks(step) {
             taken += chunk.len();
-            given += parser.parse(chunk).len();
+            match parser.parse(chunk) {
+                Ok(out) => given += out.len(),
+                Err(_) => break,
+            }
             assert!(given <= taken, "vision gave out more than it took");
         }
     }
@@ -654,8 +670,30 @@ mod tests {
         let mut wire = vec![0, 0]; // the parser expects a VLESS response header
         server.read_to_end(&mut wire).await.unwrap();
         let mut parser = VisionParser::new(UUID);
-        let out = parser.parse(&wire);
+        let out = parser.parse(&wire).unwrap();
         (out, parser)
+    }
+
+    /// The response header is the request's version and addons: the
+    /// addons are skipped, however they arrive, and another version is an
+    /// error.
+    #[test]
+    fn test_vision_response_header_is_checked() {
+        let plain = b"plain data that is not a vision frame";
+        let mut wire = vec![0, 3, 9, 9, 9];
+        wire.extend_from_slice(plain);
+        let mut parser = VisionParser::new(UUID);
+        assert_eq!(parser.parse(&wire).unwrap(), plain);
+
+        // The header a byte at a time.
+        let mut parser = VisionParser::new(UUID);
+        for byte in &wire[..5] {
+            assert!(parser.parse(&[*byte]).unwrap().is_empty());
+        }
+        assert_eq!(parser.parse(plain).unwrap(), plain);
+
+        let mut parser = VisionParser::new(UUID);
+        assert!(parser.parse(&[1, 0]).is_err());
     }
 
     #[tokio::test]
@@ -710,7 +748,7 @@ mod tests {
         let mut wire = vec![0, 0];
         server.read_to_end(&mut wire).await.unwrap();
         let mut parser = VisionParser::new(UUID);
-        let out = parser.parse(&wire);
+        let out = parser.parse(&wire).unwrap();
         assert!(parser.v_direct_copy_rx);
         assert_eq!(
             out,
