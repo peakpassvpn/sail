@@ -111,4 +111,41 @@ mod tests {
         let headers = HashMap::from([("X-Bad".to_string(), "a\r\nb".to_string())]);
         assert!(Handler::new(None, "/".to_string(), &headers).is_err());
     }
+
+    // The request carries no `Sec-WebSocket-Key`, which sing-box's server
+    // turns away with a 404 ("real websocket request received"), and a
+    // `101` without `Sec-WebSocket-Accept`, sing-box's, is taken.
+    #[test]
+    fn test_request_without_websocket_key() {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        rt.block_on(async {
+            use tokio::io::AsyncReadExt;
+            let (client, mut server) = tokio::io::duplex(4096);
+            let peer = async move {
+                let (head, _) = upgrade::read_head(&mut server).await.unwrap();
+                let req = upgrade::parse_request(&head).unwrap();
+                assert_eq!(req.header("sec-websocket-key"), None);
+                assert_eq!(req.header("sec-websocket-version"), None);
+                server
+                    .write_all(
+                        b"HTTP/1.1 101 Switching Protocols\r\nConnection: upgrade\r\n\
+                          Upgrade: websocket\r\n\r\nhello",
+                    )
+                    .await
+                    .unwrap();
+                server
+            };
+            let h = Handler::new(None, "/up".to_string(), &HashMap::new()).unwrap();
+            let sess = Session::default();
+            let (stream, _server) =
+                tokio::join!(h.handle(&sess, None, Some(Box::new(client))), peer);
+            let mut stream = stream.unwrap();
+            let mut buf = [0u8; 5];
+            stream.read_exact(&mut buf).await.unwrap();
+            assert_eq!(&buf, b"hello");
+        });
+    }
 }

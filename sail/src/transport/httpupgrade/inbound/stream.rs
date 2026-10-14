@@ -61,6 +61,26 @@ impl Handler {
     }
 }
 
+/// The headers of the `101` to `req`: those configured, and, when `req`
+/// carries a `Sec-WebSocket-Key`, the `Sec-WebSocket-Accept` it calls for,
+/// as Xray's server answers since v26.9.30, so that the exchange is a
+/// WebSocket handshake to whatever checks one on the way (a CDN). Without a
+/// key, as sing-box's client and Xray's before then ask, there is none.
+fn answer_headers(
+    req: &RequestHead,
+    configured: &[(HeaderName, HeaderValue)],
+) -> Vec<(HeaderName, HeaderValue)> {
+    let mut headers = configured.to_vec();
+    if let Some(key) = req.header("sec-websocket-key").filter(|k| !k.is_empty()) {
+        let accept = tungstenite::handshake::derive_accept_key(key.as_bytes());
+        headers.push((
+            http::header::SEC_WEBSOCKET_ACCEPT,
+            HeaderValue::from_str(&accept).expect("base64 is a header value"),
+        ));
+    }
+    headers
+}
+
 #[async_trait]
 impl InboundStreamHandler for Handler {
     async fn handle<'a>(
@@ -80,7 +100,10 @@ impl InboundStreamHandler for Handler {
             .await);
         }
         stream
-            .write_all(&upgrade::switching_protocols(&self.headers))
+            .write_all(&upgrade::switching_protocols(&answer_headers(
+                &req,
+                &self.headers,
+            )))
             .await?;
         stream.flush().await?;
         debug!("accepted httpupgrade stream");
@@ -138,6 +161,50 @@ mod tests {
         assert!(any_host
             .accept(&request("/up", "b.example", "websocket"))
             .is_ok());
+    }
+
+    /// The head a handler with `configured` headers answers `request` with.
+    fn answer(request: &[u8], configured: &HashMap<String, String>) -> upgrade::ResponseHead {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        rt.block_on(async {
+            let (mut client, server) = tokio::io::duplex(4096);
+            client.write_all(request).await.unwrap();
+            let h = Handler::new(None, "/up".to_string(), configured).unwrap();
+            h.handle(Session::default(), Box::new(server))
+                .await
+                .unwrap();
+            let (head, _) = upgrade::read_head(&mut client).await.unwrap();
+            upgrade::parse_response(&head).unwrap()
+        })
+    }
+
+    // With a `Sec-WebSocket-Key`, the `101` carries the accept it calls for,
+    // RFC 6455's example here, beside the headers configured; without, none.
+    #[test]
+    fn test_answer_accepts_a_websocket_key() {
+        let configured = HashMap::from([("X-Served-By".to_string(), "sail".to_string())]);
+        let resp = answer(
+            b"GET /up HTTP/1.1\r\nHost: x\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\
+              Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n",
+            &configured,
+        );
+        assert_eq!(resp.status, 101);
+        assert_eq!(
+            resp.header("sec-websocket-accept"),
+            Some("s3pPLMBiTxaQ9kYGzzhZRbK+xOo=")
+        );
+        assert_eq!(resp.header("x-served-by"), Some("sail"));
+
+        let resp = answer(
+            b"GET /up HTTP/1.1\r\nHost: x\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n",
+            &configured,
+        );
+        assert_eq!(resp.status, 101);
+        assert_eq!(resp.header("sec-websocket-accept"), None);
+        assert_eq!(resp.header("x-served-by"), Some("sail"));
     }
 
     /// Bytes a client sends right behind its request reach the stream.

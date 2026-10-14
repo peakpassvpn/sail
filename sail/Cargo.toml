@@ -184,7 +184,7 @@ inbound-tun = ["tun", "netstack", "dep:tun-rs", "pnet_datalink"]
 # carry IP packets.
 netstack = ["dep:sail-netstack"]
 inbound-ws = ["tungstenite", "tokio-tungstenite", "http", "httparse", "base64"]
-inbound-httpupgrade = ["http", "httparse"]
+inbound-httpupgrade = ["http", "httparse", "tungstenite/handshake"]
 inbound-grpc = ["h2", "http"]
 inbound-amux = ["tokio-util"]
 inbound-quic = ["quic"]
