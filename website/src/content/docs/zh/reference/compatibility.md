@@ -19,15 +19,15 @@ sail 直接读取 sing-box、Clash / Mihomo 与 Surge 的配置。每种格式�
 | `ntp` | 35 | 35 | 0 | 0 |
 | `certificate` | 5 | 5 | 0 | 0 |
 | `certificate_providers` | 212 | 0 | 0 | 212 |
-| `http_clients` | 80 | 30 | 11 | 39 |
+| `http_clients` | 80 | 33 | 8 | 39 |
 | `network_namespaces` | 6 | 0 | 0 | 6 |
 | `endpoints` | 433 | 48 | 13 | 372 |
 | `inbounds` | 1367 | 623 | 116 | 628 |
 | `outbounds` | 1228 | 685 | 75 | 468 |
-| `route` | 268 | 174 | 41 | 53 |
+| `route` | 268 | 177 | 38 | 53 |
 | `services` | 751 | 1 | 166 | 584 |
 | `experimental` | 34 | 16 | 17 | 1 |
-| **全部** | **5003** | **1990** | **506** | **2507** |
+| **全部** | **5003** | **1996** | **500** | **2507** |
 
 ## Clash / Mihomo
 

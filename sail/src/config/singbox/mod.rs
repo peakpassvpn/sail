@@ -57,6 +57,7 @@ fn read(s: &str, zero_unset: bool) -> Result<Config> {
     }
     config.validate()?;
     config.warnings = warnings;
+    config.warnings.extend(config.http_client_warnings());
     Ok(config)
 }
 
@@ -575,17 +576,35 @@ mod tests {
         .unwrap();
         assert_eq!(
             config.warnings,
-            [
-                "http_clients[0].version: sail does not implement this field; ignored",
-                "http_clients[0].idle_timeout: sail does not implement this field; ignored",
-            ]
+            ["http_clients[0].idle_timeout: sail does not implement this field; ignored"]
         );
+        assert_eq!(config.http_clients[0].version, Some(2));
         assert_eq!(
             config.http_clients[0].header_lines(),
             [
                 ("Authorization".to_string(), "Bearer t".to_string()),
                 ("X-A".to_string(), "1".to_string()),
                 ("X-A".to_string(), "2".to_string()),
+            ]
+        );
+        // Over HTTP/1.1 whichever version, as sing-box from a server that
+        // speaks no other: told only where it may not fall back, or would
+        // not be sail's own client.
+        let config = with(
+            r#"[{ "tag": "a", "version": 3 },
+                { "tag": "b", "version": 1, "disable_version_fallback": true },
+                { "tag": "c", "disable_version_fallback": true, "engine": "apple" }]"#,
+            &remote(r#", "http_client": { "version": 3, "disable_version_fallback": true }"#),
+        )
+        .unwrap();
+        assert_eq!(
+            config.warnings,
+            [
+                "http_clients[2].engine: sail downloads with its own client, not Apple's; ignored",
+                "http_clients[2].disable_version_fallback: sail downloads over HTTP/1.1, not \
+                 HTTP/2; ignored",
+                "route.rule_set[0].http_client.disable_version_fallback: sail downloads over \
+                 HTTP/1.1, not HTTP/3; ignored",
             ]
         );
         // In place, its tag names nothing.
@@ -619,6 +638,16 @@ mod tests {
                 r#"[{ "tag": "c", "headers": { "X-A": "1\r\nX-B: 2" } }]"#,
                 "{}".to_string(),
                 r#"http_clients[0]: headers: X-A: "1\r\nX-B: 2" breaks the line"#,
+            ),
+            (
+                r#"[{ "tag": "c", "version": 4 }]"#,
+                "{}".to_string(),
+                "http_clients[0]: version: 4 is none of 1, 2 and 3",
+            ),
+            (
+                r#"[{ "tag": "c", "engine": "curl" }]"#,
+                "{}".to_string(),
+                r#"http_clients[0]: engine: "curl" is neither go nor apple"#,
             ),
             (
                 r#"[{ "tag": "c", "tls": { "enabled": true } }]"#,

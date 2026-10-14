@@ -256,6 +256,20 @@ pub struct HttpClient {
     /// Sent with each request, over sail's own of the same name.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub headers: BTreeMap<String, HeaderValues>,
+    /// The HTTP version sing-box asks for, 1, 2 or 3; 2 when unset (or 0).
+    /// sail downloads over HTTP/1.1 whichever, as sing-box does from a
+    /// server that speaks no other: a download is the same download.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<u8>,
+    /// `version` alone, never HTTP/1.1 in its place: warned of with 2 or
+    /// 3, as sail downloads over HTTP/1.1.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub disable_version_fallback: bool,
+    /// Whose client sing-box downloads with: `go`, its own, when unset, or
+    /// `apple`, NSURLSession. sail downloads with its own either way, and
+    /// warns of `apple`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub engine: Option<String>,
 }
 
 /// Its headers, a line each.
@@ -301,6 +315,26 @@ impl HttpClient {
         defaults.dialer(&self.dial, None)
     }
 
+    /// What it asks for that sail's downloads do otherwise, a warning
+    /// each, the client being at `at`.
+    pub fn warnings(&self, at: &str) -> Vec<String> {
+        let mut warnings = Vec::new();
+        if self.engine.as_deref() == Some("apple") {
+            warnings.push(format!(
+                "{}.engine: sail downloads with its own client, not Apple's; ignored",
+                at
+            ));
+        }
+        if self.disable_version_fallback && self.version != Some(1) {
+            warnings.push(format!(
+                "{}.disable_version_fallback: sail downloads over HTTP/1.1, not HTTP/{}; ignored",
+                at,
+                self.version.filter(|v| *v != 0).unwrap_or(2)
+            ));
+        }
+        warnings
+    }
+
     fn check(&self, outbounds: &HashSet<&str>, dns_servers: &HashSet<String>) -> Result<()> {
         if let Some(detour) = &self.dial.detour {
             if !outbounds.contains(detour.as_str()) {
@@ -321,6 +355,16 @@ impl HttpClient {
         // take nothing away from it.
         crate::net::dial::DialSpec::resolve(&self.dial, &Default::default())?;
         check_headers(&self.headers)?;
+        if let Some(version) = self.version.filter(|v| !(0..=3).contains(v)) {
+            return Err(anyhow!("version: {} is none of 1, 2 and 3", version));
+        }
+        if let Some(engine) = self
+            .engine
+            .as_deref()
+            .filter(|e| !matches!(*e, "" | "go" | "apple"))
+        {
+            return Err(anyhow!("engine: {:?} is neither go nor apple", engine));
+        }
         if let Some(resolver) = &self.dial.domain_resolver {
             if !dns_servers.contains(&resolver.server) {
                 return Err(anyhow!(
@@ -3399,6 +3443,32 @@ impl Config {
             }
         }
         Ok(())
+    }
+
+    /// What its HTTP clients, in `http_clients` or inline, ask for that
+    /// sail's downloads do otherwise: a warning each.
+    pub fn http_client_warnings(&self) -> Vec<String> {
+        fn inline(client: &Option<HttpClientRef>) -> Option<&HttpClient> {
+            match client {
+                Some(HttpClientRef::Inline(client)) => Some(client),
+                _ => None,
+            }
+        }
+        let mut warnings = Vec::new();
+        for (i, client) in self.http_clients.iter().enumerate() {
+            warnings.extend(client.warnings(&format!("http_clients[{}]", i)));
+        }
+        for (i, rule_set) in self.route.rule_set.iter().enumerate() {
+            if let Some(client) = inline(&rule_set.http_client) {
+                warnings.extend(client.warnings(&format!("route.rule_set[{}].http_client", i)));
+            }
+        }
+        for (i, provider) in self.outbound_providers.iter().enumerate() {
+            if let Some(client) = inline(&provider.http_client) {
+                warnings.extend(client.warnings(&format!("outbound_providers[{}].http_client", i)));
+            }
+        }
+        warnings
     }
 
     /// Fills in what the configuration leaves to defaults, and checks what

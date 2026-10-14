@@ -379,9 +379,9 @@ Rust: [`RuleSet`](https://github.com/peakpassvpn/sail/blob/master/sail/src/confi
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
-| `engine` | string, one of `go`, `apple` | — | Warned: HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download | — |
-| `version` | number, one of `0`, `1`, `2`, `3` | — | Warned: HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download | — |
-| `disable_version_fallback` | bool | — | Warned: HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download | — |
+| `engine` | string, one of `go`, `apple` | — | Supported | — |
+| `version` | number, one of `0`, `1`, `2`, `3` | — | Supported | — |
+| `disable_version_fallback` | bool | — | Supported | — |
 | `headers` | map | — | Supported | — |
 | `tls` | object → [object](/sail/reference/shared/#tls-http-clients-route-rule-set) | — | Error: TLS options of an HTTP client's own: its downloads would be checked otherwise | — |
 | `detour` | string | — | Supported | — |

@@ -6180,8 +6180,7 @@
       "go",
       "apple"
      ],
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download"
+     "description": "Whose client sing-box downloads with: `go`, its own, when unset, or `apple`, NSURLSession. sail downloads with its own either way, and warns of `apple`."
     },
     "version": {
      "type": "number",
@@ -6191,13 +6190,11 @@
       2,
       3
      ],
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download"
+     "description": "The HTTP version sing-box asks for, 1, 2 or 3; 2 when unset (or 0). sail downloads over HTTP/1.1 whichever, as sing-box does from a server that speaks no other: a download is the same download."
     },
     "disable_version_fallback": {
      "type": "boolean",
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download"
+     "description": "`version` alone, never HTTP/1.1 in its place: warned of with 2 or 3, as sail downloads over HTTP/1.1."
     },
     "headers": {
      "type": "object",
@@ -22847,9 +22844,7 @@
      "examples": [
       "go",
       "apple"
-     ],
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download"
+     ]
     },
     "version": {
      "type": "number",
@@ -22858,14 +22853,10 @@
       1,
       2,
       3
-     ],
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download"
+     ]
     },
     "disable_version_fallback": {
-     "type": "boolean",
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download"
+     "type": "boolean"
     },
     "headers": {
      "type": "object"

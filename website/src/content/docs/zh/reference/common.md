@@ -91,9 +91,9 @@ Rust 定义：[`HttpClient`](https://github.com/peakpassvpn/sail/blob/master/sai
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
 | `tag` | string | `""` | 支持 | Of one in `http_clients`; none inline. |
-| `engine` | string, 取值 `go`, `apple` | — | 警告：HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download | — |
-| `version` | number, 取值 `0`, `1`, `2`, `3` | — | 警告：HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download | — |
-| `disable_version_fallback` | bool | — | 警告：HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download | — |
+| `engine` | string, 取值 `go`, `apple` | 未设置 | 支持 | Whose client sing-box downloads with: `go`, its own, when unset, or `apple`, NSURLSession. sail downloads with its own either way, and warns of `apple`. |
+| `version` | number, 取值 `0`, `1`, `2`, `3` | 未设置 | 支持 | The HTTP version sing-box asks for, 1, 2 or 3; 2 when unset (or 0). sail downloads over HTTP/1.1 whichever, as sing-box does from a server that speaks no other: a download is the same download. |
+| `disable_version_fallback` | bool | `false` | 支持 | `version` alone, never HTTP/1.1 in its place: warned of with 2 or 3, as sail downloads over HTTP/1.1. |
 | `headers` | map | `{}` | 支持 | Sent with each request, over sail's own of the same name. |
 | `tls` | object → [对象](/sail/zh/reference/shared/#tls-http-clients-route-rule-set) | — | 报错：TLS options of an HTTP client's own: its downloads would be checked otherwise | — |
 | `detour` | string | 未设置 | 支持 | The outbound to dial through, in place of a socket of its own. |

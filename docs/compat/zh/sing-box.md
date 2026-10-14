@@ -12,6 +12,8 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 
 有意的差异：远程规则集与出站订阅的下载不跟随从 https 到 http 或到其他协议的重定向（sing-box 的客户端会跟随），否则请求携带的内容（如订阅令牌）会以明文传出。
 
+HTTP 客户端无论 `version` 为何都通过 HTTP/1.1 下载，与 sing-box 遇到只支持 HTTP/1.1 的服务器时相同；`version` 与 `engine` 按 sing-box 的规则校验，`disable_version_fallback` 配合 HTTP/2 或 3、以及 `apple` 引擎会给出警告。两种方式下载的内容相同。
+
 与 sing-box 一致，`resolve` 路由动作把目标域名解析出的地址交给连接所走的任一出站：代理服务器收到的是由本地 DNS 决定的地址，而不是域名，它不会自己再解析。
 
 在默认拨号器绑定套接字时（占用默认路由的 TUN 即如此），`local` 服务器自己询问系统的 DNS 服务器：按顺序询问，每个服务器平分查询剩余的时间，最多三个，每个至少一秒；sing-box 给每个服务器 resolv.conf 的超时（5 秒），因此在 10 秒的查询里它的第三个服务器永远不会被询问。没有可发送的接口时立即失败，而不去询问不属于任何网络的系统服务器（sing-box 此时回退到 127.0.0.1 和 ::1）。在 macOS 上 sing-box 把名字交给系统解析器，sail 则询问其拨号器所走接口的服务器：手动设置的优先，否则用网络告知的。sail 会遵循系统的分离 DNS，sing-box 自己询问服务器的 local 服务器和 Mihomo 的 `system` 都不会：名字落在只负责部分域名的解析器的域名下（macOS 上带 `SupplementalMatchDomains` 的解析器，或 /etc/resolver 下的文件；Linux 上 systemd-resolved 某条链路的路由域名或搜索域名；Windows 上带 DNS 服务器的 NRPT 规则）时，询问该解析器的服务器，并从系统询问它所用的接口发出（NRPT 不指定接口，则从系统路由到该服务器的接口发出），最长的域名优先。位于 sail 自己 TUN 上、或服务器全在其网络内的解析器会被跳过；带 `detour` 或自己设了 `bind_interface` 的服务器不遵循分离 DNS。
@@ -28,15 +30,15 @@ Windows 无法实现的拨号字段在 Windows 上报错。已知缺口是 `tcp_
 | `ntp` | 35 | 35 | 0 | 0 |
 | `certificate` | 5 | 5 | 0 | 0 |
 | `certificate_providers` | 212 | 0 | 0 | 212 |
-| `http_clients` | 80 | 30 | 11 | 39 |
+| `http_clients` | 80 | 33 | 8 | 39 |
 | `network_namespaces` | 6 | 0 | 0 | 6 |
 | `endpoints` | 433 | 48 | 13 | 372 |
 | `inbounds` | 1367 | 623 | 116 | 628 |
 | `outbounds` | 1228 | 685 | 75 | 468 |
-| `route` | 268 | 174 | 41 | 53 |
+| `route` | 268 | 177 | 38 | 53 |
 | `services` | 751 | 1 | 166 | 584 |
 | `experimental` | 34 | 16 | 17 | 1 |
-| **全部** | **5003** | **1990** | **506** | **2507** |
+| **全部** | **5003** | **1996** | **500** | **2507** |
 
 ## `$schema`
 
@@ -744,9 +746,9 @@ Windows 无法实现的拨号字段在 Windows 上报错。已知缺口是 `tcp_
 |---|---|---|
 | `http_clients` | 支持 |  |
 | `[].tag` | 支持 |  |
-| `[].engine` | 警告 | HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download |
-| `[].version` | 警告 | HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download |
-| `[].disable_version_fallback` | 警告 | HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download |
+| `[].engine` | 支持 |  |
+| `[].version` | 支持 |  |
+| `[].disable_version_fallback` | 支持 |  |
 | `[].headers` | 支持 |  |
 | `[].tls` | 报错 | TLS options of an HTTP client's own: its downloads would be checked otherwise (含其下 37 个字段) |
 | `[].detour` | 支持 |  |
@@ -3031,9 +3033,9 @@ Windows 无法实现的拨号字段在 Windows 上报错。已知缺口是 `tcp_
 | `url` | 支持 |  |
 | `initial_path` | 支持 |  |
 | `http_client` | 支持 |  |
-| `http_client.engine` | 警告 | HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download |
-| `http_client.version` | 警告 | HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download |
-| `http_client.disable_version_fallback` | 警告 | HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download |
+| `http_client.engine` | 支持 |  |
+| `http_client.version` | 支持 |  |
+| `http_client.disable_version_fallback` | 支持 |  |
 | `http_client.headers` | 支持 |  |
 | `http_client.tls` | 报错 | TLS options of an HTTP client's own: its downloads would be checked otherwise (含其下 37 个字段) |
 | `http_client.detour` | 支持 |  |

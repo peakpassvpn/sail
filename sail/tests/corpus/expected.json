@@ -1414,7 +1414,7 @@
   "sing-box/0117.json": {
     "check": "[Proxy 1] outbound: unknown protocol \"naive\" (not supported, or not compiled into this build)",
     "ok": true,
-    "warnings": 1
+    "warnings": 0
   },
   "sing-box/0118.json": {
     "check": "dns.servers[dns-4]: inet4_range: invalid range \"28.0.0.1/8\": host part of address was not zero",

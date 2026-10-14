@@ -379,9 +379,9 @@ Rust 定义：[`RuleSet`](https://github.com/peakpassvpn/sail/blob/master/sail/s
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
-| `engine` | string, 取值 `go`, `apple` | — | 警告：HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download | — |
-| `version` | number, 取值 `0`, `1`, `2`, `3` | — | 警告：HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download | — |
-| `disable_version_fallback` | bool | — | 警告：HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download | — |
+| `engine` | string, 取值 `go`, `apple` | — | 支持 | — |
+| `version` | number, 取值 `0`, `1`, `2`, `3` | — | 支持 | — |
+| `disable_version_fallback` | bool | — | 支持 | — |
 | `headers` | map | — | 支持 | — |
 | `tls` | object → [对象](/sail/zh/reference/shared/#tls-http-clients-route-rule-set) | — | 报错：TLS options of an HTTP client's own: its downloads would be checked otherwise | — |
 | `detour` | string | — | 支持 | — |

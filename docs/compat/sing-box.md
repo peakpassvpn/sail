@@ -12,6 +12,8 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 
 A deliberate difference: a remote rule-set's or outbound provider's download is not redirected from https to http, nor to another scheme, which sing-box's client follows: what the request carries, a subscription's token, would go in the clear.
 
+An HTTP client downloads over HTTP/1.1 whatever its `version`, as sing-box's does from a server that speaks no other; `version` and `engine` are checked as sing-box checks them, and `disable_version_fallback` with HTTP/2 or 3, and the `apple` engine, are warned of. A download is the same download over either.
+
 As in sing-box, the addresses a `resolve` route action resolves the destination's domain to go to whatever outbound the connection takes: a proxy's server is sent the address, which the local DNS chose, not the domain, and so does not resolve it itself.
 
 A `local` server that asks the system's servers itself (where the default dialer binds its sockets, as a TUN taking the default route has it) asks them in order, each with an even share of the query's time left, at most three and a second each at least; sing-box gives each server resolv.conf's timeout (5 s), so that with a 10 s query its third server is never asked. With no interface to send through, it fails at once rather than asking the system's servers of no network in particular, where sing-box falls back to 127.0.0.1 and ::1. On macOS, where sing-box leaves names to the system's resolver, sail asks the servers of the interface its dialer sends through, set by hand or else told by the network. The system's split DNS is followed, which neither sing-box's local server asking servers itself nor Mihomo's `system` does: a name under the domain of a resolver for some domains only (on macOS one with `SupplementalMatchDomains`, or a file of /etc/resolver; on Linux a systemd-resolved link's routing or search domain; on Windows an NRPT rule with DNS servers) is asked of that resolver's servers, through the interface the system asks it on (for NRPT, which names none, the one the system routes its server through), the longest domain first. A resolver on sail's own TUN, or whose servers are all on its network, is passed over; a server with a `detour` or a `bind_interface` of its own follows none.
@@ -28,15 +30,15 @@ The dial fields Windows cannot take are refused there. A known gap is `tcp_fast_
 | `ntp` | 35 | 35 | 0 | 0 |
 | `certificate` | 5 | 5 | 0 | 0 |
 | `certificate_providers` | 212 | 0 | 0 | 212 |
-| `http_clients` | 80 | 30 | 11 | 39 |
+| `http_clients` | 80 | 33 | 8 | 39 |
 | `network_namespaces` | 6 | 0 | 0 | 6 |
 | `endpoints` | 433 | 48 | 13 | 372 |
 | `inbounds` | 1367 | 623 | 116 | 628 |
 | `outbounds` | 1228 | 685 | 75 | 468 |
-| `route` | 268 | 174 | 41 | 53 |
+| `route` | 268 | 177 | 38 | 53 |
 | `services` | 751 | 1 | 166 | 584 |
 | `experimental` | 34 | 16 | 17 | 1 |
-| **All** | **5003** | **1990** | **506** | **2507** |
+| **All** | **5003** | **1996** | **500** | **2507** |
 
 ## `$schema`
 
@@ -744,9 +746,9 @@ The dial fields Windows cannot take are refused there. A known gap is `tcp_fast_
 |---|---|---|
 | `http_clients` | Supported |  |
 | `[].tag` | Supported |  |
-| `[].engine` | Warned | HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download |
-| `[].version` | Warned | HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download |
-| `[].disable_version_fallback` | Warned | HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download |
+| `[].engine` | Supported |  |
+| `[].version` | Supported |  |
+| `[].disable_version_fallback` | Supported |  |
 | `[].headers` | Supported |  |
 | `[].tls` | Error | TLS options of an HTTP client's own: its downloads would be checked otherwise (and the 37 fields in it) |
 | `[].detour` | Supported |  |
@@ -3031,9 +3033,9 @@ The dial fields Windows cannot take are refused there. A known gap is `tcp_fast_
 | `url` | Supported |  |
 | `initial_path` | Supported |  |
 | `http_client` | Supported |  |
-| `http_client.engine` | Warned | HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download |
-| `http_client.version` | Warned | HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download |
-| `http_client.disable_version_fallback` | Warned | HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download |
+| `http_client.engine` | Supported |  |
+| `http_client.version` | Supported |  |
+| `http_client.disable_version_fallback` | Supported |  |
 | `http_client.headers` | Supported |  |
 | `http_client.tls` | Error | TLS options of an HTTP client's own: its downloads would be checked otherwise (and the 37 fields in it) |
 | `http_client.detour` | Supported |  |

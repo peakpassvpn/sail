@@ -1539,6 +1539,11 @@ A deliberate difference: a remote rule-set's or outbound provider's download is 
 from https to http, nor to another scheme, which sing-box's client follows: what the request \
 carries, a subscription's token, would go in the clear.
 
+An HTTP client downloads over HTTP/1.1 whatever its `version`, as sing-box's does from a server \
+that speaks no other; `version` and `engine` are checked as sing-box checks them, and \
+`disable_version_fallback` with HTTP/2 or 3, and the `apple` engine, are warned of. A download \
+is the same download over either.
+
 As in sing-box, the addresses a `resolve` route action resolves the destination's domain to go \
 to whatever outbound the connection takes: a proxy's server is sent the address, which the \
 local DNS chose, not the domain, and so does not resolve it itself.
@@ -1601,6 +1606,8 @@ const ZH: Words = Words {
 说明列取自 `sail/src/config/singbox/upstream.rs`，否则为 sail 给出的错误，均保留英文原文。
 
 有意的差异：远程规则集与出站订阅的下载不跟随从 https 到 http 或到其他协议的重定向（sing-box 的客户端会跟随），否则请求携带的内容（如订阅令牌）会以明文传出。
+
+HTTP 客户端无论 `version` 为何都通过 HTTP/1.1 下载，与 sing-box 遇到只支持 HTTP/1.1 的服务器时相同；`version` 与 `engine` 按 sing-box 的规则校验，`disable_version_fallback` 配合 HTTP/2 或 3、以及 `apple` 引擎会给出警告。两种方式下载的内容相同。
 
 与 sing-box 一致，`resolve` 路由动作把目标域名解析出的地址交给连接所走的任一出站：代理服务器收到的是由本地 DNS 决定的地址，而不是域名，它不会自己再解析。
 
