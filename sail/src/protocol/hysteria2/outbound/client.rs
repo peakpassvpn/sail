@@ -164,12 +164,21 @@ impl Client {
     /// the idle timeout; the next request dials anew. Under the lock that
     /// hands it out, so that none is opened on it meanwhile.
     fn check_idle(&self, now: tokio::time::Instant) {
+        self.close_idle_for(self.options.idle_timeout, now);
+    }
+
+    /// Closes the connection if it has no stream or UDP session open.
+    pub fn close_idle(&self) {
+        self.close_idle_for(Duration::ZERO, tokio::time::Instant::now());
+    }
+
+    fn close_idle_for(&self, idle_timeout: Duration, now: tokio::time::Instant) {
         let mut current = self.slot();
         let Some(conn) = current.conn.clone() else {
             return;
         };
         let open = conn.open.get();
-        if current.idle.expired(open, now, self.options.idle_timeout) {
+        if current.idle.expired(open, now, idle_timeout) {
             debug!("hysteria2: closing the connection, idle");
             conn.conn.close(IDLE_CODE, IDLE);
             current.conn = None;

@@ -430,6 +430,12 @@ impl OutboundStreamHandler for Group {
         self.checker.network_changed();
     }
 
+    /// Tests the members again, as on a change of network. Its members
+    /// hear of it themselves.
+    fn close_idle(&self) {
+        self.checker.network_changed();
+    }
+
     async fn handle<'a>(
         &'a self,
         sess: &'a Session,
@@ -757,5 +763,69 @@ mod tests {
             repick(&snapshot, &key(Some("q"), "c"), &HashMap::new()),
             None
         );
+    }
+
+    /// A member that counts the times it is told to close its idle
+    /// carriers.
+    struct ClosesIdle(Arc<std::sync::atomic::AtomicUsize>);
+
+    #[async_trait]
+    impl OutboundStreamHandler for ClosesIdle {
+        fn connect_addr(&self) -> OutboundConnect {
+            OutboundConnect::Unknown
+        }
+
+        async fn handle<'a>(
+            &'a self,
+            _sess: &'a Session,
+            _lhs: Option<&mut AnyStream>,
+            _stream: Option<AnyStream>,
+        ) -> io::Result<AnyStream> {
+            Err(io::Error::other("not dialled here"))
+        }
+
+        fn close_idle(&self) {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+
+    /// `close_idle` tests the members again at once, as a change of
+    /// network does, and leaves the members to hear of it themselves.
+    #[tokio::test(start_paused = true)]
+    async fn close_idle_tests_the_members_again() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let told = Arc::new(AtomicUsize::new(0));
+        let handler = HandlerBuilder::default()
+            .tag("a".to_owned())
+            .stream_handler(Arc::new(ClosesIdle(told.clone())))
+            .build();
+        let members = Members::of(vec![Member {
+            key: MemberKey::outbound("a"),
+            handler,
+            kind: "",
+        }]);
+        let rounds = Arc::new(AtomicUsize::new(0));
+        let checker = health::tests::running(
+            members.clone(),
+            Box::new({
+                let rounds = rounds.clone();
+                move |_, _, _| {
+                    rounds.fetch_add(1, Ordering::Relaxed);
+                }
+            }),
+        );
+        let group = Group {
+            checker,
+            members,
+            selected: Arc::new(Selection::new("a", MemberKey::outbound("a"))),
+            dns_client: health::tests::dns(),
+            interrupt: None,
+        };
+        tokio::time::sleep(Duration::from_secs(10)).await;
+        assert_eq!(rounds.load(Ordering::Relaxed), 1);
+        OutboundStreamHandler::close_idle(&group);
+        tokio::time::sleep(Duration::from_secs(10)).await;
+        assert_eq!(rounds.load(Ordering::Relaxed), 2, "no round");
+        assert_eq!(told.load(Ordering::Relaxed), 0, "the group told a member");
     }
 }

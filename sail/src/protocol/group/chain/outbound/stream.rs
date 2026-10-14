@@ -34,6 +34,13 @@ impl OutboundStreamHandler for Handler {
         }
     }
 
+    /// As `network_changed`.
+    fn close_idle(&self) {
+        for actor in &self.actors {
+            actor.close_idle();
+        }
+    }
+
     /// Runs each actor over what the one before it produced.
     ///
     /// The plan has already decided what each actor is told to reach; all that

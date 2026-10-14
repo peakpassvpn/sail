@@ -80,6 +80,9 @@ struct Current {
 /// What a connection closed for a network change is closed with.
 const NETWORK_CHANGED_CODE: quinn::VarInt = quinn::VarInt::from_u32(0);
 const NETWORK_CHANGED: &[u8] = b"network changed";
+/// What a connection closed for having nothing open is closed with.
+const IDLE_CODE: quinn::VarInt = quinn::VarInt::from_u32(0);
+const IDLE: &[u8] = b"idle";
 
 impl Client {
     pub fn new(options: ClientOptions<'_>) -> Self {
@@ -145,6 +148,16 @@ impl Client {
         if let Some(conn) = current.conn.take() {
             debug!("tuic: network changed, closing the connection");
             conn.conn.close(NETWORK_CHANGED_CODE, NETWORK_CHANGED);
+        }
+    }
+
+    /// Closes the connection in use if no stream or association is open
+    /// on it; the next request dials anew.
+    pub fn close_idle(&self) {
+        let mut current = self.slot();
+        if let Some(conn) = current.conn.take_if(|c| !c.activity.is_active()) {
+            debug!("tuic: closing the connection, idle");
+            conn.conn.close(IDLE_CODE, IDLE);
         }
     }
 
@@ -440,6 +453,10 @@ impl OutboundStreamHandler for StreamHandler {
     fn network_changed(&self, _change: &crate::net::network::NetworkChange) {
         self.0.network_changed();
     }
+
+    fn close_idle(&self) {
+        self.0.close_idle();
+    }
 }
 
 pub struct DatagramHandler(pub Arc<Client>);
@@ -483,6 +500,10 @@ impl OutboundDatagramHandler for DatagramHandler {
     }
     fn network_changed(&self, _change: &crate::net::network::NetworkChange) {
         self.0.network_changed();
+    }
+
+    fn close_idle(&self) {
+        self.0.close_idle();
     }
 }
 

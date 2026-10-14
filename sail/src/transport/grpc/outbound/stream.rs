@@ -68,6 +68,10 @@ impl OutboundStreamHandler for Handler {
         self.pool.network_changed(change);
     }
 
+    fn close_idle(&self) {
+        self.pool.close_idle();
+    }
+
     async fn handle<'a>(
         &'a self,
         sess: &'a Session,

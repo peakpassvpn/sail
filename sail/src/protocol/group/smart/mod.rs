@@ -550,6 +550,15 @@ impl Group {
         for s in lock(&self.stats).values_mut() {
             s.network_changed(now);
         }
+        self.probe_all();
+    }
+
+    /// Every member probed at once, idle as the group may be; unless the
+    /// network is down, when the change that ends that does.
+    fn probe_all(&self) {
+        if self.network.is_down() {
+            return;
+        }
         let snapshot = self.members.load();
         lock(&self.probes.suspects).extend(snapshot.members.iter().map(|m| m.key.clone()));
         self.start();
@@ -929,6 +938,12 @@ impl OutboundStreamHandler for Handler {
     /// hear of it themselves.
     fn network_changed(&self, _change: &crate::net::network::NetworkChange) {
         self.0.network_changed();
+    }
+
+    /// Every member probed at once, what was learnt kept. Its members
+    /// hear of it themselves.
+    fn close_idle(&self) {
+        self.0.probe_all();
     }
 }
 

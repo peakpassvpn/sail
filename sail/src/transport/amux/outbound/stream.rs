@@ -254,6 +254,23 @@ impl OutboundStreamHandler for Handler {
         OutboundConnect::Unknown
     }
 
+    /// The sessions with no stream close.
+    fn close_idle(&self) {
+        let now = tokio::time::Instant::now();
+        match self.manager.connectors.try_lock() {
+            Ok(mut connectors) => check(&mut connectors, Duration::ZERO, now),
+            Err(_) => {
+                // A stream is being opened: once it is.
+                let connectors = self.manager.connectors.clone();
+                if tokio::runtime::Handle::try_current().is_ok() {
+                    crate::runtime::scope::spawn("amux close idle", async move {
+                        check(&mut *connectors.lock().await, Duration::ZERO, now)
+                    });
+                }
+            }
+        }
+    }
+
     async fn handle<'a>(
         &'a self,
         sess: &'a Session,

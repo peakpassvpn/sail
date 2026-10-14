@@ -169,6 +169,10 @@ impl OutboundStreamHandler for StreamHandler {
     fn network_changed(&self, _change: &crate::net::network::NetworkChange) {
         self.0.network_changed();
     }
+
+    fn close_idle(&self) {
+        self.0.close_idle();
+    }
 }
 
 struct DatagramHandler(Arc<Client>);
@@ -199,6 +203,10 @@ impl OutboundDatagramHandler for DatagramHandler {
 
     fn network_changed(&self, _change: &crate::net::network::NetworkChange) {
         self.0.network_changed();
+    }
+
+    fn close_idle(&self) {
+        self.0.close_idle();
     }
 }
 

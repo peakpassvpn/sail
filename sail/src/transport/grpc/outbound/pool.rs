@@ -138,6 +138,17 @@ impl Pool {
         self.connector.network_changed(change);
     }
 
+    /// Ends the connections that carry no call; the layers beneath hear
+    /// of it.
+    pub fn close_idle(&self) {
+        check_idle(
+            &self.connections,
+            Duration::ZERO,
+            tokio::time::Instant::now(),
+        );
+        self.connector.close_idle();
+    }
+
     /// Makes the call `request` builds, on a connection with room for it.
     /// A connection that fails it is given up, and the call made once more,
     /// on a new one if need be.
@@ -566,5 +577,25 @@ mod tests {
         drop(answered(&pool, &sess).await);
         assert_eq!(connections.load(Ordering::SeqCst), 1);
         drop(open);
+    }
+
+    /// `close_idle` ends a connection that carries no call at once, which
+    /// the server sees, and keeps one that carries a call.
+    #[tokio::test]
+    async fn close_idle_ends_the_connections_without_a_call() {
+        let (port, _, mut ended) = server(1).await;
+        let pool = pool(port);
+        let sess = session(port);
+        // One call a connection, as the server allows.
+        let busy = answered(&pool, &sess).await;
+        drop(answered(&pool, &sess).await);
+        assert_eq!(pool.live(), 2);
+        pool.close_idle();
+        assert_eq!(pool.live(), 1);
+        let seen = tokio::time::timeout(Duration::from_secs(5), ended.recv()).await;
+        assert!(matches!(seen, Ok(Some(()))), "the server saw no end");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(ended.try_recv().is_err(), "the busy connection ended");
+        drop(busy);
     }
 }

@@ -70,6 +70,16 @@ impl OutboundHandler for Handler {
             datagram.network_changed(change);
         }
     }
+
+    /// As `network_changed`.
+    fn close_idle(&self) {
+        if let Some(stream) = &self.stream_handler {
+            stream.close_idle();
+        }
+        if let Some(datagram) = &self.datagram_handler {
+            datagram.close_idle();
+        }
+    }
 }
 
 impl Tag for Handler {
@@ -136,6 +146,10 @@ impl OutboundHandler for OneNetwork {
 
     fn network_changed(&self, change: &crate::net::network::NetworkChange) {
         self.inner.network_changed(change)
+    }
+
+    fn close_idle(&self) {
+        self.inner.close_idle()
     }
 }
 

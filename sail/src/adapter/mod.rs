@@ -72,6 +72,13 @@ pub trait OutboundHandler: BaseHandler {
     /// connections, measurements) is dropped or made anew, as sing-box's
     /// InterfaceUpdated. Connections open are closed by the instance.
     fn network_changed(&self, _change: &crate::net::network::NetworkChange) {}
+
+    /// Closes the carriers with nothing open -- what a wake after a long
+    /// sleep needs. The caller asks every outbound, as for a change of
+    /// network; a group tests its members again. A carrier (a connection
+    /// pooled streams and UDP sessions go over) with one open stays; the
+    /// next stream dials anew. Twice is as once.
+    fn close_idle(&self) {}
 }
 
 pub type AnyOutboundHandler = Arc<dyn OutboundHandler>;
@@ -118,6 +125,13 @@ pub trait OutboundStreamHandler: Send + Sync + Unpin {
     /// connections, measurements) is dropped or made anew, as sing-box's
     /// InterfaceUpdated. Connections open are closed by the instance.
     fn network_changed(&self, _change: &crate::net::network::NetworkChange) {}
+
+    /// Closes the carriers with nothing open -- what a wake after a long
+    /// sleep needs. The caller asks every outbound, as for a change of
+    /// network; a group tests its members again. A carrier (a connection
+    /// pooled streams and UDP sessions go over) with one open stays; the
+    /// next stream dials anew. Twice is as once.
+    fn close_idle(&self) {}
 }
 
 pub type AnyOutboundStreamHandler = Arc<dyn OutboundStreamHandler>;
@@ -183,6 +197,13 @@ pub trait OutboundDatagramHandler: Send + Sync + Unpin {
     /// connections, measurements) is dropped or made anew, as sing-box's
     /// InterfaceUpdated. Connections open are closed by the instance.
     fn network_changed(&self, _change: &crate::net::network::NetworkChange) {}
+
+    /// Closes the carriers with nothing open -- what a wake after a long
+    /// sleep needs. The caller asks every outbound, as for a change of
+    /// network; a group tests its members again. A carrier (a connection
+    /// pooled streams and UDP sessions go over) with one open stays; the
+    /// next stream dials anew. Twice is as once.
+    fn close_idle(&self) {}
 }
 
 pub type AnyOutboundDatagramHandler = Arc<dyn OutboundDatagramHandler>;

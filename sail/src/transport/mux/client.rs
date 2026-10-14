@@ -267,6 +267,31 @@ impl Client {
         });
     }
 
+    /// Closes the connections without streams, at once.
+    fn close_idle(self: &Arc<Self>) {
+        fn close(conns: &mut Vec<Entry>) {
+            conns.retain(|entry| {
+                if entry.conn.num_streams() > 0 {
+                    return true;
+                }
+                entry.conn.close();
+                false
+            });
+        }
+        match self.conns.try_lock() {
+            Ok(mut conns) => close(&mut conns),
+            // A connection is being made: once it is.
+            Err(_) => {
+                if tokio::runtime::Handle::try_current().is_ok() {
+                    let client = self.clone();
+                    crate::runtime::scope::spawn("mux close idle", async move {
+                        close(&mut *client.conns.lock().await)
+                    });
+                }
+            }
+        }
+    }
+
     /// Closes every connection, and the streams on them, as sing-mux's
     /// `Reset` does when the network changes: they were made on a network
     /// that may be gone. The next stream makes a new one.
@@ -511,6 +536,12 @@ impl OutboundStreamHandler for StreamHandler {
     fn network_changed(&self, change: &crate::net::network::NetworkChange) {
         self.client.reset();
         self.client.connector.network_changed(change);
+    }
+
+    /// As `network_changed`.
+    fn close_idle(&self) {
+        self.client.close_idle();
+        self.client.connector.close_idle();
     }
 
     async fn handle<'a>(

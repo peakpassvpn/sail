@@ -418,6 +418,12 @@ impl OutboundStreamHandler for Group {
         self.checker.network_changed();
     }
 
+    /// Tests the members again, as on a change of network. Its members
+    /// hear of it themselves.
+    fn close_idle(&self) {
+        self.checker.network_changed();
+    }
+
     async fn handle<'a>(
         &'a self,
         sess: &'a Session,

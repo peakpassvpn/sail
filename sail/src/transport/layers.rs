@@ -1046,6 +1046,11 @@ impl Connector {
         self.layers.network_changed(change);
     }
 
+    /// The layers close the carriers they keep with nothing open.
+    pub fn close_idle(&self) {
+        self.layers.close_idle();
+    }
+
     /// A new connection to the server, for `sess`.
     pub async fn connect(
         &self,

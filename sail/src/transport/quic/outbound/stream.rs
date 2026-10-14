@@ -50,9 +50,12 @@ fn check_idle(
     idle_timeout: Duration,
     now: tokio::time::Instant,
 ) {
-    let Ok(mut connections) = connections.try_write() else {
-        return;
-    };
+    if let Ok(mut connections) = connections.try_write() {
+        close_idle(&mut connections, idle_timeout, now);
+    }
+}
+
+fn close_idle(connections: &mut Vec<Pooled>, idle_timeout: Duration, now: tokio::time::Instant) {
     connections.retain_mut(|pooled| {
         if !pooled.idle.expired(pooled.open.get(), now, idle_timeout) {
             return true;
@@ -262,6 +265,23 @@ impl OutboundStreamHandler for Handler {
                 if tokio::runtime::Handle::try_current().is_ok() {
                     crate::runtime::scope::spawn("quic reset", async move {
                         close(&mut *connections.write().await)
+                    });
+                }
+            }
+        }
+    }
+
+    /// The connections with no stream open close.
+    fn close_idle(&self) {
+        let now = tokio::time::Instant::now();
+        match self.manager.connections.try_write() {
+            Ok(mut connections) => close_idle(&mut connections, Duration::ZERO, now),
+            Err(_) => {
+                // A stream is being opened: once it is.
+                let connections = self.manager.connections.clone();
+                if tokio::runtime::Handle::try_current().is_ok() {
+                    crate::runtime::scope::spawn("quic close idle", async move {
+                        close_idle(&mut *connections.write().await, Duration::ZERO, now)
                     });
                 }
             }

@@ -55,19 +55,15 @@ pub struct Idle(Option<Instant>);
 impl Idle {
     /// Whether a carrier with `open` streams and sessions has had none
     /// for `timeout` at `now`: the first check to see it with none starts
-    /// the time, and any that sees one open resets it.
+    /// the time, and any that sees one open resets it. With no timeout,
+    /// whether it has none open now (`close_idle`).
     pub fn expired(&mut self, open: usize, now: Instant, timeout: Duration) -> bool {
         if open > 0 {
             self.0 = None;
             return false;
         }
-        match self.0 {
-            None => {
-                self.0 = Some(now);
-                false
-            }
-            Some(since) => now.saturating_duration_since(since) >= timeout,
-        }
+        let since = *self.0.get_or_insert(now);
+        now.saturating_duration_since(since) >= timeout
     }
 }
 
@@ -125,5 +121,8 @@ mod tests {
         assert!(!idle.expired(0, start + timeout, timeout));
         assert!(!idle.expired(0, start + timeout * 3 / 2, timeout));
         assert!(idle.expired(0, start + timeout * 2, timeout));
+        // With no timeout, at once, but not with one open.
+        assert!(Idle::default().expired(0, start, Duration::ZERO));
+        assert!(!Idle::default().expired(1, start, Duration::ZERO));
     }
 }
