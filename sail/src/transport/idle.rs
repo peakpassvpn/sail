@@ -16,11 +16,11 @@ use std::time::Duration;
 use tokio::time::Instant;
 
 /// What is open on a carrier, as its `Open` guards count it.
-#[cfg(feature = "outbound-hysteria2")]
+#[cfg(any(feature = "outbound-hysteria2", feature = "outbound-quic"))]
 #[derive(Debug, Default, Clone)]
 pub struct Count(std::sync::Arc<std::sync::atomic::AtomicUsize>);
 
-#[cfg(feature = "outbound-hysteria2")]
+#[cfg(any(feature = "outbound-hysteria2", feature = "outbound-quic"))]
 impl Count {
     /// One more open, until the guard is dropped. Taken where the pool
     /// hands out the carrier, under the lock its check takes, the carrier
@@ -36,11 +36,11 @@ impl Count {
 }
 
 /// A stream or UDP session counted on its carrier while it lives.
-#[cfg(feature = "outbound-hysteria2")]
+#[cfg(any(feature = "outbound-hysteria2", feature = "outbound-quic"))]
 #[derive(Debug)]
 pub struct Open(std::sync::Arc<std::sync::atomic::AtomicUsize>);
 
-#[cfg(feature = "outbound-hysteria2")]
+#[cfg(any(feature = "outbound-hysteria2", feature = "outbound-quic"))]
 impl Drop for Open {
     fn drop(&mut self) {
         self.0.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
@@ -81,7 +81,7 @@ pub fn spawn_check<T: Send + Sync + 'static>(
     name: &'static str,
     pool: Weak<T>,
     timeout: Duration,
-    check: fn(&T, Instant),
+    check: impl Fn(&T, Instant) + Send + 'static,
 ) -> Check {
     let every = (timeout / 2).max(Duration::from_millis(1));
     let (task, handle) = futures::future::abortable(async move {
