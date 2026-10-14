@@ -7714,6 +7714,10 @@
     "max_time_difference": {
      "type": "string",
      "description": "How far a client's clock may be from ours, e.g. `1m`. Unset, any time is accepted, as in sing-box."
+    },
+    "server_names": {
+     "type": "array",
+     "description": "A sail extension, Xray's `serverNames` and Mihomo's `server-names`: more names clients may ask for, beside `tls.server_name`."
     }
    },
    "additionalProperties": false
@@ -10969,6 +10973,10 @@
     "max_time_difference": {
      "type": "string",
      "description": "How far a client's clock may be from ours, e.g. `1m`. Unset, any time is accepted, as in sing-box."
+    },
+    "server_names": {
+     "type": "array",
+     "description": "A sail extension, Xray's `serverNames` and Mihomo's `server-names`: more names clients may ask for, beside `tls.server_name`."
     }
    },
    "additionalProperties": false
@@ -12830,6 +12838,10 @@
     "max_time_difference": {
      "type": "string",
      "description": "How far a client's clock may be from ours, e.g. `1m`. Unset, any time is accepted, as in sing-box."
+    },
+    "server_names": {
+     "type": "array",
+     "description": "A sail extension, Xray's `serverNames` and Mihomo's `server-names`: more names clients may ask for, beside `tls.server_name`."
     }
    },
    "additionalProperties": false
@@ -13612,6 +13624,10 @@
     "max_time_difference": {
      "type": "string",
      "description": "How far a client's clock may be from ours, e.g. `1m`. Unset, any time is accepted, as in sing-box."
+    },
+    "server_names": {
+     "type": "array",
+     "description": "A sail extension, Xray's `serverNames` and Mihomo's `server-names`: more names clients may ask for, beside `tls.server_name`."
     }
    },
    "additionalProperties": false

@@ -240,6 +240,8 @@ REALITY is configured inside the TLS block:
 
 Use the public key and short ID issued by the server. REALITY's ClientHello is always a browser's: `utls` cannot be disabled with it, and it works over TCP only. REALITY and ordinary certificate-based TLS have different authentication assumptions; do not copy fields from one deployment without matching the server.
 
+A REALITY server (inbound) accepts the name in its `server_name` and, as a sail extension, those in `reality.server_names`, as Xray's `serverNames` and Mihomo's `server-names` do; either alone is enough.
+
 ## Diagnose handshake failures
 
 1. Run `sail -c config.json -T` to catch field and combination errors.

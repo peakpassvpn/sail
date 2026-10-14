@@ -297,6 +297,11 @@ const CONTEXT: &[(&str, &str, &str)] = &[
         "[]",
     ),
     (
+        "inbounds[http|trojan|vless|vmess].tls.reality.server_names",
+        r#"{ "tls": { "reality": { "handshake": { "server": "example.com", "server_port": 443 } } } }"#,
+        "[]",
+    ),
+    (
         "dns.servers[race].servers",
         "{}",
         r#"[{ "type": "local", "tag": "other" }]"#,
@@ -1326,6 +1331,11 @@ const EXTENSIONS: &[(&str, &str, &str)] = &[
         "inbounds[http|trojan|vless|vmess].tls.reality.handshake.skip_default_domain_resolver",
         "true",
         "As an outbound's, for the REALITY handshake server's name",
+    ),
+    (
+        "inbounds[http|trojan|vless|vmess].tls.reality.server_names",
+        r#"["www.example.org"]"#,
+        "More names REALITY clients may ask for, beside `tls.server_name`, which may then be left out; none may be empty (Xray's serverNames, Mihomo's server-names)",
     ),
     (
         "outbounds[anytls|http|hysteria2|shadowtls|trojan|tuic|vless|vmess].tls.ech.disable_dns_lookup",

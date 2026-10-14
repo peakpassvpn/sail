@@ -432,6 +432,7 @@ Rust 定义：[`InboundReality`](https://github.com/peakpassvpn/sail/blob/master
 | `private_key` | string | 必填 | 支持 | X25519, hex or base64url. |
 | `short_id` | listable-string | 必填 | 支持 | — |
 | `max_time_difference` | duration | 未设置 | 支持 | How far a client's clock may be from ours, e.g. `1m`. Unset, any time is accepted, as in sing-box. |
+| `server_names` | 数组，元素为 string | `[]` | sail 扩展 | A sail extension, Xray's `serverNames` and Mihomo's `server-names`: more names clients may ask for, beside `tls.server_name`. |
 
 <a id="reality-inbounds-2"></a>
 

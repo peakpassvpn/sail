@@ -1588,6 +1588,10 @@ pub struct InboundReality {
     /// X25519, hex or base64url.
     pub private_key: Secret<String>,
     pub short_id: Secret<Listable>,
+    /// A sail extension, Xray's `serverNames` and Mihomo's `server-names`:
+    /// more names clients may ask for, beside `tls.server_name`.
+    #[serde(default)]
+    pub server_names: Vec<String>,
     /// How far a client's clock may be from ours, e.g. `1m`. Unset, any
     /// time is accepted, as in sing-box.
     #[serde(default, with = "crate::config::model::duration")]
@@ -2107,7 +2111,7 @@ fn default_inbound_alpn(transport: Option<&InboundTransport>) -> Vec<String> {
 }
 
 #[allow(unused_variables)]
-fn tls_inbound(
+pub(crate) fn tls_inbound(
     tag: &str,
     tls: &InboundTls,
     alpn: Vec<String>,
@@ -2188,12 +2192,28 @@ fn reality_inbound(
         tls.versions(tag)?
             .require_tls13("REALITY")
             .map_err(|e| anyhow!("[{}] inbound: tls.{}", tag, e))?;
-        let server_name = tls
+        if reality.server_names.iter().any(String::is_empty) {
+            return Err(anyhow!(
+                "[{}] inbound: tls.reality.server_names: a name is empty",
+                tag
+            ));
+        }
+        // The names clients may ask for: `server_name`, then the extension's.
+        let server_names: Vec<String> = tls
             .server_name
-            .clone()
-            .ok_or_else(|| anyhow!("[{}] inbound: tls.server_name: tls.reality needs it", tag))?;
+            .iter()
+            .chain(&reality.server_names)
+            .cloned()
+            .collect();
+        if server_names.is_empty() {
+            return Err(anyhow!(
+                "[{}] inbound: tls.server_name: tls.reality needs it, or a name in \
+                 tls.reality.server_names",
+                tag
+            ));
+        }
         let handler = crate::transport::reality::inbound::Handler::new(
-            server_name,
+            server_names,
             &reality.private_key,
             &reality.short_id.0.clone().into_vec(),
             reality.max_time_difference,

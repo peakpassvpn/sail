@@ -256,11 +256,12 @@ unsafe fn keep_secret(ssl: *const btls_sys::SSL, line: *const std::os::raw::c_ch
 }
 
 impl Handler {
+    /// `server_names` are the names clients may ask for, at least one;
     /// `private_key` is hex or base64url, each short ID up to 16 hex
     /// digits; `handshake` is the site REALITY imitates and relays to,
     /// dialed by `dialer` and relayed as `relay` says.
     pub fn new(
-        server_name: String,
+        server_names: Vec<String>,
         private_key: &str,
         short_ids: &[String],
         max_time_difference: Option<Duration>,
@@ -268,9 +269,10 @@ impl Handler {
         dialer: InboundDialer,
         relay: crate::runtime::options::Relay,
     ) -> Result<Self> {
-        if server_name.is_empty() {
+        if server_names.is_empty() || server_names.iter().any(String::is_empty) {
             return Err(anyhow!("server_name is required"));
         }
+        let server_names: HashSet<String> = server_names.into_iter().collect();
         let short_ids = short_ids
             .iter()
             .map(|id| parse_short_id(id))
@@ -303,7 +305,7 @@ impl Handler {
             btls_sys::SSL_CTX_set_keylog_callback(builder.as_ptr(), Some(keylog));
         }
         Ok(Handler {
-            server_names: HashSet::from([server_name]),
+            server_names,
             private_key: parse_key("private_key", private_key)?,
             short_ids,
             max_time_difference,
@@ -912,7 +914,7 @@ mod tests {
     ) -> Handler {
         let (private, _) = keys();
         Handler::new(
-            "www.example.com".to_string(),
+            vec!["www.example.com".to_string()],
             &hex::encode(private),
             &["ab12".to_string()],
             max_time_difference,
@@ -1117,13 +1119,15 @@ mod tests {
 
     /// Runs `server` on one connection from a new listener; returns the
     /// port and whether its handshake completed.
-    async fn serve(server: Arc<Handler>) -> (u16, tokio::task::JoinHandle<io::Result<()>>) {
+    async fn serve(
+        server: AnyInboundStreamHandler,
+    ) -> (u16, tokio::task::JoinHandle<io::Result<()>>) {
         serve_reading(server, usize::MAX).await
     }
 
     /// As `serve`, but the server reads at most `most` bytes at a time.
     async fn serve_reading(
-        server: Arc<Handler>,
+        server: AnyInboundStreamHandler,
         most: usize,
     ) -> (u16, tokio::task::JoinHandle<io::Result<()>>) {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -1345,6 +1349,137 @@ mod tests {
             .unwrap();
         assert_eq!(got[0], 0x16);
         assert!(served.await.unwrap().is_err());
+    }
+
+    /// A server built as an inbound's `tls` says, with `server_name` and
+    /// `tls.reality.server_names` as given, relaying to `port`.
+    fn configured(
+        server_name: Option<&str>,
+        server_names: Option<serde_json::Value>,
+        port: u16,
+    ) -> Result<AnyInboundStreamHandler> {
+        let (private, _) = keys();
+        let mut tls = serde_json::json!({
+            "enabled": true,
+            "reality": {
+                "enabled": true,
+                "handshake": { "server": "127.0.0.1", "server_port": port },
+                "private_key": hex::encode(private),
+                "short_id": ["ab12"],
+            },
+        });
+        if let Some(name) = server_name {
+            tls["server_name"] = serde_json::json!(name);
+        }
+        if let Some(names) = server_names {
+            tls["reality"]["server_names"] = names;
+        }
+        let tls: crate::transport::layers::InboundTls = serde_json::from_value(tls)?;
+        let handler = crate::transport::layers::tls_inbound(
+            "in",
+            &tls,
+            Vec::new(),
+            &crate::runtime::RuntimeEnv::default(),
+            &Default::default(),
+        )?;
+        Ok(handler.stream()?.clone())
+    }
+
+    /// Whether a client asking for `name` is served by `server_name` and
+    /// `server_names`; one that is not is relayed to the handshake server,
+    /// whose answer it reads as the site gave it.
+    async fn served_as(
+        server_name: Option<&str>,
+        server_names: Option<serde_json::Value>,
+        name: &str,
+    ) -> bool {
+        let answer = |sid: &[u8]| fake::reply(sid, 0x1301, X25519, &[3000]);
+        let (target_port, target) = handshake_server(answer).await;
+        let server = configured(server_name, server_names, target_port).unwrap();
+        let (port, served) = serve(server).await;
+        let mut conn = client(Fingerprint::Chrome, "ab12", name);
+        let hello = written(&mut conn);
+        let Scan::Hello(message) = scan_client_hello(&hello) else {
+            panic!("no ClientHello");
+        };
+        let mut tcp = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+        tcp.write_all(&hello).await.unwrap();
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let mut stream = TlsStream::new(
+            conn,
+            Tap {
+                inner: tcp,
+                seen: seen.clone(),
+            },
+            None,
+        );
+        let handshake = tokio::time::timeout(Duration::from_secs(10), stream.handshake())
+            .await
+            .unwrap();
+        if handshake.is_ok() {
+            stream.write_all(b"ping").await.unwrap();
+            stream.flush().await.unwrap();
+            let mut echo = [0u8; 4];
+            stream.read_exact(&mut echo).await.unwrap();
+            assert_eq!(&echo, b"ping");
+            served.await.unwrap().unwrap();
+            return true;
+        }
+        // What the client read is the handshake server's answer to its
+        // ClientHello, as that server sent it.
+        let expected = answer(&message[SESSION_ID..SESSION_ID + 32]);
+        let seen = seen.lock().unwrap().clone();
+        assert!(!seen.is_empty() && expected.starts_with(&seen), "{}", name);
+        assert!(served.await.unwrap().is_err(), "{}", name);
+        drop(stream);
+        // The handshake server got the ClientHello as the client sent it.
+        assert!(target.await.unwrap().starts_with(&hello), "{}", name);
+        false
+    }
+
+    /// The names clients may ask for are `tls.server_name` and those of the
+    /// sail extension `tls.reality.server_names`; a client of ours asking
+    /// for another is relayed to the handshake server, as any other client.
+    #[tokio::test]
+    async fn test_server_name_and_server_names_are_all_taken() {
+        let names = || Some(serde_json::json!(["b.example", "c.example", "b.example"]));
+        for (name, ours) in [
+            ("a.example", true),
+            ("b.example", true),
+            ("c.example", true),
+            ("d.example", false),
+        ] {
+            let served = served_as(Some("a.example"), names(), name).await;
+            assert_eq!(served, ours, "{}", name);
+        }
+        // `server_names` alone is enough.
+        let names = Some(serde_json::json!(["b.example"]));
+        assert!(served_as(None, names.clone(), "b.example").await);
+        assert!(!served_as(None, names, "a.example").await);
+    }
+
+    /// No name at all, or an empty one, is an error naming the field.
+    #[test]
+    fn test_server_names_mistakes_are_errors() {
+        let error = |server_name, server_names| {
+            configured(server_name, server_names, 1)
+                .err()
+                .unwrap()
+                .to_string()
+        };
+        let none = "[in] inbound: tls.server_name: tls.reality needs it, or a name in \
+                    tls.reality.server_names";
+        assert_eq!(error(None, None), none);
+        assert_eq!(error(None, Some(serde_json::json!([]))), none);
+        let empty = Some(serde_json::json!(["b.example", ""]));
+        assert_eq!(
+            error(Some("a.example"), empty),
+            "[in] inbound: tls.reality.server_names: a name is empty"
+        );
+        assert_eq!(
+            error(Some(""), None),
+            "[in] inbound: tls.reality: server_name is required"
+        );
     }
 
     #[tokio::test]

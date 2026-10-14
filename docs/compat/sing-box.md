@@ -3195,6 +3195,7 @@ Fields and types sail accepts that sing-box does not.
 | `inbounds[http|socks|mixed].skip_auth_prefixes` | The clients that go in without credentials, by the IP prefixes they connect from (Mihomo's skip-auth-prefixes) |
 | `inbounds[shadowtls].handshake.skip_default_domain_resolver` | As an outbound's, for the handshake server's name |
 | `inbounds[http|trojan|vless|vmess].tls.reality.handshake.skip_default_domain_resolver` | As an outbound's, for the REALITY handshake server's name |
+| `inbounds[http|trojan|vless|vmess].tls.reality.server_names` | More names REALITY clients may ask for, beside `tls.server_name`, which may then be left out; none may be empty (Xray's serverNames, Mihomo's server-names) |
 | `outbounds[anytls|http|hysteria2|shadowtls|trojan|tuic|vless|vmess].tls.ech.disable_dns_lookup` | The ECHConfigList is never looked up in DNS |
 | `outbounds[http].version` | sing-box 1.15's, read ahead: the HTTP version, 1, 2 or 3 (2 when unset, 1 with a `path` or `Host` header). sail proxies over HTTP/1.1 whichever, as sing-box does with a server that speaks no other, and warns of 2 and 3 |
 | `outbounds[http].disable_version_fallback` | sing-box 1.15's, read ahead: `version` alone, never HTTP/1.1 in its place; warned of with HTTP/2 or 3, as sail proxies over HTTP/1.1 |

@@ -240,6 +240,8 @@ REALITY 在 TLS 块中配置：
 
 使用服务端签发的公钥和 short ID。REALITY 的 ClientHello 总是浏览器的：与它同用时不能关闭 `utls`，且只能用于 TCP。REALITY 与普通证书 TLS 的认证前提不同；不要在未核对服务端的情况下从另一套部署复制字段。
 
+REALITY 服务端（入站）接受 `server_name` 中的名字，以及 sail 扩展 `reality.server_names` 中的名字，与 Xray 的 `serverNames`、Mihomo 的 `server-names` 相同；只设其一即可。
+
 ## 排查握手失败
 
 1. 运行 `sail -c config.json -T`，发现字段与组合错误。
