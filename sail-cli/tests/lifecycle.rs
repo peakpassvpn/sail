@@ -110,6 +110,19 @@ impl Sail {
         std::fs::read_to_string(self.config.with_file_name("out.log")).unwrap_or_default()
     }
 
+    /// A connection to `to` through it, or a failure that says whether it
+    /// still runs and what it logged.
+    fn connect(&mut self, socks: u16, to: SocketAddr) -> TcpStream {
+        socks_connect(socks, to).unwrap_or_else(|e| {
+            panic!(
+                "{}; sail {:?}, logged:\n{}",
+                e,
+                self.child.try_wait(),
+                self.log()
+            )
+        })
+    }
+
     fn signal(&self, name: &str) {
         let status = Command::new("kill")
             .arg(format!("-{}", name))
@@ -146,6 +159,7 @@ impl Drop for Sail {
 fn config(socks: u16, last: &str) -> String {
     format!(
         r#"{{
+  "log": {{ "level": "debug", "timestamp": true }},
   "inbounds": [{{ "type": "socks", "listen": "127.0.0.1", "listen_port": {socks} }}],
   "outbounds": [{{ "type": "direct", "tag": "direct" }}, {{ "type": "block", "tag": "block" }}],
   "route": {{ "final": "{last}" }}
@@ -168,7 +182,7 @@ fn sigterm_lets_the_connections_open_finish() {
         socks,
         &["--set", "lifecycle.drain_timeout=10s"],
     );
-    let mut open = socks_connect(socks, echo).unwrap();
+    let mut open = sail.connect(socks, echo);
     assert!(echoes(&mut open));
 
     sail.signal("TERM");
@@ -201,7 +215,7 @@ fn sigterm_without_a_drain_timeout_stops_at_once() {
     let echo = echo_server();
     let socks = free_port();
     let mut sail = Sail::start(&config(socks, "direct"), socks, &[]);
-    let mut open = socks_connect(socks, echo).unwrap();
+    let mut open = sail.connect(socks, echo);
     assert!(echoes(&mut open));
     sail.signal("TERM");
     assert!(sail.exits(Duration::from_secs(3)));
@@ -217,7 +231,7 @@ fn a_second_signal_stops_the_drain() {
         socks,
         &["--set", "lifecycle.drain_timeout=60s"],
     );
-    let mut open = socks_connect(socks, echo).unwrap();
+    let mut open = sail.connect(socks, echo);
     assert!(echoes(&mut open));
     sail.signal("TERM");
     assert!(!sail.exits(Duration::from_millis(500)));
