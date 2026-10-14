@@ -524,7 +524,7 @@ Rust: [`InboundTls`](https://github.com/peakpassvpn/sail/blob/master/sail/src/tr
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
 | `enabled` | bool | `false` | Supported | — |
-| `server_name` | string | unset | Supported | The name REALITY clients must ask for; only REALITY uses it, and without REALITY it is ignored with a warning, as sing-box ignores it. |
+| `server_name` | string | unset | Supported | The name REALITY clients must ask for, or the one a `self_signed` certificate is for; otherwise it is ignored with a warning, as sing-box ignores it. |
 | `insecure` | bool | — | Warned: Only relaxes checks a server's TLS does not make | — |
 | `alpn` | listable-string | unset | Supported | — |
 | `min_version` | string, one of `1.0`, `1.1`, `1.2`, `1.3` | unset | Supported | The lowest TLS version to accept, `1.0` to `1.3`; unset, 1.2. |
@@ -547,6 +547,7 @@ Rust: [`InboundTls`](https://github.com/peakpassvpn/sail/blob/master/sail/src/tr
 | `reality` | object → [object](#reality-inbounds) | unset | Supported | — |
 | `acme` | object | — | Error: A certificate from a provider or ACME: the inbound would have none (deprecated in sing-box) | — |
 | `client_certificate_sha256` | string or array of string | unset | sail extension | sing-box 1.15's, read ahead: clients' certificates taken by the SHA-256 of the whole leaf (its DER), standard base64 or hex, looked at before `client_certificate_public_key_sha256`, as that is. |
+| `self_signed` | bool | `false` | sail extension | A sail extension: with no certificate or key set, a self-signed one the instance makes, for `server_name` if set, as Mihomo's Hysteria2 and TUIC listeners serve one without a certificate. It is made once and kept across reloads that rebuild the inbound in place; clients take it as `insecure` or by a pin. With a certificate or key, or REALITY, an error. |
 
 <a id="tls-inbounds-2"></a>
 
@@ -559,7 +560,7 @@ Rust: [`InboundTls`](https://github.com/peakpassvpn/sail/blob/master/sail/src/tr
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
 | `enabled` | bool | `false` | Supported | — |
-| `server_name` | string | unset | Supported | The name REALITY clients must ask for; only REALITY uses it, and without REALITY it is ignored with a warning, as sing-box ignores it. |
+| `server_name` | string | unset | Supported | The name REALITY clients must ask for, or the one a `self_signed` certificate is for; otherwise it is ignored with a warning, as sing-box ignores it. |
 | `insecure` | bool | — | Warned: Only relaxes checks a server's TLS does not make | — |
 | `alpn` | listable-string | unset | Supported | — |
 | `min_version` | string, one of `1.0`, `1.1`, `1.2`, `1.3` | unset | Supported | The lowest TLS version to accept, `1.0` to `1.3`; unset, 1.2. |
@@ -582,6 +583,7 @@ Rust: [`InboundTls`](https://github.com/peakpassvpn/sail/blob/master/sail/src/tr
 | `reality` | object → [object](#reality-inbounds-2) | unset | Supported | — |
 | `acme` | object | — | Error: A certificate from a provider or ACME: the inbound would have none (deprecated in sing-box) | — |
 | `client_certificate_sha256` | string or array of string | unset | sail extension | sing-box 1.15's, read ahead: clients' certificates taken by the SHA-256 of the whole leaf (its DER), standard base64 or hex, looked at before `client_certificate_public_key_sha256`, as that is. |
+| `self_signed` | bool | `false` | sail extension | A sail extension: with no certificate or key set, a self-signed one the instance makes, for `server_name` if set, as Mihomo's Hysteria2 and TUIC listeners serve one without a certificate. It is made once and kept across reloads that rebuild the inbound in place; clients take it as `insecure` or by a pin. With a certificate or key, or REALITY, an error. |
 
 <a id="tls-inbounds-outbounds"></a>
 

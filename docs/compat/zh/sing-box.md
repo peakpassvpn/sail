@@ -3196,6 +3196,7 @@ sail 接受而 sing-box 没有的字段和类型。
 | `inbounds[shadowtls].handshake.skip_default_domain_resolver` | As an outbound's, for the handshake server's name |
 | `inbounds[http|trojan|vless|vmess].tls.reality.handshake.skip_default_domain_resolver` | As an outbound's, for the REALITY handshake server's name |
 | `inbounds[http|trojan|vless|vmess].tls.reality.server_names` | More names REALITY clients may ask for, beside `tls.server_name`, which may then be left out; none may be empty (Xray's serverNames, Mihomo's server-names) |
+| `inbounds[anytls|http|hysteria2|trojan|tuic|vless|vmess].tls.self_signed` | With no certificate or key, a self-signed one made at start for `tls.server_name` (or `sail.invalid`), kept across reloads that leave the inbound in place, as Mihomo's Hysteria2 and TUIC listeners make one; clients need `insecure` or a pin, which changes with each new certificate; an error with a certificate, a key or REALITY |
 | `outbounds[anytls|http|hysteria2|shadowtls|trojan|tuic|vless|vmess].tls.ech.disable_dns_lookup` | The ECHConfigList is never looked up in DNS |
 | `outbounds[http].version` | sing-box 1.15's, read ahead: the HTTP version, 1, 2 or 3 (2 when unset, 1 with a `path` or `Host` header). sail proxies over HTTP/1.1 whichever, as sing-box does with a server that speaks no other, and warns of 2 and 3 |
 | `outbounds[http].disable_version_fallback` | sing-box 1.15's, read ahead: `version` alone, never HTTP/1.1 in its place; warned of with HTTP/2 or 3, as sail proxies over HTTP/1.1 |

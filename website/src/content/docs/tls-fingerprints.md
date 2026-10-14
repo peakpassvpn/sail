@@ -160,6 +160,10 @@ A server that authenticates clients by certificate (mutual TLS) asks for one dur
 
 Surge's `client-cert=<item>` reads a `p12` item of its `[Keystore]`, and Mihomo's `certificate` and `private-key` become these fields.
 
+## Self-signed inbound certificates
+
+As a sail extension, an inbound's `tls` may set `"self_signed": true` in place of a certificate and key: the inbound serves a self-signed ECDSA P-256 certificate it makes at start for its `server_name` (or `sail.invalid` without one), as Mihomo's Hysteria2 and TUIC listeners do when no certificate is configured. No CA vouches for it, so clients need `insecure` or a pin (`certificate_sha256` or `certificate_public_key_sha256`), and the pin changes whenever a new certificate is made: at every start, and on a reload that changes the inbound beyond its users and client-certificate checks, as a changed `server_name` does. With a certificate or key, or with REALITY, `self_signed` is an error.
+
 ## Verify clients' certificates
 
 An inbound asks clients for certificates and checks them with sing-box's fields in its `tls` block:

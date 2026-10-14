@@ -82,6 +82,7 @@ fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
         tls,
         ctx.env,
         &alpn_protocols(tls.alpn.as_ref(), DEFAULT_ALPN),
+        &ctx.state.self_signed,
     )?;
     let server = Server::new(
         tag,

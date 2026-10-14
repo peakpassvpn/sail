@@ -14,6 +14,7 @@ pub mod options;
 #[cfg(feature = "outbound-tls")]
 pub mod outbound;
 pub mod roots;
+pub mod self_signed;
 
 use btls::ssl::SslContextBuilder;
 use btls::x509::verify::X509VerifyParamRef;

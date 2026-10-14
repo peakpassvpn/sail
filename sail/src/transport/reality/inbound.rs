@@ -1381,6 +1381,7 @@ mod tests {
             Vec::new(),
             &crate::runtime::RuntimeEnv::default(),
             &Default::default(),
+            &Default::default(),
         )?;
         Ok(handler.stream()?.clone())
     }

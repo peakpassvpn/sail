@@ -442,7 +442,8 @@ fn expand(pattern: &str) -> Vec<String> {
 
 /// `config` with the entry probed (tagged `probe`) on TLS, if it has a
 /// `tls` the probe made: an extension of TLS is read only then. An
-/// inbound's takes the certificate, or with REALITY its key.
+/// inbound's takes the certificate, or with REALITY its key; one that
+/// makes its own (`self_signed`) is left with none.
 fn prepared(mut config: Value, pki: &Pki) -> Value {
     for (list, inbound) in [("inbounds", true), ("outbounds", false), ("dns", false)] {
         let entries = match list {
@@ -467,9 +468,14 @@ fn prepared(mut config: Value, pki: &Pki) -> Value {
                 reality.insert("private_key".into(), json!("11".repeat(32)));
                 reality.insert("short_id".into(), json!("0123"));
                 tls.insert("server_name".into(), json!("example.com"));
-            } else {
+            } else if tls.get("self_signed") != Some(&json!(true)) {
                 tls.insert("certificate".into(), json!(pki.cert));
                 tls.insert("key".into(), json!(pki.key));
+            } else {
+                // Entries valid on their own (anytls, hysteria2, tuic) carry one.
+                for field in ["certificate", "certificate_path", "key", "key_path"] {
+                    tls.remove(field);
+                }
             }
         }
     }
@@ -1336,6 +1342,11 @@ const EXTENSIONS: &[(&str, &str, &str)] = &[
         "inbounds[http|trojan|vless|vmess].tls.reality.server_names",
         r#"["www.example.org"]"#,
         "More names REALITY clients may ask for, beside `tls.server_name`, which may then be left out; none may be empty (Xray's serverNames, Mihomo's server-names)",
+    ),
+    (
+        "inbounds[anytls|http|hysteria2|trojan|tuic|vless|vmess].tls.self_signed",
+        "true",
+        "With no certificate or key, a self-signed one made at start for `tls.server_name` (or `sail.invalid`), kept across reloads that leave the inbound in place, as Mihomo's Hysteria2 and TUIC listeners make one; clients need `insecure` or a pin, which changes with each new certificate; an error with a certificate, a key or REALITY",
     ),
     (
         "outbounds[anytls|http|hysteria2|shadowtls|trojan|tuic|vless|vmess].tls.ech.disable_dns_lookup",

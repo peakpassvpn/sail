@@ -758,14 +758,6 @@ pub struct InboundContext<'a> {
     pub env: &'a RuntimeEnv,
     /// What the inbound dials with when it connects somewhere itself.
     pub dial: &'a crate::net::InstanceDial,
-    #[cfg_attr(
-        not(any(
-            feature = "inbound-vmess",
-            feature = "inbound-hysteria2",
-            feature = "inbound-tuic"
-        )),
-        allow(dead_code)
-    )]
     pub(crate) state: &'a InboundState,
     #[cfg_attr(
         not(any(feature = "inbound-hysteria2", feature = "inbound-tuic")),
@@ -801,6 +793,16 @@ pub(crate) struct InboundState {
     #[cfg(feature = "inbound-vmess")]
     pub(crate) vmess_replay:
         std::sync::OnceLock<std::sync::Arc<crate::protocol::vmess::inbound::ReplayFilter>>,
+    /// The certificate `tls.self_signed` serves, kept across the reloads
+    /// that rebuild the inbound in place: a reload drops the state of an
+    /// inbound it replaces, and one built anew makes another.
+    #[cfg(any(
+        feature = "inbound-tls",
+        feature = "inbound-quic",
+        feature = "inbound-hysteria2",
+        feature = "inbound-tuic"
+    ))]
+    pub(crate) self_signed: crate::transport::tls::self_signed::Slot,
 }
 
 impl InboundContext<'_> {

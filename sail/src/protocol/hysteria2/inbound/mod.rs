@@ -93,6 +93,7 @@ fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
         &tls,
         ctx.env,
         &transport::quic::alpn_protocols(tls.alpn.as_ref(), quic::DEFAULT_ALPN),
+        &ctx.state.self_signed,
     )?;
     let server_config =
         transport::quic::server_config(crypto).map_err(|e| err(format!("tls: {}", e)))?;

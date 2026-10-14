@@ -67,7 +67,13 @@ impl Handler {
                 tag
             ));
         }
-        let crypto = inbound_crypto(tag, tls, env, &alpn_protocols(tls.alpn.as_ref(), &[]))?;
+        let crypto = inbound_crypto(
+            tag,
+            tls,
+            env,
+            &alpn_protocols(tls.alpn.as_ref(), &[]),
+            &ctx.state.self_signed,
+        )?;
         let mut server_config = server_config(crypto)?;
         server_config.transport_config(Arc::new(transport_config(
             &env.options.quic,

@@ -6931,6 +6931,9 @@
     },
     "client_certificate_sha256": {
      "description": "sing-box 1.15's, read ahead: clients' certificates taken by the SHA-256 of the whole leaf (its DER), standard base64 or hex, with a verifying `client_authentication`; looked at before `client_certificate_public_key_sha256`, either list passing"
+    },
+    "self_signed": {
+     "description": "With no certificate or key, a self-signed one made at start for `tls.server_name` (or `sail.invalid`), kept across reloads that leave the inbound in place, as Mihomo's Hysteria2 and TUIC listeners make one; clients need `insecure` or a pin, which changes with each new certificate; an error with a certificate, a key or REALITY"
     }
    },
    "additionalProperties": false
@@ -7481,7 +7484,7 @@
     },
     "server_name": {
      "type": "string",
-     "description": "The name REALITY clients must ask for; only REALITY uses it, and without REALITY it is ignored with a warning, as sing-box ignores it."
+     "description": "The name REALITY clients must ask for, or the one a `self_signed` certificate is for; otherwise it is ignored with a warning, as sing-box ignores it."
     },
     "insecure": {
      "type": "boolean",
@@ -7663,6 +7666,10 @@
       }
      ],
      "description": "sing-box 1.15's, read ahead: clients' certificates taken by the SHA-256 of the whole leaf (its DER), standard base64 or hex, looked at before `client_certificate_public_key_sha256`, as that is."
+    },
+    "self_signed": {
+     "type": "boolean",
+     "description": "A sail extension: with no certificate or key set, a self-signed one the instance makes, for `server_name` if set, as Mihomo's Hysteria2 and TUIC listeners serve one without a certificate. It is made once and kept across reloads that rebuild the inbound in place; clients take it as `insecure` or by a pin. With a certificate or key, or REALITY, an error."
     }
    },
    "additionalProperties": false
@@ -8646,7 +8653,7 @@
     },
     "server_name": {
      "type": "string",
-     "description": "The name REALITY clients must ask for; only REALITY uses it, and without REALITY it is ignored with a warning, as sing-box ignores it."
+     "description": "The name REALITY clients must ask for, or the one a `self_signed` certificate is for; otherwise it is ignored with a warning, as sing-box ignores it."
     },
     "insecure": {
      "type": "boolean",
@@ -8828,6 +8835,10 @@
       }
      ],
      "description": "sing-box 1.15's, read ahead: clients' certificates taken by the SHA-256 of the whole leaf (its DER), standard base64 or hex, looked at before `client_certificate_public_key_sha256`, as that is."
+    },
+    "self_signed": {
+     "type": "boolean",
+     "description": "A sail extension: with no certificate or key set, a self-signed one the instance makes, for `server_name` if set, as Mihomo's Hysteria2 and TUIC listeners serve one without a certificate. It is made once and kept across reloads that rebuild the inbound in place; clients take it as `insecure` or by a pin. With a certificate or key, or REALITY, an error."
     }
    },
    "additionalProperties": false
@@ -10740,7 +10751,7 @@
     },
     "server_name": {
      "type": "string",
-     "description": "The name REALITY clients must ask for; only REALITY uses it, and without REALITY it is ignored with a warning, as sing-box ignores it."
+     "description": "The name REALITY clients must ask for, or the one a `self_signed` certificate is for; otherwise it is ignored with a warning, as sing-box ignores it."
     },
     "insecure": {
      "type": "boolean",
@@ -10922,6 +10933,10 @@
       }
      ],
      "description": "sing-box 1.15's, read ahead: clients' certificates taken by the SHA-256 of the whole leaf (its DER), standard base64 or hex, looked at before `client_certificate_public_key_sha256`, as that is."
+    },
+    "self_signed": {
+     "type": "boolean",
+     "description": "A sail extension: with no certificate or key set, a self-signed one the instance makes, for `server_name` if set, as Mihomo's Hysteria2 and TUIC listeners serve one without a certificate. It is made once and kept across reloads that rebuild the inbound in place; clients take it as `insecure` or by a pin. With a certificate or key, or REALITY, an error."
     }
    },
    "additionalProperties": false
@@ -11472,7 +11487,7 @@
     },
     "server_name": {
      "type": "string",
-     "description": "The name REALITY clients must ask for; only REALITY uses it, and without REALITY it is ignored with a warning, as sing-box ignores it."
+     "description": "The name REALITY clients must ask for, or the one a `self_signed` certificate is for; otherwise it is ignored with a warning, as sing-box ignores it."
     },
     "insecure": {
      "type": "boolean",
@@ -11654,6 +11669,10 @@
       }
      ],
      "description": "sing-box 1.15's, read ahead: clients' certificates taken by the SHA-256 of the whole leaf (its DER), standard base64 or hex, looked at before `client_certificate_public_key_sha256`, as that is."
+    },
+    "self_signed": {
+     "type": "boolean",
+     "description": "A sail extension: with no certificate or key set, a self-signed one the instance makes, for `server_name` if set, as Mihomo's Hysteria2 and TUIC listeners serve one without a certificate. It is made once and kept across reloads that rebuild the inbound in place; clients take it as `insecure` or by a pin. With a certificate or key, or REALITY, an error."
     }
    },
    "additionalProperties": false
@@ -12605,7 +12624,7 @@
     },
     "server_name": {
      "type": "string",
-     "description": "The name REALITY clients must ask for; only REALITY uses it, and without REALITY it is ignored with a warning, as sing-box ignores it."
+     "description": "The name REALITY clients must ask for, or the one a `self_signed` certificate is for; otherwise it is ignored with a warning, as sing-box ignores it."
     },
     "insecure": {
      "type": "boolean",
@@ -12787,6 +12806,10 @@
       }
      ],
      "description": "sing-box 1.15's, read ahead: clients' certificates taken by the SHA-256 of the whole leaf (its DER), standard base64 or hex, looked at before `client_certificate_public_key_sha256`, as that is."
+    },
+    "self_signed": {
+     "type": "boolean",
+     "description": "A sail extension: with no certificate or key set, a self-signed one the instance makes, for `server_name` if set, as Mihomo's Hysteria2 and TUIC listeners serve one without a certificate. It is made once and kept across reloads that rebuild the inbound in place; clients take it as `insecure` or by a pin. With a certificate or key, or REALITY, an error."
     }
    },
    "additionalProperties": false
@@ -13391,7 +13414,7 @@
     },
     "server_name": {
      "type": "string",
-     "description": "The name REALITY clients must ask for; only REALITY uses it, and without REALITY it is ignored with a warning, as sing-box ignores it."
+     "description": "The name REALITY clients must ask for, or the one a `self_signed` certificate is for; otherwise it is ignored with a warning, as sing-box ignores it."
     },
     "insecure": {
      "type": "boolean",
@@ -13573,6 +13596,10 @@
       }
      ],
      "description": "sing-box 1.15's, read ahead: clients' certificates taken by the SHA-256 of the whole leaf (its DER), standard base64 or hex, looked at before `client_certificate_public_key_sha256`, as that is."
+    },
+    "self_signed": {
+     "type": "boolean",
+     "description": "A sail extension: with no certificate or key set, a self-signed one the instance makes, for `server_name` if set, as Mihomo's Hysteria2 and TUIC listeners serve one without a certificate. It is made once and kept across reloads that rebuild the inbound in place; clients take it as `insecure` or by a pin. With a certificate or key, or REALITY, an error."
     }
    },
    "additionalProperties": false

@@ -160,6 +160,10 @@ ECH 只用于 TLS 1.3，因此开启 ECH 且 `min_version` 或 `max_version` 低
 
 Surge 的 `client-cert=<条目>` 读取 `[Keystore]` 中的 `p12` 条目；Mihomo 的 `certificate` 与 `private-key` 对应这两个字段。
 
+## 自签名入站证书
+
+作为 sail 扩展，入站的 `tls` 可以设置 `"self_signed": true` 代替证书与私钥：入站在启动时为其 `server_name`（未设置时为 `sail.invalid`）生成一张自签名的 ECDSA P-256 证书并提供给客户端，与 Mihomo 的 Hysteria2、TUIC 监听器未配置证书时的做法相同。没有 CA 为它担保，客户端需要 `insecure` 或固定证书（`certificate_sha256` 或 `certificate_public_key_sha256`）；每生成一张新证书，固定值就会改变：每次启动时，以及重载对入站的改动超出用户与客户端证书校验时（例如修改 `server_name`）。与证书或私钥同设，或与 REALITY 同用时，`self_signed` 报错。
+
 ## 校验客户端证书
 
 入站在 `tls` 块中用 sing-box 的字段向客户端索要证书并校验：

@@ -82,6 +82,7 @@ Rust: [`AnyTlsInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/s
 | `reality` | object → [object](#inbounds-anytls-tls-reality) | — | Supported | — |
 | `acme` | object | — | Error: A certificate from a provider or ACME: the inbound would have none (deprecated in sing-box) | — |
 | `client_certificate_sha256` | — | — | sail extension | sing-box 1.15's, read ahead: clients' certificates taken by the SHA-256 of the whole leaf (its DER), standard base64 or hex, with a verifying `client_authentication`; looked at before `client_certificate_public_key_sha256`, either list passing |
+| `self_signed` | — | — | sail extension | With no certificate or key, a self-signed one made at start for `tls.server_name` (or `sail.invalid`), kept across reloads that leave the inbound in place, as Mihomo's Hysteria2 and TUIC listeners make one; clients need `insecure` or a pin, which changes with each new certificate; an error with a certificate, a key or REALITY |
 
 <a id="inbounds-anytls-tls-reality"></a>
 

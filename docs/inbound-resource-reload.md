@@ -10,6 +10,10 @@ where the protocol permits those combinations. It does not rebind listeners.
 - Replace `users` or the ordinary TLS `certificate` / `certificate_path`
   and `key` / `key_path` fields, then call the existing configuration
   reload entry point (`sail::reload`, or `RuntimeManager::reload`).
+- `tls.self_signed` (a sail extension) may take the place of the
+  certificate and key, or give it back, the same way. The certificate it
+  makes is kept by such a reload, for the same `server_name`; a reload
+  that replaces the inbound makes a new one.
 - REALITY `private_key` / `short_id` and legacy Shadowsocks `password`
   use the same entry points. SS2022's server identity PSK, method and
   presence/absence of identity headers are structural, not user resources.

@@ -103,13 +103,15 @@ pub(super) fn check_change(old: &Inbound, new: &Inbound) -> Result<()> {
                 value.options.remove("users");
             }
             if let Some(tls) = value.options.get_mut("tls").and_then(|v| v.as_object_mut()) {
-                // The certificate and its key, and how clients' certificates
-                // are checked: the resources are built again from them.
+                // The certificate and its key, or one made (`self_signed`, a
+                // sail extension), and how clients' certificates are checked:
+                // the resources are built again from them.
                 for field in [
                     "certificate",
                     "certificate_path",
                     "key",
                     "key_path",
+                    "self_signed",
                     "client_authentication",
                     "client_certificate",
                     "client_certificate_path",
@@ -349,6 +351,7 @@ mod tests {
             ("client_certificate_path", json!(["ca.pem"])),
             ("client_certificate_public_key_sha256", json!(["a pin"])),
             ("client_certificate_sha256", json!(["a pin"])),
+            ("self_signed", json!(true)),
         ] {
             let mut new = new.clone();
             new.options["tls"][field] = value;
@@ -371,6 +374,52 @@ mod tests {
         quic.options
             .insert("transport".into(), json!({"type":"quic"}));
         assert!(supported(&quic));
+    }
+
+    /// A self-signed certificate is the inbound's state: a rebuild with the
+    /// same `tls` block, as a reload makes in place (here with other
+    /// users), serves the same certificate; one for another `server_name`
+    /// makes another. Over TCP and over QUIC.
+    #[cfg(any(
+        all(feature = "inbound-trojan", feature = "inbound-tls"),
+        feature = "inbound-hysteria2"
+    ))]
+    #[tokio::test]
+    async fn a_self_signed_certificate_is_kept_while_the_tls_block_stays() {
+        use crate::adapter::registry;
+        use std::collections::HashMap;
+        let protocols = [
+            #[cfg(all(feature = "inbound-trojan", feature = "inbound-tls"))]
+            "trojan",
+            #[cfg(feature = "inbound-hysteria2")]
+            "hysteria2",
+        ];
+        for protocol in protocols {
+            let mut states = HashMap::new();
+            let mut build = |server_name: &str, password: &str| {
+                let config: Inbound = serde_json::from_value(json!({
+                    "type": protocol, "tag": "t", "listen_port": 1234,
+                    "users": [{"password": password}],
+                    "tls": {"enabled": true, "self_signed": true, "server_name": server_name},
+                }))
+                .unwrap();
+                registry::build_inbounds(
+                    &crate::include::INBOUNDS,
+                    &[config],
+                    crate::include::LISTENER_INBOUNDS,
+                    &Default::default(),
+                    &Default::default(),
+                    &mut HashMap::new(),
+                    &mut HashMap::new(),
+                    &mut states,
+                )
+                .unwrap();
+                states["t"].self_signed.certificate().unwrap()
+            };
+            let first = build("a.example", "first");
+            assert_eq!(build("a.example", "second"), first, "{}", protocol);
+            assert_ne!(build("b.example", "second"), first, "{}", protocol);
+        }
     }
 
     #[cfg(feature = "inbound-vless")]

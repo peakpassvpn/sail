@@ -1550,6 +1550,14 @@ pub struct InboundTls {
     pub key: Option<Secret<Listable>>,
     #[serde(default)]
     pub key_path: Option<String>,
+    /// A sail extension: with no certificate or key set, a self-signed
+    /// one the instance makes, for `server_name` if set, as Mihomo's
+    /// Hysteria2 and TUIC listeners serve one without a certificate. It is
+    /// made once and kept across reloads that rebuild the inbound in
+    /// place; clients take it as `insecure` or by a pin. With a
+    /// certificate or key, or REALITY, an error.
+    #[serde(default)]
+    pub self_signed: bool,
     #[serde(default)]
     pub alpn: Option<Listable>,
     /// The lowest TLS version to accept, `1.0` to `1.3`; unset, 1.2.
@@ -1591,8 +1599,9 @@ pub struct InboundTls {
     /// at before `client_certificate_public_key_sha256`, as that is.
     #[serde(default)]
     pub client_certificate_sha256: Option<Listable>,
-    /// The name REALITY clients must ask for; only REALITY uses it, and
-    /// without REALITY it is ignored with a warning, as sing-box ignores it.
+    /// The name REALITY clients must ask for, or the one a `self_signed`
+    /// certificate is for; otherwise it is ignored with a warning, as
+    /// sing-box ignores it.
     #[serde(default)]
     pub server_name: Option<String>,
     #[serde(default)]
@@ -1907,6 +1916,41 @@ impl InboundTls {
         .find_map(|(field, set)| set.then_some(field))
     }
 
+    /// The certificate to present and its key, each inline PEM or a path:
+    /// those set, or with `self_signed` the one `made` holds for
+    /// `server_name`, made first if it holds none. Errors as the inbound
+    /// `tag`'s.
+    #[cfg(feature = "tls")]
+    pub(crate) fn identity(
+        &self,
+        tag: &str,
+        env: &RuntimeEnv,
+        made: &crate::transport::tls::self_signed::Slot,
+    ) -> Result<(String, String)> {
+        if !self.self_signed {
+            return Ok((self.certificate(tag, env)?, self.key(tag, env)?));
+        }
+        if let Some(field) = [
+            ("certificate", self.certificate.is_some()),
+            ("certificate_path", self.certificate_path.is_some()),
+            ("key", self.key.is_some()),
+            ("key_path", self.key_path.is_some()),
+        ]
+        .into_iter()
+        .find_map(|(field, set)| set.then_some(field))
+        {
+            return Err(anyhow!(
+                "[{}] inbound: tls.self_signed: not with tls.{}: the certificate is made, not given",
+                tag,
+                field
+            ));
+        }
+        let pair = made
+            .pair(self.server_name.as_deref())
+            .map_err(|e| anyhow!("[{}] inbound: tls.self_signed: {}", tag, e))?;
+        Ok((pair.certificate.clone(), pair.key.clone()))
+    }
+
     /// The certificate to present: inline, or by path.
     pub(crate) fn certificate(&self, tag: &str, env: &RuntimeEnv) -> Result<String> {
         match (&self.certificate, &self.certificate_path) {
@@ -1992,7 +2036,7 @@ pub fn inbound(
                 Some(alpn) => alpn.clone().into_vec(),
                 None => default_inbound_alpn(blocks.transport.as_ref()),
             };
-            under_mux.push(tls_inbound(tag, tls, alpn, env, ctx.dial)?);
+            under_mux.push(tls_inbound(tag, tls, alpn, env, ctx.dial, ctx.state)?);
         }
         if let Some(InboundTransport::Ws {
             path,
@@ -2139,8 +2183,16 @@ pub(crate) fn tls_inbound(
     alpn: Vec<String>,
     env: &RuntimeEnv,
     dial: &InstanceDial,
+    state: &crate::adapter::registry::InboundState,
 ) -> Result<AnyInboundHandler> {
     if let Some(reality) = tls.reality.as_ref().filter(|r| r.enabled) {
+        if tls.self_signed {
+            return Err(anyhow!(
+                "[{}] inbound: tls.self_signed: not with tls.reality, which makes its own \
+                 certificate",
+                tag
+            ));
+        }
         // REALITY negotiates no ALPN, as Xray's does not by default.
         if tls.alpn.is_some() {
             return Err(anyhow!(
@@ -2160,10 +2212,10 @@ pub(crate) fn tls_inbound(
         }
         return reality_inbound(tag, tls, reality, env, dial);
     }
-    // `server_name` is for REALITY; without it, it is ignored, as sing-box
-    // sets it where Go's TLS server never reads it, and server configs
-    // copied from clients carry it.
-    if tls.server_name.is_some() {
+    // `server_name` is for REALITY and `self_signed`; without them, it is
+    // ignored, as sing-box sets it where Go's TLS server never reads it,
+    // and server configs copied from clients carry it.
+    if tls.server_name.is_some() && !tls.self_signed {
         tracing::warn!(
             "[{}] inbound: tls.server_name: a server does not use it; ignored, as sing-box",
             tag
@@ -2171,9 +2223,10 @@ pub(crate) fn tls_inbound(
     }
     #[cfg(feature = "inbound-tls")]
     {
+        let (certificate, key) = tls.identity(tag, env, &state.self_signed)?;
         let handler = crate::transport::tls::inbound::StreamHandler::with_client_auth(
-            tls.certificate(tag, env)?,
-            tls.key(tag, env)?,
+            certificate,
+            key,
             alpn,
             tls.versions(tag)?,
             tls.client_auth(tag, env)?.as_ref(),
@@ -2893,6 +2946,108 @@ mod tests {
 mod inbound_tls_tests {
     use super::{tls_inbound, InboundTls};
 
+    /// With `self_signed` and no certificate, the inbound serves one it
+    /// made for `server_name`, which a client skipping verification takes,
+    /// and keeps it for the inbound's state.
+    #[tokio::test]
+    async fn a_self_signed_inbound_serves_a_certificate_for_its_server_name() {
+        use crate::adapter::InboundTransport;
+        let tls: InboundTls = serde_json::from_value(serde_json::json!({
+            "enabled": true,
+            "self_signed": true,
+            "server_name": "example.com",
+        }))
+        .unwrap();
+        let env = crate::runtime::RuntimeEnv::default();
+        let state = crate::adapter::registry::InboundState::default();
+        let handler =
+            tls_inbound("in", &tls, Vec::new(), &env, &Default::default(), &state).unwrap();
+        let client = crate::transport::tls::TlsClient::new(
+            &[],
+            None,
+            true,
+            None,
+            &crate::transport::tls::tests::test_roots(),
+        )
+        .unwrap();
+        let (c, s) = tokio::io::duplex(64 * 1024);
+        let (connected, accepted) = tokio::join!(
+            client.connect("example.com", c, None, None),
+            handler
+                .stream()
+                .unwrap()
+                .handle(Default::default(), Box::new(s))
+        );
+        assert!(matches!(accepted, Ok(InboundTransport::Stream(..))));
+        let served = connected.unwrap().conn().ssl().peer_certificate().unwrap();
+        let names: Vec<String> = served
+            .subject_alt_names()
+            .unwrap()
+            .iter()
+            .filter_map(|n| n.dnsname().map(str::to_owned))
+            .collect();
+        assert_eq!(names, ["example.com"]);
+        let made = state.self_signed.certificate().unwrap();
+        let made = btls::x509::X509::from_pem(made.as_bytes()).unwrap();
+        assert_eq!(served.to_der().unwrap(), made.to_der().unwrap());
+    }
+
+    /// `self_signed` with a certificate or key of its own, or with REALITY,
+    /// is an error; `false` is as without it: a certificate is needed.
+    #[test]
+    fn self_signed_is_an_error_with_a_certificate_or_reality() {
+        let env = crate::runtime::RuntimeEnv::default();
+        let built = |json: serde_json::Value| {
+            let tls: InboundTls = serde_json::from_value(json).unwrap();
+            tls_inbound(
+                "in",
+                &tls,
+                Vec::new(),
+                &env,
+                &Default::default(),
+                &Default::default(),
+            )
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+        };
+        for (field, value) in [
+            ("certificate", "-----BEGIN CERTIFICATE-----"),
+            ("certificate_path", "cert.pem"),
+            ("key", "-----BEGIN PRIVATE KEY-----"),
+            ("key_path", "key.pem"),
+        ] {
+            assert_eq!(
+                built(serde_json::json!({ "enabled": true, "self_signed": true, field: value })),
+                Err(format!(
+                    "[in] inbound: tls.self_signed: not with tls.{}: the certificate is made, \
+                     not given",
+                    field
+                ))
+            );
+        }
+        assert_eq!(
+            built(serde_json::json!({
+                "enabled": true, "self_signed": true, "server_name": "example.com",
+                "reality": {
+                    "enabled": true,
+                    "private_key": "x",
+                    "short_id": ["0123"],
+                    "handshake": { "server": "example.com", "server_port": 443 },
+                },
+            })),
+            Err(
+                "[in] inbound: tls.self_signed: not with tls.reality, which makes its own \
+                 certificate"
+                    .into()
+            )
+        );
+        assert_eq!(
+            built(serde_json::json!({ "enabled": true, "self_signed": false })),
+            Err("[in] inbound: tls: set exactly one of certificate and certificate_path".into())
+        );
+        assert!(built(serde_json::json!({ "enabled": true, "self_signed": true })).is_ok());
+    }
+
     /// An inbound's `tls.server_name` without REALITY is ignored, as
     /// sing-box ignores it, rather than refused.
     #[test]
@@ -2907,7 +3062,15 @@ mod inbound_tls_tests {
         }))
         .unwrap();
         let env = crate::runtime::RuntimeEnv::default();
-        tls_inbound("in", &tls, Vec::new(), &env, &Default::default()).unwrap();
+        tls_inbound(
+            "in",
+            &tls,
+            Vec::new(),
+            &env,
+            &Default::default(),
+            &Default::default(),
+        )
+        .unwrap();
     }
 
     /// Any field that would check clients' certificates is an error with
@@ -2941,9 +3104,16 @@ mod inbound_tls_tests {
             }))
             .unwrap();
             let env = crate::runtime::RuntimeEnv::default();
-            let err = tls_inbound("in", &tls, Vec::new(), &env, &Default::default())
-                .err()
-                .unwrap();
+            let err = tls_inbound(
+                "in",
+                &tls,
+                Vec::new(),
+                &env,
+                &Default::default(),
+                &Default::default(),
+            )
+            .err()
+            .unwrap();
             assert_eq!(
                 err.to_string(),
                 format!(
@@ -2975,9 +3145,16 @@ mod inbound_tls_tests {
         }))
         .unwrap();
         let env = crate::runtime::RuntimeEnv::default();
-        let err = tls_inbound("in", &tls, Vec::new(), &env, &Default::default())
-            .err()
-            .unwrap();
+        let err = tls_inbound(
+            "in",
+            &tls,
+            Vec::new(),
+            &env,
+            &Default::default(),
+            &Default::default(),
+        )
+        .err()
+        .unwrap();
         assert!(
             err.to_string()
                 .starts_with("[in] inbound: tls.client_certificate_sha256: without"),

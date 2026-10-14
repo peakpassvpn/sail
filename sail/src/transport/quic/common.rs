@@ -268,12 +268,14 @@ pub fn server_crypto(
 /// version range without TLS 1.3 is an error: QUIC is
 /// TLS 1.3 only. So is REALITY, which is TCP-only: sing-box takes it in the
 /// configuration and refuses it at start ("unsupported usage for
-/// reality", its REALITY server's STDConfig); here, at once.
+/// reality", its REALITY server's STDConfig); here, at once. With
+/// `self_signed`, the certificate presented is the one `self_signed` holds.
 pub fn inbound_crypto(
     tag: &str,
     tls: &InboundTls,
     env: &RuntimeEnv,
     alpns: &[Vec<u8>],
+    self_signed: &crate::transport::tls::self_signed::Slot,
 ) -> Result<quinn_btls::ServerConfig> {
     if tls.reality.as_ref().is_some_and(|r| r.enabled) {
         return Err(anyhow!(
@@ -281,8 +283,9 @@ pub fn inbound_crypto(
             tag
         ));
     }
-    // Only REALITY uses `server_name`; as over TCP, it is ignored aloud.
-    if tls.server_name.is_some() {
+    // Only REALITY and `self_signed` use `server_name`; as over TCP, it is
+    // ignored aloud.
+    if tls.server_name.is_some() && !tls.self_signed {
         tracing::warn!(
             "[{}] inbound: tls.server_name: a server does not use it; ignored, as sing-box",
             tag
@@ -292,8 +295,7 @@ pub fn inbound_crypto(
         .require_tls13("QUIC")
         .map_err(|e| anyhow!("[{}] inbound: tls.{}", tag, e))?;
     let client_auth = tls.client_auth(tag, env)?;
-    let certificate = tls.certificate(tag, env)?;
-    let key = tls.key(tag, env)?;
+    let (certificate, key) = tls.identity(tag, env, self_signed)?;
     let mut crypto = server_crypto(&certificate, &key, alpns)
         .map_err(|e| anyhow!("[{}] inbound: tls: {}", tag, e))?;
     // By sail's own verification, as over TCP: quinn-btls's would verify by
@@ -1558,7 +1560,7 @@ mod tests {
             "enabled": true, "max_version": "1.2", "certificate": "x", "key": "y",
         }))
         .unwrap();
-        let err = inbound_crypto("i", &tls, &RuntimeEnv::default(), &[])
+        let err = inbound_crypto("i", &tls, &RuntimeEnv::default(), &[], &Default::default())
             .err()
             .unwrap();
         assert_eq!(
@@ -1643,7 +1645,9 @@ mod tests {
                 "client_certificate": ca.pem,
             }))
             .unwrap();
-            let mut crypto = inbound_crypto("i", &tls, &RuntimeEnv::default(), &[]).unwrap();
+            let mut crypto =
+                inbound_crypto("i", &tls, &RuntimeEnv::default(), &[], &Default::default())
+                    .unwrap();
             // The public CA is in the context's store.
             let public = btls::x509::X509::from_pem(public.pem.as_bytes()).unwrap();
             crate::transport::tls::configure_quic_server(&mut crypto, |builder| {
@@ -1688,7 +1692,8 @@ mod tests {
             "client_certificate_sha256": [cert.pin()],
         }))
         .unwrap();
-        let crypto = || inbound_crypto("i", &tls, &RuntimeEnv::default(), &[]).unwrap();
+        let crypto =
+            || inbound_crypto("i", &tls, &RuntimeEnv::default(), &[], &Default::default()).unwrap();
         assert_eq!(
             served_over_quic(crypto(), &pem, Some(&cert.identity(&[]))).await,
             None
@@ -1697,6 +1702,95 @@ mod tests {
         assert_eq!(
             served_over_quic(crypto(), &pem, Some(&other.identity(&[]))).await,
             Some(quinn::TransportErrorCode::crypto(42))
+        );
+    }
+
+    /// Whether a client of `client` connects to a server of `crypto` asking
+    /// for `name`, and the server takes it.
+    async fn connects_over_quic(
+        crypto: quinn_btls::ServerConfig,
+        client: quinn_btls::ClientConfig,
+        name: &str,
+    ) -> bool {
+        let server = endpoint(
+            std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap(),
+            Some(server_config(crypto).unwrap()),
+            Default::default(),
+        )
+        .unwrap();
+        let client_endpoint = endpoint(
+            std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap(),
+            None,
+            Default::default(),
+        )
+        .unwrap();
+        let config = quinn::ClientConfig::new(Arc::new(client));
+        // Each connection is held until both ends are done.
+        let accept = async { server.accept().await.unwrap().await };
+        let connect = async {
+            client_endpoint
+                .connect_with(config, server.local_addr().unwrap(), name)
+                .unwrap()
+                .await
+        };
+        // A refused handshake ends both, not hangs.
+        let (served, connected) = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            tokio::join!(accept, connect)
+        })
+        .await
+        .expect("the handshake ends");
+        served.is_ok() && connected.is_ok()
+    }
+
+    /// A QUIC inbound with `self_signed` (Hysteria2's, TUIC's, the quic
+    /// transport's) serves the certificate it made for `server_name`, made
+    /// once: a client skipping verification takes it, and so does one
+    /// trusting that certificate alone, by the name.
+    #[tokio::test]
+    async fn a_self_signed_quic_inbound_serves_its_own_certificate() {
+        let tls: InboundTls = serde_json::from_value(serde_json::json!({
+            "enabled": true, "self_signed": true, "server_name": "example.com",
+        }))
+        .unwrap();
+        let made = crate::transport::tls::self_signed::Slot::default();
+        let crypto = || inbound_crypto("i", &tls, &RuntimeEnv::default(), &[], &made).unwrap();
+        let first = crypto();
+        let pem = made.certificate().unwrap();
+        let insecure =
+            client_crypto(None, true, &[], &crate::transport::tls::tests::test_roots()).unwrap();
+        assert!(connects_over_quic(first, insecure, "example.com").await);
+        let trusting = || {
+            client_crypto(
+                Some(&pem),
+                false,
+                &[],
+                &crate::transport::tls::tests::test_roots(),
+            )
+            .unwrap()
+        };
+        assert!(connects_over_quic(crypto(), trusting(), "example.com").await);
+        assert!(!connects_over_quic(crypto(), trusting(), "other.example").await);
+        assert_eq!(made.certificate(), Some(pem.clone()));
+        let names: Vec<String> = btls::x509::X509::from_pem(pem.as_bytes())
+            .unwrap()
+            .subject_alt_names()
+            .unwrap()
+            .iter()
+            .filter_map(|n| n.dnsname().map(str::to_owned))
+            .collect();
+        assert_eq!(names, ["example.com"]);
+        // With a key of its own, an error.
+        let tls: InboundTls = serde_json::from_value(serde_json::json!({
+            "enabled": true, "self_signed": true, "key_path": "key.pem",
+        }))
+        .unwrap();
+        let err = inbound_crypto("i", &tls, &RuntimeEnv::default(), &[], &made)
+            .err()
+            .unwrap();
+        assert_eq!(
+            err.to_string(),
+            "[i] inbound: tls.self_signed: not with tls.key_path: the certificate is made, not \
+             given"
         );
     }
 
@@ -1714,7 +1808,7 @@ mod tests {
             },
         }))
         .unwrap();
-        let err = inbound_crypto("i", &tls, &RuntimeEnv::default(), &[])
+        let err = inbound_crypto("i", &tls, &RuntimeEnv::default(), &[], &Default::default())
             .err()
             .unwrap();
         assert_eq!(
