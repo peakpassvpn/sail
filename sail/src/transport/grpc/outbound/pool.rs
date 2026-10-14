@@ -195,11 +195,8 @@ impl Pool {
 
     async fn dial(&self, sess: &Session) -> io::Result<Connection> {
         let stream = self.connector.connect(sess).await?;
-        let (send, mut connection) = h2::client::Builder::new()
-            .initial_window_size(super::super::STREAM_WINDOW)
-            .initial_connection_window_size(super::super::CONNECTION_WINDOW)
-            .max_header_list_size(super::super::MAX_HEADER_LIST)
-            .enable_push(false)
+        let (stream, received) = super::super::Counted::new(stream);
+        let (send, mut connection) = builder()
             .handshake::<_, Bytes>(stream)
             .await
             .map_err(|e| io::Error::other(format!("gun: {}", e)))?;
@@ -220,6 +217,7 @@ impl Pool {
             let permit_without_stream = self.keepalive.permit_without_stream;
             super::super::keepalive(
                 ping_pong,
+                received,
                 interval,
                 self.keepalive.ping_timeout,
                 move || permit_without_stream || watched.streams.load(Ordering::Acquire) > 0,
@@ -232,6 +230,17 @@ impl Pool {
             abort: ends,
         })
     }
+}
+
+/// How a connection to the server is set up.
+pub(in crate::transport::grpc) fn builder() -> h2::client::Builder {
+    let mut builder = h2::client::Builder::new();
+    builder
+        .initial_window_size(super::super::STREAM_WINDOW)
+        .initial_connection_window_size(super::super::CONNECTION_WINDOW)
+        .max_header_list_size(super::super::MAX_HEADER_LIST)
+        .enable_push(false);
+    builder
 }
 
 /// A call counted against its connection until dropped.

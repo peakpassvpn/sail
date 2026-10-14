@@ -13,8 +13,15 @@ pub mod inbound;
 #[cfg(feature = "outbound-grpc")]
 pub mod outbound;
 
+use std::io;
+use std::pin::Pin;
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
+use std::task::{Context, Poll};
 use std::time::Duration;
 
+use portable_atomic::AtomicU64;
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tracing::debug;
 
 /// A stream's receive window. What one stream can have in flight towards
@@ -50,16 +57,86 @@ pub fn service_path(service_name: &str) -> anyhow::Result<String> {
 /// sing-box.
 pub const DEFAULT_PING_TIMEOUT: Duration = Duration::from_secs(15);
 
+/// A connection's IO, under h2, counting the bytes read from the peer:
+/// any at all show it alive, whatever h2 makes of them.
+struct Counted<S> {
+    inner: S,
+    received: Arc<AtomicU64>,
+}
+
+impl<S> Counted<S> {
+    fn new(inner: S) -> (Self, Arc<AtomicU64>) {
+        let received = Arc::new(AtomicU64::new(0));
+        let counted = Counted {
+            inner,
+            received: received.clone(),
+        };
+        (counted, received)
+    }
+}
+
+impl<S: AsyncRead + Unpin> AsyncRead for Counted<S> {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        let before = buf.filled().len();
+        let read = Pin::new(&mut self.inner).poll_read(cx, buf);
+        let n = buf.filled().len() - before;
+        if n > 0 {
+            self.received.fetch_add(n as u64, Ordering::Relaxed);
+        }
+        read
+    }
+}
+
+impl<S: AsyncWrite + Unpin> AsyncWrite for Counted<S> {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        Pin::new(&mut self.inner).poll_write(cx, buf)
+    }
+
+    fn poll_write_vectored(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        bufs: &[io::IoSlice<'_>],
+    ) -> Poll<io::Result<usize>> {
+        Pin::new(&mut self.inner).poll_write_vectored(cx, bufs)
+    }
+
+    fn is_write_vectored(&self) -> bool {
+        self.inner.is_write_vectored()
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.inner).poll_flush(cx)
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.inner).poll_shutdown(cx)
+    }
+}
+
 /// Keepalive: every `interval`, a ping, which must be answered within
 /// `timeout` or the connection is given up with `abort`. A round in which
 /// `wanted` says no is skipped: a client pings a connection with no calls
 /// open only if `permit_without_stream`.
 ///
-/// sing-box pings after `idle_timeout` without a frame received; h2 does not
-/// say when one last was, so here the ping goes out every `idle_timeout`
-/// whatever the traffic. Its cost is one frame each way.
+/// sing-box pings after `idle_timeout` without a frame received; here the
+/// ping goes out every `idle_timeout` whatever the traffic. Its cost is one
+/// frame each way.
+///
+/// A pong can wait behind all the peer sends before it, on a slow link
+/// megabytes. So, as in grpc-go, bytes from the peer show it alive too:
+/// while some arrived, `received` counting them, within the last `timeout`,
+/// the pong is waited for on.
 fn keepalive(
     mut ping_pong: h2::PingPong,
+    received: Arc<AtomicU64>,
     interval: Duration,
     timeout: Duration,
     wanted: impl Fn() -> bool + Send + 'static,
@@ -71,12 +148,27 @@ fn keepalive(
             if !wanted() {
                 continue;
             }
-            match tokio::time::timeout(timeout, ping_pong.ping(h2::Ping::opaque())).await {
-                Ok(Ok(_)) => continue,
+            let mut seen = received.load(Ordering::Relaxed);
+            let mut pong = std::pin::pin!(ping_pong.ping(h2::Ping::opaque()));
+            let answered = loop {
+                if let Ok(answered) = tokio::time::timeout(timeout, &mut pong).await {
+                    break Some(answered);
+                }
+                let now = received.load(Ordering::Relaxed);
+                if now == seen {
+                    break None;
+                }
+                seen = now;
+            };
+            match answered {
+                Some(Ok(_)) => continue,
                 // The connection is gone already.
-                Ok(Err(_)) => break,
-                Err(_) => {
-                    debug!("gun: no pong within {:?}, closing the connection", timeout);
+                Some(Err(_)) => break,
+                None => {
+                    debug!(
+                        "gun: no pong nor anything else within {:?}, closing the connection",
+                        timeout
+                    );
                     abort.abort();
                     break;
                 }
@@ -84,6 +176,9 @@ fn keepalive(
         }
     });
 }
+
+#[cfg(all(test, feature = "inbound-grpc", feature = "outbound-grpc"))]
+mod stall_tests;
 
 #[cfg(test)]
 mod tests {

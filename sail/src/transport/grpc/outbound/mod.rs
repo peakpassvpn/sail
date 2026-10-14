@@ -1,4 +1,4 @@
-mod pool;
+pub(super) mod pool;
 mod stream;
 
 pub use pool::Keepalive;

@@ -46,6 +46,17 @@ impl Handler {
     }
 }
 
+/// How a served connection is set up.
+pub(in crate::transport::grpc) fn builder() -> h2::server::Builder {
+    let mut builder = h2::server::Builder::new();
+    builder
+        .initial_window_size(super::super::STREAM_WINDOW)
+        .initial_connection_window_size(super::super::CONNECTION_WINDOW)
+        .max_header_list_size(super::super::MAX_HEADER_LIST)
+        .max_concurrent_streams(MAX_CONCURRENT_STREAMS);
+    builder
+}
+
 /// Whether `request` is a gun call to `path`; the status to refuse it with
 /// when not.
 fn check(path: &str, request: &Request<h2::RecvStream>) -> Result<(), StatusCode> {
@@ -112,11 +123,8 @@ impl InboundStreamHandler for Handler {
         stream: AnyStream,
     ) -> std::io::Result<AnyInboundTransport> {
         tracing::trace!("handling inbound stream");
-        let mut connection = h2::server::Builder::new()
-            .initial_window_size(super::super::STREAM_WINDOW)
-            .initial_connection_window_size(super::super::CONNECTION_WINDOW)
-            .max_header_list_size(super::super::MAX_HEADER_LIST)
-            .max_concurrent_streams(MAX_CONCURRENT_STREAMS)
+        let (stream, received) = super::super::Counted::new(stream);
+        let mut connection = builder()
             .handshake::<_, Bytes>(stream)
             .await
             .map_err(|e| std::io::Error::other(format!("gun: {}", e)))?;
@@ -168,7 +176,14 @@ impl InboundStreamHandler for Handler {
         });
         crate::runtime::scope::spawn("grpc inbound connection", serving);
         if let (Some(interval), Some(ping_pong)) = (self.idle_timeout, ping_pong) {
-            super::super::keepalive(ping_pong, interval, self.ping_timeout, || true, abort);
+            super::super::keepalive(
+                ping_pong,
+                received,
+                interval,
+                self.ping_timeout,
+                || true,
+                abort,
+            );
         }
         Ok(InboundTransport::Incoming(Box::new(Incoming {
             sess,
