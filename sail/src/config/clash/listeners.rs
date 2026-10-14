@@ -304,7 +304,8 @@ pub fn lower(
 /// certificate and its key, each PEM or else a path, which stays in the
 /// data directory (`home`) as Mihomo's IsSafePath keeps it. With one of
 /// them alone Mihomo listens without TLS, and so does sail. Or REALITY,
-/// `reality-config`, never with a certificate, as Mihomo has it.
+/// `reality-config`, never with a certificate, as Mihomo has it. And the
+/// client authentication of a certificate's TLS (`client_auth`).
 fn tls(
     f: &mut Fields,
     home: Option<&std::path::Path>,
@@ -314,22 +315,32 @@ fn tls(
     let certificate = f.string("certificate")?.filter(|c| !c.is_empty());
     let key = f.string("private-key")?.filter(|k| !k.is_empty());
     let reality_at = f.at("reality-config");
-    if let Some(r) = f.map("reality-config")? {
-        if let Some(tls) = reality(r, warnings)? {
-            if certificate.is_some() && key.is_some() {
-                return Err(anyhow!(
-                    "{}: with a certificate: Mihomo takes one of the two",
-                    reality_at
-                ));
-            }
-            inbound.insert("tls".into(), tls);
-            return Ok(());
+    let reality = match f.map("reality-config")? {
+        Some(r) => reality(r, warnings)?,
+        None => None,
+    };
+    let tls = match (certificate, key, reality) {
+        (Some(_), Some(_), Some(_)) => {
+            return Err(anyhow!(
+                "{}: with a certificate: Mihomo takes one of the two",
+                reality_at
+            ))
         }
-    }
-    let (certificate, key) = match (certificate, key) {
-        (None, None) => return Ok(()),
-        (Some(certificate), Some(key)) => (certificate, key),
-        (certificate, _) => {
+        (_, _, Some(reality)) => Some((reality, false)),
+        (None, None, None) => None,
+        (Some(certificate), Some(key), None) => {
+            let mut tls = Map::new();
+            tls.insert("enabled".into(), json!(true));
+            for (name, field, value) in [
+                ("certificate", "certificate", certificate),
+                ("private-key", "key", key),
+            ] {
+                let (field, value) = pem_or_path(&f.at(name), home, field, value)?;
+                tls.insert(field, value);
+            }
+            Some((Value::Object(tls), true))
+        }
+        (certificate, _, None) => {
             let (has, lacks) = if certificate.is_some() {
                 ("certificate", "private-key")
             } else {
@@ -340,30 +351,104 @@ fn tls(
                 f.at(has),
                 lacks
             ));
-            return Ok(());
+            None
         }
     };
-    let mut tls = Map::new();
-    tls.insert("enabled".into(), json!(true));
-    for (name, field, value) in [
-        ("certificate", "certificate", certificate),
-        ("private-key", "key", key),
-    ] {
-        if value.contains("-----BEGIN") {
-            tls.insert(field.into(), json!(value));
-        } else if crate::common::path::stays_in(home, &value) {
-            tls.insert(format!("{}_path", field), json!(value));
-        } else {
-            return Err(anyhow!(
-                "{}: {:?} is not in the data directory, which a listener's certificate \
-                 stays in, as in Mihomo",
-                f.at(name),
-                value
-            ));
+    let with_certificate = matches!(tls, Some((_, true)));
+    let auth = client_auth(f, home, with_certificate, warnings)?;
+    if let Some((mut tls, _)) = tls {
+        if let (Some(auth), Value::Object(tls)) = (auth, &mut tls) {
+            tls.extend(auth);
         }
+        inbound.insert("tls".into(), tls);
     }
-    inbound.insert("tls".into(), Value::Object(tls));
     Ok(())
+}
+
+/// `value` as Mihomo reads a certificate or CAs: PEM, else a path, which
+/// stays in the data directory (`home`); sail's `field`, or `field_path`.
+fn pem_or_path(
+    at: &str,
+    home: Option<&std::path::Path>,
+    field: &str,
+    value: String,
+) -> Result<(String, Value)> {
+    if value.contains("-----BEGIN") {
+        Ok((field.to_string(), json!(value)))
+    } else if crate::common::path::stays_in(home, &value) {
+        Ok((format!("{}_path", field), json!(value)))
+    } else {
+        Err(anyhow!(
+            "{}: {:?} is not in the data directory, which a listener's certificate \
+             stays in, as in Mihomo",
+            at,
+            value
+        ))
+    }
+}
+
+/// How a listener checks its clients' certificates, as Mihomo does:
+/// `client-auth-type` is one of sing-box's modes but `no` (another is no
+/// authentication to Mihomo, warned of here), and `client-auth-cert` the
+/// CAs, PEM or a path; CAs with no mode are require-and-verify. Mihomo
+/// reads the CAs only for a mode that verifies, and refuses one without
+/// them, and any mode without a certificate (`with_certificate`).
+fn client_auth(
+    f: &mut Fields,
+    home: Option<&std::path::Path>,
+    with_certificate: bool,
+    warnings: &mut Vec<String>,
+) -> Result<Option<Map<String, Value>>> {
+    let type_at = f.at("client-auth-type");
+    let cas_at = f.at("client-auth-cert");
+    let mut mode = match f.string("client-auth-type")?.as_deref() {
+        None | Some("" | "none") => None,
+        Some(mode @ ("request" | "require-any" | "verify-if-given" | "require-and-verify")) => {
+            Some((mode.to_string(), &type_at))
+        }
+        Some(other) => {
+            warnings.push(format!(
+                "{}: {:?} is none of Mihomo's, which takes it as no authentication; ignored",
+                type_at, other
+            ));
+            None
+        }
+    };
+    let cas = f.string("client-auth-cert")?.filter(|c| !c.is_empty());
+    if cas.is_some() && mode.is_none() {
+        mode = Some(("require-and-verify".to_string(), &cas_at));
+    }
+    let Some((mode, mode_at)) = mode else {
+        return Ok(None);
+    };
+    if !with_certificate {
+        return Err(anyhow!(
+            "{}: Mihomo checks clients' certificates only with a certificate of its own",
+            mode_at
+        ));
+    }
+    let mut auth = Map::new();
+    auth.insert("client_authentication".into(), json!(mode));
+    let verifies = matches!(mode.as_str(), "verify-if-given" | "require-and-verify");
+    match cas {
+        Some(cas) if verifies => {
+            let (field, value) = pem_or_path(&cas_at, home, "client_certificate", cas)?;
+            auth.insert(field, value);
+        }
+        Some(_) => warnings.push(format!(
+            "{}: Mihomo reads no CAs with {}, which verifies nothing; ignored",
+            cas_at, mode
+        )),
+        None if verifies => {
+            return Err(anyhow!(
+                "{}: missing: Mihomo verifies clients' certificates by it with {}",
+                cas_at,
+                mode
+            ))
+        }
+        None => {}
+    }
+    Ok(Some(auth))
 }
 
 /// REALITY, as Mihomo's `reality-config`, in place of a certificate; none

@@ -2470,6 +2470,107 @@ fn a_vless_listener_is_a_vless_inbound_and_reality_its_tls() {
     );
 }
 
+/// A listener's client authentication, as Mihomo's: `client-auth-type`
+/// and the CAs of `client-auth-cert`, CAs alone requiring and verifying.
+#[test]
+fn a_listener_checks_clients_certificates_as_mihomo_does() {
+    let tls = |fields: &str| {
+        parse(&format!(
+            "listeners: [{{ name: H, type: http, port: 50000{} }}]\nrules: [\"MATCH,DIRECT\"]\n",
+            fields
+        ))
+        .map(|config| {
+            let inbound = config.inbounds.iter().find(|i| i.tag == "H").unwrap();
+            (inbound.options.get("tls").cloned(), config.warnings)
+        })
+        .map_err(|e| format!("{:#}", e))
+    };
+    let cert = ", certificate: c.pem, private-key: k.pem";
+    let with = |auth: serde_json::Value| {
+        let mut tls = json!({ "enabled": true, "certificate_path": "c.pem", "key_path": "k.pem" });
+        tls.as_object_mut()
+            .unwrap()
+            .extend(auth.as_object().unwrap().clone());
+        Some(tls)
+    };
+    let ca = "-----BEGIN CERTIFICATE-----\\nAA\\n-----END CERTIFICATE-----";
+    assert_eq!(
+        tls(&format!(
+            "{}, client-auth-type: verify-if-given, client-auth-cert: \"{}\"",
+            cert, ca
+        )),
+        Ok((
+            with(json!({ "client_authentication": "verify-if-given",
+                "client_certificate": "-----BEGIN CERTIFICATE-----\nAA\n-----END CERTIFICATE-----" })),
+            vec![]
+        ))
+    );
+    // CAs alone: require-and-verify, as Mihomo.
+    assert_eq!(
+        tls(&format!("{}, client-auth-cert: ca/clients.pem", cert)),
+        Ok((
+            with(json!({ "client_authentication": "require-and-verify",
+                "client_certificate_path": "ca/clients.pem" })),
+            vec![]
+        ))
+    );
+    // A mode that verifies nothing reads no CAs.
+    assert_eq!(
+        tls(&format!(
+            "{}, client-auth-type: request, client-auth-cert: ca.pem",
+            cert
+        )),
+        Ok((
+            with(json!({ "client_authentication": "request" })),
+            vec![
+                "listeners[0].client-auth-cert: Mihomo reads no CAs with request, which \
+                  verifies nothing; ignored"
+                    .to_string()
+            ]
+        ))
+    );
+    // A mode Mihomo does not know is none.
+    assert_eq!(
+        tls(&format!("{}, client-auth-type: strict", cert)),
+        Ok((
+            with(json!({})),
+            vec![
+                "listeners[0].client-auth-type: \"strict\" is none of Mihomo's, which takes \
+                  it as no authentication; ignored"
+                    .to_string()
+            ]
+        ))
+    );
+    assert_eq!(
+        tls(&format!("{}, client-auth-type: \"\"", cert)),
+        Ok((with(json!({})), vec![]))
+    );
+    for (fields, error) in [
+        (
+            format!("{}, client-auth-type: require-and-verify", cert),
+            "listeners[0].client-auth-cert: missing: Mihomo verifies clients' certificates by \
+             it with require-and-verify",
+        ),
+        (
+            ", client-auth-type: require-any".to_string(),
+            "listeners[0].client-auth-type: Mihomo checks clients' certificates only with a \
+             certificate of its own",
+        ),
+        (
+            ", client-auth-cert: ca.pem".to_string(),
+            "listeners[0].client-auth-cert: Mihomo checks clients' certificates only with a \
+             certificate of its own",
+        ),
+        (
+            format!("{}, client-auth-cert: /etc/ca.pem", cert),
+            "listeners[0].client-auth-cert: \"/etc/ca.pem\" is not in the data directory",
+        ),
+    ] {
+        let e = tls(&fields).unwrap_err();
+        assert!(e.contains(error), "{}: {}", fields, e);
+    }
+}
+
 const LISTENERS_CONFIG: &str = r#"
 authentication: ["alice:secret"]
 proxies:

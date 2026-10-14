@@ -191,6 +191,16 @@ fn skeleton(p: &Path) -> (Value, Vec<String>) {
                         "short-id": [""], "server-names": ["a.example"] } }),
                 );
             }
+            // Clients' certificates are checked by one with its own.
+            if p.keys
+                .first()
+                .is_some_and(|k| k.starts_with("client-auth-"))
+            {
+                merge(
+                    &mut l,
+                    json!({ "certificate": "c.pem", "private-key": "k.pem" }),
+                );
+            }
             at.extend(["listeners".to_string(), "0".to_string()]);
             json!({ "listeners": [l] })
         }

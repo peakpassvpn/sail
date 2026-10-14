@@ -35,7 +35,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `geox-url` | 5 | 0 | 5 | 0 |
 | `iptables` | 5 | 0 | 0 | 5 |
 | `listeners[anytls]` | 45 | 0 | 0 | 45 |
-| `listeners[http]` | 29 | 17 | 7 | 5 |
+| `listeners[http]` | 29 | 19 | 7 | 3 |
 | `listeners[hysteria2]` | 49 | 0 | 0 | 49 |
 | `listeners[mieru]` | 10 | 0 | 0 | 10 |
 | `listeners[mixed]` | 30 | 8 | 1 | 21 |
@@ -46,12 +46,12 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `listeners[socks]` | 30 | 8 | 1 | 21 |
 | `listeners[sudoku]` | 29 | 0 | 0 | 29 |
 | `listeners[tproxy]` | 7 | 5 | 1 | 1 |
-| `listeners[trojan]` | 73 | 26 | 7 | 40 |
+| `listeners[trojan]` | 73 | 28 | 7 | 38 |
 | `listeners[trusttunnel]` | 18 | 0 | 0 | 18 |
 | `listeners[tuic]` | 26 | 0 | 0 | 26 |
 | `listeners[tun]` | 55 | 0 | 0 | 55 |
 | `listeners[tunnel]` | 8 | 0 | 0 | 8 |
-| `listeners[vless]` | 93 | 27 | 7 | 59 |
+| `listeners[vless]` | 93 | 29 | 7 | 57 |
 | `listeners[vmess]` | 116 | 0 | 0 | 116 |
 | `ntp` | 7 | 7 | 0 | 0 |
 | `profile` | 3 | 3 | 0 | 0 |
@@ -90,7 +90,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `tls` | 7 | 0 | 7 | 0 |
 | `tuic-server` | 13 | 0 | 0 | 13 |
 | `tun` | 50 | 34 | 9 | 7 |
-| **All** | **2077** | **581** | **132** | **1364** |
+| **All** | **2077** | **587** | **132** | **1358** |
 
 
 ## `general`
@@ -254,8 +254,8 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | 字段 | sail | sail 的说明 |
 |---|---|---|
 | `listeners[http].certificate` | 支持 |  |
-| `listeners[http].client-auth-cert` | 报错 | listeners[0].client-auth-cert: sail does not implement this field yet |
-| `listeners[http].client-auth-type` | 报错 | listeners[0].client-auth-type: sail does not implement this field yet |
+| `listeners[http].client-auth-cert` | 支持 |  |
+| `listeners[http].client-auth-type` | 支持 |  |
 | `listeners[http].ech-key` | 报错 | listeners[0].ech-key: sail does not implement this field yet |
 | `listeners[http].listen` | 支持 |  |
 | `listeners[http].name` | 支持 |  |
@@ -300,8 +300,8 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | 字段 | sail | sail 的说明 |
 |---|---|---|
 | `listeners[mixed].certificate` | 报错 | listeners[0].certificate: sail does not implement this field yet |
-| `listeners[mixed].client-auth-cert` | 报错 | listeners[0].client-auth-cert: sail does not implement this field yet |
-| `listeners[mixed].client-auth-type` | 报错 | listeners[0].client-auth-type: sail does not implement this field yet |
+| `listeners[mixed].client-auth-cert` | 报错 | listeners[0].certificate: sail does not implement this field yet |
+| `listeners[mixed].client-auth-type` | 报错 | listeners[0].certificate: sail does not implement this field yet |
 | `listeners[mixed].ech-key` | 报错 | listeners[0].ech-key: sail does not implement this field yet |
 | `listeners[mixed].listen` | 支持 |  |
 | `listeners[mixed].name` | 支持 |  |
@@ -439,8 +439,8 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | 字段 | sail | sail 的说明 |
 |---|---|---|
 | `listeners[socks].certificate` | 报错 | listeners[0].certificate: sail does not implement this field yet |
-| `listeners[socks].client-auth-cert` | 报错 | listeners[0].client-auth-cert: sail does not implement this field yet |
-| `listeners[socks].client-auth-type` | 报错 | listeners[0].client-auth-type: sail does not implement this field yet |
+| `listeners[socks].client-auth-cert` | 报错 | listeners[0].certificate: sail does not implement this field yet |
+| `listeners[socks].client-auth-type` | 报错 | listeners[0].certificate: sail does not implement this field yet |
 | `listeners[socks].ech-key` | 报错 | listeners[0].ech-key: sail does not implement this field yet |
 | `listeners[socks].listen` | 支持 |  |
 | `listeners[socks].name` | 支持 |  |
@@ -493,8 +493,8 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 |---|---|---|
 | `listeners[trojan].allow-insecure` | 支持 |  |
 | `listeners[trojan].certificate` | 支持 |  |
-| `listeners[trojan].client-auth-cert` | 报错 | listeners[0].client-auth-cert: sail does not implement this field yet |
-| `listeners[trojan].client-auth-type` | 报错 | listeners[0].client-auth-type: sail does not implement this field yet |
+| `listeners[trojan].client-auth-cert` | 支持 |  |
+| `listeners[trojan].client-auth-type` | 支持 |  |
 | `listeners[trojan].ech-key` | 报错 | listeners[0].ech-key: sail does not implement this field yet |
 | `listeners[trojan].grpc-service-name` | 支持 |  |
 | `listeners[trojan].jls-config` | 报错 | listeners[0].jls-config: sail does not implement this field yet |
@@ -595,8 +595,8 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 |---|---|---|
 | `listeners[vless].allow-insecure` | 支持 |  |
 | `listeners[vless].certificate` | 支持 |  |
-| `listeners[vless].client-auth-cert` | 报错 | listeners[0].client-auth-cert: sail does not implement this field yet |
-| `listeners[vless].client-auth-type` | 报错 | listeners[0].client-auth-type: sail does not implement this field yet |
+| `listeners[vless].client-auth-cert` | 支持 |  |
+| `listeners[vless].client-auth-type` | 支持 |  |
 | `listeners[vless].decryption` | 报错 | listeners[0].decryption: "x": sail does not implement VLESS encryption |
 | `listeners[vless].ech-key` | 报错 | listeners[0].ech-key: sail does not implement this field yet |
 | `listeners[vless].grpc-service-name` | 支持 |  |
