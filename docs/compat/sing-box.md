@@ -20,6 +20,8 @@ A `local` server that asks the system's servers itself (where the default dialer
 
 The dial fields Windows cannot take are refused there. A known gap is `tcp_fast_open`: Windows sends Fast Open data only with the connect itself (`ConnectEx`), and sail connects before the first write, where Linux and macOS hold the SYN for it; sing-box's tfo-go returns a connection of its own that connects at the first write. `routing_mark` and `route.default_mark` are Linux's only (Windows has no socket mark; `bind_interface` chooses the way out), `protect_path` Unix's only, and `bind_address_no_port` Linux's only: Windows' `SO_REUSE_UNICASTPORT` is taken, but a socket bound with it still gets its port at the bind, and the option reads back unset, so that what it does could not be shown.
 
+An outbound closes the carriers it keeps -- a Hysteria2 connection, a pooled connection of the quic or grpc transport, a mux or amux session -- once nothing has been open on one for 60 s; the next connection dials anew. So does the member a group selects, which sing-box 1.14.3 and later keep: they close only the outbounds no rule or group selection references.
+
 ## Summary
 
 | Section | Fields | Supported | Warned | Error |

@@ -20,6 +20,8 @@ HTTP 客户端无论 `version` 为何都通过 HTTP/1.1 下载，与 sing-box �
 
 Windows 无法实现的拨号字段在 Windows 上报错。已知缺口是 `tcp_fast_open`：Windows 只在连接调用本身（`ConnectEx`）里随 SYN 发送 Fast Open 数据，而 sail 在首次写入之前就已连接；Linux 和 macOS 则由内核把 SYN 留到首次写入。sing-box 的 tfo-go 返回自己的连接类型，在首次写入时才连接。`routing_mark` 与 `route.default_mark` 只在 Linux 上支持（Windows 没有 socket 标记，出口由 `bind_interface` 选择），`protect_path` 只在 Unix 上支持，`bind_address_no_port` 只在 Linux 上支持：Windows 接受 `SO_REUSE_UNICASTPORT`，但设了它的 socket 仍在 bind 时分到端口，读回该选项也是未设置，无法证明它起作用。
 
+出站保留的承载连接（Hysteria2 连接、quic 与 grpc 传输层池中的连接、mux 与 amux 会话）在 60 秒内没有任何打开的流或 UDP 会话时关闭，下一个连接重新拨号。分组当前选中的成员也是如此；sing-box 1.14.3 起保留它，只关闭没有任何规则或分组选择引用的出站。
+
 ## 汇总
 
 | 部分 | 字段数 | 支持 | 警告 | 报错 |
