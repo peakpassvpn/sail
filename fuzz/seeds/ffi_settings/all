@@ -1,0 +1,1 @@
+{"profile":"mobile","log_lines":200,"worker_threads":2,"stack_size":1048576,"stop_within_ms":1500,"set":["tcp_relay_buffer=65536"],"data_dir":"d","run_dir":false}

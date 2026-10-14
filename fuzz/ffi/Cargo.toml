@@ -1,0 +1,39 @@
+# sail-ffi's sources as a Rust library, for the ffi_* fuzz targets, which
+# call the C functions from Rust: sail-ffi itself builds only the C
+# libraries, and a library of its name beside the core's (both `sail`)
+# would collide in the workspace. Its dependencies are sail-ffi's without
+# the command service; a new one there is added here, or the fuzz job
+# fails to build.
+#
+# Linux only: the build script, which binds the system logs of Apple's
+# platforms and Android, is not run.
+
+[package]
+name = "sail-ffi-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+build = false
+
+[lib]
+name = "sail_ffi"
+path = "../../sail-ffi/src/lib.rs"
+
+[features]
+# sail-ffi's, named so that its `cfg`s are known; none is ever on.
+auto-reload = []
+alloc-stats = []
+command-server = []
+
+[dependencies]
+sail = { path = "../../sail", default-features = false, features = ["fuzzing"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tracing = "0.1"
+tokio = { version = "1", features = ["rt", "sync", "time", "net", "macros"] }
+anyhow = "1.0"
+futures = "0.3"
+
+# Without the command service some of sail-ffi's helpers go unused.
+[lints.rust]
+dead_code = "allow"

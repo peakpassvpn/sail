@@ -127,3 +127,15 @@ pub fn shadowtls(data: &[u8]) {
 pub fn vless(data: &[u8]) {
     crate::protocol::vless::fuzz(data);
 }
+
+/// What a host pushes and answers through the C ABI, read without an
+/// instance: the network it is on (`sail_set_network_state`), and who
+/// opened a connection (the platform's `find_connection_owner`).
+pub fn host_json(data: &[u8]) {
+    if let Ok(text) = std::str::from_utf8(data) {
+        let _ = std::hint::black_box(crate::net::network::NetworkState::from_json(text));
+    }
+    let _ = std::hint::black_box(serde_json::from_slice::<
+        crate::runtime::platform::ConnectionOwner,
+    >(data));
+}

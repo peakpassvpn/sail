@@ -7,8 +7,9 @@
 #
 # Targets: sniff_tls, sniff_http, sniff_dns, sniff_quic, sniff_any,
 # share_link, dhcp_leases, on Linux the TUN's tun_vnet_header and
-# tun_coalesce, and the protocols' wire as a peer sends it: proto_anytls,
-# proto_hysteria2, proto_tuic, proto_shadowtls, proto_vless.
+# tun_coalesce, the protocols' wire as a peer sends it: proto_anytls,
+# proto_hysteria2, proto_tuic, proto_shadowtls, proto_vless, and what a
+# host passes the C ABI: ffi_settings, ffi_control, ffi_host.
 
 [package]
 name = "sail-fuzz"
@@ -31,6 +32,11 @@ sail = { path = "../sail", default-features = false, features = [
     "inbound-shadowtls", "outbound-shadowtls",
     "inbound-vless", "outbound-vless",
 ] }
+
+# The C functions themselves, called from Rust: sail-ffi's sources as a
+# library (ffi/Cargo.toml says why). It adds no feature of sail's to the
+# ones above.
+sail_ffi = { package = "sail-ffi-fuzz", path = "ffi" }
 
 # A workspace of its own: the targets build on nightly with sanitizers,
 # apart from sail's.
@@ -142,6 +148,27 @@ bench = false
 [[bin]]
 name = "proto_vless"
 path = "fuzz_targets/proto_vless.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ffi_settings"
+path = "fuzz_targets/ffi_settings.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ffi_control"
+path = "fuzz_targets/ffi_control.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ffi_host"
+path = "fuzz_targets/ffi_host.rs"
 test = false
 doc = false
 bench = false

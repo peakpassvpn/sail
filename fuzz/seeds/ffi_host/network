@@ -1,0 +1,1 @@
+{"type":"wifi","interface":"en0","ssid":"net","bssid":"0:1a:2b:3c:4d:5e","gateway":"192.0.2.1","addresses":["192.0.2.2/24"],"expensive":false,"captive":false,"interfaces":[{"name":"en0","type":"wifi","addresses":["192.0.2.2/24"]}]}
