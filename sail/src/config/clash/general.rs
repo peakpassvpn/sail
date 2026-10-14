@@ -257,12 +257,8 @@ fn listeners(doc: &mut Fields, out: &mut Lowered, warnings: &mut Vec<String>) ->
             )),
         }
     }
-    if !doc.strings("skip-auth-prefixes")?.is_empty() {
-        warnings.push(
-            "skip-auth-prefixes: sail does not implement this field; everyone authenticates"
-                .to_string(),
-        );
-    }
+    // Who goes in without them, on the listeners that take them.
+    out.skip_auth = prefixes(doc, "skip-auth-prefixes")?;
     // `listeners` take them too, where they name none of their own.
     out.authentication = users.clone();
     for (key, kind, tag) in LISTENERS {
@@ -281,6 +277,9 @@ fn listeners(doc: &mut Fields, out: &mut Lowered, warnings: &mut Vec<String>) ->
         if matches!(*kind, "http" | "socks" | "mixed") {
             if !users.is_empty() {
                 inbound["users"] = Value::Array(users.clone());
+                if !out.skip_auth.is_empty() {
+                    inbound["skip_auth_prefixes"] = json!(out.skip_auth);
+                }
             }
             out.lan_inbounds.push(tag.to_string());
         }

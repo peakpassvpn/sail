@@ -502,6 +502,38 @@ pub fn shut_out(user: &Option<UserRef>) -> bool {
 /// inbounds whose username is the user's name: HTTP, SOCKS and mixed.
 pub type Passwords = HashMap<String, (String, Option<UserRef>)>;
 
+/// The clients an HTTP, SOCKS or mixed inbound lets in without
+/// credentials, by the address they connect from: Mihomo's
+/// `skip-auth-prefixes`, a sail extension. An IPv4-mapped IPv6 address is
+/// its IPv4 one.
+#[derive(Clone, Default)]
+pub struct SkipAuth(std::sync::Arc<[cidr::IpCidr]>);
+
+impl SkipAuth {
+    /// `prefixes` read: `skip_auth_prefixes` of the inbound `tag`.
+    pub fn new(tag: &str, prefixes: &[String]) -> anyhow::Result<Self> {
+        let prefixes = prefixes
+            .iter()
+            .map(|p| {
+                p.parse::<cidr::IpInet>().map(|p| p.network()).map_err(|_| {
+                    anyhow::anyhow!(
+                        "[{}] inbound: skip_auth_prefixes: {:?} is not an IP prefix",
+                        tag,
+                        p
+                    )
+                })
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        Ok(Self(prefixes.into()))
+    }
+
+    /// Whether a client at `ip` goes in without credentials.
+    pub fn covers(&self, ip: std::net::IpAddr) -> bool {
+        let ip = ip.to_canonical();
+        self.0.iter().any(|p| p.contains(&ip))
+    }
+}
+
 /// `Passwords` of `(username, password)` pairs, for tests.
 #[cfg(test)]
 pub fn passwords(pairs: &[(&str, &str)]) -> Passwords {
@@ -756,6 +788,28 @@ impl fmt::Debug for UserRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A prefix with host bits is its network's, an IPv4-mapped address
+    /// its IPv4 one, and anything else a mistake that names the inbound.
+    #[test]
+    fn skip_auth_covers_its_prefixes() {
+        let skip = SkipAuth::new("in", &["192.168.1.5/24".into(), "fd00::/8".into()]).unwrap();
+        for (ip, covered) in [
+            ("192.168.1.200", true),
+            ("::ffff:192.168.1.7", true),
+            ("fd12::1", true),
+            ("192.168.2.1", false),
+            ("fe80::1", false),
+        ] {
+            assert_eq!(skip.covers(ip.parse().unwrap()), covered, "{}", ip);
+        }
+        assert!(!SkipAuth::default().covers("127.0.0.1".parse().unwrap()));
+        let e = SkipAuth::new("in", &["lan".into()]).err().unwrap();
+        assert_eq!(
+            e.to_string(),
+            "[in] inbound: skip_auth_prefixes: \"lan\" is not an IP prefix"
+        );
+    }
 
     #[test]
     fn a_name_bound_twice_is_one_user() {

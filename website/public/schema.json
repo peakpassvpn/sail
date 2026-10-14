@@ -7386,6 +7386,10 @@
      "type": "string",
      "description": "The realm a `407` names, which clients show when asking for credentials: a sail extension; `sail` when unset."
     },
+    "skip_auth_prefixes": {
+     "type": "array",
+     "description": "The clients that go in without credentials, by the IP prefixes they connect from: Mihomo's `skip-auth-prefixes`, a sail extension."
+    },
     "type": {
      "const": "http"
     }
@@ -9037,6 +9041,10 @@
      "type": "string",
      "description": "The realm an HTTP `407` names: a sail extension; `sail` when unset."
     },
+    "skip_auth_prefixes": {
+     "type": "array",
+     "description": "The clients that go in without credentials, by the IP prefixes they connect from: Mihomo's `skip-auth-prefixes`, a sail extension."
+    },
     "type": {
      "const": "mixed"
     }
@@ -10169,6 +10177,10 @@
     "domain_resolver": {
      "not": {},
      "description": "sail refuses this field: Resolving requested names with a resolver of its own: another server would answer"
+    },
+    "skip_auth_prefixes": {
+     "type": "array",
+     "description": "The clients that go in without credentials, by the IP prefixes they connect from: Mihomo's `skip-auth-prefixes`, a sail extension."
     },
     "type": {
      "const": "socks"

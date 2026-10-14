@@ -212,6 +212,7 @@ Rust: [`HttpInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sai
 | `set_system_proxy` | bool | — | Warned: The platform proxy is the host's to set | — |
 | `tls` | object → [object](/sail/reference/shared/#tls-inbounds) | unset | Supported | — |
 | `realm` | string | unset | sail extension | The realm a `407` names, which clients show when asking for credentials: a sail extension; `sail` when unset. |
+| `skip_auth_prefixes` | array of string | `[]` | sail extension | The clients that go in without credentials, by the IP prefixes they connect from: Mihomo's `skip-auth-prefixes`, a sail extension. |
 
 <a id="inbounds-http-users"></a>
 
@@ -319,6 +320,7 @@ Rust: [`MixedInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sa
 | `set_system_proxy` | bool | — | Warned: The platform proxy is the host's to set | — |
 | `tls` | object → [object](#inbounds-mixed-tls) | — | Error: TLS on a mixed inbound: it would take plain connections | — |
 | `realm` | string | unset | sail extension | The realm an HTTP `407` names: a sail extension; `sail` when unset. |
+| `skip_auth_prefixes` | array of string | `[]` | sail extension | The clients that go in without credentials, by the IP prefixes they connect from: Mihomo's `skip-auth-prefixes`, a sail extension. |
 
 <a id="inbounds-mixed-users"></a>
 
@@ -646,6 +648,7 @@ Rust: [`SocksInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sa
 | `detour` | string | — | Error: Handing an inbound's connections to another inbound | — |
 | `users` | array → [[]](#inbounds-socks-users) | `[]` | Supported | Clients must authenticate as one of these; anyone may connect when there are none. |
 | `domain_resolver` | string\|object → [object](/sail/reference/shared/#domain-resolver-inbounds) | — | Error: Resolving requested names with a resolver of its own: another server would answer | — |
+| `skip_auth_prefixes` | array of string | `[]` | sail extension | The clients that go in without credentials, by the IP prefixes they connect from: Mihomo's `skip-auth-prefixes`, a sail extension. |
 
 <a id="inbounds-socks-users"></a>
 

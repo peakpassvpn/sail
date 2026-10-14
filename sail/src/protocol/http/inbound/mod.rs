@@ -34,6 +34,10 @@ struct HttpInboundOptions {
     /// credentials: a sail extension; `sail` when unset.
     #[serde(default)]
     realm: Option<String>,
+    /// The clients that go in without credentials, by the IP prefixes
+    /// they connect from: Mihomo's `skip-auth-prefixes`, a sail extension.
+    #[serde(default)]
+    skip_auth_prefixes: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -96,7 +100,8 @@ fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
     let options: HttpInboundOptions = ctx.options()?;
     let users = users_by_name(ctx.tag, options.users, &ctx.env.users)?;
     let realm = realm(ctx.tag, options.realm.as_deref())?;
-    let stream = Arc::new(StreamHandler::new(users, realm));
+    let skip_auth = crate::user::SkipAuth::new(ctx.tag, &options.skip_auth_prefixes)?;
+    let stream = Arc::new(StreamHandler::new(users, realm).skipping_auth(skip_auth));
     Ok(Arc::new(Handler::new(
         ctx.tag.to_owned(),
         Some(stream),

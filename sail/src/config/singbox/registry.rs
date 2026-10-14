@@ -1291,6 +1291,11 @@ const EXTENSIONS: &[(&str, &str, &str)] = &[
         "The realm a 407 names, which clients show when asking for credentials; `sail` when unset (sing-box sends `sing-box`)",
     ),
     (
+        "inbounds[http|socks|mixed].skip_auth_prefixes",
+        r#"["127.0.0.0/8", "::1/128"]"#,
+        "The clients that go in without credentials, by the IP prefixes they connect from (Mihomo's skip-auth-prefixes)",
+    ),
+    (
         "inbounds[shadowtls].handshake.skip_default_domain_resolver",
         "true",
         "As an outbound's, for the handshake server's name",

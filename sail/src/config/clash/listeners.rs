@@ -136,7 +136,8 @@ pub fn lower(
         match protocol {
             "mixed" | "socks" | "http" => {
                 // None: those of `authentication`; an empty list: anyone.
-                let users = if f.has("users") {
+                let own = f.has("users");
+                let users = if own {
                     let users_at = f.at("users");
                     let mut users = Vec::new();
                     for (j, item) in f.list("users")?.into_iter().enumerate() {
@@ -152,6 +153,11 @@ pub fn lower(
                     out.authentication.clone()
                 };
                 if !users.is_empty() {
+                    // Mihomo's skip-auth-prefixes, but where it names
+                    // users of its own.
+                    if !own && !out.skip_auth.is_empty() {
+                        inbound.insert("skip_auth_prefixes".into(), json!(out.skip_auth));
+                    }
                     inbound.insert("users".into(), Value::Array(users));
                 }
             }

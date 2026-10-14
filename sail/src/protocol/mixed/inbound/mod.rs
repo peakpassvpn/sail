@@ -36,6 +36,10 @@ struct MixedInboundOptions {
     /// The realm an HTTP `407` names: a sail extension; `sail` when unset.
     #[serde(default)]
     realm: Option<String>,
+    /// The clients that go in without credentials, by the IP prefixes
+    /// they connect from: Mihomo's `skip-auth-prefixes`, a sail extension.
+    #[serde(default)]
+    skip_auth_prefixes: Vec<String>,
 }
 
 #[derive(Deserialize, Clone)]
@@ -48,6 +52,7 @@ struct MixedUser {
 fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
     let options: MixedInboundOptions = ctx.options()?;
     let realm = http::inbound::realm(ctx.tag, options.realm.as_deref())?;
+    let skip_auth = crate::user::SkipAuth::new(ctx.tag, &options.skip_auth_prefixes)?;
     // Both protocols' rules apply, as either may carry the credentials.
     let http_users = http::inbound::users_by_name(
         ctx.tag,
@@ -75,7 +80,7 @@ fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
         &ctx.env.users,
     )?;
     let stream = Arc::new(StreamHandler {
-        http: http::inbound::StreamHandler::new(http_users, realm),
+        http: http::inbound::StreamHandler::new(http_users, realm).skipping_auth(skip_auth.clone()),
         socks: socks::inbound::StreamHandler::new(
             socks_users,
             ctx.state
@@ -83,7 +88,8 @@ fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
                 .get_or_init(Default::default)
                 .clone(),
             ctx.env.listen_mark,
-        ),
+        )
+        .skipping_auth(skip_auth),
     });
     // UDP ASSOCIATE binds a relay socket per association, as the socks
     // inbound does; nothing is served on the listen port's UDP.

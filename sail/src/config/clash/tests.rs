@@ -2013,6 +2013,36 @@ fn dns_listen_is_a_direct_inbound_hijacked() {
     );
 }
 
+/// `skip-auth-prefixes` lets its clients into the listeners that take
+/// `authentication`, Mihomo's own and those naming no users of their own.
+#[test]
+fn skip_auth_prefixes_go_where_authentication_goes() {
+    let config = load(
+        r#"
+mixed-port: 7890
+authentication: ["alice:secret"]
+skip-auth-prefixes: [127.0.0.1/8, "::1/128"]
+listeners:
+  - { name: TAKES, type: socks, port: 50000, udp: true }
+  - { name: OWN, type: http, port: 50001, users: [{ username: bob, password: b }] }
+rules: ["MATCH,DIRECT"]
+"#,
+    );
+    let skip = |tag: &str| {
+        let inbound = config.inbounds.iter().find(|i| i.tag == tag).unwrap();
+        inbound.options.get("skip_auth_prefixes").cloned()
+    };
+    let prefixes = serde_json::json!(["127.0.0.1/8", "::1/128"]);
+    assert_eq!(skip("DEFAULT-MIXED"), Some(prefixes.clone()));
+    assert_eq!(skip("TAKES"), Some(prefixes));
+    assert_eq!(skip("OWN"), None);
+    assert!(config.warnings.is_empty(), "{:?}", config.warnings);
+    // No users, nothing to skip.
+    let open =
+        load("mixed-port: 7890\nskip-auth-prefixes: [10.0.0.0/8]\nrules: [\"MATCH,DIRECT\"]\n");
+    assert!(open.inbounds[0].options.get("skip_auth_prefixes").is_none());
+}
+
 const LISTENERS_CONFIG: &str = r#"
 authentication: ["alice:secret"]
 proxies:

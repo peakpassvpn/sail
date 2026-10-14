@@ -26,6 +26,10 @@ struct SocksInboundOptions {
     /// there are none.
     #[serde(default)]
     users: Vec<SocksUser>,
+    /// The clients that go in without credentials, by the IP prefixes
+    /// they connect from: Mihomo's `skip-auth-prefixes`, a sail extension.
+    #[serde(default)]
+    skip_auth_prefixes: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -82,7 +86,10 @@ fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
         .socks_associations
         .get_or_init(Default::default)
         .clone();
-    let stream = Arc::new(StreamHandler::new(users, associations, ctx.env.listen_mark));
+    let skip_auth = crate::user::SkipAuth::new(ctx.tag, &options.skip_auth_prefixes)?;
+    let stream = Arc::new(
+        StreamHandler::new(users, associations, ctx.env.listen_mark).skipping_auth(skip_auth),
+    );
     // No datagram handler: UDP ASSOCIATE binds a relay socket per
     // association, as RFC 1928 and sing-box do, and nothing is served on
     // the listen port's UDP.

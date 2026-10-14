@@ -212,6 +212,7 @@ Rust 定义：[`HttpInboundOptions`](https://github.com/peakpassvpn/sail/blob/ma
 | `set_system_proxy` | bool | — | 警告：The platform proxy is the host's to set | — |
 | `tls` | object → [对象](/sail/zh/reference/shared/#tls-inbounds) | 未设置 | 支持 | — |
 | `realm` | string | 未设置 | sail 扩展 | The realm a `407` names, which clients show when asking for credentials: a sail extension; `sail` when unset. |
+| `skip_auth_prefixes` | 数组，元素为 string | `[]` | sail 扩展 | The clients that go in without credentials, by the IP prefixes they connect from: Mihomo's `skip-auth-prefixes`, a sail extension. |
 
 <a id="inbounds-http-users"></a>
 
@@ -319,6 +320,7 @@ Rust 定义：[`MixedInboundOptions`](https://github.com/peakpassvpn/sail/blob/m
 | `set_system_proxy` | bool | — | 警告：The platform proxy is the host's to set | — |
 | `tls` | object → [对象](#inbounds-mixed-tls) | — | 报错：TLS on a mixed inbound: it would take plain connections | — |
 | `realm` | string | 未设置 | sail 扩展 | The realm an HTTP `407` names: a sail extension; `sail` when unset. |
+| `skip_auth_prefixes` | 数组，元素为 string | `[]` | sail 扩展 | The clients that go in without credentials, by the IP prefixes they connect from: Mihomo's `skip-auth-prefixes`, a sail extension. |
 
 <a id="inbounds-mixed-users"></a>
 
@@ -646,6 +648,7 @@ Rust 定义：[`SocksInboundOptions`](https://github.com/peakpassvpn/sail/blob/m
 | `detour` | string | — | 报错：Handing an inbound's connections to another inbound | — |
 | `users` | array → [[]](#inbounds-socks-users) | `[]` | 支持 | Clients must authenticate as one of these; anyone may connect when there are none. |
 | `domain_resolver` | string\|object → [对象](/sail/zh/reference/shared/#domain-resolver-inbounds) | — | 报错：Resolving requested names with a resolver of its own: another server would answer | — |
+| `skip_auth_prefixes` | 数组，元素为 string | `[]` | sail 扩展 | The clients that go in without credentials, by the IP prefixes they connect from: Mihomo's `skip-auth-prefixes`, a sail extension. |
 
 <a id="inbounds-socks-users"></a>
 

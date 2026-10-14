@@ -168,6 +168,8 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 pub struct Handler {
     /// Passwords by username. Empty lets anyone in.
     users: Arc<crate::user::Passwords>,
+    /// Who goes in without credentials all the same.
+    skip_auth: crate::user::SkipAuth,
     /// The UDP associations clients ask for, each with a relay socket of
     /// its own.
     associations: Arc<Associations>,
@@ -183,9 +185,16 @@ impl Handler {
     ) -> Self {
         Handler {
             users: Arc::new(users),
+            skip_auth: Default::default(),
             associations,
             mark,
         }
+    }
+
+    /// Lets the clients `skip_auth` covers in without credentials.
+    pub fn skipping_auth(mut self, skip_auth: crate::user::SkipAuth) -> Self {
+        self.skip_auth = skip_auth;
+        self
     }
 
     /// Handles a stream whose version byte, `version`, the mixed inbound
@@ -209,9 +218,23 @@ impl Handler {
         version: u8,
     ) -> io::Result<AnyInboundTransport> {
         let span = sess.span();
+        let none = crate::user::Passwords::new();
+        let users = if self.skip_auth.covers(sess.source.ip()) {
+            &none
+        } else {
+            &*self.users
+        };
         match version {
-            0x04 => self.handle_socks4(sess, stream).instrument(span).await,
-            0x05 => self.handle_socks5(sess, stream).instrument(span).await,
+            0x04 => {
+                self.handle_socks4(sess, stream, users)
+                    .instrument(span)
+                    .await
+            }
+            0x05 => {
+                self.handle_socks5(sess, stream, users)
+                    .instrument(span)
+                    .await
+            }
             v => Err(io::Error::other(format!("unknown socks version {}", v))),
         }
     }
@@ -220,6 +243,7 @@ impl Handler {
         &self,
         mut sess: Session,
         mut stream: Handshake,
+        users: &crate::user::Passwords,
     ) -> std::io::Result<AnyInboundTransport> {
         let mut buf = BytesMut::new();
         // CD, DSTPORT, DSTIP
@@ -258,7 +282,7 @@ impl Handler {
         // only once the whole request is read: a socket closed with a request
         // left unread is reset, and on Windows the reset discards the reply
         // before the client reads it.
-        if !self.users.is_empty() {
+        if !users.is_empty() {
             // Reply: VN=0, CD=91(Rejected)
             crate::net::refuse(&mut stream, &[0, 91, 0, 0, 0, 0, 0, 0]).await?;
             return Err(io::Error::other(
@@ -285,6 +309,7 @@ impl Handler {
         &self,
         mut sess: Session,
         mut stream: Handshake,
+        users: &crate::user::Passwords,
     ) -> std::io::Result<AnyInboundTransport> {
         let mut buf = BytesMut::new();
 
@@ -302,7 +327,7 @@ impl Handler {
         // methods
         stream.read_exact(&mut buf[..]).await?;
         let mut method_accepted = false;
-        let supported_method: u8 = if self.users.is_empty() { 0x00 } else { 0x02 };
+        let supported_method: u8 = if users.is_empty() { 0x00 } else { 0x02 };
 
         for method in buf[..].iter() {
             if method == &supported_method {
@@ -346,7 +371,7 @@ impl Handler {
             stream.read_exact(&mut buf[..]).await?;
             let password = String::from_utf8_lossy(&buf).to_string();
 
-            let accepted = self.users.get(&username).filter(|(expected, user)| {
+            let accepted = users.get(&username).filter(|(expected, user)| {
                 constant_time_eq(expected.as_bytes(), password.as_bytes())
                     && !crate::user::shut_out(user)
             });
@@ -476,18 +501,32 @@ mod tests {
     /// Runs `request` through the handler, returning its result and what it
     /// answered.
     async fn run(handler: Handler, request: &[u8]) -> (io::Result<Option<Session>>, Vec<u8>) {
+        run_from(handler, Session::default().source, request).await
+    }
+
+    /// `run`, from a client at `source`.
+    async fn run_from(
+        handler: Handler,
+        source: std::net::SocketAddr,
+        request: &[u8],
+    ) -> (io::Result<Option<Session>>, Vec<u8>) {
         let (client, server) = tokio::io::duplex(4096);
         let (mut client_r, mut client_w) = tokio::io::split(client);
         client_w.write_all(request).await.unwrap();
         // All sent: a refusal drains to the end without waiting.
         client_w.shutdown().await.unwrap();
-        let result = handler
-            .handle(Session::default(), Box::new(server))
-            .await
-            .map(|transport| match transport {
-                InboundTransport::Stream(_, sess) => Some(sess),
-                _ => None,
-            });
+        let sess = Session {
+            source,
+            ..Default::default()
+        };
+        let result =
+            handler
+                .handle(sess, Box::new(server))
+                .await
+                .map(|transport| match transport {
+                    InboundTransport::Stream(_, sess) => Some(sess),
+                    _ => None,
+                });
         drop(client_w);
         let mut answer = Vec::new();
         client_r.read_to_end(&mut answer).await.unwrap();
@@ -558,6 +597,41 @@ mod tests {
         let (result, answer) = run(handler(), &socks5_connect("bob", "apass")).await;
         assert!(result.is_err());
         assert_eq!(answer, [0x05, 0x02, 0x01, 0x01]);
+    }
+
+    /// A client `skip_auth_prefixes` covers goes in without credentials,
+    /// by SOCKS5 or SOCKS4; any other must give them.
+    #[tokio::test]
+    async fn a_client_skip_auth_covers_goes_in_without_credentials() {
+        let skipping = || {
+            handler().skipping_auth(
+                crate::user::SkipAuth::new("in", &["10.0.0.0/8".to_string()]).unwrap(),
+            )
+        };
+        let connect = socks5_no_auth(&[0x05, 0x01, 0x00, 0x01, 127, 0, 0, 1, 0, 80]);
+        for covered in ["10.1.2.3:5000", "[::ffff:10.1.2.3]:5000"] {
+            let (result, answer) = run_from(skipping(), covered.parse().unwrap(), &connect).await;
+            let sess = result.unwrap().expect("a stream session");
+            assert!(sess.user.is_none(), "{}", covered);
+            assert_eq!(answer, [0x05, 0x00], "{}", covered);
+        }
+        let socks4 = [0x04, 0x01, 0, 80, 127, 0, 0, 1, b'x', 0];
+        let (result, _) = run_from(skipping(), "10.1.2.3:5000".parse().unwrap(), &socks4).await;
+        assert!(result.is_ok());
+        let (result, answer) =
+            run_from(skipping(), "192.0.2.1:5000".parse().unwrap(), &connect).await;
+        assert!(result.is_err());
+        assert_eq!(answer, [0x05, 0xff]);
+        // One it covers is served as by an inbound without users, which
+        // takes no credentials.
+        let (result, answer) = run_from(
+            skipping(),
+            "10.1.2.3:5000".parse().unwrap(),
+            &socks5_connect("bob", "bpass"),
+        )
+        .await;
+        assert!(result.is_err());
+        assert_eq!(answer, [0x05, 0xff]);
     }
 
     #[tokio::test]

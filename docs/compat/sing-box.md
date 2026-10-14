@@ -3189,6 +3189,7 @@ Fields and types sail accepts that sing-box does not.
 | `outbounds[direct|anytls|http|shadowsocks|shadowtls|socks|trojan|vless|vmess].tcp_concurrent` | A name's addresses are all connected to at once and the first to connect taken, rather than Happy Eyeballs (Mihomo's tcp-concurrent) |
 | `endpoints[wireguard].skip_default_domain_resolver` | As an outbound's, for the peers' names |
 | `inbounds[http|mixed].realm` | The realm a 407 names, which clients show when asking for credentials; `sail` when unset (sing-box sends `sing-box`) |
+| `inbounds[http|socks|mixed].skip_auth_prefixes` | The clients that go in without credentials, by the IP prefixes they connect from (Mihomo's skip-auth-prefixes) |
 | `inbounds[shadowtls].handshake.skip_default_domain_resolver` | As an outbound's, for the handshake server's name |
 | `inbounds[http|trojan|vless|vmess].tls.reality.handshake.skip_default_domain_resolver` | As an outbound's, for the REALITY handshake server's name |
 | `outbounds[anytls|http|hysteria2|shadowtls|trojan|tuic|vless|vmess].tls.ech.disable_dns_lookup` | The ECHConfigList is never looked up in DNS |

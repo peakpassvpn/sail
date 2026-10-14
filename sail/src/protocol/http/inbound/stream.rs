@@ -368,6 +368,8 @@ impl AsyncWrite for HttpStream {
 pub struct Handler {
     /// Passwords by username. Empty lets anyone in.
     users: Arc<Passwords>,
+    /// Who goes in without credentials all the same.
+    skip_auth: crate::user::SkipAuth,
     /// What a `407` names as the realm.
     realm: Arc<str>,
 }
@@ -376,8 +378,15 @@ impl Handler {
     pub fn new(users: Passwords, realm: &str) -> Self {
         Handler {
             users: Arc::new(users),
+            skip_auth: Default::default(),
             realm: realm.into(),
         }
+    }
+
+    /// Lets the clients `skip_auth` covers in without credentials.
+    pub fn skipping_auth(mut self, skip_auth: crate::user::SkipAuth) -> Self {
+        self.skip_auth = skip_auth;
+        self
     }
 
     /// Handles a stream whose first bytes, `prefix`, were read already: by
@@ -392,7 +401,13 @@ impl Handler {
             cache: Vec::new(),
             origin: stream,
         };
-        let (destination, user) = http_stream.accept(&self.users, &self.realm, prefix).await?;
+        let none = Passwords::new();
+        let users = if self.skip_auth.covers(sess.source.ip()) {
+            &none
+        } else {
+            &*self.users
+        };
+        let (destination, user) = http_stream.accept(users, &self.realm, prefix).await?;
         sess.destination = destination;
         if user.is_some() {
             sess.user = user;

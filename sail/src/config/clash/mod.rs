@@ -147,6 +147,8 @@ pub struct Lowered {
     /// `lan-allowed-ips`, unless it allows everyone.
     pub lan_allowed: Option<Vec<String>>,
     pub lan_disallowed: Vec<String>,
+    /// `skip-auth-prefixes`: who goes in without `authentication`.
+    pub skip_auth: Vec<String>,
     /// The TCP keepalive fields every outbound that dials and every
     /// listener takes: `keep-alive-idle` and the like.
     pub keep_alive: Map<String, Value>,
