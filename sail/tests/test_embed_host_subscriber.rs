@@ -91,12 +91,15 @@ async fn each_instance_gets_its_own_lines_under_the_hosts_subscriber() {
         .await
         .unwrap();
 
-    let a_lines = lines(&a).await;
-    let b_lines = lines(&b).await;
     let (a_listens, b_listens) = (
         format!("listening tcp 127.0.0.1:{}", a_port),
         format!("listening tcp 127.0.0.1:{}", b_port),
     );
+    // A line reaches an instance's log through the logger's worker, which
+    // may not have written a's start line yet when the start returns: it
+    // is waited for. b's, read after, has had as long.
+    let a_lines = lines_until(&a, &a_listens).await;
+    let b_lines = lines(&b).await;
     assert!(
         a_lines.iter().any(|l| l.contains(&a_listens)),
         "a logs its start: {:?}",
