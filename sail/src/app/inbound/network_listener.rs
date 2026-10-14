@@ -375,6 +375,8 @@ pub struct NetworkInboundListener {
     pub keepalive: Option<crate::net::TcpKeepAlive>,
     /// TCP Fast Open on its TCP port.
     pub fast_open: bool,
+    /// Whether what its UDP port sends may be fragmented.
+    pub udp_fragment: bool,
     pub handler: AnyInboundHandler,
     pub dispatcher: Arc<Dispatcher>,
     pub nat_manager: Arc<NatManager>,
@@ -412,6 +414,18 @@ async fn until_removed(mut removed: watch::Receiver<bool>) {
     }
 }
 
+/// The UDP socket an inbound listens on at `addr`, its datagrams carrying
+/// don't-fragment unless `fragment`.
+fn udp_listen_socket(addr: &SocketAddr, fragment: bool) -> io::Result<std::net::UdpSocket> {
+    let socket = crate::net::bind_udp(addr)?;
+    socket.set_nonblocking(true)?;
+    crate::net::fit_largest_datagram(socket2::SockRef::from(&socket))?;
+    if !fragment {
+        crate::net::dial::sockopt::dont_fragment(socket2::SockRef::from(&socket), addr.is_ipv6())?;
+    }
+    Ok(socket)
+}
+
 impl NetworkInboundListener {
     pub fn new(
         address: SocketAddr,
@@ -424,6 +438,7 @@ impl NetworkInboundListener {
             address,
             keepalive,
             fast_open: false,
+            udp_fragment: true,
             handler,
             dispatcher,
             nat_manager,
@@ -471,10 +486,8 @@ impl NetworkInboundListener {
             }));
         }
         if self.handler.datagram().is_ok() {
-            let socket = crate::net::bind_udp(&listen_addr)
+            let socket = udp_listen_socket(&listen_addr, self.udp_fragment)
                 .and_then(|socket| {
-                    socket.set_nonblocking(true)?;
-                    crate::net::fit_largest_datagram(socket2::SockRef::from(&socket))?;
                     crate::net::mark_listener(
                         socket2::SockRef::from(&socket),
                         self.dispatcher.env(),
@@ -495,5 +508,36 @@ impl NetworkInboundListener {
             }));
         }
         Ok(runners)
+    }
+}
+
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+mod tests {
+    use super::*;
+
+    /// Whether "don't fragment" is set on `socket`, of IPv4.
+    fn dont_fragment_set(socket: &std::net::UdpSocket) -> bool {
+        let socket = socket2::SockRef::from(socket);
+        #[cfg(target_os = "linux")]
+        return crate::net::dial::sockopt::get_int(
+            &socket,
+            libc::IPPROTO_IP,
+            libc::IP_MTU_DISCOVER,
+        )
+        .unwrap()
+            == libc::IP_PMTUDISC_DO;
+        #[cfg(target_os = "macos")]
+        return crate::net::dial::sockopt::get_int(&socket, libc::IPPROTO_IP, libc::IP_DONTFRAG)
+            .unwrap()
+            != 0;
+    }
+
+    /// An inbound's UDP listen socket carries don't-fragment unless its
+    /// `udp_fragment` lets its datagrams be fragmented.
+    #[test]
+    fn a_udp_listen_socket_is_not_fragmented_unless_its_inbound_says() {
+        let addr = "127.0.0.1:0".parse().unwrap();
+        assert!(dont_fragment_set(&udp_listen_socket(&addr, false).unwrap()));
+        assert!(!dont_fragment_set(&udp_listen_socket(&addr, true).unwrap()));
     }
 }

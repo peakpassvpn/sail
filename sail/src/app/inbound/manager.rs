@@ -143,6 +143,7 @@ impl InboundManager {
                 nat_manager.clone(),
             );
             listener.fast_open = inbound.tcp_fast_open;
+            listener.udp_fragment = inbound.udp_fragment();
             network_listeners.insert(inbound.tag.clone(), listener);
         }
 
@@ -446,6 +447,7 @@ impl InboundManager {
                 self.nat_manager.clone(),
             );
             listener.fast_open = inbound.tcp_fast_open;
+            listener.udp_fragment = inbound.udp_fragment();
             let runners = listener.listen()?;
             self.network_listeners.insert(inbound.tag.clone(), listener);
             self.run(inbound.tag.clone(), runners);
@@ -562,6 +564,7 @@ pub(crate) fn plan_listeners<'a>(
                 ),
                 ("disable_tcp_keep_alive", inbound.disable_tcp_keep_alive),
                 ("tcp_fast_open", inbound.tcp_fast_open),
+                ("udp_fragment", inbound.udp_fragment.is_some()),
                 (
                     "udp_timeout",
                     inbound.udp_timeout.is_some() && inbound.protocol != "tun",

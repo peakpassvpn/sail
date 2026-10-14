@@ -347,7 +347,6 @@ pub const GROUPS: &[Group] = &[
         &[
             "inbounds.*.reuse_addr",
             "inbounds.*.tcp_multi_path",
-            "inbounds.*.udp_fragment",
         ],
     ),
     // Dial fields.

@@ -1692,6 +1692,7 @@ mod tests {
             tcp_keep_alive_interval: None,
             disable_tcp_keep_alive: false,
             tcp_fast_open: false,
+            udp_fragment: None,
             options: options.as_object().unwrap().clone(),
         }
     }

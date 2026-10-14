@@ -1145,6 +1145,7 @@ mod tests {
             tcp_keep_alive_interval: None,
             disable_tcp_keep_alive: false,
             tcp_fast_open: false,
+            udp_fragment: None,
             options: Options::new(),
         };
         let unknown = inbound("in-1", "no-such-protocol");

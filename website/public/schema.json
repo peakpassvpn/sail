@@ -6680,8 +6680,7 @@
     },
     "udp_fragment": {
      "type": "boolean",
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: Socket tuning: connections go the same way without it"
+     "description": "Whether the datagrams it sends from its UDP sockets may be fragmented on the way: where not, they carry don't-fragment, and one larger than the path takes is refused rather than sent in pieces. Unset, as sing-box: they may for direct and hysteria2, and may not for the others."
     },
     "udp_timeout": {
      "anyOf": [
@@ -7183,8 +7182,7 @@
     },
     "udp_fragment": {
      "type": "boolean",
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: Socket tuning: connections go the same way without it"
+     "description": "Whether the datagrams it sends from its UDP sockets may be fragmented on the way: where not, they carry don't-fragment, and one larger than the path takes is refused rather than sent in pieces. Unset, as sing-box: they may for direct and hysteria2, and may not for the others."
     },
     "udp_timeout": {
      "anyOf": [
@@ -7278,6 +7276,10 @@
      "type": "boolean",
      "description": "TCP Fast Open on the TCP port it listens on: what a client that has the server's cookie sends with its SYN is taken at once. On Linux, only with the server bit of `net.ipv4.tcp_fastopen` (2; 3 for client and server), which the default (1) leaves off."
     },
+    "udp_fragment": {
+     "type": "boolean",
+     "description": "Whether the datagrams it sends from its UDP sockets may be fragmented on the way: where not, they carry don't-fragment, and one larger than the path takes is refused rather than sent in pieces. Unset, as sing-box: they may for direct and hysteria2, and may not for the others."
+    },
     "path": {
      "type": "string"
     },
@@ -7347,8 +7349,7 @@
     },
     "udp_fragment": {
      "type": "boolean",
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: Socket tuning: connections go the same way without it"
+     "description": "Whether the datagrams it sends from its UDP sockets may be fragmented on the way: where not, they carry don't-fragment, and one larger than the path takes is refused rather than sent in pieces. Unset, as sing-box: they may for direct and hysteria2, and may not for the others."
     },
     "udp_timeout": {
      "anyOf": [
@@ -7895,8 +7896,7 @@
     },
     "udp_fragment": {
      "type": "boolean",
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: Socket tuning: connections go the same way without it"
+     "description": "Whether the datagrams it sends from its UDP sockets may be fragmented on the way: where not, they carry don't-fragment, and one larger than the path takes is refused rather than sent in pieces. Unset, as sing-box: they may for direct and hysteria2, and may not for the others."
     },
     "udp_timeout": {
      "anyOf": [
@@ -8999,8 +8999,7 @@
     },
     "udp_fragment": {
      "type": "boolean",
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: Socket tuning: connections go the same way without it"
+     "description": "Whether the datagrams it sends from its UDP sockets may be fragmented on the way: where not, they carry don't-fragment, and one larger than the path takes is refused rather than sent in pieces. Unset, as sing-box: they may for direct and hysteria2, and may not for the others."
     },
     "udp_timeout": {
      "anyOf": [
@@ -9412,6 +9411,10 @@
      "type": "boolean",
      "description": "TCP Fast Open on the TCP port it listens on: what a client that has the server's cookie sends with its SYN is taken at once. On Linux, only with the server bit of `net.ipv4.tcp_fastopen` (2; 3 for client and server), which the default (1) leaves off."
     },
+    "udp_fragment": {
+     "type": "boolean",
+     "description": "Whether the datagrams it sends from its UDP sockets may be fragmented on the way: where not, they carry don't-fragment, and one larger than the path takes is refused rather than sent in pieces. Unset, as sing-box: they may for direct and hysteria2, and may not for the others."
+    },
     "type": {
      "const": "mptp"
     }
@@ -9458,6 +9461,10 @@
     "tcp_fast_open": {
      "type": "boolean",
      "description": "TCP Fast Open on the TCP port it listens on: what a client that has the server's cookie sends with its SYN is taken at once. On Linux, only with the server bit of `net.ipv4.tcp_fastopen` (2; 3 for client and server), which the default (1) leaves off."
+    },
+    "udp_fragment": {
+     "type": "boolean",
+     "description": "Whether the datagrams it sends from its UDP sockets may be fragmented on the way: where not, they carry don't-fragment, and one larger than the path takes is refused rather than sent in pieces. Unset, as sing-box: they may for direct and hysteria2, and may not for the others."
     },
     "driver_name": {
      "type": "string"
@@ -9531,8 +9538,7 @@
     },
     "udp_fragment": {
      "type": "boolean",
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: Socket tuning: connections go the same way without it"
+     "description": "Whether the datagrams it sends from its UDP sockets may be fragmented on the way: where not, they carry don't-fragment, and one larger than the path takes is refused rather than sent in pieces. Unset, as sing-box: they may for direct and hysteria2, and may not for the others."
     },
     "udp_timeout": {
      "anyOf": [
@@ -9609,8 +9615,7 @@
     },
     "udp_fragment": {
      "type": "boolean",
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: Socket tuning: connections go the same way without it"
+     "description": "Whether the datagrams it sends from its UDP sockets may be fragmented on the way: where not, they carry don't-fragment, and one larger than the path takes is refused rather than sent in pieces. Unset, as sing-box: they may for direct and hysteria2, and may not for the others."
     },
     "udp_timeout": {
      "anyOf": [
@@ -9800,8 +9805,7 @@
     },
     "udp_fragment": {
      "type": "boolean",
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: Socket tuning: connections go the same way without it"
+     "description": "Whether the datagrams it sends from its UDP sockets may be fragmented on the way: where not, they carry don't-fragment, and one larger than the path takes is refused rather than sent in pieces. Unset, as sing-box: they may for direct and hysteria2, and may not for the others."
     },
     "udp_timeout": {
      "anyOf": [
@@ -10141,8 +10145,7 @@
     },
     "udp_fragment": {
      "type": "boolean",
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: Socket tuning: connections go the same way without it"
+     "description": "Whether the datagrams it sends from its UDP sockets may be fragmented on the way: where not, they carry don't-fragment, and one larger than the path takes is refused rather than sent in pieces. Unset, as sing-box: they may for direct and hysteria2, and may not for the others."
     },
     "udp_timeout": {
      "anyOf": [
@@ -10276,8 +10279,7 @@
     },
     "udp_fragment": {
      "type": "boolean",
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: Socket tuning: connections go the same way without it"
+     "description": "Whether the datagrams it sends from its UDP sockets may be fragmented on the way: where not, they carry don't-fragment, and one larger than the path takes is refused rather than sent in pieces. Unset, as sing-box: they may for direct and hysteria2, and may not for the others."
     },
     "udp_timeout": {
      "anyOf": [
@@ -10395,8 +10397,7 @@
     },
     "udp_fragment": {
      "type": "boolean",
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: Socket tuning: connections go the same way without it"
+     "description": "Whether the datagrams it sends from its UDP sockets may be fragmented on the way: where not, they carry don't-fragment, and one larger than the path takes is refused rather than sent in pieces. Unset, as sing-box: they may for direct and hysteria2, and may not for the others."
     },
     "udp_timeout": {
      "anyOf": [
@@ -11139,8 +11140,7 @@
     },
     "udp_fragment": {
      "type": "boolean",
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: Socket tuning: connections go the same way without it"
+     "description": "Whether the datagrams it sends from its UDP sockets may be fragmented on the way: where not, they carry don't-fragment, and one larger than the path takes is refused rather than sent in pieces. Unset, as sing-box: they may for direct and hysteria2, and may not for the others."
     },
     "udp_timeout": {
      "anyOf": [
@@ -12133,8 +12133,7 @@
     },
     "udp_fragment": {
      "type": "boolean",
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: Socket tuning: connections go the same way without it"
+     "description": "Whether the datagrams it sends from its UDP sockets may be fragmented on the way: where not, they carry don't-fragment, and one larger than the path takes is refused rather than sent in pieces. Unset, as sing-box: they may for direct and hysteria2, and may not for the others."
     },
     "udp_timeout": {
      "anyOf": [
@@ -12896,8 +12895,7 @@
     },
     "udp_fragment": {
      "type": "boolean",
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: Socket tuning: connections go the same way without it"
+     "description": "Whether the datagrams it sends from its UDP sockets may be fragmented on the way: where not, they carry don't-fragment, and one larger than the path takes is refused rather than sent in pieces. Unset, as sing-box: they may for direct and hysteria2, and may not for the others."
     },
     "udp_timeout": {
      "anyOf": [

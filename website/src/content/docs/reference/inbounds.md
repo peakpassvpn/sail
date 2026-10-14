@@ -43,7 +43,7 @@ Rust: [`AnyTlsInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/s
 | `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
 | `tcp_fast_open` | bool | `false` | Supported | TCP Fast Open on the TCP port it listens on: what a client that has the server's cookie sends with its SYN is taken at once. On Linux, only with the server bit of `net.ipv4.tcp_fastopen` (2; 3 for client and server), which the default (1) leaves off. |
 | `tcp_multi_path` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
-| `udp_fragment` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `udp_fragment` | bool | unset | Supported | Whether the datagrams it sends from its UDP sockets may be fragmented on the way: where not, they carry don't-fragment, and one larger than the path takes is refused rather than sent in pieces. Unset, as sing-box: they may for direct and hysteria2, and may not for the others. |
 | `udp_timeout` | number\|duration | unset | Supported | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
 | `detour` | string | — | Error: Handing an inbound's connections to another inbound | — |
 | `tls` | object → [object](#inbounds-anytls-tls) | — | Supported | — |
@@ -156,7 +156,7 @@ Rust: [`DirectInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/s
 | `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
 | `tcp_fast_open` | bool | `false` | Supported | TCP Fast Open on the TCP port it listens on: what a client that has the server's cookie sends with its SYN is taken at once. On Linux, only with the server bit of `net.ipv4.tcp_fastopen` (2; 3 for client and server), which the default (1) leaves off. |
 | `tcp_multi_path` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
-| `udp_fragment` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `udp_fragment` | bool | unset | Supported | Whether the datagrams it sends from its UDP sockets may be fragmented on the way: where not, they carry don't-fragment, and one larger than the path takes is refused rather than sent in pieces. Unset, as sing-box: they may for direct and hysteria2, and may not for the others. |
 | `udp_timeout` | number\|duration | unset | Supported | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
 | `detour` | string | — | Error: Handing an inbound's connections to another inbound | — |
 | `network` | listable-string, one of `tcp`, `udp` | unset | Supported | Only `tcp`, or only `udp`; both when unset. |
@@ -179,6 +179,7 @@ Rust: [`HcInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/
 | `tcp_keep_alive_interval` | duration | unset | sail extension | Between keepalive probes; 75s when unset. |
 | `disable_tcp_keep_alive` | bool | `false` | sail extension | — |
 | `tcp_fast_open` | bool | `false` | sail extension | TCP Fast Open on the TCP port it listens on: what a client that has the server's cookie sends with its SYN is taken at once. On Linux, only with the server bit of `net.ipv4.tcp_fastopen` (2; 3 for client and server), which the default (1) leaves off. |
+| `udp_fragment` | bool | unset | sail extension | Whether the datagrams it sends from its UDP sockets may be fragmented on the way: where not, they carry don't-fragment, and one larger than the path takes is refused rather than sent in pieces. Unset, as sing-box: they may for direct and hysteria2, and may not for the others. |
 | `path` | string | required | sail extension | — |
 | `request` | string | `""` | sail extension | — |
 | `response` | string | required | sail extension | — |
@@ -203,7 +204,7 @@ Rust: [`HttpInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sai
 | `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
 | `tcp_fast_open` | bool | `false` | Supported | TCP Fast Open on the TCP port it listens on: what a client that has the server's cookie sends with its SYN is taken at once. On Linux, only with the server bit of `net.ipv4.tcp_fastopen` (2; 3 for client and server), which the default (1) leaves off. |
 | `tcp_multi_path` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
-| `udp_fragment` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `udp_fragment` | bool | unset | Supported | Whether the datagrams it sends from its UDP sockets may be fragmented on the way: where not, they carry don't-fragment, and one larger than the path takes is refused rather than sent in pieces. Unset, as sing-box: they may for direct and hysteria2, and may not for the others. |
 | `udp_timeout` | number\|duration | unset | Supported | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
 | `detour` | string | — | Error: Handing an inbound's connections to another inbound | — |
 | `users` | array → [[]](#inbounds-http-users) | `[]` | Supported | Clients must authenticate as one of these with `Proxy-Authorization: Basic`; anyone may connect when there are none. |
@@ -243,7 +244,7 @@ Rust: [`Hysteria2InboundOptions`](https://github.com/peakpassvpn/sail/blob/maste
 | `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
 | `tcp_fast_open` | bool | `false` | Supported | TCP Fast Open on the TCP port it listens on: what a client that has the server's cookie sends with its SYN is taken at once. On Linux, only with the server bit of `net.ipv4.tcp_fastopen` (2; 3 for client and server), which the default (1) leaves off. |
 | `tcp_multi_path` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
-| `udp_fragment` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `udp_fragment` | bool | unset | Supported | Whether the datagrams it sends from its UDP sockets may be fragmented on the way: where not, they carry don't-fragment, and one larger than the path takes is refused rather than sent in pieces. Unset, as sing-box: they may for direct and hysteria2, and may not for the others. |
 | `udp_timeout` | number\|duration | unset | Supported | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
 | `detour` | string | — | Error: Handing an inbound's connections to another inbound | — |
 | `up_mbps` | number | unset | Supported | What the server may send at, at most, to each client. |
@@ -310,7 +311,7 @@ Rust: [`MixedInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sa
 | `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
 | `tcp_fast_open` | bool | `false` | Supported | TCP Fast Open on the TCP port it listens on: what a client that has the server's cookie sends with its SYN is taken at once. On Linux, only with the server bit of `net.ipv4.tcp_fastopen` (2; 3 for client and server), which the default (1) leaves off. |
 | `tcp_multi_path` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
-| `udp_fragment` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `udp_fragment` | bool | unset | Supported | Whether the datagrams it sends from its UDP sockets may be fragmented on the way: where not, they carry don't-fragment, and one larger than the path takes is refused rather than sent in pieces. Unset, as sing-box: they may for direct and hysteria2, and may not for the others. |
 | `udp_timeout` | number\|duration | unset | Supported | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
 | `detour` | string | — | Error: Handing an inbound's connections to another inbound | — |
 | `users` | array → [[]](#inbounds-mixed-users) | `[]` | Supported | Clients must authenticate as one of these, by SOCKS5 username/password or HTTP Basic; anyone may connect when there are none. |
@@ -443,6 +444,7 @@ Rust: [`MptpInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sai
 | `tcp_keep_alive_interval` | duration | unset | sail extension | Between keepalive probes; 75s when unset. |
 | `disable_tcp_keep_alive` | bool | `false` | sail extension | — |
 | `tcp_fast_open` | bool | `false` | sail extension | TCP Fast Open on the TCP port it listens on: what a client that has the server's cookie sends with its SYN is taken at once. On Linux, only with the server bit of `net.ipv4.tcp_fastopen` (2; 3 for client and server), which the default (1) leaves off. |
+| `udp_fragment` | bool | unset | sail extension | Whether the datagrams it sends from its UDP sockets may be fragmented on the way: where not, they carry don't-fragment, and one larger than the path takes is refused rather than sent in pieces. Unset, as sing-box: they may for direct and hysteria2, and may not for the others. |
 
 <a id="inbounds-nf"></a>
 
@@ -460,6 +462,7 @@ Rust: [`NfInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail/
 | `tcp_keep_alive_interval` | duration | unset | sail extension | Between keepalive probes; 75s when unset. |
 | `disable_tcp_keep_alive` | bool | `false` | sail extension | — |
 | `tcp_fast_open` | bool | `false` | sail extension | TCP Fast Open on the TCP port it listens on: what a client that has the server's cookie sends with its SYN is taken at once. On Linux, only with the server bit of `net.ipv4.tcp_fastopen` (2; 3 for client and server), which the default (1) leaves off. |
+| `udp_fragment` | bool | unset | sail extension | Whether the datagrams it sends from its UDP sockets may be fragmented on the way: where not, they carry don't-fragment, and one larger than the path takes is refused rather than sent in pieces. Unset, as sing-box: they may for direct and hysteria2, and may not for the others. |
 | `driver_name` | string | required | sail extension | — |
 | `nfapi` | string | `"nfapi.dll"` | sail extension | — |
 | `fake_dns_exclude` | array of string | `[]` | sail extension | — |
@@ -485,7 +488,7 @@ Rust: [`RedirectInboundOptions`](https://github.com/peakpassvpn/sail/blob/master
 | `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
 | `tcp_fast_open` | bool | `false` | Supported | TCP Fast Open on the TCP port it listens on: what a client that has the server's cookie sends with its SYN is taken at once. On Linux, only with the server bit of `net.ipv4.tcp_fastopen` (2; 3 for client and server), which the default (1) leaves off. |
 | `tcp_multi_path` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
-| `udp_fragment` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `udp_fragment` | bool | unset | Supported | Whether the datagrams it sends from its UDP sockets may be fragmented on the way: where not, they carry don't-fragment, and one larger than the path takes is refused rather than sent in pieces. Unset, as sing-box: they may for direct and hysteria2, and may not for the others. |
 | `udp_timeout` | number\|duration | unset | Supported | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
 | `detour` | string | — | Error: Handing an inbound's connections to another inbound | — |
 
@@ -509,7 +512,7 @@ Rust: [`ShadowsocksInboundOptions`](https://github.com/peakpassvpn/sail/blob/mas
 | `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
 | `tcp_fast_open` | bool | `false` | Supported | TCP Fast Open on the TCP port it listens on: what a client that has the server's cookie sends with its SYN is taken at once. On Linux, only with the server bit of `net.ipv4.tcp_fastopen` (2; 3 for client and server), which the default (1) leaves off. |
 | `tcp_multi_path` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
-| `udp_fragment` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `udp_fragment` | bool | unset | Supported | Whether the datagrams it sends from its UDP sockets may be fragmented on the way: where not, they carry don't-fragment, and one larger than the path takes is refused rather than sent in pieces. Unset, as sing-box: they may for direct and hysteria2, and may not for the others. |
 | `udp_timeout` | number\|duration | unset | Supported | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
 | `detour` | string | — | Error: Handing an inbound's connections to another inbound | — |
 | `network` | listable-string, one of `tcp`, `udp` | — | Error: Which networks a Shadowsocks inbound serves: it would serve others | — |
@@ -562,7 +565,7 @@ Rust: [`ShadowTlsInboundOptions`](https://github.com/peakpassvpn/sail/blob/maste
 | `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
 | `tcp_fast_open` | bool | `false` | Supported | TCP Fast Open on the TCP port it listens on: what a client that has the server's cookie sends with its SYN is taken at once. On Linux, only with the server bit of `net.ipv4.tcp_fastopen` (2; 3 for client and server), which the default (1) leaves off. |
 | `tcp_multi_path` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
-| `udp_fragment` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `udp_fragment` | bool | unset | Supported | Whether the datagrams it sends from its UDP sockets may be fragmented on the way: where not, they carry don't-fragment, and one larger than the path takes is refused rather than sent in pieces. Unset, as sing-box: they may for direct and hysteria2, and may not for the others. |
 | `udp_timeout` | number\|duration | unset | Supported | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
 | `detour` | string | unset | Supported | The inbound connections go to after the handshake, by tag: needed. |
 | `version` | number, one of `1`, `2`, `3` | `1` | Supported | Must be 3: versions 1 and 2 are not supported. sing-box's default is 1. |
@@ -638,7 +641,7 @@ Rust: [`SocksInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sa
 | `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
 | `tcp_fast_open` | bool | `false` | Supported | TCP Fast Open on the TCP port it listens on: what a client that has the server's cookie sends with its SYN is taken at once. On Linux, only with the server bit of `net.ipv4.tcp_fastopen` (2; 3 for client and server), which the default (1) leaves off. |
 | `tcp_multi_path` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
-| `udp_fragment` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `udp_fragment` | bool | unset | Supported | Whether the datagrams it sends from its UDP sockets may be fragmented on the way: where not, they carry don't-fragment, and one larger than the path takes is refused rather than sent in pieces. Unset, as sing-box: they may for direct and hysteria2, and may not for the others. |
 | `udp_timeout` | number\|duration | unset | Supported | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
 | `detour` | string | — | Error: Handing an inbound's connections to another inbound | — |
 | `users` | array → [[]](#inbounds-socks-users) | `[]` | Supported | Clients must authenticate as one of these; anyone may connect when there are none. |
@@ -675,7 +678,7 @@ Rust: [`TproxyInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/s
 | `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
 | `tcp_fast_open` | bool | `false` | Supported | TCP Fast Open on the TCP port it listens on: what a client that has the server's cookie sends with its SYN is taken at once. On Linux, only with the server bit of `net.ipv4.tcp_fastopen` (2; 3 for client and server), which the default (1) leaves off. |
 | `tcp_multi_path` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
-| `udp_fragment` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `udp_fragment` | bool | unset | Supported | Whether the datagrams it sends from its UDP sockets may be fragmented on the way: where not, they carry don't-fragment, and one larger than the path takes is refused rather than sent in pieces. Unset, as sing-box: they may for direct and hysteria2, and may not for the others. |
 | `udp_timeout` | number\|duration | unset | Supported | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
 | `detour` | string | — | Error: Handing an inbound's connections to another inbound | — |
 | `network` | listable-string, one of `tcp`, `udp` | unset | Supported | Only `tcp`, or only `udp`; both when unset. |
@@ -703,7 +706,7 @@ Rust: [`TrojanInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/s
 | `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
 | `tcp_fast_open` | bool | `false` | Supported | TCP Fast Open on the TCP port it listens on: what a client that has the server's cookie sends with its SYN is taken at once. On Linux, only with the server bit of `net.ipv4.tcp_fastopen` (2; 3 for client and server), which the default (1) leaves off. |
 | `tcp_multi_path` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
-| `udp_fragment` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `udp_fragment` | bool | unset | Supported | Whether the datagrams it sends from its UDP sockets may be fragmented on the way: where not, they carry don't-fragment, and one larger than the path takes is refused rather than sent in pieces. Unset, as sing-box: they may for direct and hysteria2, and may not for the others. |
 | `udp_timeout` | number\|duration | unset | Supported | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
 | `detour` | string | — | Error: Handing an inbound's connections to another inbound | — |
 | `users` | array → [[]](#inbounds-trojan-users) | required | Supported | — |
@@ -755,7 +758,7 @@ Rust: [`TuicInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sai
 | `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
 | `tcp_fast_open` | bool | `false` | Supported | TCP Fast Open on the TCP port it listens on: what a client that has the server's cookie sends with its SYN is taken at once. On Linux, only with the server bit of `net.ipv4.tcp_fastopen` (2; 3 for client and server), which the default (1) leaves off. |
 | `tcp_multi_path` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
-| `udp_fragment` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `udp_fragment` | bool | unset | Supported | Whether the datagrams it sends from its UDP sockets may be fragmented on the way: where not, they carry don't-fragment, and one larger than the path takes is refused rather than sent in pieces. Unset, as sing-box: they may for direct and hysteria2, and may not for the others. |
 | `udp_timeout` | number\|duration | unset | Supported | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
 | `detour` | string | — | Error: Handing an inbound's connections to another inbound | — |
 | `users` | array → [[]](#inbounds-tuic-users) | required | Supported | — |
@@ -874,7 +877,7 @@ Rust: [`VlessInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sa
 | `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
 | `tcp_fast_open` | bool | `false` | Supported | TCP Fast Open on the TCP port it listens on: what a client that has the server's cookie sends with its SYN is taken at once. On Linux, only with the server bit of `net.ipv4.tcp_fastopen` (2; 3 for client and server), which the default (1) leaves off. |
 | `tcp_multi_path` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
-| `udp_fragment` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `udp_fragment` | bool | unset | Supported | Whether the datagrams it sends from its UDP sockets may be fragmented on the way: where not, they carry don't-fragment, and one larger than the path takes is refused rather than sent in pieces. Unset, as sing-box: they may for direct and hysteria2, and may not for the others. |
 | `udp_timeout` | number\|duration | unset | Supported | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
 | `detour` | string | — | Error: Handing an inbound's connections to another inbound | — |
 | `users` | array → [[]](#inbounds-vless-users) | required | Supported | — |
@@ -916,7 +919,7 @@ Rust: [`VMessInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sa
 | `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
 | `tcp_fast_open` | bool | `false` | Supported | TCP Fast Open on the TCP port it listens on: what a client that has the server's cookie sends with its SYN is taken at once. On Linux, only with the server bit of `net.ipv4.tcp_fastopen` (2; 3 for client and server), which the default (1) leaves off. |
 | `tcp_multi_path` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
-| `udp_fragment` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `udp_fragment` | bool | unset | Supported | Whether the datagrams it sends from its UDP sockets may be fragmented on the way: where not, they carry don't-fragment, and one larger than the path takes is refused rather than sent in pieces. Unset, as sing-box: they may for direct and hysteria2, and may not for the others. |
 | `udp_timeout` | number\|duration | unset | Supported | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
 | `detour` | string | — | Error: Handing an inbound's connections to another inbound | — |
 | `users` | array → [[]](#inbounds-vmess-users) | required | Supported | — |

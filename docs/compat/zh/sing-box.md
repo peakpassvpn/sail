@@ -31,12 +31,12 @@ Windows 无法实现的拨号字段在 Windows 上报错。已知缺口是 `tcp_
 | `http_clients` | 80 | 30 | 11 | 39 |
 | `network_namespaces` | 6 | 0 | 0 | 6 |
 | `endpoints` | 433 | 48 | 13 | 372 |
-| `inbounds` | 1367 | 609 | 133 | 625 |
+| `inbounds` | 1367 | 623 | 116 | 628 |
 | `outbounds` | 1228 | 685 | 75 | 468 |
 | `route` | 268 | 174 | 41 | 53 |
 | `services` | 751 | 1 | 166 | 584 |
 | `experimental` | 34 | 16 | 17 | 1 |
-| **全部** | **5003** | **1976** | **523** | **2504** |
+| **全部** | **5003** | **1990** | **506** | **2507** |
 
 ## `$schema`
 
@@ -906,7 +906,7 @@ Windows 无法实现的拨号字段在 Windows 上报错。已知缺口是 `tcp_
 | `tcp_keep_alive_interval` | 支持 |  |
 | `tcp_fast_open` | 支持 |  |
 | `tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
-| `udp_fragment` | 警告 | Socket tuning: connections go the same way without it |
+| `udp_fragment` | 支持 |  |
 | `udp_timeout` | 支持 |  |
 | `detour` | 报错 | Handing an inbound's connections to another inbound |
 | `tls` | 支持 |  |
@@ -990,7 +990,7 @@ Windows 无法实现的拨号字段在 Windows 上报错。已知缺口是 `tcp_
 | `tcp_keep_alive_interval` | 支持 |  |
 | `tcp_fast_open` | 支持 |  |
 | `tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
-| `udp_fragment` | 警告 | Socket tuning: connections go the same way without it |
+| `udp_fragment` | 支持 |  |
 | `udp_timeout` | 支持 |  |
 | `detour` | 报错 | Handing an inbound's connections to another inbound |
 | `network` | 支持 |  |
@@ -1013,7 +1013,7 @@ Windows 无法实现的拨号字段在 Windows 上报错。已知缺口是 `tcp_
 | `tcp_keep_alive_interval` | 支持 |  |
 | `tcp_fast_open` | 支持 |  |
 | `tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
-| `udp_fragment` | 警告 | Socket tuning: connections go the same way without it |
+| `udp_fragment` | 支持 |  |
 | `udp_timeout` | 支持 |  |
 | `detour` | 报错 | Handing an inbound's connections to another inbound |
 | `users` | 支持 |  |
@@ -1098,7 +1098,7 @@ Windows 无法实现的拨号字段在 Windows 上报错。已知缺口是 `tcp_
 | `tcp_keep_alive_interval` | 支持 |  |
 | `tcp_fast_open` | 支持 |  |
 | `tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
-| `udp_fragment` | 警告 | Socket tuning: connections go the same way without it |
+| `udp_fragment` | 支持 |  |
 | `udp_timeout` | 支持 |  |
 | `detour` | 报错 | Handing an inbound's connections to another inbound |
 | `up_mbps` | 支持 |  |
@@ -1201,7 +1201,7 @@ Windows 无法实现的拨号字段在 Windows 上报错。已知缺口是 `tcp_
 | `tcp_keep_alive_interval` | 支持 |  |
 | `tcp_fast_open` | 支持 |  |
 | `tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
-| `udp_fragment` | 警告 | Socket tuning: connections go the same way without it |
+| `udp_fragment` | 支持 |  |
 | `udp_timeout` | 支持 |  |
 | `detour` | 报错 | Handing an inbound's connections to another inbound |
 | `users` | 支持 |  |
@@ -1227,7 +1227,7 @@ Windows 无法实现的拨号字段在 Windows 上报错。已知缺口是 `tcp_
 | `tcp_keep_alive_interval` | 支持 |  |
 | `tcp_fast_open` | 支持 |  |
 | `tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
-| `udp_fragment` | 警告 | Socket tuning: connections go the same way without it |
+| `udp_fragment` | 支持 |  |
 | `udp_timeout` | 支持 |  |
 | `detour` | 报错 | Handing an inbound's connections to another inbound |
 
@@ -1247,7 +1247,7 @@ Windows 无法实现的拨号字段在 Windows 上报错。已知缺口是 `tcp_
 | `tcp_keep_alive_interval` | 支持 |  |
 | `tcp_fast_open` | 支持 |  |
 | `tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
-| `udp_fragment` | 警告 | Socket tuning: connections go the same way without it |
+| `udp_fragment` | 支持 |  |
 | `udp_timeout` | 支持 |  |
 | `detour` | 报错 | Handing an inbound's connections to another inbound |
 | `network` | 报错 | Which networks a Shadowsocks inbound serves: it would serve others |
@@ -1282,7 +1282,7 @@ Windows 无法实现的拨号字段在 Windows 上报错。已知缺口是 `tcp_
 | `tcp_keep_alive_interval` | 支持 |  |
 | `tcp_fast_open` | 支持 |  |
 | `tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
-| `udp_fragment` | 警告 | Socket tuning: connections go the same way without it |
+| `udp_fragment` | 支持 |  |
 | `udp_timeout` | 支持 |  |
 | `detour` | 支持 |  |
 | `version` | 支持 |  |
@@ -1342,7 +1342,7 @@ Windows 无法实现的拨号字段在 Windows 上报错。已知缺口是 `tcp_
 | `tcp_keep_alive_interval` | 支持 |  |
 | `tcp_fast_open` | 支持 |  |
 | `tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
-| `udp_fragment` | 警告 | Socket tuning: connections go the same way without it |
+| `udp_fragment` | 支持 |  |
 | `udp_timeout` | 支持 |  |
 | `detour` | 报错 | Handing an inbound's connections to another inbound |
 | `users` | 支持 |  |
@@ -1366,7 +1366,7 @@ Windows 无法实现的拨号字段在 Windows 上报错。已知缺口是 `tcp_
 | `tcp_keep_alive_interval` | 支持 |  |
 | `tcp_fast_open` | 支持 |  |
 | `tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
-| `udp_fragment` | 警告 | Socket tuning: connections go the same way without it |
+| `udp_fragment` | 支持 |  |
 | `udp_timeout` | 支持 |  |
 | `detour` | 报错 | Handing an inbound's connections to another inbound |
 | `network` | 支持 |  |
@@ -1390,7 +1390,7 @@ Windows 无法实现的拨号字段在 Windows 上报错。已知缺口是 `tcp_
 | `tcp_keep_alive_interval` | 支持 |  |
 | `tcp_fast_open` | 支持 |  |
 | `tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
-| `udp_fragment` | 警告 | Socket tuning: connections go the same way without it |
+| `udp_fragment` | 支持 |  |
 | `udp_timeout` | 支持 |  |
 | `detour` | 报错 | Handing an inbound's connections to another inbound |
 | `users` | 支持 |  |
@@ -1503,7 +1503,7 @@ Windows 无法实现的拨号字段在 Windows 上报错。已知缺口是 `tcp_
 | `tcp_keep_alive_interval` | 支持 |  |
 | `tcp_fast_open` | 支持 |  |
 | `tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
-| `udp_fragment` | 警告 | Socket tuning: connections go the same way without it |
+| `udp_fragment` | 支持 |  |
 | `udp_timeout` | 支持 |  |
 | `detour` | 报错 | Handing an inbound's connections to another inbound |
 | `users` | 支持 |  |
@@ -1644,7 +1644,7 @@ Windows 无法实现的拨号字段在 Windows 上报错。已知缺口是 `tcp_
 | `tcp_keep_alive_interval` | 支持 |  |
 | `tcp_fast_open` | 支持 |  |
 | `tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
-| `udp_fragment` | 警告 | Socket tuning: connections go the same way without it |
+| `udp_fragment` | 支持 |  |
 | `udp_timeout` | 支持 |  |
 | `detour` | 报错 | Handing an inbound's connections to another inbound |
 | `users` | 支持 |  |
@@ -1754,7 +1754,7 @@ Windows 无法实现的拨号字段在 Windows 上报错。已知缺口是 `tcp_
 | `tcp_keep_alive_interval` | 支持 |  |
 | `tcp_fast_open` | 支持 |  |
 | `tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
-| `udp_fragment` | 警告 | Socket tuning: connections go the same way without it |
+| `udp_fragment` | 支持 |  |
 | `udp_timeout` | 支持 |  |
 | `detour` | 报错 | Handing an inbound's connections to another inbound |
 | `users` | 支持 |  |

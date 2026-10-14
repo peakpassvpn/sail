@@ -1751,11 +1751,25 @@ pub struct Inbound {
     /// client and server), which the default (1) leaves off.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub tcp_fast_open: bool,
+    /// Whether the datagrams it sends from its UDP sockets may be
+    /// fragmented on the way: where not, they carry don't-fragment, and
+    /// one larger than the path takes is refused rather than sent in
+    /// pieces. Unset, as sing-box: they may for direct and hysteria2, and
+    /// may not for the others.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub udp_fragment: Option<bool>,
     #[serde(flatten)]
     pub options: Options,
 }
 
 impl Inbound {
+    /// Whether its UDP sockets' datagrams may be fragmented:
+    /// `udp_fragment`, or sing-box's default for its protocol.
+    pub fn udp_fragment(&self) -> bool {
+        self.udp_fragment
+            .unwrap_or(matches!(self.protocol.as_str(), "direct" | "hysteria2"))
+    }
+
     pub fn udp_timeout(&self) -> std::time::Duration {
         self.udp_timeout.unwrap_or(DEFAULT_UDP_TIMEOUT)
     }
@@ -1811,6 +1825,7 @@ impl Endpoint {
             tcp_keep_alive_interval: None,
             disable_tcp_keep_alive: false,
             tcp_fast_open: false,
+            udp_fragment: None,
             options: Options::new(),
         }
     }
@@ -4249,6 +4264,34 @@ pub(super) fn path<E>(e: &serde_path_to_error::Error<E>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An inbound's UDP is not fragmented unless it says, or is one of
+    /// those sing-box lets fragment by default: direct and hysteria2, not
+    /// tuic.
+    #[test]
+    fn an_inbound_s_udp_fragments_as_it_says_or_as_sing_box_does() {
+        let inbound = |json| {
+            serde_json::from_value::<Inbound>(json)
+                .unwrap()
+                .udp_fragment()
+        };
+        assert!(!inbound(serde_json::json!({ "type": "socks" })));
+        assert!(!inbound(serde_json::json!({ "type": "shadowsocks" })));
+        assert!(!inbound(serde_json::json!({ "type": "tuic" })));
+        for protocol in ["direct", "hysteria2"] {
+            assert!(
+                inbound(serde_json::json!({ "type": protocol })),
+                "{}",
+                protocol
+            );
+        }
+        assert!(inbound(
+            serde_json::json!({ "type": "socks", "udp_fragment": true })
+        ));
+        assert!(!inbound(
+            serde_json::json!({ "type": "hysteria2", "udp_fragment": false })
+        ));
+    }
 
     /// A rule's lists take 8 bytes each, empty or not, rather than a
     /// `Vec`'s 24: a rule is 864 bytes, where it was 1,616, and a profile
