@@ -57,11 +57,31 @@ const DNS: &str = "dns";
 /// `user:`, `inbound:` or `outbound:` and a name or tag, to the bytes up
 /// and down and the TCP and UDP sessions counted.
 const TRAFFIC: &str = "traffic";
+/// A smart group's tag to what it remembers of its sites (JSON), and
+/// `SMART_SALT` to the salt their keys are hashed with.
+const SMART: &str = "smart";
+const SMART_SALT: &str = "\0salt";
+
+/// How often what the instance keeps (`Keep`) is written, when it changed:
+/// a judgment, not measured. Up to a megabyte a group rewritten every
+/// minute is too much flash and battery on a phone.
+pub const KEEP_INTERVAL: Duration = Duration::from_secs(5 * 60);
+
+/// What keeps a state of its own in the cache file, written every
+/// `KEEP_INTERVAL` when it changed, as the instance stops, at the host's
+/// sleep, and before a reload rebuilds it.
+pub trait Keep: Send + Sync {
+    /// Writes the state to `cache`, if it changed since the last write.
+    fn keep(&self, cache: &CacheFile);
+}
 
 /// The instance's cache file, as its configuration has it; none without
 /// one. Shared by what the instance builds, and replaced by a reload.
 #[derive(Clone, Default)]
-pub struct CacheFileSlot(Arc<ArcSwapOption<CacheFile>>);
+pub struct CacheFileSlot(
+    Arc<ArcSwapOption<CacheFile>>,
+    Arc<Mutex<Vec<std::sync::Weak<dyn Keep>>>>,
+);
 
 impl std::fmt::Debug for CacheFileSlot {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -145,6 +165,46 @@ fn close_unless_same(file: Option<&CacheFile>, other: Option<&CacheFile>) {
 }
 
 impl CacheFileSlot {
+    /// `keeper` writes its state from now on, until it is dropped.
+    pub fn register(&self, keeper: std::sync::Weak<dyn Keep>) {
+        let mut keepers = self.1.lock().unwrap_or_else(|e| e.into_inner());
+        keepers.retain(|k| k.strong_count() > 0);
+        keepers.push(keeper);
+    }
+
+    /// Has every keeper write what changed, now; nothing without a file.
+    pub fn store_kept(&self) {
+        let Some(cache) = self.get() else {
+            return;
+        };
+        let keepers: Vec<_> = {
+            let mut keepers = self.1.lock().unwrap_or_else(|e| e.into_inner());
+            keepers.retain(|k| k.strong_count() > 0);
+            keepers.iter().filter_map(|k| k.upgrade()).collect()
+        };
+        for keeper in keepers {
+            keeper.keep(&cache);
+        }
+    }
+
+    /// Writes what the keepers changed every `KEEP_INTERVAL`, on a
+    /// blocking thread, as the traffic's writes run.
+    pub fn kept_task(&self) -> crate::Runner {
+        let slot = self.clone();
+        Box::pin(async move {
+            let mut interval = tokio::time::interval(KEEP_INTERVAL);
+            interval.tick().await;
+            loop {
+                interval.tick().await;
+                let slot = slot.clone();
+                let _ = crate::runtime::scope::spawn_blocking("cache_file: kept", move || {
+                    slot.store_kept()
+                })
+                .await;
+            }
+        })
+    }
+
     /// Closes the file, as the instance stops: what still holds it finds
     /// it closed.
     pub fn close(&self) {
@@ -393,6 +453,44 @@ impl CacheFile {
             tx.commit()?;
             Ok(())
         })
+    }
+
+    /// What the smart group `group` remembered of its sites (JSON).
+    pub fn load_smart(&self, group: &str) -> Result<Option<Vec<u8>>> {
+        let table = self.table(SMART);
+        self.shared.with(|db| {
+            let tx = db.begin_read()?;
+            let table = match tx.open_table(TableDefinition::<&str, &[u8]>::new(&table)) {
+                Ok(table) => table,
+                Err(redb::TableError::TableDoesNotExist(_)) => return Ok(None),
+                Err(e) => return Err(e.into()),
+            };
+            Ok(table.get(group)?.map(|v| v.value().to_vec()))
+        })
+    }
+
+    pub fn store_smart(&self, group: &str, sites: &[u8]) -> Result<()> {
+        let table = self.table(SMART);
+        self.shared.with(|db| {
+            let tx = db.begin_write()?;
+            tx.open_table(TableDefinition::<&str, &[u8]>::new(&table))?
+                .insert(group, sites)?;
+            tx.commit()?;
+            Ok(())
+        })
+    }
+
+    /// The salt the smart groups' site keys are hashed with: 16 random
+    /// bytes, made the first time it is asked for.
+    pub fn smart_salt(&self) -> Result<[u8; 16]> {
+        if let Some(salt) = self.load_smart(SMART_SALT)? {
+            if let Ok(salt) = <[u8; 16]>::try_from(salt.as_slice()) {
+                return Ok(salt);
+            }
+        }
+        let salt: [u8; 16] = rand::random();
+        self.store_smart(SMART_SALT, &salt)?;
+        Ok(salt)
     }
 
     /// The Clash API's mode when the instance last ran.

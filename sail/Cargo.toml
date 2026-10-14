@@ -156,7 +156,7 @@ outbound-load-balance = ["lru_time_cache"]
 load-balance-psl = ["outbound-load-balance", "psl"]
 # Scores its members by the connections through them and keeps a site on
 # one; exposes its selection and scores the way a selector does.
-outbound-smart = ["outbound-select", "lru_time_cache", "fancy-regex"]
+outbound-smart = ["outbound-select", "lru_time_cache", "fancy-regex", "sha2"]
 # Exposes its selection and latencies the way a selector does.
 outbound-fallback = ["outbound-select"]
 # Picks its member by the network the host is on; exposes it the way a

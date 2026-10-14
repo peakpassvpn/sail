@@ -67,10 +67,11 @@
 //! against a member, since the first response of a plain connection
 //! includes the server's think time; TCP retransmissions are not
 //! measured; a failure blamed on every member tried is blamed on none;
-//! no two members are raced for one connection; and sites are not kept
-//! across restarts.
+//! no two members are raced for one connection. With a cache file, the
+//! sites are kept across restarts (memory.rs).
 
 mod datagram;
+mod memory;
 mod score;
 mod site;
 mod stream;
@@ -300,6 +301,21 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         .unwrap_or_else(|| MemberKey::outbound(""));
     let selected = Arc::new(Selection::new(&first.name, first.clone()));
     let latencies = MemberLatencies::default();
+    let memory = ctx.env.cache_file.get().and_then(|cache| {
+        let configured = options
+            .outbounds
+            .iter()
+            .map(|tag| MemberKey::outbound(tag))
+            .collect();
+        memory::Memory::load(
+            &cache,
+            tag,
+            site_ttl,
+            options.site_capacity,
+            &configured,
+            &ctx.env.network.snapshot(),
+        )
+    });
     let group = Arc::new(Group {
         tag: tag.to_owned(),
         members: members.clone(),
@@ -311,6 +327,7 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
             site_ttl,
             options.site_capacity,
         )),
+        memory,
         priorities,
         tolerance: Tolerance {
             ms: options.tolerance.into(),
@@ -334,6 +351,11 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
             task: Mutex::new(None),
         },
     });
+    if group.memory.is_some() {
+        let keeper: std::sync::Weak<Group> = Arc::downgrade(&group);
+        let keeper: std::sync::Weak<dyn crate::runtime::cache_file::Keep> = keeper;
+        ctx.env.cache_file.register(keeper);
+    }
     let (task, abort_handle) = abortable(probe_loop(Arc::downgrade(&group), probe));
     if let Ok(mut slot) = group.probes.task.lock() {
         *slot = Some(task.map(|_| ()).boxed());
@@ -397,6 +419,8 @@ pub(super) struct Group {
     network: Network,
     stats: Mutex<HashMap<MemberKey, MemberStats>>,
     sites: Mutex<LruCache<String, Site>>,
+    /// The sites as kept in the cache file, when there is one.
+    memory: Option<memory::Memory>,
     priorities: Vec<(NameFilter, f64)>,
     tolerance: Tolerance,
     timeout: Duration,
@@ -410,6 +434,25 @@ pub(super) struct Group {
     probes: Probes,
     /// Where its members' failures are told.
     events: crate::control::events::EventHub,
+}
+
+impl crate::runtime::cache_file::Keep for Group {
+    /// Writes its sites, if they changed: taken out under the lock, and
+    /// written after it, so connections do not wait on the disk.
+    fn keep(&self, cache: &crate::runtime::cache_file::CacheFile) {
+        let Some(memory) = &self.memory else {
+            return;
+        };
+        let sites: Vec<(String, Site)> = lock(&self.sites)
+            .peek_iter()
+            .map(|(key, site)| (key.clone(), site.clone()))
+            .collect();
+        memory.store(
+            cache,
+            sites.iter().map(|(key, site)| (key, site)),
+            &self.network.snapshot(),
+        );
+    }
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -453,6 +496,14 @@ impl Group {
 
     fn with_site<R>(&self, site: &str, f: impl FnOnce(&mut Site) -> R) -> R {
         let mut sites = lock(&self.sites);
+        if let Some(memory) = &self.memory {
+            memory.touched();
+            if sites.peek(site).is_none() {
+                if let Some(kept) = memory.take(site) {
+                    sites.insert(site.to_string(), kept);
+                }
+            }
+        }
         f(sites.entry(site.to_string()).or_insert_with(Site::default))
     }
 
@@ -547,6 +598,9 @@ impl Group {
         }
         let now = Instant::now();
         lock(&self.sites).clear();
+        if let Some(memory) = &self.memory {
+            memory.network_changed(&self.network.snapshot());
+        }
         for s in lock(&self.stats).values_mut() {
             s.network_changed(now);
         }

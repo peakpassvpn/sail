@@ -99,7 +99,7 @@ TUN 入站把 IP 包送入 `sail-netstack`。协议栈负责 TCP 状态、UDP �
 
 运行时配置档为 mobile、desktop、server、router 宿主选择一致的初始预算。它们调整转发缓冲、UDP、netstack、入站、QUIC、WebSocket、DNS、统计、多路复用和关闭行为，不改变可移植的代理配置。
 
-健康检查、选择器、会话和监听器等长期资源属于实例，在重载或关闭时通过显式句柄释放。选择器的选择、Clash 模式与 fake IP 只有在启用 `experimental.cache_file` 时才会持久化，文件位于 `cache_dir`（未设置时为数据目录），与配置分开。
+健康检查、选择器、会话和监听器等长期资源属于实例，在重载或关闭时通过显式句柄释放。选择器的选择、smart 组的站点记忆、Clash 模式与 fake IP 只有在启用 `experimental.cache_file` 时才会持久化，文件位于 `cache_dir`（未设置时为数据目录），与配置分开。
 
 网络变化导致原有连接无法延续时，实例会清空 DNS 缓存、关闭连接并重置 TUN 的流；见[网络变化时](/sail/zh/platform-integration/)。
 

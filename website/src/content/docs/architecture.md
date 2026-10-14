@@ -99,7 +99,7 @@ This gives every platform one data-plane implementation while preserving host co
 
 Runtime profiles select coherent starting budgets for mobile, desktop, server or router hosts. They tune relay buffers, UDP, the netstack, inbounds, QUIC, WebSocket, DNS, statistics, multiplexing and shutdown, without changing the portable proxy configuration.
 
-Long-lived resources—health checks, selectors, sessions and listeners—belong to an instance and are torn down on reload or shutdown through explicit handles. Selector choices, the Clash mode and fake IPs persist only with `experimental.cache_file`, whose file is kept in `cache_dir` (the data directory without one), outside the configuration.
+Long-lived resources—health checks, selectors, sessions and listeners—belong to an instance and are torn down on reload or shutdown through explicit handles. Selector choices, a smart group's sites, the Clash mode and fake IPs persist only with `experimental.cache_file`, whose file is kept in `cache_dir` (the data directory without one), outside the configuration.
 
 When the network changes so that its connections do not survive, the instance flushes its DNS cache, closes its connections and resets the TUN's flows; see [When the network changes](/sail/platform-integration/#when-the-network-changes).
 

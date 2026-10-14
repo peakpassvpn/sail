@@ -195,6 +195,135 @@ impl Site {
     }
 }
 
+/// A site as the cache file keeps it (memory.rs): its key hashed, its
+/// times as Unix milliseconds.
+#[derive(Debug, Clone, PartialEq, serde_derive::Serialize, serde_derive::Deserialize)]
+pub struct StoredSite {
+    pub key: String,
+    #[serde(default)]
+    pub pinned: Option<StoredMember>,
+    #[serde(default)]
+    pub settled: bool,
+    #[serde(default)]
+    pub tried: Vec<StoredTried>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde_derive::Serialize, serde_derive::Deserialize)]
+pub struct StoredMember {
+    #[serde(default)]
+    pub provider: Option<String>,
+    pub name: String,
+}
+
+impl StoredMember {
+    fn of(key: &MemberKey) -> Self {
+        StoredMember {
+            provider: key.source.as_deref().map(String::from),
+            name: key.name.to_string(),
+        }
+    }
+
+    fn key(&self) -> MemberKey {
+        MemberKey {
+            source: self.provider.as_deref().map(Into::into),
+            name: self.name.as_str().into(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde_derive::Serialize, serde_derive::Deserialize)]
+pub struct StoredTried {
+    pub member: StoredMember,
+    #[serde(default)]
+    pub mean: Option<f64>,
+    #[serde(default)]
+    pub weight: f64,
+    #[serde(default)]
+    pub failed_until_ms: Option<u64>,
+    pub at_ms: u64,
+}
+
+/// `instant` as Unix milliseconds, `now` being both `now_ms` and `now`.
+fn to_ms(instant: Instant, now: Instant, now_ms: u64) -> u64 {
+    if instant <= now {
+        now_ms.saturating_sub(now.duration_since(instant).as_millis() as u64)
+    } else {
+        now_ms.saturating_add(instant.duration_since(now).as_millis() as u64)
+    }
+}
+
+impl Site {
+    /// What the cache file keeps of it, under `key` (hashed).
+    pub fn stored(&self, key: String, now: Instant, now_ms: u64) -> StoredSite {
+        StoredSite {
+            key,
+            pinned: self.pinned.as_ref().map(StoredMember::of),
+            settled: self.settled,
+            tried: self
+                .tried
+                .iter()
+                .map(|t| StoredTried {
+                    member: StoredMember::of(&t.member),
+                    mean: t.latency.map(|l| l.mean()),
+                    weight: t.latency.map_or(0.0, |l| l.weight(now)),
+                    failed_until_ms: t
+                        .failed_until
+                        .filter(|until| *until > now)
+                        .map(|until| to_ms(until, now, now_ms)),
+                    at_ms: to_ms(t.at, now, now_ms),
+                })
+                .collect(),
+        }
+    }
+
+    /// The site `stored` keeps, as of `now` (`now_ms`): none if its last
+    /// use is longer than `ttl` ago, or none of its members is `kept`.
+    pub fn restored(
+        stored: &StoredSite,
+        ttl: std::time::Duration,
+        kept: impl Fn(&MemberKey) -> bool,
+        now: Instant,
+        now_ms: u64,
+    ) -> Option<Site> {
+        let ago = |ms: u64| std::time::Duration::from_millis(now_ms.saturating_sub(ms));
+        let last = stored.tried.iter().map(|t| t.at_ms).max()?;
+        if ago(last) >= ttl {
+            return None;
+        }
+        let tried: Vec<Tried> = stored
+            .tried
+            .iter()
+            .filter(|t| kept(&t.member.key()))
+            .take(MAX_TRIED + 1)
+            .map(|t| Tried {
+                member: t.member.key(),
+                latency: t
+                    .mean
+                    .and_then(|mean| Ewma::restored(mean, t.weight, ago(t.at_ms), now)),
+                failed_until: t
+                    .failed_until_ms
+                    .filter(|until| *until > now_ms)
+                    .map(|until| now + std::time::Duration::from_millis(until - now_ms)),
+                at: now.checked_sub(ago(t.at_ms)).unwrap_or(now),
+            })
+            .collect();
+        if tried.is_empty() {
+            return None;
+        }
+        let pinned = stored
+            .pinned
+            .as_ref()
+            .map(StoredMember::key)
+            .filter(|p| tried.iter().any(|t| t.member == *p));
+        Some(Site {
+            pinned,
+            tried,
+            switch: false,
+            settled: stored.settled,
+        })
+    }
+}
+
 /// A member as the choice sees it.
 #[derive(Clone, Debug)]
 pub struct Rank {

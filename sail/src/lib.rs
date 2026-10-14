@@ -874,6 +874,9 @@ impl RuntimeManager {
         // The detours of DNS servers and HTTP clients find the outbounds
         // that replace these.
         dial_defaults.env.outbounds.set(&self.outbound_manager);
+        // What the groups built before keep is written first, so that those
+        // that replace them read it back (a smart group's sites).
+        self.env.cache_file.store_kept();
         // What is built from here on keeps its state in the new cache file;
         // a reload that fails puts the old one back.
         let cache_file = self
@@ -1628,6 +1631,9 @@ pub fn host_sleep(key: RuntimeId, asleep: bool) -> Result<(), Error> {
     if asleep {
         info!("the host says the system sleeps");
         manager.network().sleep();
+        // What is kept is written before the system sleeps, as a phone's
+        // may never wake the process again.
+        manager.env.cache_file.store_kept();
     } else {
         manager.network().wake();
     }

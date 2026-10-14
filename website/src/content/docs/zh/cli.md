@@ -97,7 +97,7 @@ sail -c config.json \
   --cache-dir /var/lib/sail
 ```
 
-数据目录存放 `geo.mmdb`、`site.dat` 和相对路径证书，默认是可执行文件所在目录。缓存目录默认存放 `experimental.cache_file`（选择器的选择、Clash 模式，以及开启 `store_fakeip` 时的 fake IP），还缓存下载的远程规则集和 Surge 配置远程 include 的副本。
+数据目录存放 `geo.mmdb`、`site.dat` 和相对路径证书，默认是可执行文件所在目录。缓存目录默认存放 `experimental.cache_file`（选择器的选择、smart 组的站点记忆、Clash 模式，以及开启 `store_fakeip` 时的 fake IP），还缓存下载的远程规则集和 Surge 配置远程 include 的副本。
 
 ## 资源文件
 

@@ -109,7 +109,7 @@ sail -c config.json \
   --cache-dir /var/lib/sail
 ```
 
-The data directory contains files such as `geo.mmdb`, `site.dat` and relative certificate paths. It defaults to the executable's directory. The cache directory holds `experimental.cache_file` by default (selector choices, the Clash mode and, with `store_fakeip`, fake IPs), downloaded remote rule-sets, and the copies of a Surge profile's remote includes.
+The data directory contains files such as `geo.mmdb`, `site.dat` and relative certificate paths. It defaults to the executable's directory. The cache directory holds `experimental.cache_file` by default (selector choices, a smart group's sites, the Clash mode and, with `store_fakeip`, fake IPs), downloaded remote rule-sets, and the copies of a Surge profile's remote includes.
 
 ## Assets
 

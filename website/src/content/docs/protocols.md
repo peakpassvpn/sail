@@ -131,7 +131,7 @@ Not every endpoint accepts every layer. Sail validates shared fields against the
 | `urltest` | Periodically selects the fastest member, switching only past `tolerance` |
 | `fallback` | Uses the first member, in declared order, that passed its last URL test |
 | `load-balance` | Consistent hashing, round-robin or sticky sessions |
-| `smart` | Scores members by how real connections through them did, and keeps a site on one |
+| `smart` | Scores members by how real connections through them did, and keeps a site on one; the sites kept across restarts with `experimental.cache_file` (their names hashed) |
 | `network` | Picks a member by the network the host is on (Wi-Fi name, network type and so on) |
 | `tryall` | Races its members, starting each `delay_base` milliseconds after the last, and keeps the first that connects |
 

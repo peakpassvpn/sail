@@ -244,6 +244,7 @@ fn group_of(members: Vec<Member>) -> Arc<Group> {
             DEFAULT_SITE_TTL,
             16,
         )),
+        memory: None,
         priorities: vec![(
             crate::common::name_filter::NameFilter::new("^preferred").unwrap(),
             0.5,

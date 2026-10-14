@@ -226,6 +226,7 @@ impl Instance {
     pub fn start(&mut self) -> Result<Vec<Runner>> {
         let mut runners = vec![
             StatManager::store_task(self.stat_manager.clone(), self.env.cache_file.clone()),
+            self.env.cache_file.kept_task(),
             self.env.users.expiry_task(),
         ];
         runners.extend(self.ntp.take().map(|ntp| ntp.runner()));
@@ -352,6 +353,7 @@ impl Instance {
     pub fn stop(&mut self) {
         // What it kept is written, and the file freed for the next start.
         self.stat_manager.store(&self.env.cache_file);
+        self.env.cache_file.store_kept();
         self.env.cache_file.close();
         // Before the device goes, as sing-box closes it.
         #[cfg(all(

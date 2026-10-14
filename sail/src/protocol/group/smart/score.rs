@@ -101,6 +101,18 @@ impl Ewma {
     pub fn weight(&self, now: Instant) -> f64 {
         self.weight * decay(now.saturating_duration_since(self.at), HALF_LIFE)
     }
+
+    /// One read back from the cache file: `weight` as it was `ago`, decayed
+    /// by the time since.
+    pub fn restored(
+        mean: f64,
+        weight: f64,
+        ago: std::time::Duration,
+        now: Instant,
+    ) -> Option<Self> {
+        (mean.is_finite() && mean >= 0.0 && weight.is_finite() && weight >= 0.0)
+            .then(|| Self::new(mean, weight * decay(ago, HALF_LIFE), now))
+    }
 }
 
 /// What the group knows of one member.

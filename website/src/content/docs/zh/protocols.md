@@ -131,7 +131,7 @@ sing-box 的 HTTP/2 传输（`transport` 类型 `http`）按设计拒绝，请�
 | `urltest` | 周期性选择最快的成员，差距超过 `tolerance` 才切换 |
 | `fallback` | 按声明顺序使用第一个最近一次 URL 测试通过的成员 |
 | `load-balance` | 一致性哈希、轮询或粘性会话 |
-| `smart` | 按真实连接的表现给成员打分，并让同一站点固定走一个成员 |
+| `smart` | 按真实连接的表现给成员打分，并让同一站点固定走一个成员；启用 `experimental.cache_file` 时站点记忆跨重启保存（站点名经哈希） |
 | `network` | 按主机当前所在网络（Wi-Fi 名称、网络类型等）选择成员 |
 | `tryall` | 竞速尝试成员，每个比上一个晚 `delay_base` 毫秒启动，采用第一个连上的 |
 
