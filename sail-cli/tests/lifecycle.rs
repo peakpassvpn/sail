@@ -12,7 +12,7 @@ use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 mod common;
-use common::{free_port, TempDir};
+use common::{free_port, spawn, TempDir};
 
 /// A server that echoes each connection until it closes.
 fn echo_server() -> SocketAddr {
@@ -82,16 +82,16 @@ impl Sail {
         let dir = TempDir::new();
         let path = dir.0.join("config.json");
         std::fs::write(&path, config).unwrap();
-        let child = Command::new(env!("CARGO_BIN_EXE_sail"))
-            .arg("-c")
-            .arg(&path)
-            .args(args)
-            .stdout(Stdio::from(
-                std::fs::File::create(dir.0.join("out.log")).unwrap(),
-            ))
-            .stderr(Stdio::null())
-            .spawn()
-            .unwrap();
+        let child = spawn(
+            Command::new(env!("CARGO_BIN_EXE_sail"))
+                .arg("-c")
+                .arg(&path)
+                .args(args)
+                .stdout(Stdio::from(
+                    std::fs::File::create(dir.0.join("out.log")).unwrap(),
+                ))
+                .stderr(Stdio::null()),
+        );
         let sail = Sail {
             child,
             _dir: dir,
@@ -124,11 +124,13 @@ impl Sail {
     }
 
     fn signal(&self, name: &str) {
-        let status = Command::new("kill")
-            .arg(format!("-{}", name))
-            .arg(self.child.id().to_string())
-            .status()
-            .unwrap();
+        let status = spawn(
+            Command::new("kill")
+                .arg(format!("-{}", name))
+                .arg(self.child.id().to_string()),
+        )
+        .wait()
+        .unwrap();
         assert!(status.success());
     }
 
@@ -219,6 +221,20 @@ fn sigterm_without_a_drain_timeout_stops_at_once() {
     assert!(echoes(&mut open));
     sail.signal("TERM");
     assert!(sail.exits(Duration::from_secs(3)));
+}
+
+/// A SIGTERM sent the moment the port answers, as a service manager may
+/// send one, is handled: the process stops of itself rather than being
+/// ended by the signal, which it was when it came before the handlers.
+#[test]
+fn sigterm_as_soon_as_the_port_answers_is_handled() {
+    use std::os::unix::process::ExitStatusExt;
+    let socks = free_port();
+    let mut sail = Sail::start(&config(socks, "direct"), socks, &[]);
+    sail.signal("TERM");
+    assert!(sail.exits(Duration::from_secs(3)));
+    let status = sail.child.wait().unwrap();
+    assert_eq!(status.signal(), None, "ended by the signal: {:?}", status);
 }
 
 /// A second signal while draining stops at once.

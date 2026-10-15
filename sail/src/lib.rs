@@ -1828,35 +1828,57 @@ pub fn flush_log() {
     app::logger::flush();
 }
 
-/// The signals that stop the CLI: Ctrl-C, and SIGTERM on Unix.
+/// The signals that stop the CLI: Ctrl-C, and SIGTERM on Unix. Watched
+/// from when it is made, which is before the listeners take connections:
+/// a signal that came between would end the process unhandled.
 #[cfg(feature = "ctrlc")]
 struct StopSignals {
+    #[cfg(unix)]
+    interrupt: Option<tokio::signal::unix::Signal>,
     #[cfg(unix)]
     terminate: Option<tokio::signal::unix::Signal>,
 }
 
 #[cfg(feature = "ctrlc")]
 impl StopSignals {
+    /// Must be called from within a Tokio runtime.
     fn new() -> Self {
+        #[cfg(unix)]
+        let watch = |kind, name| {
+            tokio::signal::unix::signal(kind)
+                .map_err(|e| warn!("cannot watch {}: {}", name, e))
+                .ok()
+        };
         StopSignals {
             #[cfg(unix)]
-            terminate: tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-                .map_err(|e| warn!("cannot watch SIGTERM: {}", e))
-                .ok(),
+            interrupt: watch(tokio::signal::unix::SignalKind::interrupt(), "SIGINT"),
+            #[cfg(unix)]
+            terminate: watch(tokio::signal::unix::SignalKind::terminate(), "SIGTERM"),
         }
     }
 
     /// The next one to come, by name.
     async fn next(&mut self) -> &'static str {
         #[cfg(unix)]
-        if let Some(terminate) = &mut self.terminate {
-            return tokio::select! {
-                _ = tokio::signal::ctrl_c() => "SIGINT",
-                _ = terminate.recv() => "SIGTERM",
-            };
+        {
+            async fn recv(signal: &mut Option<tokio::signal::unix::Signal>) {
+                match signal {
+                    Some(signal) => {
+                        signal.recv().await;
+                    }
+                    None => std::future::pending().await,
+                }
+            }
+            tokio::select! {
+                _ = recv(&mut self.interrupt) => "SIGINT",
+                _ = recv(&mut self.terminate) => "SIGTERM",
+            }
         }
-        let _ = tokio::signal::ctrl_c().await;
-        "SIGINT"
+        #[cfg(not(unix))]
+        {
+            let _ = tokio::signal::ctrl_c().await;
+            "SIGINT"
+        }
     }
 }
 
@@ -2403,6 +2425,15 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
     if start.is_stopped() {
         return Ok(());
     }
+    // The signals the CLI keeps are watched before the listeners take
+    // connections: one sent as soon as a port answers, as a service
+    // manager may, is then handled, where it would end the process.
+    #[cfg(feature = "ctrlc")]
+    let stop_signals = opts.signals.then(StopSignals::new);
+    #[cfg(all(feature = "ctrlc", unix))]
+    let hangup = opts
+        .signals
+        .then(|| tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup()));
     // Without the API nothing is added to them.
     #[cfg_attr(not(any(feature = "api", feature = "clash-api")), allow(unused_mut))]
     let mut runners = instance.start().map_err(Error::Config)?;
@@ -2544,12 +2575,11 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
     // it: what the instance changed on the system is put back, and the
     // connections open may finish.
     #[cfg(feature = "ctrlc")]
-    if opts.signals {
+    if let Some(mut signals) = stop_signals {
         #[cfg(feature = "inbound-tun")]
         let control = tun_control.clone();
         let rm = runtime_manager.clone();
         tasks.push(Box::pin(async move {
-            let mut signals = StopSignals::new();
             let signal = signals.next().await;
             info!("{}: stopping", signal);
             #[cfg(feature = "inbound-tun")]
@@ -2561,10 +2591,7 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
     // SIGHUP reloads the configuration file, as ExecReload sends it; a
     // configuration that fails leaves the one before running.
     #[cfg(all(feature = "ctrlc", unix))]
-    match opts
-        .signals
-        .then(|| tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup()))
-    {
+    match hangup {
         None => {}
         Some(Ok(mut hangup)) => {
             let rm = runtime_manager.clone();
