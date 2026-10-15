@@ -63,6 +63,8 @@ struct Peer {
     server_initial: Option<u32>,
     server_high: Option<u32>,
     token: Option<TcpFlowToken>,
+    /// The table said `token`'s flow closed: a stale token is no surprise.
+    closed: bool,
     receive_base: u32,
     /// The acknowledgment the table last sent this peer.
     last_ack: u32,
@@ -172,6 +174,7 @@ impl Harness {
                         .find(|peer| peer.address == connection.source)
                         .expect("accepted an unknown peer");
                     peer.token = Some(connection.token);
+                    peer.closed = false;
                     peer.read_offset = 0;
                     peer.write_offset = 0;
                 }
@@ -191,8 +194,16 @@ impl Harness {
                         peer.receive_base = peer.last_ack;
                         peer.base_known = true;
                     }
+                    peer.closed = false;
                     peer.read_offset = 0;
                     peer.write_offset = 0;
+                }
+                TcpEvent::Closed(token) => {
+                    for peer in &mut self.peers {
+                        if peer.token == Some(*token) {
+                            peer.closed = true;
+                        }
+                    }
                 }
                 _ => {}
             }
@@ -343,6 +354,12 @@ impl Harness {
                 };
                 let result = self.table.read(token, usize::from(u16_at(operation, 1)));
                 check_result(&result);
+                // A flow the table never said closed is there to read: one
+                // in TIME-WAIT keeps what its application has not read.
+                assert!(
+                    self.peers[index].closed || !matches!(result, Err(TcpTableError::StaleToken)),
+                    "a read found no flow the table had not closed"
+                );
                 let Ok(read) = result else {
                     return;
                 };
@@ -425,6 +442,7 @@ impl Harness {
                 if let Ok((token, output)) = result {
                     let peer = &mut self.peers[index];
                     peer.token = Some(token);
+                    peer.closed = false;
                     peer.server_initial = None;
                     peer.server_high = None;
                     peer.base_known = false;
@@ -471,6 +489,7 @@ fuzz_target!(|input: &[u8]| {
                 server_initial: None,
                 server_high: None,
                 token: None,
+                closed: false,
                 receive_base: 0,
                 last_ack: 0,
                 base_known: false,

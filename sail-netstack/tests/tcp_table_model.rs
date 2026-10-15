@@ -4449,6 +4449,10 @@ fn a_syn_past_what_time_wait_received_opens_a_new_connection() {
             .collect::<Vec<_>>(),
         [(old, TimerEvent::TimeWaitExpired)]
     );
+    assert!(
+        result.events.contains(&TcpEvent::Closed(old)),
+        "the old connection's owner is told"
+    );
     assert_eq!(table.stats().time_wait, 0);
     assert_eq!(table.stats().time_wait_reuses, 1);
     assert_eq!(table.stats().active_flows, 1);
@@ -4574,4 +4578,67 @@ fn a_shut_window_keeps_the_flow_while_the_peer_answers() {
     assert!(gone.events.contains(&TcpEvent::Closed(token)));
     assert_eq!(table.stats().retransmission_failures, 1);
     assert_eq!(ledger.snapshot().total_bytes, 0);
+}
+
+/// A flow that reaches TIME-WAIT with bytes its application has not read
+/// keeps them: the read returns them, and the flow becomes TIME-WAIT's
+/// compact entry once the application lets go, as Linux keeps them on the
+/// socket. The compact entry kept no data, so a read after it failed.
+#[test]
+fn time_wait_keeps_unread_bytes_until_the_application_lets_go() {
+    let ledger = ResourceLedger::new(BudgetProfile::Router.budget()).unwrap();
+    let mut table = TcpTable::new(
+        Arc::clone(&ledger),
+        NetworkGeneration::new(1),
+        TcpTableConfig::default(),
+    );
+    let (source, destination) = endpoints(62);
+    let (token, server_next) = handshake(&mut table, source, destination);
+    table.accept(token).unwrap();
+
+    // Our FIN first, then the peer's data and FIN, acknowledging it.
+    assert_eq!(table.close(token).unwrap().outgoing.len(), 1);
+    let last = packet(
+        source,
+        destination,
+        101,
+        server_next.wrapping_add(1),
+        TcpFlags::ACK.union(TcpFlags::FIN),
+        b"hello",
+    );
+    let answered = table.ingest(&last).unwrap();
+    assert!(answered
+        .timers
+        .iter()
+        .any(|timer| timer.event == TimerEvent::TimeWaitExpired));
+    assert_eq!(
+        table.stats().time_wait,
+        0,
+        "kept whole for the unread bytes"
+    );
+
+    assert_eq!(table.read(token, usize::MAX).unwrap().bytes, b"hello");
+    assert!(table.read(token, usize::MAX).unwrap().bytes.is_empty());
+    table.release(token).unwrap();
+    assert_eq!(table.stats().time_wait, 1);
+    // TIME-WAIT counts among the active flows, compact or whole.
+    assert_eq!(table.stats().active_flows, 1);
+
+    // The flow whose application read everything compacts at once.
+    let (source, destination) = endpoints(63);
+    let (token, server_next) = handshake(&mut table, source, destination);
+    table.accept(token).unwrap();
+    table.close(token).unwrap();
+    let fin = packet(
+        source,
+        destination,
+        101,
+        server_next.wrapping_add(1),
+        TcpFlags::ACK.union(TcpFlags::FIN),
+        &[],
+    );
+    table.ingest(&fin).unwrap();
+    assert_eq!(table.stats().time_wait, 2);
+    // Read in TIME-WAIT's compact entry, the stream has ended.
+    assert!(table.read(token, usize::MAX).unwrap().bytes.is_empty());
 }

@@ -740,11 +740,16 @@ impl TcpTable {
                 self.stats.syns_rate_limited = self.stats.syns_rate_limited.saturating_add(1);
                 return Ok(TcpIngress::default());
             }
-            // A SYN a TIME-WAIT yields to: the old connection ends first.
-            let ended = self.end_time_wait(key);
+            // A SYN a TIME-WAIT yields to: the old connection ends once the
+            // new one is taken (a SYN refused leaves it waiting), and its
+            // owner is told, as one evicted is.
             let mut output =
                 self.ingest_new(key, segment.meta, segment.options, segment.payload)?;
-            output.cancelled_timers.extend(ended);
+            let ended = self.end_time_wait(key);
+            if let Some(ended) = ended {
+                output.events.push(TcpEvent::Closed(ended.token));
+                output.cancelled_timers.push(ended);
+            }
             Ok(output)
         } else {
             self.reject_unknown(key, segment.meta, segment.options)
@@ -1334,19 +1339,16 @@ impl TcpTable {
         }
         if closed {
             self.remove(key);
-        } else if enters_time_wait {
-            // Whichever flow leaves the table here, its owner is told: the
-            // evicted oldest TIME-WAIT, or this one when it cannot wait.
-            let (evicted, kept) = self.compact_time_wait(key)?;
-            if let Some(cancelled) = evicted {
-                output.events.push(TcpEvent::Closed(cancelled.token));
-                output.cancelled_timers.push(cancelled);
-            }
-            if !kept {
-                let token = TcpFlowToken::new_on_shard(id, self.generation, self.shard);
-                output.timers.retain(|timer| timer.token != token);
-                output.events.push(TcpEvent::Closed(token));
-            }
+        } else if enters_time_wait
+            && self
+                .by_key
+                .get(&key)
+                .is_some_and(|flow| flow.receive.is_empty() || flow.orphaned)
+        {
+            // A flow with bytes its application has yet to read stays whole
+            // until they are read and it lets go, as Linux keeps them on the
+            // socket: the compact entry keeps no data.
+            self.move_to_time_wait(key, id, &mut output)?;
         }
         self.sync_flow_stats(key);
         self.refresh_structural_stats();
@@ -1441,7 +1443,15 @@ impl TcpTable {
         if max_bytes == 0 {
             return Ok(TcpRead::default());
         }
-        let flow = self.by_key.get_mut(&key).ok_or(TcpTableError::StaleToken)?;
+        let Some(flow) = self.by_key.get_mut(&key) else {
+            // TIME-WAIT's compact entry: everything was read, and the
+            // peer's FIN is the end of the stream.
+            return if self.time_wait.contains_key(&key) {
+                Ok(TcpRead::default())
+            } else {
+                Err(TcpTableError::StaleToken)
+            };
+        };
         let amount = max_bytes.min(flow.tcb.recv_buffered());
         let mut bytes = Vec::with_capacity(amount);
         while bytes.len() < amount {
@@ -1606,6 +1616,14 @@ impl TcpTable {
             return Ok(output);
         };
         flow.orphaned = true;
+        // In TIME-WAIT still whole, for bytes it had not read.
+        if flow.tcb.state() == TcpState::TimeWait {
+            let id = flow.id;
+            self.move_to_time_wait(key, id, &mut output)?;
+            self.sync_flow_stats(key);
+            self.refresh_structural_stats();
+            return Ok(output);
+        }
         self.arm_fin_wait2_if_orphaned(key, &mut output)?;
         Ok(output)
     }
@@ -2709,6 +2727,28 @@ impl TcpTable {
             });
         }
         Ok(output)
+    }
+
+    /// Moves the flow `key`, `id`, into TIME-WAIT's compact entry. Whichever
+    /// flow leaves the table here, its owner is told: the evicted oldest
+    /// TIME-WAIT, or this one when it cannot wait.
+    fn move_to_time_wait(
+        &mut self,
+        key: TcpFlowKey,
+        id: FlowId,
+        output: &mut TcpIngress,
+    ) -> Result<(), TcpTableError> {
+        let (evicted, kept) = self.compact_time_wait(key)?;
+        if let Some(cancelled) = evicted {
+            output.events.push(TcpEvent::Closed(cancelled.token));
+            output.cancelled_timers.push(cancelled);
+        }
+        if !kept {
+            let token = TcpFlowToken::new_on_shard(id, self.generation, self.shard);
+            output.timers.retain(|timer| timer.token != token);
+            output.events.push(TcpEvent::Closed(token));
+        }
+        Ok(())
     }
 
     /// Moves a flow into TIME-WAIT, evicting the oldest entry when the slots
