@@ -69,7 +69,7 @@ The groups are `relay` (TCP relay buffers and half-close idle timeouts), `udp`, 
 | Setting | `desktop` | `mobile` | `router` | `server` |
 | --- | --- | --- | --- | --- |
 | `relay.buffer_size` (KiB) | `16` | `8` | `4` | `16` |
-| `relay.buffer_max_size` (KiB) | `128` | `64` | `16` | `256` |
+| `relay.buffer_max_size` (KiB) | `128` | `64` | `64` | `256` |
 | `quic.max_concurrent_streams` | `1024` | `256` | `128` | `4096` |
 | `inbound.tcp_send_buffer` (KiB, `0` = system) | `0` | `0` | `256` | `0` |
 | `lifecycle.drain_timeout` | `0` | `0` | `0` | `30s` |

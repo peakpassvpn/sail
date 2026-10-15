@@ -588,7 +588,15 @@ impl RuntimeOptions {
             Profile::Router => RuntimeOptions {
                 relay: Relay {
                     buffer_size: 4,
-                    buffer_max_size: 16,
+                    // Trojan over TUN, one core, 8 streams, medians of 3:
+                    // download 4347 Mbit/s at 16 KiB (0.81 of sing-box's),
+                    // 4881 at 32, 5551 at 64 (1.03), 5475 at 128; upload
+                    // 5155 to 5257 at all four; CPU a GiB down 3.53 s at 16,
+                    // 2.86 at 64 (measured). An idle session holds no
+                    // buffer, a stalled writer one full one: if every one of
+                    // the 512 sessions `inbound.max_connections` allows
+                    // stalled both ways, 64 MiB, which is why it caps them.
+                    buffer_max_size: 64,
                     // A judgment, as the mobile profile's.
                     buffer_pool: 256,
                     ..desktop.relay
