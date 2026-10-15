@@ -18,10 +18,10 @@ btls-sys = { git = "https://github.com/peakpassvpn/btls.git", rev = "c0fb9dd9f61
 # One revision for both; FORK.md there says what each carries.
 quinn = { git = "https://github.com/peakpassvpn/quinn.git", rev = "f814623b47c3435cf71b7570780c1dcf136a9b5c" }
 quinn-proto = { git = "https://github.com/peakpassvpn/quinn.git", rev = "f814623b47c3435cf71b7570780c1dcf136a9b5c" }
-# tun-rs's netlink graph without paste (RUSTSEC-2024-0436); see
-# tools/security/policy.toml for when these go.
-netconfig-rs = { git = "https://github.com/peakpassvpn/netconfig-rs.git", rev = "a5caf848a0e0f18bc9810c1fa854f3ac6a903443" }
-route_manager = { git = "https://github.com/peakpassvpn/route_manager.git", rev = "5703367f56a7b4fed9fd02e216f2f110b4186eda" }
+# tun-rs's netlink graph without paste (RUSTSEC-2024-0436), on one
+# netlink-sys (0.9); see tools/security/policy.toml for when these go.
+netconfig-rs = { git = "https://github.com/peakpassvpn/netconfig-rs.git", rev = "c4186a6416cce1b66ca65200b7a23b5e859181d7" }
+route_manager = { git = "https://github.com/tun-rs/route_manager.git", rev = "d0a6c5e3fbea1b4fba74bd2ad9739bc670936aaf" }
 
 [profile.release]
 opt-level = 3

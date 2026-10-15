@@ -770,7 +770,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -1833,7 +1833,7 @@ checksum = "743fb55ba31b18fb1ecef6bdc9aa2743314978ac084044301a7eee33fb99a20d"
 [[package]]
 name = "netconfig-rs"
 version = "0.1.6"
-source = "git+https://github.com/peakpassvpn/netconfig-rs.git?rev=a5caf848a0e0f18bc9810c1fa854f3ac6a903443#a5caf848a0e0f18bc9810c1fa854f3ac6a903443"
+source = "git+https://github.com/peakpassvpn/netconfig-rs.git?rev=c4186a6416cce1b66ca65200b7a23b5e859181d7#c4186a6416cce1b66ca65200b7a23b5e859181d7"
 dependencies = [
  "cfg-if",
  "core-foundation",
@@ -1871,9 +1871,9 @@ dependencies = [
 
 [[package]]
 name = "netlink-sys"
-version = "0.8.8"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cd6c30ed10fa69cc491d491b85cc971f6bdeb8e7367b7cde2ee6cc878d583fae"
+checksum = "c99d38e00b420df49e940fe0826e667c3dad82ac68eb4c2bbf754c1c14a83a10"
 dependencies = [
  "bytes",
  "libc",
@@ -1947,7 +1947,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -2403,7 +2403,7 @@ dependencies = [
  "once_cell",
  "socket2 0.6.5",
  "tracing",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2553,8 +2553,8 @@ dependencies = [
 
 [[package]]
 name = "route_manager"
-version = "0.2.13"
-source = "git+https://github.com/peakpassvpn/route_manager.git?rev=5703367f56a7b4fed9fd02e216f2f110b4186eda#5703367f56a7b4fed9fd02e216f2f110b4186eda"
+version = "0.2.16"
+source = "git+https://github.com/tun-rs/route_manager.git?rev=d0a6c5e3fbea1b4fba74bd2ad9739bc670936aaf#d0a6c5e3fbea1b4fba74bd2ad9739bc670936aaf"
 dependencies = [
  "flume",
  "libc",
@@ -2602,7 +2602,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -3152,7 +3152,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix 1.1.5",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -3741,7 +3741,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
@@ -4062,7 +4062,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d6f32a0ff4a9f6f01231eb2059cc85479330739333e0e58cadf03b6af2cca10"
 dependencies = [
  "cfg-if",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

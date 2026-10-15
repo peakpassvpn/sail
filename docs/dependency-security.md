@@ -87,8 +87,9 @@ which is where a drop condition is seen to be met.
 | `btls` | BoringSSL hooks REALITY needs (the first ClientHello before it is sent, an extra accepted signature algorithm), a fixed ECH GREASE shape, and the Apple deployment target for BoringSSL's build. | When upstream has equivalents; the REALITY and ECH GREASE hooks are likely to stay Sail's, so not planned. |
 | `quinn` (`quinn-proto`) | The client's ClientHello scattered over its first Initial packets, as Chrome and quic-go do, so a middlebox decrypting them does not find the SNI in one piece. Tracks upstream's `0.11.x`. | When upstream quinn scatters the client's first CRYPTO data itself. |
 | `quinn-btls` | The `btls` crypto provider for `quinn`, with five fixes upstream lacks: the exporter context (TUIC's token), ECH retry configs read only after a rejection, no IP literal in SNI and no panics on fallible calls, the server's session ticket sent in 1-RTT, and `lru` 0.18 (`RUSTSEC-2026-0253`). | When upstream has equivalents of all five. |
-| `netconfig-rs` | `netlink-packet-core` 0.9, without the unmaintained `paste` (`RUSTSEC-2024-0436`). Built on Linux and Windows through `tun-rs`. | `tun-rs/netconfig-rs` releases on `netlink-packet-core` 0.9 or later and `tun-rs` takes it. |
-| `route_manager` | The same netlink update. `tun-rs` uses it on macOS and the BSDs, which Sail does not build `tun-rs` for, but it is in the lockfile and so in the audit. | `tun-rs/route_manager` releases on `netlink-packet-core` 0.9 or later and `tun-rs` takes it. |
+| `netconfig-rs` | `netlink-sys` 0.9 and `netlink-packet-core` 0.9, without the unmaintained `paste` (`RUSTSEC-2024-0436`). Built on Linux and Windows through `tun-rs`. | `tun-rs/netconfig-rs` releases on `netlink-sys` 0.9 and `netlink-packet-core` 0.9 or later and `tun-rs` takes it. |
+
+`route_manager` is no fork: `[patch.crates-io]` pins upstream's `main` (`tun-rs/route_manager`), which has the same update past its 0.2.16 release, so that the tree has one `netlink-sys`. `tun-rs` uses it on macOS and the BSDs. It goes when upstream releases on `netlink-sys` 0.9 and `tun-rs` takes it.
 
 Since 2026-10-02 `cargo-audit` reports no warning: of the warnings below,
 `lru` 0.16.4 is closed by `quinn-btls`, `paste` by the last two forks, and the
