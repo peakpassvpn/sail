@@ -86,6 +86,19 @@ pub struct Policies {
 }
 
 impl Policies {
+    /// The group `name`'s members, as outbounds, and whether it takes
+    /// others from providers; None when it is no group.
+    pub fn group(&self, name: &str) -> Option<(&[String], bool)> {
+        let members = self.groups.get(name)?;
+        let providers = self.providers.get(name).is_some_and(|p| !p.is_empty());
+        Some((members, providers))
+    }
+
+    /// The groups' names.
+    pub fn group_names(&self) -> impl Iterator<Item = &String> {
+        self.groups.keys()
+    }
+
     /// Where what the policy `name` gets goes.
     pub fn target(&self, name: &str) -> Result<Target> {
         match name {

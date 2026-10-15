@@ -49,6 +49,7 @@ mod group;
 mod keystore;
 mod params;
 mod proxy;
+mod quic;
 mod requirement;
 mod rule;
 mod sections;
@@ -137,7 +138,17 @@ pub fn parse_with(
     if let Some(dns) = general.dns.take() {
         dns::host(host, dns, &mut sets, &mut out, &mut warnings)?;
     }
+    // The policies whose QUIC is refused, after the rules have chosen
+    // one; each UDP connection sniffed for QUIC first, for it to be told.
+    let block_quic = quic::blocked(general.block_quic, &proxies, &policies);
+    if !block_quic.is_empty() {
+        out.route.insert("block_quic".into(), json!(block_quic));
+    }
     general.apply(&mut out);
+    if !block_quic.is_empty() {
+        out.rules
+            .push_front(json!({ "network": ["udp"], "action": "sniff", "sniffer": ["quic"] }));
+    }
     out.rule_sets.extend(sets.into_rule_sets());
     // Surge, the device's VPN, always knows the interfaces a `hybrid`
     // chooses among; sail's network strategy does with

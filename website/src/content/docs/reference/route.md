@@ -39,6 +39,7 @@ Rust: [`Route`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/
 | `default_http_client` | string | unset | Supported | The HTTP client of what names none, by tag; the first of `http_clients` when unset, or with none, the default outbound. |
 | `geoip` | object | — | Warned: sing-box removed it in 1.12, and ignores it (deprecated in sing-box) | — |
 | `geosite` | object | — | Warned: sing-box removed it in 1.12, and ignores it (deprecated in sing-box) | — |
+| `block_quic` | string or array of string | `[]` | sail extension | A sail extension, Surge's `block-quic`: the outbounds QUIC is refused to, by tag. A UDP connection sniffing recognized as QUIC that the rules send to one is rejected as a reject rule would, so that the app goes on over TCP. Sniffing is the rules' to ask for. |
 
 <a id="route-rules"></a>
 

@@ -3142,6 +3142,7 @@ sail 接受而 sing-box 没有的字段和类型。
 | 字段 | 用途 |
 |---|---|
 | `api` | The control API |
+| `route.block_quic` | The outbounds QUIC is refused to: a UDP connection sniffed as QUIC that the rules send to one is rejected, for the app to go on over TCP (Surge's block-quic) |
 | `clash_api` | The Clash API at the top level, as well as under `experimental` |
 | `outbound_providers` | Outbounds given together, downloaded or in place, for groups to take (Mihomo's proxy-providers) |
 | `user_limits` | What each user, by name, may do across its inbounds: `max_connections`, `quota_bytes` (up and down together; needs `cache_file`), `expire_at`, and `up_mbps` and `down_mbps` |

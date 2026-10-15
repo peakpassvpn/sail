@@ -8,9 +8,11 @@ Surge 手册（manual.nssurge.com of 2026-09-22）列出的全部字段，以及
 
 读取配置时 `#!MANAGED-CONFIG` 给出警告：配置的更新由 CLI 的 `sail --managed-update` 按其 interval 与 `strict` 进行。有意的差异：strict 配置过了更新间隔而更新失败时，sail 继续使用现有配置并重试更新，不停止服务；Surge 则要求先更新成功再使用。
 
+`block-quic` 对 Surge 会拒绝 QUIC 的策略拒绝 QUIC，使应用改走 TCP：代理自身的 `on` 或 `off`；未设置或为 Surge 的 `auto`（及 `adaptive`）时，拒绝经其 TCP 连接转发 UDP 或不转发 UDP 的代理，不拒绝经 UDP 转发 UDP 的代理（Shadowsocks、SOCKS5、Hysteria2、TUIC、WireGuard）；Surge 最新版本会在应用确实不回退时放行 QUIC，sail 无法判断。策略组在其可能选用的成员全部被拒绝时被拒绝，与当时选用哪个成员无关：可能选用 DIRECT、未被拒绝的代理或外部策略的组不被拒绝。未及时嗅探到 ClientHello 的 QUIC 连接直接通过。
+
 | 部分 | 字段 | 支持 | 静默忽略 | 警告 | 报错 |
 |---|--:|--:|--:|--:|--:|
-| `General` | 58 | 23 | 29 | 6 | 0 |
+| `General` | 58 | 24 | 29 | 5 | 0 |
 | `Keystore` | 3 | 3 | 0 | 0 | 0 |
 | `Proxy Group[fallback]` | 16 | 11 | 4 | 1 | 0 |
 | `Proxy Group[load-balance]` | 14 | 10 | 4 | 0 | 0 |
@@ -19,35 +21,35 @@ Surge 手册（manual.nssurge.com of 2026-09-22）列出的全部字段，以及
 | `Proxy Group[ssid]` | 6 | 3 | 3 | 0 | 0 |
 | `Proxy Group[subnet]` | 6 | 3 | 3 | 0 | 0 |
 | `Proxy Group[url-test]` | 17 | 11 | 4 | 2 | 0 |
-| `Proxy[anytls]` | 28 | 17 | 3 | 7 | 1 |
-| `Proxy[direct]` | 12 | 4 | 1 | 7 | 0 |
+| `Proxy[anytls]` | 28 | 18 | 3 | 6 | 1 |
+| `Proxy[direct]` | 12 | 5 | 1 | 6 | 0 |
 | `Proxy[external]` | 20 | 0 | 0 | 0 | 20 |
 | `Proxy[h2-connect]` | 32 | 0 | 0 | 0 | 32 |
-| `Proxy[http]` | 24 | 14 | 3 | 7 | 0 |
-| `Proxy[https]` | 30 | 19 | 3 | 7 | 1 |
-| `Proxy[hysteria2]` | 29 | 17 | 3 | 7 | 2 |
+| `Proxy[http]` | 24 | 15 | 3 | 6 | 0 |
+| `Proxy[https]` | 30 | 20 | 3 | 6 | 1 |
+| `Proxy[hysteria2]` | 29 | 18 | 3 | 6 | 2 |
 | `Proxy[masque]` | 27 | 0 | 0 | 0 | 27 |
-| `Proxy[reject-drop]` | 12 | 1 | 4 | 7 | 0 |
-| `Proxy[reject-no-drop]` | 12 | 1 | 4 | 7 | 0 |
-| `Proxy[reject-tinygif]` | 12 | 1 | 4 | 7 | 0 |
-| `Proxy[reject]` | 12 | 1 | 4 | 7 | 0 |
+| `Proxy[reject-drop]` | 12 | 2 | 4 | 6 | 0 |
+| `Proxy[reject-no-drop]` | 12 | 2 | 4 | 6 | 0 |
+| `Proxy[reject-tinygif]` | 12 | 2 | 4 | 6 | 0 |
+| `Proxy[reject]` | 12 | 2 | 4 | 6 | 0 |
 | `Proxy[snell]` | 28 | 0 | 0 | 0 | 28 |
 | `Proxy[socks5-tls]` | 29 | 0 | 0 | 0 | 29 |
-| `Proxy[socks5]` | 23 | 13 | 3 | 7 | 0 |
-| `Proxy[ss]` | 27 | 16 | 3 | 7 | 1 |
+| `Proxy[socks5]` | 23 | 14 | 3 | 6 | 0 |
+| `Proxy[ss]` | 27 | 17 | 3 | 6 | 1 |
 | `Proxy[ssh]` | 25 | 0 | 0 | 0 | 25 |
 | `Proxy[tailscale]` | 5 | 0 | 0 | 0 | 5 |
-| `Proxy[trojan]` | 30 | 19 | 3 | 7 | 1 |
+| `Proxy[trojan]` | 30 | 20 | 3 | 6 | 1 |
 | `Proxy[trust-tunnel]` | 31 | 0 | 0 | 0 | 31 |
-| `Proxy[tuic-v5]` | 27 | 14 | 4 | 7 | 2 |
+| `Proxy[tuic-v5]` | 27 | 15 | 4 | 6 | 2 |
 | `Proxy[tuic]` | 26 | 0 | 0 | 0 | 26 |
-| `Proxy[vmess]` | 33 | 22 | 3 | 7 | 1 |
+| `Proxy[vmess]` | 33 | 23 | 3 | 6 | 1 |
 | `Proxy[wireguard]` | 5 | 3 | 0 | 2 | 0 |
 | `Rule` | 152 | 59 | 75 | 0 | 18 |
 | `SSID Setting` | 6 | 0 | 0 | 6 | 0 |
 | `Sections` | 17 | 3 | 3 | 11 | 0 |
 | `WireGuard` | 13 | 11 | 0 | 2 | 0 |
-| **All** | **874** | **318** | **178** | **128** | **250** |
+| **All** | **874** | **333** | **178** | **113** | **250** |
 
 
 ## `Sections`
@@ -69,7 +71,7 @@ Surge 手册（manual.nssurge.com of 2026-09-22）列出的全部字段，以及
 | `General.always-raw-tcp-keywords` | 静默忽略 |  |
 | `General.always-real-ip` | 支持 |  |
 | `General.auto-suspend` | 静默忽略 |  |
-| `General.block-quic` | 警告 | block-quic: sail does not block QUIC by the policy it takes; ignored, and QUIC goes where the rules say (`all` blocks it whatever the policy) |
+| `General.block-quic` | 支持 |  |
 | `General.compatibility-mode` | 静默忽略 |  |
 | `General.debug-cpu-usage` | 静默忽略 |  |
 | `General.debug-memory-usage` | 静默忽略 |  |
@@ -274,7 +276,7 @@ Surge 手册（manual.nssurge.com of 2026-09-22）列出的全部字段，以及
 | `Proxy[anytls]` | 支持 |  |
 | `Proxy[anytls].allow-other-interface` | 警告 | allow-other-interface: sail does not implement this parameter: without its interface, a connection fails; ignored |
 | `Proxy[anytls].alpn` | 支持 |  |
-| `Proxy[anytls].block-quic` | 警告 | block-quic: sail does not block QUIC; ignored, and QUIC goes through the policy |
+| `Proxy[anytls].block-quic` | 支持 |  |
 | `Proxy[anytls].client-cert` | 支持 | client-cert: no [Keystore] item is named "c" |
 | `Proxy[anytls].dns-follow-interface` | 静默忽略 |  |
 | `Proxy[anytls].ecn` | 静默忽略 |  |
@@ -306,7 +308,7 @@ Surge 手册（manual.nssurge.com of 2026-09-22）列出的全部字段，以及
 |---|---|---|
 | `Proxy[direct]` | 支持 |  |
 | `Proxy[direct].allow-other-interface` | 警告 | allow-other-interface: sail does not implement this parameter: without its interface, a connection fails; ignored |
-| `Proxy[direct].block-quic` | 警告 | block-quic: sail does not block QUIC; ignored, and QUIC goes through the policy |
+| `Proxy[direct].block-quic` | 支持 |  |
 | `Proxy[direct].dns-follow-interface` | 静默忽略 |  |
 | `Proxy[direct].hybrid` | 支持 |  |
 | `Proxy[direct].interface` | 支持 |  |
@@ -336,7 +338,7 @@ Surge 手册（manual.nssurge.com of 2026-09-22）列出的全部字段，以及
 | `Proxy[http]` | 支持 |  |
 | `Proxy[http].allow-other-interface` | 警告 | allow-other-interface: sail does not implement this parameter: without its interface, a connection fails; ignored |
 | `Proxy[http].always-use-connect` | 支持 |  |
-| `Proxy[http].block-quic` | 警告 | block-quic: sail does not block QUIC; ignored, and QUIC goes through the policy |
+| `Proxy[http].block-quic` | 支持 |  |
 | `Proxy[http].dns-follow-interface` | 静默忽略 |  |
 | `Proxy[http].ecn` | 静默忽略 |  |
 | `Proxy[http].headers` | 支持 |  |
@@ -366,7 +368,7 @@ Surge 手册（manual.nssurge.com of 2026-09-22）列出的全部字段，以及
 | `Proxy[https].allow-other-interface` | 警告 | allow-other-interface: sail does not implement this parameter: without its interface, a connection fails; ignored |
 | `Proxy[https].alpn` | 支持 |  |
 | `Proxy[https].always-use-connect` | 支持 |  |
-| `Proxy[https].block-quic` | 警告 | block-quic: sail does not block QUIC; ignored, and QUIC goes through the policy |
+| `Proxy[https].block-quic` | 支持 |  |
 | `Proxy[https].client-cert` | 支持 | client-cert: no [Keystore] item is named "c" |
 | `Proxy[https].dns-follow-interface` | 静默忽略 |  |
 | `Proxy[https].ecn` | 静默忽略 |  |
@@ -400,7 +402,7 @@ Surge 手册（manual.nssurge.com of 2026-09-22）列出的全部字段，以及
 | `Proxy[hysteria2]` | 支持 |  |
 | `Proxy[hysteria2].allow-other-interface` | 警告 | allow-other-interface: sail does not implement this parameter: without its interface, a connection fails; ignored |
 | `Proxy[hysteria2].alpn` | 支持 |  |
-| `Proxy[hysteria2].block-quic` | 警告 | block-quic: sail does not block QUIC; ignored, and QUIC goes through the policy |
+| `Proxy[hysteria2].block-quic` | 支持 |  |
 | `Proxy[hysteria2].client-cert` | 支持 | client-cert: no [Keystore] item is named "c" |
 | `Proxy[hysteria2].dns-follow-interface` | 静默忽略 |  |
 | `Proxy[hysteria2].download-bandwidth` | 支持 |  |
@@ -439,7 +441,7 @@ Surge 手册（manual.nssurge.com of 2026-09-22）列出的全部字段，以及
 |---|---|---|
 | `Proxy[reject-drop]` | 支持 |  |
 | `Proxy[reject-drop].allow-other-interface` | 警告 | allow-other-interface: sail does not implement this parameter: without its interface, a connection fails; ignored |
-| `Proxy[reject-drop].block-quic` | 警告 | block-quic: sail does not block QUIC; ignored, and QUIC goes through the policy |
+| `Proxy[reject-drop].block-quic` | 支持 |  |
 | `Proxy[reject-drop].dns-follow-interface` | 静默忽略 |  |
 | `Proxy[reject-drop].hybrid` | 静默忽略 |  |
 | `Proxy[reject-drop].interface` | 静默忽略 |  |
@@ -456,7 +458,7 @@ Surge 手册（manual.nssurge.com of 2026-09-22）列出的全部字段，以及
 |---|---|---|
 | `Proxy[reject-no-drop]` | 支持 |  |
 | `Proxy[reject-no-drop].allow-other-interface` | 警告 | allow-other-interface: sail does not implement this parameter: without its interface, a connection fails; ignored |
-| `Proxy[reject-no-drop].block-quic` | 警告 | block-quic: sail does not block QUIC; ignored, and QUIC goes through the policy |
+| `Proxy[reject-no-drop].block-quic` | 支持 |  |
 | `Proxy[reject-no-drop].dns-follow-interface` | 静默忽略 |  |
 | `Proxy[reject-no-drop].hybrid` | 静默忽略 |  |
 | `Proxy[reject-no-drop].interface` | 静默忽略 |  |
@@ -473,7 +475,7 @@ Surge 手册（manual.nssurge.com of 2026-09-22）列出的全部字段，以及
 |---|---|---|
 | `Proxy[reject-tinygif]` | 支持 |  |
 | `Proxy[reject-tinygif].allow-other-interface` | 警告 | allow-other-interface: sail does not implement this parameter: without its interface, a connection fails; ignored |
-| `Proxy[reject-tinygif].block-quic` | 警告 | block-quic: sail does not block QUIC; ignored, and QUIC goes through the policy |
+| `Proxy[reject-tinygif].block-quic` | 支持 |  |
 | `Proxy[reject-tinygif].dns-follow-interface` | 静默忽略 |  |
 | `Proxy[reject-tinygif].hybrid` | 静默忽略 |  |
 | `Proxy[reject-tinygif].interface` | 静默忽略 |  |
@@ -490,7 +492,7 @@ Surge 手册（manual.nssurge.com of 2026-09-22）列出的全部字段，以及
 |---|---|---|
 | `Proxy[reject]` | 支持 |  |
 | `Proxy[reject].allow-other-interface` | 警告 | allow-other-interface: sail does not implement this parameter: without its interface, a connection fails; ignored |
-| `Proxy[reject].block-quic` | 警告 | block-quic: sail does not block QUIC; ignored, and QUIC goes through the policy |
+| `Proxy[reject].block-quic` | 支持 |  |
 | `Proxy[reject].dns-follow-interface` | 静默忽略 |  |
 | `Proxy[reject].hybrid` | 静默忽略 |  |
 | `Proxy[reject].interface` | 静默忽略 |  |
@@ -519,7 +521,7 @@ Surge 手册（manual.nssurge.com of 2026-09-22）列出的全部字段，以及
 |---|---|---|
 | `Proxy[socks5]` | 支持 |  |
 | `Proxy[socks5].allow-other-interface` | 警告 | allow-other-interface: sail does not implement this parameter: without its interface, a connection fails; ignored |
-| `Proxy[socks5].block-quic` | 警告 | block-quic: sail does not block QUIC; ignored, and QUIC goes through the policy |
+| `Proxy[socks5].block-quic` | 支持 |  |
 | `Proxy[socks5].dns-follow-interface` | 静默忽略 |  |
 | `Proxy[socks5].ecn` | 静默忽略 |  |
 | `Proxy[socks5].hybrid` | 支持 |  |
@@ -547,7 +549,7 @@ Surge 手册（manual.nssurge.com of 2026-09-22）列出的全部字段，以及
 |---|---|---|
 | `Proxy[ss]` | 支持 |  |
 | `Proxy[ss].allow-other-interface` | 警告 | allow-other-interface: sail does not implement this parameter: without its interface, a connection fails; ignored |
-| `Proxy[ss].block-quic` | 警告 | block-quic: sail does not block QUIC; ignored, and QUIC goes through the policy |
+| `Proxy[ss].block-quic` | 支持 |  |
 | `Proxy[ss].dns-follow-interface` | 静默忽略 |  |
 | `Proxy[ss].ecn` | 静默忽略 |  |
 | `Proxy[ss].encrypt-method` | 支持 |  |
@@ -592,7 +594,7 @@ Surge 手册（manual.nssurge.com of 2026-09-22）列出的全部字段，以及
 | `Proxy[trojan]` | 支持 |  |
 | `Proxy[trojan].allow-other-interface` | 警告 | allow-other-interface: sail does not implement this parameter: without its interface, a connection fails; ignored |
 | `Proxy[trojan].alpn` | 支持 |  |
-| `Proxy[trojan].block-quic` | 警告 | block-quic: sail does not block QUIC; ignored, and QUIC goes through the policy |
+| `Proxy[trojan].block-quic` | 支持 |  |
 | `Proxy[trojan].client-cert` | 支持 | client-cert: no [Keystore] item is named "c" |
 | `Proxy[trojan].dns-follow-interface` | 静默忽略 |  |
 | `Proxy[trojan].ecn` | 静默忽略 |  |
@@ -633,7 +635,7 @@ Surge 手册（manual.nssurge.com of 2026-09-22）列出的全部字段，以及
 | `Proxy[tuic-v5]` | 支持 |  |
 | `Proxy[tuic-v5].allow-other-interface` | 警告 | allow-other-interface: sail does not implement this parameter: without its interface, a connection fails; ignored |
 | `Proxy[tuic-v5].alpn` | 支持 |  |
-| `Proxy[tuic-v5].block-quic` | 警告 | block-quic: sail does not block QUIC; ignored, and QUIC goes through the policy |
+| `Proxy[tuic-v5].block-quic` | 支持 |  |
 | `Proxy[tuic-v5].client-cert` | 支持 | client-cert: no [Keystore] item is named "c" |
 | `Proxy[tuic-v5].dns-follow-interface` | 静默忽略 |  |
 | `Proxy[tuic-v5].ecn` | 静默忽略 |  |
@@ -671,7 +673,7 @@ Surge 手册（manual.nssurge.com of 2026-09-22）列出的全部字段，以及
 | `Proxy[vmess]` | 支持 |  |
 | `Proxy[vmess].allow-other-interface` | 警告 | allow-other-interface: sail does not implement this parameter: without its interface, a connection fails; ignored |
 | `Proxy[vmess].alpn` | 支持 |  |
-| `Proxy[vmess].block-quic` | 警告 | block-quic: sail does not block QUIC; ignored, and QUIC goes through the policy |
+| `Proxy[vmess].block-quic` | 支持 |  |
 | `Proxy[vmess].client-cert` | 支持 |  |
 | `Proxy[vmess].dns-follow-interface` | 静默忽略 |  |
 | `Proxy[vmess].ecn` | 静默忽略 |  |

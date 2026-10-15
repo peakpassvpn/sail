@@ -1582,6 +1582,19 @@ impl Dispatcher {
             debug!("behind a captive portal: direct, not [{}]", tag);
             return Ok(Routed::Outbound(None));
         }
+        // QUIC refused to it (`route.block_quic`), as Surge's block-quic
+        // has it: rejected as a reject rule is, for the app to go on over
+        // TCP at once. After the captive portal's: what goes direct is not
+        // through it.
+        if sess.sniffed_protocol == Some(crate::session::SniffedProtocol::Quic)
+            && router.blocks_quic(&tag)
+        {
+            matched.rejected = true;
+            return Err(io::Error::new(
+                io::ErrorKind::ConnectionReset,
+                format!("QUIC refused through [{}]: route.block_quic", tag),
+            ));
+        }
         debug!(
             "picked route out={} src={} dst={}",
             tag, &sess.source, &sess.destination
@@ -1648,6 +1661,76 @@ mod tests {
         assert!(size_of_val(&task) <= 1_280, "{} bytes", size_of_val(&task));
         // What the task no longer keeps room for.
         assert!(size_of_val(&connect) > 2 * size_of_val(&task));
+    }
+
+    /// `route.block_quic`: a UDP connection sniffed as QUIC that the rules
+    /// send to an outbound named there is rejected as a reject rule's is;
+    /// other UDP through it passes, and so does QUIC elsewhere, and behind
+    /// a captive portal, where it goes direct. A group named there is
+    /// refused whatever member it has: the member is chosen at the dial.
+    #[cfg(feature = "outbound-select")]
+    #[tokio::test]
+    async fn quic_is_refused_to_the_outbounds_route_block_quic_names() {
+        use crate::session::{Network, Session, SniffedProtocol};
+        let config = crate::config::Config::from_json(
+            r#"{
+              "outbounds": [
+                { "type": "direct", "tag": "p" },
+                { "type": "direct", "tag": "d" },
+                { "type": "selector", "tag": "g", "outbounds": ["p", "d"] }
+              ],
+              "route": {
+                "rules": [
+                  { "port": 444, "outbound": "d" },
+                  { "port": 445, "outbound": "g" }
+                ],
+                "final": "p",
+                "block_quic": ["p", "g"]
+              }
+            }"#,
+        )
+        .unwrap();
+        let instance = crate::app::instance::Instance::build(
+            &config,
+            config.route.rules.clone(),
+            std::sync::Arc::default(),
+            std::sync::Arc::default(),
+        )
+        .unwrap();
+        let d = instance.dispatcher.clone();
+        let route = |port: u16, quic: bool| {
+            let mut sess = Session {
+                network: Network::Udp,
+                destination: crate::session::SocksAddr::Domain("a.example".into(), port),
+                sniffed_protocol: quic.then_some(SniffedProtocol::Quic),
+                ..Default::default()
+            };
+            let d = d.clone();
+            async move { d.outbound_for(&mut sess).await }
+        };
+        let refused = |r: std::io::Result<Option<String>>| {
+            matches!(r, Err(e) if e.kind() == std::io::ErrorKind::ConnectionReset
+                && e.to_string().contains("route.block_quic"))
+        };
+        assert!(refused(route(443, true).await));
+        assert_eq!(route(443, false).await.unwrap().as_deref(), Some("p"));
+        assert_eq!(route(444, true).await.unwrap().as_deref(), Some("d"));
+        // Its member switched to an unrefused one: refused all the same.
+        d.outbound_manager
+            .load()
+            .get_selector("g")
+            .unwrap()
+            .write()
+            .await
+            .set_selected("d")
+            .unwrap();
+        assert!(refused(route(445, true).await));
+        // Behind a captive portal everything goes direct, QUIC as well.
+        d.env().network.push(crate::net::network::NetworkState {
+            captive: true,
+            ..Default::default()
+        });
+        assert_eq!(route(443, true).await.unwrap(), None);
     }
 
     /// A failure names the member a group took, not the group alone: the

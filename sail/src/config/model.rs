@@ -2296,6 +2296,12 @@ pub struct Route {
     /// `http_clients` when unset, or with none, the default outbound.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_http_client: Option<String>,
+    /// A sail extension, Surge's `block-quic`: the outbounds QUIC is
+    /// refused to, by tag. A UDP connection sniffing recognized as QUIC
+    /// that the rules send to one is rejected as a reject rule would, so
+    /// that the app goes on over TCP. Sniffing is the rules' to ask for.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub block_quic: Vec<String>,
 }
 
 impl Route {
@@ -3784,6 +3790,15 @@ impl Config {
             .map(|o| o.tag.as_str())
             .chain(self.endpoints.iter().map(|e| e.tag.as_str()))
             .collect();
+        for (i, tag) in self.route.block_quic.iter().enumerate() {
+            if !outbounds.contains(tag.as_str()) {
+                return Err(anyhow!(
+                    "route.block_quic[{}]: outbound [{}] does not exist",
+                    i,
+                    tag
+                ));
+            }
+        }
         if let Some(tag) = &self.route.final_outbound {
             if !outbounds.contains(tag.as_str()) {
                 return Err(anyhow!("route.final: outbound [{}] does not exist", tag));

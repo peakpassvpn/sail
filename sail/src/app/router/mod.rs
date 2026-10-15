@@ -739,6 +739,8 @@ pub struct Router {
     #[cfg(feature = "rule-set")]
     rule_sets: rule_set::RuleSets,
     final_outbound: Option<String>,
+    /// `route.block_quic`: the outbounds QUIC is refused to.
+    block_quic: std::collections::HashSet<String>,
     /// `route.find_process`: who opened every connection is looked up.
     find_process: bool,
     dns_client: SyncDnsClient,
@@ -827,6 +829,7 @@ impl Router {
             #[cfg(feature = "rule-set")]
             rule_sets: rule_sets.clone(),
             final_outbound: route.final_outbound.clone(),
+            block_quic: route.block_quic.iter().cloned().collect(),
             find_process: route.find_process,
             dns_client,
             network,
@@ -844,6 +847,11 @@ impl Router {
     /// carries the number of the one that routed it (`Session::routed_by`).
     pub(crate) fn generation(&self) -> u64 {
         self.generation
+    }
+
+    /// Whether QUIC is refused to the outbound `tag` (`route.block_quic`).
+    pub fn blocks_quic(&self, tag: &str) -> bool {
+        self.block_quic.contains(tag)
     }
 
     /// Whether a rule has conditions on the network the host is on

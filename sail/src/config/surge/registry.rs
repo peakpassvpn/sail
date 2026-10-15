@@ -582,7 +582,16 @@ const EN: Words = Words {
             `sail --managed-update`, as its interval and `strict` say. A deliberate \
             difference: a strict profile past its interval whose update fails is still \
             served, and the update tried again, where Surge asks for an update before \
-            using it; sail never stops serving for it.",
+            using it; sail never stops serving for it.\n\n`block-quic` refuses QUIC to \
+            the policies Surge refuses it to, for the app to go on over TCP: a proxy's own \
+            `on` or `off`, or else, as Surge's `auto` (and `adaptive`), every proxy that \
+            relays UDP over its TCP connection or not at all, and none that relays it over \
+            UDP (Shadowsocks, SOCKS5, Hysteria2, TUIC, WireGuard), where Surge's newest \
+            versions let QUIC through once the app shows it does not fall back, which sail \
+            cannot tell. A group is refused QUIC when every member it may take is, whatever \
+            member it has at the time: one that may take DIRECT, an unrefused proxy or a \
+            provider's is not. A QUIC connection whose ClientHello is not sniffed in time \
+            goes through.",
     summary: "| Section | Fields | Supported | Ignored silently | Warned | Error |",
     head: "| Field | sail | What sail says |",
     tiers: [
@@ -608,7 +617,13 @@ const ZH: Words = Words {
             的下载不跟随从 https 到 http 或到其他协议的重定向，否则请求携带的内容（如 URL 中的令牌）会以明文传出。\n\n\
             读取配置时 `#!MANAGED-CONFIG` 给出警告：配置的更新由 CLI 的 `sail --managed-update` \
             按其 interval 与 `strict` 进行。有意的差异：strict 配置过了更新间隔而更新失败时，\
-            sail 继续使用现有配置并重试更新，不停止服务；Surge 则要求先更新成功再使用。",
+            sail 继续使用现有配置并重试更新，不停止服务；Surge 则要求先更新成功再使用。\n\n\
+            `block-quic` 对 Surge 会拒绝 QUIC 的策略拒绝 QUIC，使应用改走 TCP：代理自身的 `on` 或 \
+            `off`；未设置或为 Surge 的 `auto`（及 `adaptive`）时，拒绝经其 TCP 连接转发 UDP 或不转发 \
+            UDP 的代理，不拒绝经 UDP 转发 UDP 的代理（Shadowsocks、SOCKS5、Hysteria2、TUIC、\
+            WireGuard）；Surge 最新版本会在应用确实不回退时放行 QUIC，sail 无法判断。策略组在其可能\
+            选用的成员全部被拒绝时被拒绝，与当时选用哪个成员无关：可能选用 DIRECT、未被拒绝的代理或\
+            外部策略的组不被拒绝。未及时嗅探到 ClientHello 的 QUIC 连接直接通过。",
     summary: "| 部分 | 字段 | 支持 | 静默忽略 | 警告 | 报错 |",
     head: "| 字段 | sail | sail 的说明 |",
     tiers: ["支持", "静默忽略", "警告", "报错", "未知"],

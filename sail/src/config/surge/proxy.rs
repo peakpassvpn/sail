@@ -61,6 +61,12 @@ pub struct Proxies {
     pub kinds: HashMap<String, Kind>,
     /// Each `underlying-proxy`: where, and what it names.
     pub detours: Vec<(String, String)>,
+    /// Each one's `block-quic`: on (true), off (false); `auto`,
+    /// `adaptive` or none, for `quic::blocked` to decide (absent).
+    pub block_quic: HashMap<String, bool>,
+    /// Those that relay UDP over UDP, not over their TCP connection:
+    /// QUIC through them goes as well as it can (`quic::blocked`).
+    pub native_udp: std::collections::HashSet<String>,
 }
 
 /// The parameters every proxy takes (Surge's common policy parameters),
@@ -139,6 +145,8 @@ pub fn lower(
         names: Vec::new(),
         kinds: HashMap::new(),
         detours: Vec::new(),
+        block_quic: HashMap::new(),
+        native_udp: Default::default(),
     };
     let mut tested = Vec::new();
     let mut used_sections = Vec::new();
@@ -226,6 +234,8 @@ pub fn external(body: &str, warnings: &mut Vec<String>) -> Result<Option<Vec<Ext
             names: Vec::new(),
             kinds: HashMap::new(),
             detours: Vec::new(),
+            block_quic: HashMap::new(),
+            native_udp: Default::default(),
         };
         let mut out = Lowered::default();
         let read = one(
@@ -369,6 +379,10 @@ fn one(
                 ))
             });
             out.endpoints.push(Value::Object(endpoint));
+            if let Some(on) = block_quic(&mut p, warnings) {
+                proxies.block_quic.insert(name.clone(), on);
+            }
+            proxies.native_udp.insert(name.clone());
             p.finish(COMMON, "parameter", warnings)?;
             proxies.names.push(name.clone());
             proxies.kinds.insert(name, Kind::Proxy { udp: true });
@@ -378,13 +392,8 @@ fn one(
     };
     let mut value = value;
     let shadow_tls = shadow_tls(&name, &at, &kind, &mut p, &mut value)?;
-    if let Some((value, at)) = p.take_at("block-quic") {
-        if matches!(value.to_ascii_lowercase().as_str(), "on" | "true") {
-            warnings.push(format!(
-                "{}: sail does not block QUIC; ignored, and QUIC goes through the policy",
-                at
-            ));
-        }
+    if let Some(on) = block_quic(&mut p, warnings) {
+        proxies.block_quic.insert(name.clone(), on);
     }
     if let Some((value, at)) = p.take_at("tfo") {
         if matches!(value.to_ascii_lowercase().as_str(), "true" | "on") {
@@ -399,9 +408,36 @@ fn one(
     p.finish(&all, "parameter", warnings)?;
     out.outbounds.push(value);
     out.outbounds.extend(shadow_tls);
+    // UDP over UDP: Shadowsocks's and SOCKS5's relays, and the QUIC ones.
+    if kind_of == (Kind::Proxy { udp: true })
+        && matches!(
+            kind.as_str(),
+            "ss" | "custom" | "socks5" | "socks5-tls" | "hysteria2" | "tuic-v5"
+        )
+    {
+        proxies.native_udp.insert(name.clone());
+    }
     proxies.names.push(name.clone());
     proxies.kinds.insert(name, kind_of);
     Ok(())
+}
+
+/// A policy's `block-quic`: on or off, or none for `auto` and `adaptive`,
+/// which `quic::blocked` decides as Surge's `auto` does.
+fn block_quic(p: &mut Params, warnings: &mut Vec<String>) -> Option<bool> {
+    let (value, at) = p.take_at("block-quic")?;
+    match value.to_ascii_lowercase().as_str() {
+        "on" | "true" => Some(true),
+        "off" | "false" => Some(false),
+        "auto" | "adaptive" => None,
+        _ => {
+            warnings.push(format!(
+                "{}: {:?} is none of auto, on, off and adaptive; auto, as by Surge",
+                at, value
+            ));
+            None
+        }
+    }
 }
 
 /// The Shadow TLS of a proxy of type `kind`, at `at`: a ShadowTLS outbound

@@ -1070,6 +1070,11 @@ fn registry() {
 const EXTENSIONS: &[(&str, &str, &str)] = &[
     ("api", "{}", "The control API"),
     (
+        "route.block_quic",
+        r#"["direct"]"#,
+        "The outbounds QUIC is refused to: a UDP connection sniffed as QUIC that the rules send to one is rejected, for the app to go on over TCP (Surge's block-quic)",
+    ),
+    (
         "clash_api",
         "{}",
         "The Clash API at the top level, as well as under `experimental`",

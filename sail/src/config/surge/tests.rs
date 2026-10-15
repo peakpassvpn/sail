@@ -20,14 +20,19 @@ fn outbound(config: &Config, tag: &str) -> Value {
 }
 
 /// The rules, but the one answering DNS queries to Surge's own
-/// addresses, which every profile has.
+/// addresses, which every profile has, and the QUIC sniff first of every
+/// profile with a policy whose QUIC is refused (`route.block_quic`).
 fn rules(config: &Config) -> Vec<Value> {
+    let quic_sniff = json!({ "network": ["udp"], "action": "sniff", "sniffer": ["quic"] });
     config
         .route
         .rules
         .iter()
         .map(|r| serde_json::to_value(r).unwrap())
         .filter(|r| r["ip_cidr"][0] != "198.18.0.2/31")
+        .enumerate()
+        .filter(|(i, r)| !(*i == 0 && !config.route.block_quic.is_empty() && *r == quic_sniff))
+        .map(|(_, r)| r)
         .collect()
 }
 
@@ -575,8 +580,9 @@ fn dns_answers_as_surge_s_responder_and_host() {
         .any(|s| s.tag == ["https://example.com/d.txt"]));
     let cache = serde_json::to_value(&config.experimental).unwrap();
     assert_eq!(cache["cache_file"]["store_fakeip"], true);
-    // Surge's own DNS addresses are answered here.
-    assert!(config.route.rules[0]
+    // Surge's own DNS addresses are answered here, first but for the QUIC
+    // sniff.
+    assert!(config.route.rules[1]
         .ip_cidr
         .contains(&"198.18.0.2/31".to_string()));
     let warnings = config.warnings.join("\n");
@@ -1422,11 +1428,57 @@ fn block_quic_all_refuses_quic_before_every_rule() {
     assert_eq!(first[1]["action"], "reject");
     assert!(config.warnings.is_empty(), "{:?}", config.warnings);
 
+    // Refused by policy elsewhere: no rule rejects QUIC whatever it takes.
     let config = load("[General]\nblock-quic = all-proxy\n[Rule]\nFINAL,DIRECT\n");
     assert!(rules(&config).iter().all(|r| r["action"] != "reject"));
-    assert!(
-        config.warnings.iter().any(|w| w.contains("block-quic")),
-        "{:?}",
-        config.warnings
+    assert!(config.warnings.is_empty(), "{:?}", config.warnings);
+}
+
+/// Surge's block-quic by policy, as `route.block_quic`: unset, a proxy
+/// that relays UDP over its TCP connection, or none, is refused QUIC, and
+/// one that relays it over UDP is not; a proxy's own `on` and `off` say
+/// otherwise; `all-proxy` refuses every proxy's, `always-allow` none. A
+/// group is refused when every member it may take is.
+#[test]
+fn block_quic_refuses_quic_to_the_policies_surge_does() {
+    let profile = |general: &str| {
+        format!(
+            "[General]\n{}\n\
+             [Proxy]\n\
+             SS = ss, a, 1, encrypt-method=aes-128-gcm, password=p, udp-relay=true\n\
+             VM = vmess, a, 443, username=00000000-0000-0000-0000-000000000001, vmess-aead=true\n\
+             WEB = http, a, 80\n\
+             HY = hysteria2, a, 443, password=p\n\
+             OFF = vmess, a, 443, username=00000000-0000-0000-0000-000000000001, vmess-aead=true, \
+             block-quic=off\n\
+             ON = hysteria2, a, 443, password=p, block-quic=on\n\
+             [Proxy Group]\n\
+             TCP = select, VM, WEB\n\
+             MIX = select, VM, DIRECT\n\
+             UDP = select, HY, SS\n\
+             [Rule]\nFINAL,TCP\n",
+            general
+        )
+    };
+    let blocked = |config: &Config| -> Vec<String> { config.route.block_quic.clone() };
+
+    let config = load(&profile(""));
+    assert_eq!(blocked(&config), ["VM", "WEB", "ON", "TCP"]);
+    // Each UDP connection sniffed for QUIC before every rule.
+    let first = &serde_json::to_value(&config.route.rules[0]).unwrap();
+    assert_eq!(first["action"], "sniff");
+    assert_eq!(first["network"], json!(["udp"]));
+    assert_eq!(first["sniffer"], json!(["quic"]));
+    assert!(config.warnings.is_empty(), "{:?}", config.warnings);
+
+    let config = load(&profile("block-quic = all-proxy"));
+    assert_eq!(
+        blocked(&config),
+        ["SS", "VM", "WEB", "HY", "OFF", "ON", "TCP", "UDP"]
     );
+    let config = load(&profile("block-quic = always-allow"));
+    assert!(blocked(&config).is_empty());
+    assert!(rules(&config)
+        .iter()
+        .all(|r| r["action"] != "sniff" || r.get("network") != Some(&json!(["udp"]))));
 }

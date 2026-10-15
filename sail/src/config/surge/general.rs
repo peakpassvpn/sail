@@ -109,6 +109,21 @@ pub struct General {
     rules: Vec<Value>,
     /// What DNS `[Host]` is lowered with.
     pub dns: Option<super::dns::Dns>,
+    /// `block-quic`: whose QUIC is refused (`quic::blocked`).
+    pub block_quic: BlockQuic,
+}
+
+/// Surge's `block-quic`: the policies whose QUIC is refused.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BlockQuic {
+    /// As each policy's own `block-quic` says, Surge's default.
+    PerPolicy,
+    /// Every proxy's, whatever its own says.
+    AllProxy,
+    /// Everyone's, DIRECT's too: a rule before every other.
+    All,
+    /// No one's, whatever a proxy's own says.
+    AlwaysAllow,
 }
 
 impl General {
@@ -147,6 +162,7 @@ pub fn lower(lines: Vec<Line>, out: &mut Lowered, warnings: &mut Vec<String>) ->
         listeners: Vec::new(),
         rules: Vec::new(),
         dns: None,
+        block_quic: BlockQuic::PerPolicy,
     };
     listeners(&mut p, &mut general, out)?;
     if let Some(url) = p.string("proxy-test-url") {
@@ -163,28 +179,29 @@ pub fn lower(lines: Vec<Line>, out: &mut Lowered, warnings: &mut Vec<String>) ->
         };
     }
     if let Some((value, at)) = p.take_at("block-quic") {
-        match value.to_ascii_lowercase().as_str() {
-            "per-policy" | "always-allow" => {}
+        general.block_quic = match value.to_ascii_lowercase().as_str() {
+            "per-policy" => BlockQuic::PerPolicy,
+            "all-proxy" => BlockQuic::AllProxy,
+            "always-allow" => BlockQuic::AlwaysAllow,
             // Every QUIC connection refused, whatever policy it would
             // take: the app goes on over TCP. Before every rule, a UDP
             // connection's first packet is sniffed for it.
-            "all" => general.rules.extend([
-                json!({ "network": ["udp"], "action": "sniff", "sniffer": ["quic"] }),
-                json!({ "protocol": ["quic"], "action": "reject" }),
-            ]),
-            // Which policy a connection takes is known once the rules
-            // have chosen it, and a rule cannot match on it.
-            "all-proxy" => warnings.push(format!(
-                "{}: sail does not block QUIC by the policy it takes; ignored, and QUIC goes \
-                 where the rules say (`all` blocks it whatever the policy)",
-                at
-            )),
-            _ => warnings.push(format!(
-                "{}: {:?} is none of per-policy, all-proxy, all and always-allow; per-policy, \
-                 as by Surge",
-                at, value
-            )),
-        }
+            "all" => {
+                general.rules.extend([
+                    json!({ "network": ["udp"], "action": "sniff", "sniffer": ["quic"] }),
+                    json!({ "protocol": ["quic"], "action": "reject" }),
+                ]);
+                BlockQuic::All
+            }
+            _ => {
+                warnings.push(format!(
+                    "{}: {:?} is none of per-policy, all-proxy, all and always-allow; \
+                     per-policy, as by Surge",
+                    at, value
+                ));
+                BlockQuic::PerPolicy
+            }
+        };
     }
     // Every connection on Wi-Fi and cellular at once, as a policy's
     // `hybrid` is when it says `auto`.

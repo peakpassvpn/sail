@@ -8,9 +8,11 @@ A deliberate difference: a `#!include`'s download is not redirected from https t
 
 `#!MANAGED-CONFIG` is warned as the profile is read: the CLI keeps the profile up to date with `sail --managed-update`, as its interval and `strict` say. A deliberate difference: a strict profile past its interval whose update fails is still served, and the update tried again, where Surge asks for an update before using it; sail never stops serving for it.
 
+`block-quic` refuses QUIC to the policies Surge refuses it to, for the app to go on over TCP: a proxy's own `on` or `off`, or else, as Surge's `auto` (and `adaptive`), every proxy that relays UDP over its TCP connection or not at all, and none that relays it over UDP (Shadowsocks, SOCKS5, Hysteria2, TUIC, WireGuard), where Surge's newest versions let QUIC through once the app shows it does not fall back, which sail cannot tell. A group is refused QUIC when every member it may take is, whatever member it has at the time: one that may take DIRECT, an unrefused proxy or a provider's is not. A QUIC connection whose ClientHello is not sniffed in time goes through.
+
 | Section | Fields | Supported | Ignored silently | Warned | Error |
 |---|--:|--:|--:|--:|--:|
-| `General` | 58 | 23 | 29 | 6 | 0 |
+| `General` | 58 | 24 | 29 | 5 | 0 |
 | `Keystore` | 3 | 3 | 0 | 0 | 0 |
 | `Proxy Group[fallback]` | 16 | 11 | 4 | 1 | 0 |
 | `Proxy Group[load-balance]` | 14 | 10 | 4 | 0 | 0 |
@@ -19,35 +21,35 @@ A deliberate difference: a `#!include`'s download is not redirected from https t
 | `Proxy Group[ssid]` | 6 | 3 | 3 | 0 | 0 |
 | `Proxy Group[subnet]` | 6 | 3 | 3 | 0 | 0 |
 | `Proxy Group[url-test]` | 17 | 11 | 4 | 2 | 0 |
-| `Proxy[anytls]` | 28 | 17 | 3 | 7 | 1 |
-| `Proxy[direct]` | 12 | 4 | 1 | 7 | 0 |
+| `Proxy[anytls]` | 28 | 18 | 3 | 6 | 1 |
+| `Proxy[direct]` | 12 | 5 | 1 | 6 | 0 |
 | `Proxy[external]` | 20 | 0 | 0 | 0 | 20 |
 | `Proxy[h2-connect]` | 32 | 0 | 0 | 0 | 32 |
-| `Proxy[http]` | 24 | 14 | 3 | 7 | 0 |
-| `Proxy[https]` | 30 | 19 | 3 | 7 | 1 |
-| `Proxy[hysteria2]` | 29 | 17 | 3 | 7 | 2 |
+| `Proxy[http]` | 24 | 15 | 3 | 6 | 0 |
+| `Proxy[https]` | 30 | 20 | 3 | 6 | 1 |
+| `Proxy[hysteria2]` | 29 | 18 | 3 | 6 | 2 |
 | `Proxy[masque]` | 27 | 0 | 0 | 0 | 27 |
-| `Proxy[reject-drop]` | 12 | 1 | 4 | 7 | 0 |
-| `Proxy[reject-no-drop]` | 12 | 1 | 4 | 7 | 0 |
-| `Proxy[reject-tinygif]` | 12 | 1 | 4 | 7 | 0 |
-| `Proxy[reject]` | 12 | 1 | 4 | 7 | 0 |
+| `Proxy[reject-drop]` | 12 | 2 | 4 | 6 | 0 |
+| `Proxy[reject-no-drop]` | 12 | 2 | 4 | 6 | 0 |
+| `Proxy[reject-tinygif]` | 12 | 2 | 4 | 6 | 0 |
+| `Proxy[reject]` | 12 | 2 | 4 | 6 | 0 |
 | `Proxy[snell]` | 28 | 0 | 0 | 0 | 28 |
 | `Proxy[socks5-tls]` | 29 | 0 | 0 | 0 | 29 |
-| `Proxy[socks5]` | 23 | 13 | 3 | 7 | 0 |
-| `Proxy[ss]` | 27 | 16 | 3 | 7 | 1 |
+| `Proxy[socks5]` | 23 | 14 | 3 | 6 | 0 |
+| `Proxy[ss]` | 27 | 17 | 3 | 6 | 1 |
 | `Proxy[ssh]` | 25 | 0 | 0 | 0 | 25 |
 | `Proxy[tailscale]` | 5 | 0 | 0 | 0 | 5 |
-| `Proxy[trojan]` | 30 | 19 | 3 | 7 | 1 |
+| `Proxy[trojan]` | 30 | 20 | 3 | 6 | 1 |
 | `Proxy[trust-tunnel]` | 31 | 0 | 0 | 0 | 31 |
-| `Proxy[tuic-v5]` | 27 | 14 | 4 | 7 | 2 |
+| `Proxy[tuic-v5]` | 27 | 15 | 4 | 6 | 2 |
 | `Proxy[tuic]` | 26 | 0 | 0 | 0 | 26 |
-| `Proxy[vmess]` | 33 | 22 | 3 | 7 | 1 |
+| `Proxy[vmess]` | 33 | 23 | 3 | 6 | 1 |
 | `Proxy[wireguard]` | 5 | 3 | 0 | 2 | 0 |
 | `Rule` | 152 | 59 | 75 | 0 | 18 |
 | `SSID Setting` | 6 | 0 | 0 | 6 | 0 |
 | `Sections` | 17 | 3 | 3 | 11 | 0 |
 | `WireGuard` | 13 | 11 | 0 | 2 | 0 |
-| **All** | **874** | **318** | **178** | **128** | **250** |
+| **All** | **874** | **333** | **178** | **113** | **250** |
 
 
 ## `Sections`
@@ -69,7 +71,7 @@ A deliberate difference: a `#!include`'s download is not redirected from https t
 | `General.always-raw-tcp-keywords` | Ignored silently |  |
 | `General.always-real-ip` | Supported |  |
 | `General.auto-suspend` | Ignored silently |  |
-| `General.block-quic` | Warned | block-quic: sail does not block QUIC by the policy it takes; ignored, and QUIC goes where the rules say (`all` blocks it whatever the policy) |
+| `General.block-quic` | Supported |  |
 | `General.compatibility-mode` | Ignored silently |  |
 | `General.debug-cpu-usage` | Ignored silently |  |
 | `General.debug-memory-usage` | Ignored silently |  |
@@ -274,7 +276,7 @@ A deliberate difference: a `#!include`'s download is not redirected from https t
 | `Proxy[anytls]` | Supported |  |
 | `Proxy[anytls].allow-other-interface` | Warned | allow-other-interface: sail does not implement this parameter: without its interface, a connection fails; ignored |
 | `Proxy[anytls].alpn` | Supported |  |
-| `Proxy[anytls].block-quic` | Warned | block-quic: sail does not block QUIC; ignored, and QUIC goes through the policy |
+| `Proxy[anytls].block-quic` | Supported |  |
 | `Proxy[anytls].client-cert` | Supported | client-cert: no [Keystore] item is named "c" |
 | `Proxy[anytls].dns-follow-interface` | Ignored silently |  |
 | `Proxy[anytls].ecn` | Ignored silently |  |
@@ -306,7 +308,7 @@ A deliberate difference: a `#!include`'s download is not redirected from https t
 |---|---|---|
 | `Proxy[direct]` | Supported |  |
 | `Proxy[direct].allow-other-interface` | Warned | allow-other-interface: sail does not implement this parameter: without its interface, a connection fails; ignored |
-| `Proxy[direct].block-quic` | Warned | block-quic: sail does not block QUIC; ignored, and QUIC goes through the policy |
+| `Proxy[direct].block-quic` | Supported |  |
 | `Proxy[direct].dns-follow-interface` | Ignored silently |  |
 | `Proxy[direct].hybrid` | Supported |  |
 | `Proxy[direct].interface` | Supported |  |
@@ -336,7 +338,7 @@ A deliberate difference: a `#!include`'s download is not redirected from https t
 | `Proxy[http]` | Supported |  |
 | `Proxy[http].allow-other-interface` | Warned | allow-other-interface: sail does not implement this parameter: without its interface, a connection fails; ignored |
 | `Proxy[http].always-use-connect` | Supported |  |
-| `Proxy[http].block-quic` | Warned | block-quic: sail does not block QUIC; ignored, and QUIC goes through the policy |
+| `Proxy[http].block-quic` | Supported |  |
 | `Proxy[http].dns-follow-interface` | Ignored silently |  |
 | `Proxy[http].ecn` | Ignored silently |  |
 | `Proxy[http].headers` | Supported |  |
@@ -366,7 +368,7 @@ A deliberate difference: a `#!include`'s download is not redirected from https t
 | `Proxy[https].allow-other-interface` | Warned | allow-other-interface: sail does not implement this parameter: without its interface, a connection fails; ignored |
 | `Proxy[https].alpn` | Supported |  |
 | `Proxy[https].always-use-connect` | Supported |  |
-| `Proxy[https].block-quic` | Warned | block-quic: sail does not block QUIC; ignored, and QUIC goes through the policy |
+| `Proxy[https].block-quic` | Supported |  |
 | `Proxy[https].client-cert` | Supported | client-cert: no [Keystore] item is named "c" |
 | `Proxy[https].dns-follow-interface` | Ignored silently |  |
 | `Proxy[https].ecn` | Ignored silently |  |
@@ -400,7 +402,7 @@ A deliberate difference: a `#!include`'s download is not redirected from https t
 | `Proxy[hysteria2]` | Supported |  |
 | `Proxy[hysteria2].allow-other-interface` | Warned | allow-other-interface: sail does not implement this parameter: without its interface, a connection fails; ignored |
 | `Proxy[hysteria2].alpn` | Supported |  |
-| `Proxy[hysteria2].block-quic` | Warned | block-quic: sail does not block QUIC; ignored, and QUIC goes through the policy |
+| `Proxy[hysteria2].block-quic` | Supported |  |
 | `Proxy[hysteria2].client-cert` | Supported | client-cert: no [Keystore] item is named "c" |
 | `Proxy[hysteria2].dns-follow-interface` | Ignored silently |  |
 | `Proxy[hysteria2].download-bandwidth` | Supported |  |
@@ -439,7 +441,7 @@ A deliberate difference: a `#!include`'s download is not redirected from https t
 |---|---|---|
 | `Proxy[reject-drop]` | Supported |  |
 | `Proxy[reject-drop].allow-other-interface` | Warned | allow-other-interface: sail does not implement this parameter: without its interface, a connection fails; ignored |
-| `Proxy[reject-drop].block-quic` | Warned | block-quic: sail does not block QUIC; ignored, and QUIC goes through the policy |
+| `Proxy[reject-drop].block-quic` | Supported |  |
 | `Proxy[reject-drop].dns-follow-interface` | Ignored silently |  |
 | `Proxy[reject-drop].hybrid` | Ignored silently |  |
 | `Proxy[reject-drop].interface` | Ignored silently |  |
@@ -456,7 +458,7 @@ A deliberate difference: a `#!include`'s download is not redirected from https t
 |---|---|---|
 | `Proxy[reject-no-drop]` | Supported |  |
 | `Proxy[reject-no-drop].allow-other-interface` | Warned | allow-other-interface: sail does not implement this parameter: without its interface, a connection fails; ignored |
-| `Proxy[reject-no-drop].block-quic` | Warned | block-quic: sail does not block QUIC; ignored, and QUIC goes through the policy |
+| `Proxy[reject-no-drop].block-quic` | Supported |  |
 | `Proxy[reject-no-drop].dns-follow-interface` | Ignored silently |  |
 | `Proxy[reject-no-drop].hybrid` | Ignored silently |  |
 | `Proxy[reject-no-drop].interface` | Ignored silently |  |
@@ -473,7 +475,7 @@ A deliberate difference: a `#!include`'s download is not redirected from https t
 |---|---|---|
 | `Proxy[reject-tinygif]` | Supported |  |
 | `Proxy[reject-tinygif].allow-other-interface` | Warned | allow-other-interface: sail does not implement this parameter: without its interface, a connection fails; ignored |
-| `Proxy[reject-tinygif].block-quic` | Warned | block-quic: sail does not block QUIC; ignored, and QUIC goes through the policy |
+| `Proxy[reject-tinygif].block-quic` | Supported |  |
 | `Proxy[reject-tinygif].dns-follow-interface` | Ignored silently |  |
 | `Proxy[reject-tinygif].hybrid` | Ignored silently |  |
 | `Proxy[reject-tinygif].interface` | Ignored silently |  |
@@ -490,7 +492,7 @@ A deliberate difference: a `#!include`'s download is not redirected from https t
 |---|---|---|
 | `Proxy[reject]` | Supported |  |
 | `Proxy[reject].allow-other-interface` | Warned | allow-other-interface: sail does not implement this parameter: without its interface, a connection fails; ignored |
-| `Proxy[reject].block-quic` | Warned | block-quic: sail does not block QUIC; ignored, and QUIC goes through the policy |
+| `Proxy[reject].block-quic` | Supported |  |
 | `Proxy[reject].dns-follow-interface` | Ignored silently |  |
 | `Proxy[reject].hybrid` | Ignored silently |  |
 | `Proxy[reject].interface` | Ignored silently |  |
@@ -519,7 +521,7 @@ A deliberate difference: a `#!include`'s download is not redirected from https t
 |---|---|---|
 | `Proxy[socks5]` | Supported |  |
 | `Proxy[socks5].allow-other-interface` | Warned | allow-other-interface: sail does not implement this parameter: without its interface, a connection fails; ignored |
-| `Proxy[socks5].block-quic` | Warned | block-quic: sail does not block QUIC; ignored, and QUIC goes through the policy |
+| `Proxy[socks5].block-quic` | Supported |  |
 | `Proxy[socks5].dns-follow-interface` | Ignored silently |  |
 | `Proxy[socks5].ecn` | Ignored silently |  |
 | `Proxy[socks5].hybrid` | Supported |  |
@@ -547,7 +549,7 @@ A deliberate difference: a `#!include`'s download is not redirected from https t
 |---|---|---|
 | `Proxy[ss]` | Supported |  |
 | `Proxy[ss].allow-other-interface` | Warned | allow-other-interface: sail does not implement this parameter: without its interface, a connection fails; ignored |
-| `Proxy[ss].block-quic` | Warned | block-quic: sail does not block QUIC; ignored, and QUIC goes through the policy |
+| `Proxy[ss].block-quic` | Supported |  |
 | `Proxy[ss].dns-follow-interface` | Ignored silently |  |
 | `Proxy[ss].ecn` | Ignored silently |  |
 | `Proxy[ss].encrypt-method` | Supported |  |
@@ -592,7 +594,7 @@ A deliberate difference: a `#!include`'s download is not redirected from https t
 | `Proxy[trojan]` | Supported |  |
 | `Proxy[trojan].allow-other-interface` | Warned | allow-other-interface: sail does not implement this parameter: without its interface, a connection fails; ignored |
 | `Proxy[trojan].alpn` | Supported |  |
-| `Proxy[trojan].block-quic` | Warned | block-quic: sail does not block QUIC; ignored, and QUIC goes through the policy |
+| `Proxy[trojan].block-quic` | Supported |  |
 | `Proxy[trojan].client-cert` | Supported | client-cert: no [Keystore] item is named "c" |
 | `Proxy[trojan].dns-follow-interface` | Ignored silently |  |
 | `Proxy[trojan].ecn` | Ignored silently |  |
@@ -633,7 +635,7 @@ A deliberate difference: a `#!include`'s download is not redirected from https t
 | `Proxy[tuic-v5]` | Supported |  |
 | `Proxy[tuic-v5].allow-other-interface` | Warned | allow-other-interface: sail does not implement this parameter: without its interface, a connection fails; ignored |
 | `Proxy[tuic-v5].alpn` | Supported |  |
-| `Proxy[tuic-v5].block-quic` | Warned | block-quic: sail does not block QUIC; ignored, and QUIC goes through the policy |
+| `Proxy[tuic-v5].block-quic` | Supported |  |
 | `Proxy[tuic-v5].client-cert` | Supported | client-cert: no [Keystore] item is named "c" |
 | `Proxy[tuic-v5].dns-follow-interface` | Ignored silently |  |
 | `Proxy[tuic-v5].ecn` | Ignored silently |  |
@@ -671,7 +673,7 @@ A deliberate difference: a `#!include`'s download is not redirected from https t
 | `Proxy[vmess]` | Supported |  |
 | `Proxy[vmess].allow-other-interface` | Warned | allow-other-interface: sail does not implement this parameter: without its interface, a connection fails; ignored |
 | `Proxy[vmess].alpn` | Supported |  |
-| `Proxy[vmess].block-quic` | Warned | block-quic: sail does not block QUIC; ignored, and QUIC goes through the policy |
+| `Proxy[vmess].block-quic` | Supported |  |
 | `Proxy[vmess].client-cert` | Supported |  |
 | `Proxy[vmess].dns-follow-interface` | Ignored silently |  |
 | `Proxy[vmess].ecn` | Ignored silently |  |

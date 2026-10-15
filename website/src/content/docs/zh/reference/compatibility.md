@@ -110,7 +110,7 @@ sail 直接读取 sing-box、Clash / Mihomo 与 Surge 的配置。每种格式�
 
 | 部分 | 字段 | 支持 | 静默忽略 | 警告 | 报错 |
 |---|--:|--:|--:|--:|--:|
-| `General` | 58 | 23 | 29 | 6 | 0 |
+| `General` | 58 | 24 | 29 | 5 | 0 |
 | `Keystore` | 3 | 3 | 0 | 0 | 0 |
 | `Proxy Group[fallback]` | 16 | 11 | 4 | 1 | 0 |
 | `Proxy Group[load-balance]` | 14 | 10 | 4 | 0 | 0 |
@@ -119,35 +119,35 @@ sail 直接读取 sing-box、Clash / Mihomo 与 Surge 的配置。每种格式�
 | `Proxy Group[ssid]` | 6 | 3 | 3 | 0 | 0 |
 | `Proxy Group[subnet]` | 6 | 3 | 3 | 0 | 0 |
 | `Proxy Group[url-test]` | 17 | 11 | 4 | 2 | 0 |
-| `Proxy[anytls]` | 28 | 17 | 3 | 7 | 1 |
-| `Proxy[direct]` | 12 | 4 | 1 | 7 | 0 |
+| `Proxy[anytls]` | 28 | 18 | 3 | 6 | 1 |
+| `Proxy[direct]` | 12 | 5 | 1 | 6 | 0 |
 | `Proxy[external]` | 20 | 0 | 0 | 0 | 20 |
 | `Proxy[h2-connect]` | 32 | 0 | 0 | 0 | 32 |
-| `Proxy[http]` | 24 | 14 | 3 | 7 | 0 |
-| `Proxy[https]` | 30 | 19 | 3 | 7 | 1 |
-| `Proxy[hysteria2]` | 29 | 17 | 3 | 7 | 2 |
+| `Proxy[http]` | 24 | 15 | 3 | 6 | 0 |
+| `Proxy[https]` | 30 | 20 | 3 | 6 | 1 |
+| `Proxy[hysteria2]` | 29 | 18 | 3 | 6 | 2 |
 | `Proxy[masque]` | 27 | 0 | 0 | 0 | 27 |
-| `Proxy[reject-drop]` | 12 | 1 | 4 | 7 | 0 |
-| `Proxy[reject-no-drop]` | 12 | 1 | 4 | 7 | 0 |
-| `Proxy[reject-tinygif]` | 12 | 1 | 4 | 7 | 0 |
-| `Proxy[reject]` | 12 | 1 | 4 | 7 | 0 |
+| `Proxy[reject-drop]` | 12 | 2 | 4 | 6 | 0 |
+| `Proxy[reject-no-drop]` | 12 | 2 | 4 | 6 | 0 |
+| `Proxy[reject-tinygif]` | 12 | 2 | 4 | 6 | 0 |
+| `Proxy[reject]` | 12 | 2 | 4 | 6 | 0 |
 | `Proxy[snell]` | 28 | 0 | 0 | 0 | 28 |
 | `Proxy[socks5-tls]` | 29 | 0 | 0 | 0 | 29 |
-| `Proxy[socks5]` | 23 | 13 | 3 | 7 | 0 |
-| `Proxy[ss]` | 27 | 16 | 3 | 7 | 1 |
+| `Proxy[socks5]` | 23 | 14 | 3 | 6 | 0 |
+| `Proxy[ss]` | 27 | 17 | 3 | 6 | 1 |
 | `Proxy[ssh]` | 25 | 0 | 0 | 0 | 25 |
 | `Proxy[tailscale]` | 5 | 0 | 0 | 0 | 5 |
-| `Proxy[trojan]` | 30 | 19 | 3 | 7 | 1 |
+| `Proxy[trojan]` | 30 | 20 | 3 | 6 | 1 |
 | `Proxy[trust-tunnel]` | 31 | 0 | 0 | 0 | 31 |
-| `Proxy[tuic-v5]` | 27 | 14 | 4 | 7 | 2 |
+| `Proxy[tuic-v5]` | 27 | 15 | 4 | 6 | 2 |
 | `Proxy[tuic]` | 26 | 0 | 0 | 0 | 26 |
-| `Proxy[vmess]` | 33 | 22 | 3 | 7 | 1 |
+| `Proxy[vmess]` | 33 | 23 | 3 | 6 | 1 |
 | `Proxy[wireguard]` | 5 | 3 | 0 | 2 | 0 |
 | `Rule` | 152 | 59 | 75 | 0 | 18 |
 | `SSID Setting` | 6 | 0 | 0 | 6 | 0 |
 | `Sections` | 17 | 3 | 3 | 11 | 0 |
 | `WireGuard` | 13 | 11 | 0 | 2 | 0 |
-| **All** | **874** | **318** | **178** | **128** | **250** |
+| **All** | **874** | **333** | **178** | **113** | **250** |
 
 ## Interop with sing-box and Mihomo
 
