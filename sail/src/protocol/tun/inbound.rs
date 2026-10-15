@@ -563,7 +563,8 @@ pub(crate) struct TunSettings {
     /// Whether a datagram from an address the app never sent to reaches it.
     pub endpoint_independent_nat: bool,
     /// Linux: a queue and a netstack shard to each CPU, eight at most;
-    /// otherwise one.
+    /// otherwise one. Elsewhere only warned of, when set.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     pub multi_queue: bool,
     pub ipv4: Option<Ipv4Inet>,
     pub ipv6: Option<Ipv6Inet>,
