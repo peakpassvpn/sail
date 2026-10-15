@@ -90,6 +90,14 @@ CRATES = {"quinn_proto": "quinn_proto", "quinn": "quinn, quinn_udp, quinn_btls",
 WRAPPERS = ("tracing", "futures_util")
 CRATE = re.compile(r"(?<![\w:])([a-z_][a-z0-9_]*)::")
 HEAP = re.compile(r"Heap|Lfh|Alloc|Free")
+# The kernel's network events (run.py's NETWORKTRACE): TcpIp/Send,
+# TcpIp/Recv and the rest, each with its process and size.
+NETWORK = re.compile(r"(TcpIp|UdpIp|TcpIP|UdpIP)/")
+# Their sizes, in classes: a TLS record of 16 KiB is 16406 bytes on the wire.
+SIZE_CLASSES = (("≤ 1 KiB", 1024), ("≤ 16.5 KiB, a record", 16 * 1024 + 512),
+                ("≤ 64 KiB", 64 * 1024), ("≤ 256 KiB", 256 * 1024), ("more", float("inf")))
+# The header of each network event seen, to read the table by.
+SEEN_COLUMNS = {}
 
 
 def text(path):
@@ -102,8 +110,10 @@ def read(path):
     """The trace's samples as {(time, thread): [pid, process, function]},
     and their stacks as {(time, thread): [frame, ...]} in the order xperf
     gives them, innermost first: the kernel's frames of a sample, then its
-    thread's own, each numbered from 1."""
+    thread's own, each numbered from 1. And the network events (NETWORK),
+    as {pid: {event: [count, bytes, {size class: count}]}}."""
     samples, stacks = {}, {}
+    net = collections.defaultdict(dict)
     columns = {}
     in_header = False
     before = 0
@@ -154,7 +164,75 @@ def read(path):
                 own = re.split(r", (?=[^ ,!<>]+!)", rest)[-1].strip() or "?"
                 samples[(fields[at.get("TimeStamp", 1)].strip(), fields[thread].strip())] = \
                     [pid, name, names.setdefault(own, own)]
-    return samples, stacks
+            elif NETWORK.match(kind):
+                network_event(net, kind, columns.get(kind, []), line)
+    return samples, stacks, net
+
+
+def merged(net, pids):
+    """The network events of a part's processes, together."""
+    out = {}
+    for pid in pids:
+        for kind, (count, size, sizes) in net.get(pid, {}).items():
+            into = out.setdefault(kind, [0, 0, collections.Counter()])
+            into[0] += count
+            into[1] += size
+            into[2].update(sizes)
+    return out
+
+
+def network(net, pids, gib):
+    """The network events of each part, as a table: how many a GiB of the
+    transfer, their mean size and their sizes by class. On loopback the
+    receiver's are in the sender's process as often as not."""
+    lines = ["**The kernel's network events, by part (NETWORKTRACE)**", ""]
+    if not net:
+        return lines + ["None in the trace.", ""]
+    names = [name for name, _ in SIZE_CLASSES]
+    lines += ["| part | event | count | a GiB | mean bytes | " + " | ".join(names) + " |",
+              "|---|---|---:|---:|---:|" + "---:|" * len(names)]
+    for part, of in list(pids.items()) + [("others", set(net) - set().union(*pids.values()))]:
+        for kind, (count, size, sizes) in sorted(merged(net, of).items()):
+            per_gib = f"{count / gib:.0f}" if gib else "–"
+            lines.append(f"| {part} | {kind} | {count} | {per_gib} | {size / count:.0f} | "
+                         + " | ".join(str(sizes.get(name, 0)) for name in names) + " |")
+    if SEEN_COLUMNS:
+        lines += ["", "Their columns: " + "; ".join(
+            f"`{kind}`: {', '.join(cols[1:])}" for kind, cols in sorted(SEEN_COLUMNS.items())[:4])]
+    return lines + [""]
+
+
+def network_event(net, kind, cols, line):
+    """Counts one of the kernel's TCP or UDP events for its process, with
+    its size: by the header's columns, the process by a PID column or by
+    its name and PID, the size by a column so named."""
+    SEEN_COLUMNS.setdefault(kind, cols)
+    fields = [c.strip() for c in line.split(",")]
+    process = next((i for i, c in enumerate(cols) if c.startswith("Process Name")), None)
+    pid_at = next((i for i, c in enumerate(cols) if c.lower() == "pid"), None)
+    size_at = next((i for i, c in enumerate(cols) if c.lower() in ("size", "bytes", "length")),
+                   None)
+    # The event's own PID is the connection's; the process column, the
+    # thread the event was logged in.
+    pid = -1
+    if pid_at is not None and pid_at < len(fields):
+        try:
+            pid = int(fields[pid_at], 0)
+        except ValueError:
+            pass
+    if pid == -1 and process is not None and process < len(fields):
+        found = PID.search(fields[process])
+        pid = int(found.group(1)) if found else -1
+    size = 0
+    if size_at is not None and size_at < len(fields):
+        try:
+            size = int(fields[size_at], 0)
+        except ValueError:
+            pass
+    counts = net[pid].setdefault(kind, [0, 0, collections.Counter()])
+    counts[0] += 1
+    counts[1] += size
+    counts[2][next(name for name, top in SIZE_CLASSES if size <= top)] += 1
 
 
 def module(frame):
@@ -293,7 +371,7 @@ def main():
     if unknown:
         ap.error(f"--report: of {', '.join(pids)}; not {', '.join(unknown)}")
 
-    samples, stacks = read(args.dump)
+    samples, stacks, net = read(args.dump)
     # The transfer's bytes, for CPU seconds per GiB; none of a failed one.
     gib = roles.get("bytes", 0) / GIB
 
@@ -310,6 +388,12 @@ def main():
         processes[f"{name}, the {part_of[pid]}" if pid in part_of else name] += 1
     lines += [f"{total} samples of the whole system, {len(stacks)} with a stack.", ""]
     lines += table("By process", processes, total, 12)
+    lines += network(net, pids, gib)
+    with open(f"{args.out}.net.json", "w", encoding="utf-8", newline="\n") as f:
+        json.dump({"columns": SEEN_COLUMNS, "bytes": roles.get("bytes", 0),
+                   "parts": {part: {kind: {"count": c, "bytes": b, "sizes": dict(sizes)}
+                                    for kind, (c, b, sizes) in merged(net, of).items()}
+                             for part, of in pids.items()}}, f, indent=1)
     for part in parts:
         told, folded = report(part, pids[part], samples, stacks, args, gib)
         lines += told

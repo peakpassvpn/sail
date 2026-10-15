@@ -41,12 +41,14 @@ name: perf-desktop
 #                  MinGW is not the one a release is built with.
 #
 # `profile`: Windows only, whatever `os` says. One build, one round of
-# Hysteria2 and of Trojan, and every download sampled by xperf (the Windows
-# Performance Toolkit's: the whole system, a sample a millisecond, with
-# stacks). The summary says where each client's process spent its CPU: by
-# what it was doing, in CPU seconds per GiB (profile.py's markers, an
-# approximation), by module, by function and by stack; the artifact has
-# every stack with its count. sail's frames have their names from the build's PDB (dist has line
+# Hysteria2, Trojan and REALITY, and every download (or upload, or both:
+# the input `direction`) sampled by xperf (the Windows Performance
+# Toolkit's: the whole system, a sample a millisecond, with stacks, and the
+# kernel's TCP and UDP events, counted by process and size). The summary
+# says where each client's process spent its CPU: by what it was doing,
+# in CPU seconds per GiB (profile.py's markers, an approximation), by
+# module, by function and by stack; the artifact has every stack with its
+# count. sail's frames have their names from the build's PDB (dist has line
 # tables), Windows' own from Microsoft's symbol server; sing-box's, a Go
 # program without a PDB, have none. The run's tables are of sampled
 # transfers: not ones to compare with another run's.
@@ -70,7 +72,7 @@ on:
         options: [windows, macos, both]
         default: windows
       builds:
-        description: "plain: one build, all protocols; buffers: one build, four socket buffer sizes, Hysteria2; allocators: three builds (Windows), all protocols; workers: one build with 1, 2 (as shipped) and 4 worker threads and single-threaded, all protocols; profile: where the CPU goes (Windows only), Hysteria2 and Trojan"
+        description: "plain: one build, all protocols; buffers: one build, four socket buffer sizes, Hysteria2; allocators: three builds (Windows), all protocols; workers: one build with 1, 2 (as shipped) and 4 worker threads and single-threaded, all protocols; profile: where the CPU goes (Windows only), Hysteria2, Trojan and REALITY"
         type: choice
         options: [plain, buffers, allocators, workers, profile]
         default: plain
@@ -79,6 +81,11 @@ on:
         type: choice
         options: ["4", "1"]
         default: "4"
+      direction:
+        description: "profile: the transfers sampled, down (as before), up or both"
+        type: choice
+        options: [down, up, both]
+        default: down
 
 permissions:
   contents: read
@@ -424,28 +431,83 @@ jobs:
           Add-Content $env:GITHUB_PATH $wpt
           & "$wpt\xperf.exe" -help start | Select-Object -First 3
 
-      # One round, both clients, each download in a trace of its own (the
-      # uploads too with run.py's --profile-directions up,down). More bytes
-      # than the cell's 256 MiB a stream, for the samples: Trojan is several
-      # times as fast as Hysteria2, so it gets as many times the bytes.
+      # One round, both clients, each sampled transfer in a trace of its own:
+      # the downloads, the uploads or both, as `direction` says. More bytes
+      # than the cell's 256 MiB a stream, for the samples: Trojan and
+      # REALITY are several times as fast as Hysteria2, so they get as many
+      # times the bytes. The traces have the kernel's TCP and UDP events
+      # too, which profile.py counts by process and size.
+      #
+      # Before it, what a non-blocking TCP send on this system takes: a
+      # sender on loopback writes in chunks of a size until the system says
+      # it would block, to a receiver that reads nothing. Whether it takes
+      # part of a chunk, and how much in all, says whether the size of a
+      # write changes what is in flight (sail's sockets are non-blocking,
+      # Go's sends are overlapped).
       - name: profile
         if: inputs.builds == 'profile' && runner.os == 'Windows'
+        env:
+          DIRECTION: ${{ inputs.direction }}
         run: |
           variants/sail.exe --version
           ls -l target/dist/sail.pdb
+          case "$DIRECTION" in
+          both) directions=up,down words="Every download and upload" ;;
+          up) directions=up words="Every upload" ;;
+          *) directions=down words="Every download" ;;
+          esac
           {
-            echo "One build of this commit, at the dist profile. Every download below was"
+            echo "One build of this commit, at the dist profile. $words below was"
             echo "sampled by xperf, which costs CPU: read the profiles, not these tables."
+            echo
+            echo "A non-blocking TCP send on loopback, to a receiver that reads nothing"
+            echo "(chunk: the bytes taken before it would block, in how many sends, how"
+            echo "many of them partial; SO_SNDBUF as the socket says):"
+            echo
+            python - <<'PY'
+          import socket
+          def fill(chunk, sndbuf=None):
+              with socket.socket() as listener:
+                  listener.bind(("127.0.0.1", 0))
+                  listener.listen(1)
+                  sender = socket.create_connection(listener.getsockname())
+                  receiver, _ = listener.accept()
+                  try:
+                      if sndbuf is not None:
+                          sender.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, sndbuf)
+                      sender.setblocking(False)
+                      data = bytes(chunk)
+                      taken = sends = partial = 0
+                      while taken < (256 << 20):
+                          try:
+                              n = sender.send(data)
+                          except (BlockingIOError, InterruptedError):
+                              break
+                          sends += 1
+                          taken += n
+                          partial += n < chunk
+                      have = sender.getsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF)
+                      return f"{taken} bytes in {sends} sends, {partial} partial; SO_SNDBUF {have}"
+                  finally:
+                      sender.close()
+                      receiver.close()
+          for chunk in (16406, 65536, 131300, 1 << 20):
+              print(f"- chunk {chunk}: {fill(chunk)}")
+          for sndbuf in (0, 1 << 20):
+              print(f"- chunk 16406, SO_SNDBUF set to {sndbuf}: {fill(16406, sndbuf)}")
+          PY
             echo
           } >> "$GITHUB_STEP_SUMMARY"
           failed=0
           cell() {
             python tools/perf/desktop/run.py --sail variants/sail --sing-box bin/sing-box \
               --netgen bin/netgen --work cell-work --rounds 1 --profile profile \
+              --profile-directions "$directions" \
               --protocols "$1" --bytes "$2" --out "results-$1.json" || failed=1
           }
           cell hysteria2 $((512 << 20))
           cell trojan $((2048 << 20))
+          cell reality $((2048 << 20))
           ls -l profile
           exit $failed
 

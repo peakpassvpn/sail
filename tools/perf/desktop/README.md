@@ -115,9 +115,15 @@ Between builds, compare their ratios to sing-box, or their own columns of
 the same run.
 
 `profile`: Windows only, whatever `os` says. One build at the dist profile,
-one round of Hysteria2 and of Trojan, and every download sampled by xperf
-(`run.py --profile DIR`: the whole system, a sample a millisecond, with
-stacks; `--profile-directions up,down` samples the uploads too).
+one round of Hysteria2, Trojan and REALITY, and every download sampled by
+xperf (`run.py --profile DIR`: the whole system, a sample a millisecond,
+with stacks; `--profile-directions up,down` samples the uploads too, as
+the input `direction` does: `down`, `up` or `both`). The trace has the
+kernel's TCP and UDP events too, and the summary counts them by part
+(client, server, target), a GiB and size: on loopback a send's events can
+be the receiver's as well. The summary first says what a non-blocking
+TCP send on the runner takes before it would block, by the size of a
+write.
 `profile.py` reads each trace, and the summary has, for each transfer, the
 system's samples by process and the client's by what it was doing, by
 module, by function (its own samples, and those it is on the stack of) and

@@ -215,12 +215,20 @@ def xperf(args, *argv):
 def profile_start(args):
     """The kernel's sampling profiler, every CPU, at its default of a
     sample a millisecond, with the stack of each sample. Processes and
-    images are in the trace for the names."""
+    images are in the trace for the names. The kernel's TCP and UDP
+    events too (NETWORKTRACE): a send or receive of the stack's, with its
+    size and process, which profile.py counts; without them when this
+    system's xperf has no such flag."""
     # A session that a failed transfer left would refuse this one.
     subprocess.run([args.xperf, "-stop"], capture_output=True, stdin=subprocess.DEVNULL)
-    xperf(args, "-on", "PROC_THREAD+LOADER+PROFILE", "-stackwalk", "Profile",
-          "-BufferSize", "1024", "-MinBuffers", "128", "-MaxBuffers", "512",
-          "-f", os.path.join(args.profile, "kernel.etl"))
+    rest = ("-stackwalk", "Profile", "-BufferSize", "1024", "-MinBuffers", "128",
+            "-MaxBuffers", "512", "-f", os.path.join(args.profile, "kernel.etl"))
+    try:
+        xperf(args, "-on", "PROC_THREAD+LOADER+PROFILE+NETWORKTRACE", *rest)
+    except RuntimeError as e:
+        print(f"  xperf: no network events ({e})", file=sys.stderr, flush=True)
+        subprocess.run([args.xperf, "-stop"], capture_output=True, stdin=subprocess.DEVNULL)
+        xperf(args, "-on", "PROC_THREAD+LOADER+PROFILE", *rest)
 
 
 def profile_stop(args, sample):
