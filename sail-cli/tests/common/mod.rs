@@ -3,6 +3,22 @@
 #![allow(dead_code)]
 
 use std::path::PathBuf;
+use std::process::{Child, Command};
+use std::sync::Mutex;
+
+/// Held while `free_port` has a port open, and while a process is
+/// spawned: a child spawned then holds a copy of every socket the test
+/// process has, until it runs its program, a while under load. A copy of
+/// the listener `free_port` tries the port with would take the
+/// connections meant for the sail started on it, and reset them as it
+/// closes.
+static SOCKETS: Mutex<()> = Mutex::new(());
+
+/// `command` spawned with no `free_port` socket open for it to inherit.
+pub fn spawn(command: &mut Command) -> Child {
+    let _held = SOCKETS.lock().unwrap_or_else(|e| e.into_inner());
+    command.spawn().unwrap()
+}
 
 /// A port on 127.0.0.1 that nothing has now, for TCP and UDP. From below
 /// the range the system gives the sockets that ask for no port, so that
@@ -30,6 +46,7 @@ pub fn free_port() -> u16 {
     for _ in 0..count {
         let turn = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let port = FROM + (first.wrapping_add(turn) % count) as u16;
+        let _held = SOCKETS.lock().unwrap_or_else(|e| e.into_inner());
         if std::net::TcpListener::bind(("127.0.0.1", port)).is_ok()
             && std::net::UdpSocket::bind(("127.0.0.1", port)).is_ok()
         {

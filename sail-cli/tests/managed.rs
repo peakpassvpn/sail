@@ -13,7 +13,7 @@ use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 mod common;
-use common::{free_port, TempDir};
+use common::{free_port, spawn, TempDir};
 
 /// A server that answers every request with what `body` makes of its
 /// URL; the URL.
@@ -58,16 +58,16 @@ impl Sail {
     /// `socks` takes connections.
     fn start(config: &Path, cache: &Path, socks: u16) -> Sail {
         let out = config.with_file_name("out.log");
-        let child = Command::new(env!("CARGO_BIN_EXE_sail"))
-            .arg("-c")
-            .arg(config)
-            .arg("--cache-dir")
-            .arg(cache)
-            .arg("--managed-update")
-            .stdout(Stdio::from(std::fs::File::create(&out).unwrap()))
-            .stderr(Stdio::null())
-            .spawn()
-            .unwrap();
+        let child = spawn(
+            Command::new(env!("CARGO_BIN_EXE_sail"))
+                .arg("-c")
+                .arg(config)
+                .arg("--cache-dir")
+                .arg(cache)
+                .arg("--managed-update")
+                .stdout(Stdio::from(std::fs::File::create(&out).unwrap()))
+                .stderr(Stdio::null()),
+        );
         let sail = Sail { child, out };
         let deadline = Instant::now() + Duration::from_secs(10);
         while TcpStream::connect(("127.0.0.1", socks)).is_err() {
@@ -148,14 +148,18 @@ fn a_profile_that_is_not_managed_is_refused() {
     let dir = TempDir::new();
     let config = dir.0.join("profile.conf");
     std::fs::write(&config, "[Rule]\nFINAL,DIRECT\n").unwrap();
-    let out = Command::new(env!("CARGO_BIN_EXE_sail"))
-        .arg("-c")
-        .arg(&config)
-        .arg("--cache-dir")
-        .arg(&dir.0)
-        .arg("--managed-update")
-        .output()
-        .unwrap();
+    let out = spawn(
+        Command::new(env!("CARGO_BIN_EXE_sail"))
+            .arg("-c")
+            .arg(&config)
+            .arg("--cache-dir")
+            .arg(&dir.0)
+            .arg("--managed-update")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped()),
+    )
+    .wait_with_output()
+    .unwrap();
     assert!(!out.status.success());
     let said = String::from_utf8_lossy(&out.stdout);
     assert!(said.contains("not a managed profile"), "{}", said);
