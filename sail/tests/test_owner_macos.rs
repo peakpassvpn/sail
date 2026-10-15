@@ -76,22 +76,21 @@ except OSError:
 #[ignore = "needs root and a utun: CI's tun-macos"]
 fn rules_on_who_opened_a_connection_are_matched() -> Result<()> {
     let port = echo_server()?;
-    let config = format!(
-        r#"{{
-        "log": {{ "level": "debug" }},
-        "inbounds": [{{
+    let config = r#"{
+        "log": { "level": "debug" },
+        "inbounds": [{
             "type": "tun", "tag": "tun-in", "address": ["172.31.237.1/30"],
             "auto_route": true, "route_address": ["198.18.0.0/15"]
-        }}],
-        "outbounds": [{{ "type": "direct", "tag": "direct" }}],
-        "route": {{ "rules": [
-            {{ "process_name": ["curl"], "action": "reject" }},
-            {{ "user": ["nobody"], "action": "reject" }},
-            {{ "ip_cidr": ["198.18.0.0/15"], "action": "route-options",
-               "override_address": "127.0.0.1" }}
-        ] }}
-    }}"#
-    );
+        }],
+        "outbounds": [{ "type": "direct", "tag": "direct" }],
+        "route": { "rules": [
+            { "process_name": ["curl"], "action": "reject" },
+            { "user": ["nobody"], "action": "reject" },
+            { "ip_cidr": ["198.18.0.0/15"], "action": "route-options",
+               "override_address": "127.0.0.1" }
+        ] }
+    }"#
+    .to_owned();
     let dir = std::env::temp_dir().join(format!("sail-owner-{}", std::process::id()));
     std::fs::create_dir_all(&dir)?;
     let sail = Instance::new(Options::new().run_dir(RunDir::Dir(dir.join("run"))))?;
