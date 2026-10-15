@@ -149,7 +149,7 @@ jobs:
         os: ${{ fromJSON(inputs.builds != 'profile' && inputs.os == 'both' && '["windows-latest","macos-15"]' || inputs.builds != 'profile' && inputs.os == 'macos' && '["macos-15"]' || '["windows-latest"]') }}
     name: cell (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: ${{ inputs.builds == 'profile' && 90 || 60 }}
+    timeout-minutes: ${{ inputs.builds == 'profile' && 150 || 60 }}
     env:
       CARGO_INCREMENTAL: 0
       EXE: ${{ startsWith(matrix.os, 'windows') && '.exe' || '' }}
@@ -464,8 +464,8 @@ jobs:
             echo "(chunk: the bytes taken before it would block, in how many sends, how"
             echo "many of them partial; SO_SNDBUF as the socket says):"
             echo
-            python - <<'PY'
-          import socket
+            timeout 120 python - <<'PY' | tee /dev/stderr || echo "- the probe did not finish within 120 s"
+          import socket, time
           def fill(chunk, sndbuf=None):
               with socket.socket() as listener:
                   listener.bind(("127.0.0.1", 0))
@@ -478,7 +478,8 @@ jobs:
                       sender.setblocking(False)
                       data = bytes(chunk)
                       taken = sends = partial = 0
-                      while taken < (256 << 20):
+                      until = time.monotonic() + 5
+                      while taken < (256 << 20) and time.monotonic() < until:
                           try:
                               n = sender.send(data)
                           except (BlockingIOError, InterruptedError):
@@ -486,18 +487,21 @@ jobs:
                           sends += 1
                           taken += n
                           partial += n < chunk
+                          if n == 0:
+                              break
                       have = sender.getsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF)
                       return f"{taken} bytes in {sends} sends, {partial} partial; SO_SNDBUF {have}"
                   finally:
                       sender.close()
                       receiver.close()
           for chunk in (16406, 65536, 131300, 1 << 20):
-              print(f"- chunk {chunk}: {fill(chunk)}")
+              print(f"- chunk {chunk}: {fill(chunk)}", flush=True)
           for sndbuf in (0, 1 << 20):
-              print(f"- chunk 16406, SO_SNDBUF set to {sndbuf}: {fill(16406, sndbuf)}")
+              print(f"- chunk 16406, SO_SNDBUF set to {sndbuf}: {fill(16406, sndbuf)}", flush=True)
           PY
             echo
           } >> "$GITHUB_STEP_SUMMARY"
+          echo "the probe is done"
           failed=0
           cell() {
             python tools/perf/desktop/run.py --sail variants/sail --sing-box bin/sing-box \

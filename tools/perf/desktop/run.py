@@ -204,8 +204,12 @@ class RssPeak(threading.Thread):
 
 # ------------------------------------------------------------- profiling
 def xperf(args, *argv):
-    done = subprocess.run([args.xperf, *argv], capture_output=True, text=True,
-                          stdin=subprocess.DEVNULL)
+    try:
+        # Bounded: merging a large trace takes a minute or two, not ten.
+        done = subprocess.run([args.xperf, *argv], capture_output=True, text=True,
+                              stdin=subprocess.DEVNULL, timeout=600)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(f"xperf {' '.join(argv)}: not done within 600 s") from None
     if done.returncode != 0:
         raise RuntimeError(f"xperf {' '.join(argv)}: "
                            + (done.stderr.strip() or done.stdout.strip()
