@@ -2946,6 +2946,109 @@ fn listener_mistakes_name_the_field() {
     }
 }
 
+/// A tunnel listener forwards to its target as a `tunnels` entry; a tun
+/// listener is a TUN inbound with Mihomo's listener defaults; IN-TYPE
+/// names them, and the proxy listeners, by their type.
+#[test]
+fn tunnel_and_tun_listeners_are_inbounds_of_their_own() {
+    let config = load(
+        "proxy-groups: [{ name: G, type: select, proxies: [DIRECT] }]\n\
+         listeners:\n\
+         \x20 - { name: T, type: tunnel, port: 7788, listen: 127.0.0.1, network: [udp], \
+         target: \"1.1.1.1:53\", proxy: G }\n\
+         \x20 - { name: N, type: tun, device: utun7, inet4-address: [172.19.0.1/30], \
+         stack: system }\n\
+         \x20 - { name: V, type: vless, port: 443, allow-insecure: true, \
+         users: [{ uuid: b831381d-6324-4d53-ad4f-8cda48b30811 }] }\n\
+         rules: [\"IN-TYPE,TUNNEL,DIRECT\", \"IN-TYPE,TUN,DIRECT\", \"IN-TYPE,VLESS,DIRECT\", \
+         \"MATCH,REJECT\"]",
+    );
+    let inbound = |tag: &str| {
+        config
+            .inbounds
+            .iter()
+            .find(|i| i.tag == tag)
+            .unwrap_or_else(|| {
+                let tags: Vec<&str> = config.inbounds.iter().map(|i| i.tag.as_str()).collect();
+                panic!("no inbound {}: {:?}; {:?}", tag, tags, config.warnings)
+            })
+    };
+    let t = inbound("T");
+    assert_eq!(t.protocol, "direct");
+    assert_eq!(t.listen.as_deref(), Some("127.0.0.1"));
+    assert_eq!(t.listen_port, Some(7788));
+    assert_eq!(t.options["override_address"], "1.1.1.1");
+    assert_eq!(t.options["override_port"], 53);
+    assert_eq!(t.options["network"], "udp");
+    let n = serde_json::Value::Object(inbound("N").options.clone());
+    assert_eq!(inbound("N").protocol, "tun");
+    assert_eq!(n["interface_name"], "utun7");
+    assert_eq!(n["address"], serde_json::json!(["172.19.0.1/30"]));
+    // No routes, nor interface detection, unless asked: Mihomo's listener
+    // has no defaults.
+    assert!(n.get("auto_route").is_none());
+    assert!(!config.route.auto_detect_interface);
+    assert!(
+        config
+            .warnings
+            .iter()
+            .any(|w| w.contains("listeners[1].stack")),
+        "{:?}",
+        config.warnings
+    );
+
+    let rules = all_rules(&config);
+    // Its own addresses' DNS alone, before every other rule.
+    assert_eq!(rules[0]["action"], "hijack-dns");
+    assert_eq!(rules[0]["rules"][0]["inbound"], serde_json::json!(["N"]));
+    assert_eq!(
+        rules[0]["rules"][1]["rules"],
+        serde_json::json!([{ "ip_cidr": ["172.19.0.2/32"], "port": [53] }])
+    );
+    assert!(rules
+        .iter()
+        .any(|r| r["inbound"] == serde_json::json!(["T"]) && r["outbound"] == "G"));
+    for tags in [
+        serde_json::json!(["T"]),
+        serde_json::json!(["DEFAULT-TUN", "N"]),
+        serde_json::json!(["V"]),
+    ] {
+        assert!(
+            rules
+                .iter()
+                .any(|r| r["inbound"] == tags && r["outbound"] == "DIRECT"),
+            "{}: {:?}",
+            tags,
+            rules
+        );
+    }
+
+    // A tunnel on no network listens on nothing, in Mihomo too.
+    let config = load(
+        "listeners: [{ name: T, type: tunnel, port: 7788, target: \"a:1\" }]\n\
+         rules: [\"MATCH,DIRECT\"]",
+    );
+    assert!(config.inbounds.iter().all(|i| i.tag != "T"));
+    assert!(config.warnings[0].starts_with("listeners[0].network: none"));
+    for (yaml, message) in [
+        (
+            "listeners: [{ name: T, type: tunnel, port: 1, network: [tcp] }]",
+            "listeners[0].target: missing",
+        ),
+        (
+            "listeners: [{ name: N, type: tun }]",
+            "listeners[0].inet4-address: missing, as inet6-address",
+        ),
+        (
+            "listeners: [{ name: N, type: tun, inet4-address: [1.0.0.1/30], rule: sub }]",
+            "listeners[0].rule: sail does not implement this field",
+        ),
+    ] {
+        let err = error(yaml);
+        assert!(err.contains(message), "{}\n  => {}", yaml, err);
+    }
+}
+
 #[test]
 fn tunnels_forward_to_their_targets() {
     let config = load(

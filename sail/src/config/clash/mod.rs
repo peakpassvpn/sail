@@ -61,12 +61,20 @@ pub fn parse_in(s: &str, home: Option<&std::path::Path>) -> Result<Config> {
     let hosts = hosts::read(&mut doc, &mut warnings)?;
     dns::lower(&mut doc, &groups, &mut sets, &mut out, &mut warnings)?;
     hosts.apply(&mut out)?;
-    let listeners = listeners::lower(&mut doc, &groups, &mut out, &mut warnings)?;
+    let mut listeners = listeners::lower(&mut doc, &groups, &mut out, &mut warnings)?;
     sets.set_inbounds(listeners.kinds.clone());
+    let tun_listeners = std::mem::take(&mut listeners.tuns);
     rule::lower(&mut doc, &groups, &mut sets, &mut out, &mut warnings)?;
     listeners.apply(&mut out);
     sniffer::lower(&mut doc, &mut sets, &mut out, &mut warnings)?;
-    tun::lower(&mut doc, fake_ip, &mut sets, &mut out, &mut warnings)?;
+    tun::lower(
+        &mut doc,
+        fake_ip,
+        tun_listeners,
+        &mut sets,
+        &mut out,
+        &mut warnings,
+    )?;
     // Before every other rule, sniffing among them.
     if let Some(rule) = listeners::lan_rule(&out) {
         out.rules.push_front(rule);

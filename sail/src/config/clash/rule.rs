@@ -563,14 +563,25 @@ fn condition(s: &Split, sets: &mut Sets) -> Result<(Map<String, Value>, bool)> {
                 "TPROXY" => "tproxy",
                 "SHADOWSOCKS" => "shadowsocks",
                 "TUNNEL" => "tunnel",
+                "TROJAN" => "trojan",
+                "VLESS" => "vless",
+                "VMESS" => "vmess",
+                "HYSTERIA2" => "hysteria2",
+                "TUIC" => "tuic",
+                "ANYTLS" => "anytls",
+                // The top-level one's, and the listeners'.
                 "TUN" => {
-                    rule.insert("inbound".into(), json!([super::tun::TAG]));
+                    let tags: Vec<&str> = std::iter::once(super::tun::TAG)
+                        .chain(sets.inbounds_of("tun"))
+                        .collect();
+                    rule.insert("inbound".into(), json!(tags));
                     return Ok((rule, false));
                 }
                 other => {
                     return Err(anyhow!(
                         "IN-TYPE: sail does not implement {:?} yet, only HTTP, SOCKS5, MIXED, \
-                         REDIR, TPROXY, SHADOWSOCKS, TUNNEL and TUN",
+                         REDIR, TPROXY, SHADOWSOCKS, TUNNEL, TUN, TROJAN, VLESS, VMESS, \
+                         HYSTERIA2, TUIC and ANYTLS",
                         other
                     ))
                 }

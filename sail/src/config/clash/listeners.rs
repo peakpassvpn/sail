@@ -5,7 +5,9 @@
 //! as Mihomo sniffs before it looks.
 //!
 //! `tunnels` forward what comes in on an address to a target, through
-//! the rules or a `proxy` of their own, as direct inbounds doing so.
+//! the rules or a `proxy` of their own, as direct inbounds doing so; and so
+//! do `tunnel` listeners. `tun` listeners are TUN inbounds, lowered with
+//! the top-level `tun` (`tun::lower`).
 //!
 //! `lan-allowed-ips` and `lan-disallowed-ips` keep to them those who may
 //! use the listeners that authenticate as `authentication` says, as
@@ -49,6 +51,10 @@ const TYPES: &[(&str, &str)] = &[
     ("tuic", "tuic"),
     ("anytls", "anytls"),
     ("vmess", "vmess"),
+    // A direct inbound to its target, as a `tunnels` entry.
+    ("tunnel", "tunnel"),
+    // Lowered with the top-level `tun` (`tun::lower`).
+    ("tun", "tun"),
 ];
 
 /// The early data a websocket client may send in `Sec-WebSocket-Protocol`,
@@ -87,6 +93,10 @@ pub struct Listeners {
     pub kinds: Vec<(String, String)>,
     /// The rules of those with a `proxy`.
     rules: Vec<Value>,
+    /// The TUN listeners, by name, for `tun::lower` to make inbounds of
+    /// with the top-level `tun`: what is left of each but Mihomo's base
+    /// fields.
+    pub tuns: Vec<(String, Fields)>,
 }
 
 impl Listeners {
@@ -133,6 +143,25 @@ pub fn lower(
                     kind
                 )
             })?;
+        if protocol == "tun" {
+            // Mihomo's base fields, of which a TUN has no use for an address.
+            f.take("listen");
+            f.take("port");
+            no_rule(&mut f)?;
+            // As `FIELDS` has it for the other listeners.
+            if f.take("routing-mark").is_some() {
+                warnings.push(format!(
+                    "{}: sail does not implement this field; ignored",
+                    f.at("routing-mark")
+                ));
+            }
+            if let Some(rule) = proxy_rule(&mut f, &name, policies)? {
+                listeners.rules.push(rule);
+            }
+            listeners.kinds.push((protocol.to_string(), name.clone()));
+            listeners.tuns.push((name, f));
+            continue;
+        }
         let mut inbound = Map::new();
         inbound.insert("type".into(), json!(protocol));
         inbound.insert("tag".into(), json!(name));
@@ -215,6 +244,43 @@ pub fn lower(
             }
             "hysteria2" => hysteria2(&mut f, out.home.as_deref(), &mut inbound, warnings)?,
             "tuic" => tuic(&mut f, out.home.as_deref(), &mut inbound, warnings)?,
+            "tunnel" => {
+                inbound.insert("type".into(), json!("direct"));
+                let network_at = f.at("network");
+                let network = f.strings("network")?;
+                if let Some(n) = network
+                    .iter()
+                    .find(|n| !matches!(n.as_str(), "tcp" | "udp"))
+                {
+                    return Err(anyhow!("{}: {:?} is neither tcp nor udp", network_at, n));
+                }
+                let target_at = f.at("target");
+                let target = f
+                    .string("target")?
+                    .ok_or_else(|| anyhow!("{}: missing", target_at))?;
+                let (host, port) = split_host_port(&target)
+                    .ok_or_else(|| anyhow!("{}: {:?} names no port", target_at, target))?;
+                inbound.insert("override_address".into(), json!(host));
+                inbound.insert("override_port".into(), json!(port));
+                match network.as_slice() {
+                    // Mihomo listens on neither: nothing comes in.
+                    [] => {
+                        warnings.push(format!(
+                            "{}: none: Mihomo's tunnel listens on nothing, and sail leaves it \
+                             out",
+                            network_at
+                        ));
+                        no_rule(&mut f)?;
+                        f.take("proxy");
+                        f.finish(FIELDS, |_| false, warnings)?;
+                        continue;
+                    }
+                    [one] => {
+                        inbound.insert("network".into(), json!(one));
+                    }
+                    _ => {}
+                }
+            }
             "anytls" => {
                 inbound.insert("users".into(), Value::Array(named_users(&mut f, warnings)?));
                 // Mihomo's is lines, as sail's.
@@ -269,22 +335,8 @@ pub fn lower(
                 protocol
             ));
         }
-        if let Some(proxy) = f.string("proxy")?.filter(|p| !p.is_empty()) {
-            let target = match target(&proxy, policies) {
-                Ok(Target::Pass | Target::HijackDns) => {
-                    return Err(anyhow!(
-                        "{}: {:?} is no proxy or group",
-                        f.at("proxy"),
-                        proxy
-                    ))
-                }
-                Ok(target) => target,
-                Err(e) => return Err(anyhow!("{}: {}", f.at("proxy"), e)),
-            };
-            let mut rule = Map::new();
-            rule.insert("inbound".into(), json!([name]));
-            target.apply(&mut rule);
-            listeners.rules.push(Value::Object(rule));
+        if let Some(rule) = proxy_rule(&mut f, &name, policies)? {
+            listeners.rules.push(rule);
         }
         f.finish(FIELDS, |_| false, warnings)?;
         out.inbounds.push(Value::Object(inbound));
@@ -335,6 +387,41 @@ pub fn lower(
         listeners.kinds.push(("tunnel".to_string(), tag));
     }
     Ok(listeners)
+}
+
+/// The rule sending what comes in on listener `name` to its `proxy`, the
+/// policy it names, whatever the rules say.
+fn proxy_rule(f: &mut Fields, name: &str, policies: &Policies) -> Result<Option<Value>> {
+    let Some(proxy) = f.string("proxy")?.filter(|p| !p.is_empty()) else {
+        return Ok(None);
+    };
+    let target = match target(&proxy, policies) {
+        Ok(Target::Pass | Target::HijackDns) => {
+            return Err(anyhow!(
+                "{}: {:?} is no proxy or group",
+                f.at("proxy"),
+                proxy
+            ))
+        }
+        Ok(target) => target,
+        Err(e) => return Err(anyhow!("{}: {}", f.at("proxy"), e)),
+    };
+    let mut rule = Map::new();
+    rule.insert("inbound".into(), json!([name]));
+    target.apply(&mut rule);
+    Ok(Some(Value::Object(rule)))
+}
+
+/// Mihomo's `rule`, a listener's own sub-rules, which sail does not have:
+/// an error, as `FIELDS` has it for the other listeners.
+fn no_rule(f: &mut Fields) -> Result<()> {
+    match f.string("rule")?.filter(|r| !r.is_empty()) {
+        Some(_) => Err(anyhow!(
+            "{}: sail does not implement this field yet",
+            f.at("rule")
+        )),
+        None => Ok(()),
+    }
 }
 
 /// A listener's TLS, as Mihomo's `ca.NewTLSKeyPairLoader` takes it: a

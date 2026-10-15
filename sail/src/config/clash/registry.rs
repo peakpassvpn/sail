@@ -135,7 +135,7 @@ fn listener(kind: &str) -> Value {
             "private-key": "k.pem"
         }),
         "tunnel" => json!({ "network": ["tcp"], "target": "a.example:80" }),
-        "tun" => json!({ "port": null }),
+        "tun" => json!({ "port": null, "inet4-address": ["172.19.0.1/30"] }),
         _ => json!({}),
     };
     merge(&mut l, extra);

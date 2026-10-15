@@ -5,7 +5,12 @@
 //! any address; and to the address after the device's own.
 //!
 //! The device's IPv4 address is Mihomo's: the first of `fake-ip-range`,
-//! 198.18.0.1 without one, as a /30. `auto-redirect` is taken on Linux
+//! 198.18.0.1 without one, as a /30.
+//!
+//! A `tun` listener is a TUN inbound too, tagged with its name, built as
+//! the top-level one but as Mihomo builds a listener's: its own
+//! `inet4-address`, and no defaults, so that it takes no routes, detects no
+//! interface and hijacks no DNS but to its own addresses unless told to. `auto-redirect` is taken on Linux
 //! alone, and passed over elsewhere, as Mihomo does; and with it alone
 //! `route-address-set` and `route-exclude-address-set`, as Mihomo takes
 //! them.
@@ -88,35 +93,72 @@ pub fn fake_ip_address(doc: &mut Fields) -> Option<IpAddr> {
     address
 }
 
+/// The top-level `tun`, if enabled, and the `tun` listeners (`listeners`),
+/// each a TUN inbound.
 pub fn lower(
     doc: &mut Fields,
     fake_ip: Option<IpAddr>,
+    listeners: Vec<(String, Fields)>,
     sets: &mut Sets,
     out: &mut Lowered,
     warnings: &mut Vec<String>,
 ) -> Result<()> {
-    let Some(mut f) = doc.map("tun")? else {
-        return Ok(());
-    };
-    if !f.bool("enable")?.unwrap_or(false) {
-        for key in f.keys() {
-            f.take(&key);
+    if let Some(mut f) = doc.map("tun")? {
+        if f.bool("enable")?.unwrap_or(false) {
+            let ipv4 = match fake_ip {
+                Some(IpAddr::V4(a)) => a,
+                _ => std::net::Ipv4Addr::new(198, 18, 0, 1),
+            };
+            build(f, TAG, Some(ipv4), sets, out, warnings)?;
+        } else {
+            for key in f.keys() {
+                f.take(&key);
+            }
         }
-        return Ok(());
     }
+    for (name, f) in listeners {
+        build(f, &name, None, sets, out, warnings)?;
+    }
+    Ok(())
+}
+
+/// A TUN inbound tagged `tag`: the top-level one with the IPv4 address
+/// `top` gives it, Mihomo's defaults with it; else a listener, its address
+/// its `inet4-address`.
+fn build(
+    mut f: Fields,
+    tag: &str,
+    top: Option<std::net::Ipv4Addr>,
+    sets: &mut Sets,
+    out: &mut Lowered,
+    warnings: &mut Vec<String>,
+) -> Result<()> {
     let mut tun = Map::new();
     tun.insert("type".into(), json!("tun"));
-    tun.insert("tag".into(), json!(TAG));
+    tun.insert("tag".into(), json!(tag));
     if let Some(device) = f.string("device")?.filter(|d| !d.is_empty()) {
         tun.insert("interface_name".into(), json!(device));
     }
-    let ipv4 = match fake_ip {
-        Some(IpAddr::V4(a)) => a,
-        _ => std::net::Ipv4Addr::new(198, 18, 0, 1),
-    };
-    let mut address = vec![format!("{}/30", ipv4)];
+    let mut address = Vec::new();
     // The address after the device's, where Mihomo answers DNS.
-    let mut gateways = vec![IpAddr::V4(std::net::Ipv4Addr::from(u32::from(ipv4) + 1))];
+    let mut gateways = Vec::new();
+    let inet4 = match top {
+        Some(ipv4) => vec![format!("{}/30", ipv4)],
+        None => f.strings("inet4-address")?,
+    };
+    let inet4_at = f.at("inet4-address");
+    if inet4.len() > 1 {
+        return Err(anyhow!("{}: sail takes one IPv4 address", inet4_at));
+    }
+    for prefix in inet4 {
+        let ip: std::net::Ipv4Addr = prefix
+            .split('/')
+            .next()
+            .and_then(|a| a.parse().ok())
+            .ok_or_else(|| anyhow!("{}: {:?} is not an IPv4 prefix", inet4_at, prefix))?;
+        gateways.push(IpAddr::V4(std::net::Ipv4Addr::from(u32::from(ip) + 1)));
+        address.push(prefix);
+    }
     let inet6_at = f.at("inet6-address");
     let inet6 = f.strings("inet6-address")?;
     if inet6.len() > 1 {
@@ -131,6 +173,12 @@ pub fn lower(
         gateways.push(IpAddr::V6(std::net::Ipv6Addr::from(u128::from(ip) + 1)));
         address.push(prefix);
     }
+    if address.is_empty() {
+        return Err(anyhow!(
+            "{}: missing, as inet6-address: the device has no address",
+            inet4_at
+        ));
+    }
     tun.insert("address".into(), json!(address));
     // Mihomo's, where sing-box has 9000 only on Android.
     tun.insert("mtu".into(), json!(9000));
@@ -143,8 +191,10 @@ pub fn lower(
     if f.bool("endpoint-independent-nat")? == Some(true) {
         tun.insert("udp_filtering".into(), json!("endpoint_independent"));
     }
-    // Mihomo's default: the TUN takes the routes.
-    tun.entry("auto_route").or_insert(json!(true));
+    // Mihomo's default for its top-level one: the TUN takes the routes.
+    if top.is_some() {
+        tun.entry("auto_route").or_insert(json!(true));
+    }
     for (key, name) in SAME_LISTS {
         let list = f.strings(key)?;
         if !list.is_empty() {
@@ -221,19 +271,20 @@ pub fn lower(
     }
     // `interface-name` wins, as Mihomo's dialer looks the interface up
     // only without one.
-    // On unless set off, as in Mihomo.
-    if f.bool("auto-detect-interface")?.unwrap_or(true)
+    // On unless set off, as in Mihomo, for the top-level one.
+    if f.bool("auto-detect-interface")?.unwrap_or(top.is_some())
         && !out.route.contains_key("default_interface")
     {
         out.route
             .insert("auto_detect_interface".into(), json!(true));
     }
-    // Unset, every query to port 53, as Mihomo's default has it.
-    let entries = match f.has("dns-hijack") {
+    // Unset, every query to port 53, as Mihomo's default has it for the
+    // top-level one; for a listener, those to its own addresses alone.
+    let entries = match f.has("dns-hijack") || top.is_none() {
         true => f.strings("dns-hijack")?,
         false => vec!["0.0.0.0:53".to_string()],
     };
-    let hijack = hijack(&entries, &f.at("dns-hijack"), &gateways)?;
+    let hijack = hijack(&entries, &f.at("dns-hijack"), &gateways, tag)?;
     if let Some(fd) = f.int::<i64>("file-descriptor")?.filter(|fd| *fd > 0) {
         return Err(anyhow!(
             "{}: {}: sail does not take a device opened elsewhere yet",
@@ -263,7 +314,7 @@ fn address_set(set: &str, sets: &mut Sets) -> Result<()> {
 
 /// The rule that hands DNS to the device's addresses and to those listed
 /// to the DNS client.
-fn hijack(entries: &[String], at: &str, gateways: &[IpAddr]) -> Result<Value> {
+fn hijack(entries: &[String], at: &str, gateways: &[IpAddr], tag: &str) -> Result<Value> {
     let mut any = false;
     let mut to: Vec<(IpAddr, u16)> = gateways.iter().map(|ip| (*ip, 53)).collect();
     for (i, entry) in entries.iter().enumerate() {
@@ -297,7 +348,7 @@ fn hijack(entries: &[String], at: &str, gateways: &[IpAddr]) -> Result<Value> {
         "type": "logical",
         "mode": "and",
         "rules": [
-            { "inbound": [TAG] },
+            { "inbound": [tag] },
             { "type": "logical", "mode": "or", "rules": alternatives },
         ],
         "action": "hijack-dns",
