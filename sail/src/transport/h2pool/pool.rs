@@ -43,7 +43,7 @@ use crate::adapter::AnyStream;
 use crate::session::Session;
 use crate::transport::idle::{self, Idle};
 
-use super::{keepalive, Counted, Names};
+use super::{keepalive, quiet, Counted, Names};
 
 /// The most connections open to the server at once.
 const MAX_CONNECTIONS: usize = 8;
@@ -66,6 +66,10 @@ pub struct Keepalive {
     pub ping_timeout: Duration,
     /// Whether a connection carrying no requests is pinged too.
     pub permit_without_stream: bool,
+    /// Pings only after `idle_timeout` with nothing received, as Go's
+    /// HTTP/2 `ReadIdleTimeout`, requests open or not, rather than every
+    /// `idle_timeout`.
+    pub quiet: bool,
 }
 
 /// A connection dialled for the pool.
@@ -133,8 +137,8 @@ impl Connection {
         self.state.streams.load(Ordering::Acquire)
     }
 
-    fn has_room(&self) -> bool {
-        self.streams() < MAX_STREAMS.min(self.send.current_max_send_streams())
+    fn has_room(&self, max_streams: usize) -> bool {
+        self.streams() < max_streams.min(self.send.current_max_send_streams())
     }
 }
 
@@ -166,6 +170,9 @@ pub struct Pool {
     idle_timeout: Duration,
     /// The idle check, which the first dial starts.
     checking: OnceLock<idle::Check>,
+    /// The most requests one connection carries: `MAX_STREAMS` unless
+    /// `with_max_streams` says otherwise.
+    max_streams: usize,
 }
 
 impl Pool {
@@ -185,7 +192,14 @@ impl Pool {
             dialling: tokio::sync::Mutex::new(()),
             idle_timeout,
             checking: OnceLock::new(),
+            max_streams: MAX_STREAMS,
         }
+    }
+
+    /// Puts at most `max_streams` requests on one connection.
+    pub fn with_max_streams(mut self, max_streams: usize) -> Self {
+        self.max_streams = max_streams.max(1);
+        self
     }
 
     /// Ends every connection, and the requests on them, as sing-box closes
@@ -314,7 +328,7 @@ impl Pool {
         let connection = connections
             .iter()
             .map(|e| &e.connection)
-            .filter(|c| full || c.has_room())
+            .filter(|c| full || c.has_room(self.max_streams))
             .min_by_key(|c| c.streams())?
             .clone();
         let slot = Slot::take(&connection.state);
@@ -349,15 +363,22 @@ impl Pool {
             ended.closed.store(true, Ordering::Release);
         });
         if let (Some(interval), Some(ping_pong)) = (self.keepalive.idle_timeout, ping_pong) {
-            let watched = state.clone();
-            let permit_without_stream = self.keepalive.permit_without_stream;
+            let wanted: Box<dyn Fn() -> bool + Send> = if self.keepalive.quiet {
+                Box::new(quiet(received.clone()))
+            } else {
+                let watched = state.clone();
+                let permit_without_stream = self.keepalive.permit_without_stream;
+                Box::new(move || {
+                    permit_without_stream || watched.streams.load(Ordering::Acquire) > 0
+                })
+            };
             keepalive(
                 self.names,
                 ping_pong,
                 received,
                 interval,
                 self.keepalive.ping_timeout,
-                move || permit_without_stream || watched.streams.load(Ordering::Acquire) > 0,
+                wanted,
                 abort,
             );
         }
@@ -560,6 +581,7 @@ mod tests {
                 idle_timeout: None,
                 ping_timeout: Duration::from_secs(15),
                 permit_without_stream: false,
+                quiet: false,
             },
             idle_timeout,
             NAMES,

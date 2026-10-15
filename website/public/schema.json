@@ -7436,6 +7436,37 @@
      "type": "array",
      "description": "The clients that go in without credentials, by the IP prefixes they connect from: Mihomo's `skip-auth-prefixes`, a sail extension."
     },
+    "version": {
+     "anyOf": [
+      {
+       "type": "number"
+      },
+      {
+       "type": "array"
+      }
+     ],
+     "description": "The HTTP versions served, sing-box 1.15's: 1 and 2 when unset. HTTP/2 is told by its preface, over TLS or not. 3 is warned of and not served: sail speaks no HTTP/3."
+    },
+    "idle_timeout": {
+     "type": "string",
+     "description": "HTTP/2's, sing-box 1.15's: how long a ping may go unanswered, and how long a connection with no tunnel is kept."
+    },
+    "keep_alive_period": {
+     "type": "string",
+     "description": "HTTP/2's: a ping after this long with nothing received."
+    },
+    "stream_receive_window": {
+     "type": "number",
+     "description": "HTTP/2's: a tunnel's receive window."
+    },
+    "connection_receive_window": {
+     "type": "number",
+     "description": "HTTP/2's: a connection's receive window."
+    },
+    "max_concurrent_streams": {
+     "type": "number",
+     "description": "HTTP/2's: the most tunnels a client may have open on one connection."
+    },
     "type": {
      "const": "http"
     }
@@ -15499,11 +15530,31 @@
     },
     "version": {
      "type": "number",
-     "description": "The HTTP version sing-box 1.15 asks for, 1, 2 or 3; unset (or 0), 2, or 1 with a `path` or a `Host` header. sail proxies over HTTP/1.1 whichever, as sing-box does with a server that speaks no other; the configuration's warnings say so."
+     "description": "The HTTP version, sing-box 1.15's: 1, 2 or 3; unset (or 0), 1, as sing-box 1.14 speaks, until sail follows 1.15 stable. HTTP/2 needs TLS, and not REALITY's: without, HTTP/1.1. 3 is HTTP/2, which sail speaks in its place."
     },
     "disable_version_fallback": {
      "type": "boolean",
-     "description": "`version` alone, never HTTP/1.1 in its place: warned of with 2 or 3, as `version` is. Read only so that it is taken: sail's own use of it is the warning (`Config::http_outbound_warnings`)."
+     "description": "HTTP/2 alone, never HTTP/1.1 in its place: a server that picks no `h2` is an error."
+    },
+    "idle_timeout": {
+     "type": "string",
+     "description": "HTTP/2's, sing-box 1.15's: how long a ping may go unanswered."
+    },
+    "keep_alive_period": {
+     "type": "string",
+     "description": "HTTP/2's: a ping after this long with nothing received."
+    },
+    "stream_receive_window": {
+     "type": "number",
+     "description": "HTTP/2's: a tunnel's receive window."
+    },
+    "connection_receive_window": {
+     "type": "number",
+     "description": "HTTP/2's: a connection's receive window."
+    },
+    "max_concurrent_streams": {
+     "type": "number",
+     "description": "HTTP/2's: the most tunnels one connection carries."
     },
     "type": {
      "const": "http"

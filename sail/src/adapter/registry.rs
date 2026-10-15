@@ -99,8 +99,9 @@ pub struct OutboundFactory {
     pub blocks: Blocks,
     /// Whether the blocks are applied to the protocol's connections rather
     /// than around its handler: `build` gets them as a `Connector`
-    /// (`OutboundContext::connector`), and what it returns is used as is.
-    pub over_connector: bool,
+    /// (`OutboundContext::connector`), and what it returns is used as is;
+    /// by its options and blocks.
+    pub over_connector: fn(&Options, &OutboundBlocks) -> bool,
     /// Checks its options against its blocks, for protocols whose options
     /// only make sense over some layerings.
     pub check: fn(&str, &Options, &OutboundBlocks) -> Result<()>,
@@ -118,7 +119,7 @@ impl OutboundFactory {
             build,
             shareable: true,
             blocks: Blocks::NONE,
-            over_connector: false,
+            over_connector: |_, _| false,
             check: |_, _, _| Ok(()),
             alpn: |_| &[],
         }
@@ -134,7 +135,7 @@ impl OutboundFactory {
             build,
             shareable: false,
             blocks: Blocks::NONE,
-            over_connector: false,
+            over_connector: |_, _| false,
             check: |_, _, _| Ok(()),
             alpn: |_| &[],
         }
@@ -147,7 +148,14 @@ impl OutboundFactory {
 
     /// Its blocks make its connections, see `over_connector`.
     pub fn over_connector(mut self) -> Self {
-        self.over_connector = true;
+        self.over_connector = |_, _| true;
+        self
+    }
+
+    /// Its blocks make its connections where `when` says, see
+    /// `over_connector`.
+    pub fn over_connector_when(mut self, when: fn(&Options, &OutboundBlocks) -> bool) -> Self {
+        self.over_connector = when;
         self
     }
 
@@ -196,7 +204,9 @@ pub struct OutboundContext<'a> {
     ))]
     pub(crate) checkers: &'a mut crate::app::outbound::Checkers,
     handlers: &'a Handlers<AnyOutboundHandler>,
-    connector: Option<layers::Connector>,
+    /// Its blocks, which make its connections when it is built
+    /// `over_connector`.
+    blocks: &'a OutboundBlocks,
 }
 
 impl OutboundContext<'_> {
@@ -217,15 +227,38 @@ impl OutboundContext<'_> {
         tags.iter().map(|tag| self.handler(tag)).collect()
     }
 
+    /// Whether its blocks put TLS (or REALITY) under it.
+    pub fn has_tls(&self) -> bool {
+        self.blocks.has_tls()
+    }
+
+    /// Whether that TLS is REALITY's.
+    pub fn has_reality(&self) -> bool {
+        self.blocks.has_reality()
+    }
+
     /// The connections its blocks make, for a factory built
     /// `over_connector`.
-    pub fn connector(&self) -> Result<layers::Connector> {
-        self.connector.clone().ok_or_else(|| {
-            anyhow!(
-                "[{}] outbound: built without a connector (not over_connector)",
-                self.tag
-            )
-        })
+    pub fn connector(&mut self) -> Result<layers::Connector> {
+        layers::Connector::new(self.blocks, self.layering())
+    }
+
+    /// The connections its blocks make with TLS run last, telling what it
+    /// negotiated, for a factory built `over_connector`: see
+    /// `layers::TlsConnector`.
+    pub fn tls_connector(&mut self, fallback_alpn: &str) -> Result<layers::TlsConnector> {
+        layers::TlsConnector::new(self.blocks, self.layering(), fallback_alpn)
+    }
+
+    fn layering(&mut self) -> OutboundLayering<'_> {
+        OutboundLayering {
+            tag: self.tag,
+            options: self.options,
+            dns_client: self.dns_client,
+            abort_handles: &mut *self.abort_handles,
+            dialer: self.dialer.clone(),
+            env: self.env,
+        }
     }
 
     /// The server this outbound dials, from its `server` and
@@ -452,7 +485,7 @@ pub fn build_outbounds_as(
                         ))]
                         checkers: state.checkers,
                         handlers: state.handlers,
-                        connector: None,
+                        blocks: &blocks,
                     };
                     let endpoint_built = (factory.build)(&mut ctx)?;
                     state
@@ -500,21 +533,7 @@ pub fn build_outbounds_as(
                 state.dial_defaults,
                 detour,
             )?;
-            let connector = if factory.over_connector {
-                Some(layers::Connector::new(
-                    &blocks,
-                    OutboundLayering {
-                        tag: &outbound.tag,
-                        options: &options,
-                        dns_client: state.dns_client,
-                        abort_handles: &mut tasks,
-                        dialer: dialer.clone(),
-                        env: state.env,
-                    },
-                )?)
-            } else {
-                None
-            };
+            let over_connector = (factory.over_connector)(&options, &blocks);
             let mut ctx = OutboundContext {
                 tag: &outbound.tag,
                 options: &options,
@@ -536,10 +555,10 @@ pub fn build_outbounds_as(
                 ))]
                 checkers: state.checkers,
                 handlers: state.handlers,
-                connector,
+                blocks: &blocks,
             };
             let core = (factory.build)(&mut ctx)?;
-            let handler = if factory.over_connector {
+            let handler = if over_connector {
                 core
             } else {
                 layers::outbound(

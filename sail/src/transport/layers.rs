@@ -698,6 +698,12 @@ impl OutboundBlocks {
         self.tls().is_some()
     }
 
+    /// Whether the TLS on is REALITY's.
+    pub fn has_reality(&self) -> bool {
+        self.tls()
+            .is_some_and(|t| t.reality.as_ref().is_some_and(|r| r.enabled))
+    }
+
     fn tls(&self) -> Option<&OutboundTls> {
         self.tls.as_ref().filter(|t| t.enabled)
     }
@@ -1562,6 +1568,7 @@ fn grpc_outbound(
                 idle_timeout: idle_timeout.filter(|d| !d.is_zero()),
                 ping_timeout: ping_timeout.unwrap_or(DEFAULT_PING_TIMEOUT),
                 permit_without_stream,
+                quiet: false,
             },
             carrier_idle_timeout,
         )

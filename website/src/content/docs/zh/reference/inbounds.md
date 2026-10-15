@@ -215,6 +215,12 @@ Rust 定义：[`HttpInboundOptions`](https://github.com/peakpassvpn/sail/blob/ma
 | `tls` | object → [对象](/sail/zh/reference/shared/#tls-inbounds) | 未设置 | 支持 | — |
 | `realm` | string | 未设置 | sail 扩展 | The realm a `407` names, which clients show when asking for credentials: a sail extension; `sail` when unset. |
 | `skip_auth_prefixes` | 数组，元素为 string | `[]` | sail 扩展 | The clients that go in without credentials, by the IP prefixes they connect from: Mihomo's `skip-auth-prefixes`, a sail extension. |
+| `version` | number 或 数组，元素为 number | 未设置 | sail 扩展 | The HTTP versions served, sing-box 1.15's: 1 and 2 when unset. HTTP/2 is told by its preface, over TLS or not. 3 is warned of and not served: sail speaks no HTTP/3. |
+| `idle_timeout` | duration | 未设置 | sail 扩展 | HTTP/2's, sing-box 1.15's: how long a ping may go unanswered, and how long a connection with no tunnel is kept. |
+| `keep_alive_period` | duration | 未设置 | sail 扩展 | HTTP/2's: a ping after this long with nothing received. |
+| `stream_receive_window` | number | 未设置 | sail 扩展 | HTTP/2's: a tunnel's receive window. |
+| `connection_receive_window` | number | 未设置 | sail 扩展 | HTTP/2's: a connection's receive window. |
+| `max_concurrent_streams` | number | 未设置 | sail 扩展 | HTTP/2's: the most tunnels a client may have open on one connection. |
 
 <a id="inbounds-http-users"></a>
 

@@ -14,8 +14,6 @@ pub mod inbound;
 pub mod outbound;
 
 #[cfg(feature = "inbound-grpc")]
-use std::sync::atomic::Ordering;
-#[cfg(feature = "inbound-grpc")]
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -24,7 +22,7 @@ use portable_atomic::AtomicU64;
 
 use crate::transport::h2pool::Names;
 #[cfg(feature = "inbound-grpc")]
-use crate::transport::h2pool::Counted;
+use crate::transport::h2pool::{quiet, Counted};
 
 /// A stream's receive window. What one stream can have in flight towards
 /// this side, and so what it can buffer here.
@@ -92,17 +90,6 @@ fn client_builder() -> h2::client::Builder {
         .max_header_list_size(MAX_HEADER_LIST)
         .enable_push(false);
     builder
-}
-
-/// Whether nothing came from the peer since the last time this was asked:
-/// a server's keepalive round. `received` counts what came.
-#[cfg(feature = "inbound-grpc")]
-fn quiet(received: Arc<AtomicU64>) -> impl Fn() -> bool + Send + 'static {
-    let seen = AtomicU64::new(received.load(Ordering::Relaxed));
-    move || {
-        let now = received.load(Ordering::Relaxed);
-        seen.swap(now, Ordering::Relaxed) == now
-    }
 }
 
 #[cfg(all(test, feature = "inbound-grpc", feature = "outbound-grpc"))]

@@ -306,6 +306,39 @@ pub fn check_http_version(version: Option<u8>) -> Result<()> {
     }
 }
 
+/// The HTTP version an HTTP outbound's options ask for.
+pub struct HttpVersion {
+    /// `version` as set, 0 being unset.
+    pub asked: Option<u8>,
+    /// `version` if set, else 1: sing-box 1.14's, whose HTTP proxy speaks
+    /// HTTP/1.1 alone, until the registry follows sing-box 1.15 stable,
+    /// which takes 2 (1 with a path or a Host header).
+    pub resolved: u8,
+    pub disable_fallback: bool,
+}
+
+impl HttpVersion {
+    /// What `options` ask for; values of the wrong type are taken as unset,
+    /// for the outbound to refuse.
+    pub fn of(options: &Options) -> Self {
+        let asked = options
+            .get("version")
+            .and_then(|v| v.as_u64())
+            .and_then(|v| u8::try_from(v).ok())
+            .filter(|v| *v != 0);
+        let resolved = asked.unwrap_or(1);
+        let disable_fallback = options
+            .get("disable_version_fallback")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        HttpVersion {
+            asked,
+            resolved,
+            disable_fallback,
+        }
+    }
+}
+
 /// The warning for a `disable_version_fallback` that asks for HTTP/2 or 3
 /// alone, of which sail speaks neither: what it does, `what`, goes over
 /// HTTP/1.1 all the same. `version` is what the configuration says,
@@ -3498,10 +3531,37 @@ impl Config {
         warnings
     }
 
-    /// What its HTTP outbounds ask for that sail's, which proxies over
-    /// HTTP/1.1, does otherwise: HTTP/2 or 3, which sing-box falls back
-    /// from to HTTP/1.1 with a server that speaks no other, a warning each.
-    /// A value of the wrong type is the outbound's to refuse.
+    /// HTTP/3 among the versions an HTTP inbound serves, which sail does
+    /// not speak, a warning each; HTTP/3 alone is the inbound's to refuse.
+    pub fn http_inbound_warnings(&self) -> Vec<String> {
+        let mut warnings = Vec::new();
+        for (i, inbound) in self.inbounds.iter().enumerate() {
+            if inbound.protocol != "http" {
+                continue;
+            }
+            let versions: Vec<u64> = match inbound.options.get("version") {
+                Some(serde_json::Value::Number(n)) => n.as_u64().into_iter().collect(),
+                Some(serde_json::Value::Array(list)) => {
+                    list.iter().filter_map(|v| v.as_u64()).collect()
+                }
+                _ => Vec::new(),
+            };
+            if versions.contains(&3) && versions.iter().any(|v| *v == 1 || *v == 2) {
+                warnings.push(format!(
+                    "inbounds[{}].version: sail speaks no HTTP/3; 3 is not served",
+                    i
+                ));
+            }
+        }
+        warnings
+    }
+
+    /// What its HTTP outbounds ask for that sail's do otherwise: HTTP/3,
+    /// for which sail speaks HTTP/2; HTTP/2 without TLS, which sing-box
+    /// and sail speak as HTTP/1.1; HTTP/2 over REALITY, HTTP/1.1 as no
+    /// ALPN is told; a warning each. An unset `version`, HTTP/1.1, is
+    /// never warned of. A value of the wrong type, and what sing-box refuses,
+    /// are the outbound's to refuse.
     pub fn http_outbound_warnings(&self) -> Vec<String> {
         let mut warnings = Vec::new();
         for (i, outbound) in self.outbounds.iter().enumerate() {
@@ -3510,36 +3570,46 @@ impl Config {
             }
             let options = &outbound.options;
             let at = format!("outbounds[{}]", i);
-            let version = options
-                .get("version")
-                .and_then(|v| v.as_u64())
-                .and_then(|v| u8::try_from(v).ok());
-            let disable_version_fallback = options
-                .get("disable_version_fallback")
+            let version = HttpVersion::of(options);
+            let tls = options
+                .get("tls")
+                .and_then(|t| t.get("enabled"))
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
-            // sing-box's default: HTTP/1.1 with a path or a Host header,
-            // which only it carries, else HTTP/2.
-            let path = options
-                .get("path")
-                .and_then(|v| v.as_str())
-                .is_some_and(|p| !p.is_empty());
-            let host = options
-                .get("headers")
-                .and_then(|v| v.as_object())
-                .is_some_and(|h| h.keys().any(|k| k.eq_ignore_ascii_case("host")));
-            let default = if path || host { 1 } else { 2 };
-            match http_fallback_warning(&at, version, default, disable_version_fallback, "proxies")
-            {
-                Some(warning) => warnings.push(warning),
-                None => {
-                    if let Some(version @ (2 | 3)) = version {
+            let reality = tls
+                && options
+                    .get("tls")
+                    .and_then(|t| t.get("reality"))
+                    .and_then(|r| r.get("enabled"))
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+            if reality && version.resolved >= 2 {
+                warnings.push(format!(
+                    "{}.tls.reality: HTTP/2 needs the server's ALPN, which REALITY does not \
+                     tell; HTTP/1.1",
+                    at
+                ));
+                continue;
+            }
+            match (version.resolved, tls) {
+                (3, true) => {
+                    warnings.push(format!(
+                        "{}.version: sail speaks HTTP/2 and HTTP/1.1, not HTTP/3; HTTP/2 used",
+                        at
+                    ));
+                    if version.disable_fallback {
                         warnings.push(format!(
-                            "{}.version: sail proxies over HTTP/1.1, not HTTP/{}; ignored",
-                            at, version
+                            "{}.disable_version_fallback: HTTP/2 alone, as sail speaks no \
+                             HTTP/3",
+                            at
                         ));
                     }
                 }
+                (2, false) if !version.disable_fallback => warnings.push(format!(
+                    "{}.version: HTTP/2 needs TLS; HTTP/1.1, as sing-box",
+                    at
+                )),
+                _ => {}
             }
         }
         warnings
@@ -4081,6 +4151,55 @@ pub mod duration {
             .map(Some)
             .map_err(serde::de::Error::custom)
     }
+}
+
+/// A size in memory as sing-box writes one (sing's `byteformats.MemoryBytes`):
+/// a number of bytes, or a string of digits and a unit, `b`, `k`/`kb`,
+/// `m`/`mb`, `g`/`gb` (in any case), each 1024 times the one before.
+pub mod memory_bytes {
+    use serde::de::{self, Deserializer};
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(de: D) -> Result<Option<u64>, D::Error> {
+        struct Visitor;
+
+        impl de::Visitor<'_> for Visitor {
+            type Value = Option<u64>;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("a number of bytes, or one with a unit, e.g. 4MB")
+            }
+
+            fn visit_u64<E: de::Error>(self, v: u64) -> Result<Self::Value, E> {
+                Ok(Some(v))
+            }
+
+            fn visit_str<E: de::Error>(self, v: &str) -> Result<Self::Value, E> {
+                super::parse_memory_bytes(v).map(Some).map_err(E::custom)
+            }
+        }
+
+        de.deserialize_any(Visitor)
+    }
+}
+
+/// `memory_bytes`' string form.
+pub fn parse_memory_bytes(s: &str) -> Result<u64> {
+    let digits = s.find(|c: char| !c.is_ascii_digit()).unwrap_or(s.len());
+    if digits == 0 || digits == s.len() {
+        return Err(anyhow!("{:?}: a number and a unit, e.g. 4MB", s));
+    }
+    let value: u64 = s[..digits].parse().map_err(|e| anyhow!("{:?}: {}", s, e))?;
+    let shift = match s[digits..].trim().to_ascii_lowercase().as_str() {
+        "b" => 0,
+        "k" | "kb" => 10,
+        "m" | "mb" => 20,
+        "g" | "gb" => 30,
+        "t" | "tb" => 40,
+        unit => return Err(anyhow!("{:?}: unknown unit {:?}", s, unit)),
+    };
+    value
+        .checked_mul(1 << shift)
+        .ok_or_else(|| anyhow!("{:?}: too large", s))
 }
 
 /// `duration`, or a number of nanoseconds up to `u32::MAX`: a route

@@ -50,6 +50,46 @@ fn server_with(configure: impl FnOnce(&mut btls::ssl::SslAcceptorBuilder)) -> Se
     }
 }
 
+/// A TLS server for `localhost` picking `pick` in ALPN if the client offers
+/// it, else none, and its certificate as PEM; what each client offered, as
+/// the wire lists it, goes into `offered`.
+#[cfg_attr(not(feature = "outbound-http"), allow(dead_code))]
+pub(crate) fn acceptor_picking(
+    pick: &'static [u8],
+    offered: std::sync::Arc<std::sync::Mutex<Vec<Vec<u8>>>>,
+) -> (SslAcceptor, String) {
+    let server = server_with(|builder| {
+        builder.set_alpn_select_callback(move |_, client| {
+            offered.lock().unwrap().push(client.to_vec());
+            let mut rest = client;
+            while let Some((&n, tail)) = rest.split_first() {
+                let (protocol, tail) = tail.split_at((n as usize).min(tail.len()));
+                if protocol == pick {
+                    return Ok(protocol);
+                }
+                rest = tail;
+            }
+            Err(btls::ssl::AlpnError::NOACK)
+        });
+    });
+    (server.acceptor, server.cert_pem)
+}
+
+/// The server side of TLS over `stream`, with `acceptor`.
+#[cfg_attr(not(feature = "outbound-http"), allow(dead_code))]
+pub(crate) async fn accept<S>(
+    acceptor: &SslAcceptor,
+    stream: S,
+) -> std::io::Result<TlsStream<BoringConnection, S>>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
+    let ssl = Ssl::new(acceptor.context()).unwrap();
+    let mut stream = TlsStream::new(BoringConnection::server(ssl)?, stream, None);
+    stream.handshake().await?;
+    Ok(stream)
+}
+
 /// The pin of a SubjectPublicKeyInfo: its SHA-256, base64. What rcgen
 /// writes, not what BoringSSL reads back, so that the two are checked
 /// against each other.

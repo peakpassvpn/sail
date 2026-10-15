@@ -5,9 +5,14 @@
 pub mod amux;
 #[cfg(any(feature = "inbound-grpc", feature = "outbound-grpc"))]
 pub mod grpc;
-#[cfg(feature = "mux")]
+#[cfg(any(feature = "mux", feature = "outbound-http", feature = "inbound-http"))]
 pub mod h2connect;
-#[cfg(any(feature = "inbound-grpc", feature = "outbound-grpc"))]
+#[cfg(any(
+    feature = "inbound-grpc",
+    feature = "outbound-grpc",
+    feature = "inbound-http",
+    feature = "outbound-http"
+))]
 pub mod h2pool;
 #[cfg(any(
     feature = "inbound-ws",
@@ -20,6 +25,7 @@ pub mod httpupgrade;
     feature = "outbound-hysteria2",
     feature = "outbound-quic",
     feature = "outbound-grpc",
+    feature = "outbound-http",
     feature = "outbound-amux"
 ))]
 pub mod idle;
@@ -31,6 +37,8 @@ pub mod mux;
     feature = "outbound-amux",
     feature = "inbound-anytls",
     feature = "outbound-anytls",
+    feature = "inbound-http",
+    feature = "outbound-http",
     feature = "quic"
 ))]
 pub mod muxcore;

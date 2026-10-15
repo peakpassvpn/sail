@@ -215,6 +215,12 @@ Rust: [`HttpInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sai
 | `tls` | object → [object](/sail/reference/shared/#tls-inbounds) | unset | Supported | — |
 | `realm` | string | unset | sail extension | The realm a `407` names, which clients show when asking for credentials: a sail extension; `sail` when unset. |
 | `skip_auth_prefixes` | array of string | `[]` | sail extension | The clients that go in without credentials, by the IP prefixes they connect from: Mihomo's `skip-auth-prefixes`, a sail extension. |
+| `version` | number or array of number | unset | sail extension | The HTTP versions served, sing-box 1.15's: 1 and 2 when unset. HTTP/2 is told by its preface, over TLS or not. 3 is warned of and not served: sail speaks no HTTP/3. |
+| `idle_timeout` | duration | unset | sail extension | HTTP/2's, sing-box 1.15's: how long a ping may go unanswered, and how long a connection with no tunnel is kept. |
+| `keep_alive_period` | duration | unset | sail extension | HTTP/2's: a ping after this long with nothing received. |
+| `stream_receive_window` | number | unset | sail extension | HTTP/2's: a tunnel's receive window. |
+| `connection_receive_window` | number | unset | sail extension | HTTP/2's: a connection's receive window. |
+| `max_concurrent_streams` | number | unset | sail extension | HTTP/2's: the most tunnels a client may have open on one connection. |
 
 <a id="inbounds-http-users"></a>
 

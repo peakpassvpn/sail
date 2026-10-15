@@ -3,9 +3,9 @@
 //! requests go on (`pool`), the keepalive, and what tells it the peer is
 //! alive.
 
-#[cfg(feature = "outbound-grpc")]
+#[cfg(any(feature = "outbound-grpc", feature = "outbound-http"))]
 mod pool;
-#[cfg(feature = "outbound-grpc")]
+#[cfg(any(feature = "outbound-grpc", feature = "outbound-http"))]
 pub use pool::*;
 
 use std::io;
@@ -18,6 +18,17 @@ use std::time::Duration;
 use portable_atomic::AtomicU64;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tracing::debug;
+
+/// Whether nothing came from the peer since the last time this was asked:
+/// a keepalive round that pings only after a quiet interval, as a gRPC
+/// server's and Go's `ReadIdleTimeout`. `received` counts what came.
+pub fn quiet(received: Arc<AtomicU64>) -> impl Fn() -> bool + Send + 'static {
+    let seen = AtomicU64::new(received.load(Ordering::Relaxed));
+    move || {
+        let now = received.load(Ordering::Relaxed);
+        seen.swap(now, Ordering::Relaxed) == now
+    }
+}
 
 /// What tasks are called, and the prefix of what is logged.
 #[derive(Clone, Copy, Debug)]

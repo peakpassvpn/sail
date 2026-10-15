@@ -80,7 +80,10 @@ fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
         &ctx.env.users,
     )?;
     let stream = Arc::new(StreamHandler {
-        http: http::inbound::StreamHandler::new(http_users, realm).skipping_auth(skip_auth.clone()),
+        // HTTP/2 with prior knowledge too, as sing-box's mixed serves it.
+        http: http::inbound::StreamHandler::new(http_users, realm)
+            .skipping_auth(skip_auth.clone())
+            .with_http2(&ctx.env.options),
         socks: socks::inbound::StreamHandler::new(
             socks_users,
             ctx.state

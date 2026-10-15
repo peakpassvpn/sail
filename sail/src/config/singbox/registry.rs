@@ -1356,12 +1356,67 @@ const EXTENSIONS: &[(&str, &str, &str)] = &[
     (
         "outbounds[http].version",
         "1",
-        "sing-box 1.15's, read ahead: the HTTP version, 1, 2 or 3 (2 when unset, 1 with a `path` or `Host` header). sail proxies over HTTP/1.1 whichever, as sing-box does with a server that speaks no other, and warns of 2 and 3",
+        "sing-box 1.15's, read ahead: the HTTP version, 1, 2 or 3; unset, 1, as sing-box 1.14 speaks, until sail follows 1.15 stable. 2 is HTTP/2 over TLS, its tunnels CONNECTs on pooled connections, falling back to HTTP/1.1 where the server picks no `h2`; without TLS or over REALITY HTTP/1.1, warned of. 3 is HTTP/2, warned of",
     ),
     (
         "outbounds[http].disable_version_fallback",
         "false",
-        "sing-box 1.15's, read ahead: `version` alone, never HTTP/1.1 in its place; warned of with HTTP/2 or 3, as sail proxies over HTTP/1.1",
+        "sing-box 1.15's, read ahead: HTTP/2 alone, never HTTP/1.1 in its place: a server that picks no `h2` is an error, as is HTTP/2 without TLS",
+    ),
+    (
+        "outbounds[http].idle_timeout",
+        r#""30s""#,
+        "sing-box 1.15's, read ahead, with HTTP/2: how long a ping may go unanswered (15s when unset)",
+    ),
+    (
+        "outbounds[http].keep_alive_period",
+        r#""20s""#,
+        "sing-box 1.15's, read ahead, with HTTP/2: a ping after this long with nothing received (none when unset)",
+    ),
+    (
+        "outbounds[http].stream_receive_window",
+        r#""8MB""#,
+        "sing-box 1.15's, read ahead, with HTTP/2: a tunnel's receive window (unset, 16 MiB on desktops and servers, 4 MiB on phones, 2 MiB on routers)",
+    ),
+    (
+        "outbounds[http].connection_receive_window",
+        r#""32MB""#,
+        "sing-box 1.15's, read ahead, with HTTP/2: a connection's receive window (unset, four tunnels' windows)",
+    ),
+    (
+        "outbounds[http].max_concurrent_streams",
+        "64",
+        "sing-box 1.15's, read ahead, with HTTP/2: the most tunnels one connection carries (128 when unset)",
+    ),
+    (
+        "inbounds[http].version",
+        "[1, 2]",
+        "sing-box 1.15's, read ahead: the HTTP versions served, 1 and 2 when unset; HTTP/2 by its preface, over TLS or not. 3 is not served, warned of",
+    ),
+    (
+        "inbounds[http].idle_timeout",
+        r#""30s""#,
+        "sing-box 1.15's, read ahead, with HTTP/2: how long a ping may go unanswered, and a connection with no tunnel is kept",
+    ),
+    (
+        "inbounds[http].keep_alive_period",
+        r#""20s""#,
+        "sing-box 1.15's, read ahead, with HTTP/2: a ping after this long with nothing received",
+    ),
+    (
+        "inbounds[http].stream_receive_window",
+        r#""8MB""#,
+        "sing-box 1.15's, read ahead, with HTTP/2: a tunnel's receive window (unset, 16 MiB on desktops and servers, 4 MiB on phones, 2 MiB on routers)",
+    ),
+    (
+        "inbounds[http].connection_receive_window",
+        r#""32MB""#,
+        "sing-box 1.15's, read ahead, with HTTP/2: a connection's receive window (unset, four tunnels' windows)",
+    ),
+    (
+        "inbounds[http].max_concurrent_streams",
+        "64",
+        "sing-box 1.15's, read ahead, with HTTP/2: the most tunnels a client may have open on one connection (128 when unset)",
     ),
     (
         "outbounds[shadowsocks].prefix",
@@ -1607,6 +1662,17 @@ that speaks no other; `version` and `engine` are checked as sing-box checks them
 `disable_version_fallback` with HTTP/2 or 3, and the `apple` engine, are warned of. A download \
 is the same download over either.
 
+An HTTP proxy speaks HTTP/2 over TLS as sing-box 1.15 does with `version` 2 (unset, it speaks \
+HTTP/1.1, as sing-box 1.14, until sail follows 1.15 stable): its tunnels are CONNECTs on the connections an outbound keeps, \
+falling back to HTTP/1.1 where the server picks no `h2` in ALPN until the network changes, and \
+an inbound tells HTTP/2 by its preface, over TLS or not. sail speaks no HTTP/3: an outbound's \
+`version` 3 is HTTP/2, and an inbound serves its other versions, each warned of. An inbound \
+proxies only CONNECT over HTTP/2.
+
+A REALITY outbound offers its fingerprint's ALPN whatever `tls.alpn` says, so an HTTP outbound \
+over REALITY offers `h2` while it speaks HTTP/1.1. Harmless with sail and sing-box servers: \
+sail's REALITY server negotiates no ALPN, and sing-box's HTTP inbound reads the request it gets.
+
 As in sing-box, the addresses a `resolve` route action resolves the destination's domain to go \
 to whatever outbound the connection takes: a proxy's server is sent the address, which the \
 local DNS chose, not the domain, and so does not resolve it itself.
@@ -1638,7 +1704,8 @@ Linux's only (Windows has no socket mark; `bind_interface` chooses the way out),
 and the option reads back unset, so that what it does could not be shown.
 
 An outbound closes the carriers it keeps -- a Hysteria2 connection, a pooled connection of the \
-quic or grpc transport, a mux or amux session -- once nothing has been open on one for 60 s; the \
+quic or grpc transport, an HTTP proxy's HTTP/2 connection, \
+a mux or amux session -- once nothing has been open on one for 60 s; the \
 next connection dials anew. So does the member a group selects, which sing-box 1.14.3 and later \
 keep: they close only the outbounds no rule or group selection references.",
     summary: "## Summary",
@@ -1677,13 +1744,17 @@ const ZH: Words = Words {
 
 HTTP 客户端无论 `version` 为何都通过 HTTP/1.1 下载，与 sing-box 遇到只支持 HTTP/1.1 的服务器时相同；`version` 与 `engine` 按 sing-box 的规则校验，`disable_version_fallback` 配合 HTTP/2 或 3、以及 `apple` 引擎会给出警告。两种方式下载的内容相同。
 
+HTTP 代理在 `version` 为 2 时与 sing-box 1.15 一样在 TLS 之上使用 HTTP/2（未设置时与 sing-box 1.14 一样使用 HTTP/1.1，直到 sail 对照 1.15 正式版）：出站的每条隧道是其保持的连接上的一个 CONNECT 请求，服务器在 ALPN 中未选择 `h2` 时回退到 HTTP/1.1，直到网络变化；入站通过连接前言识别 HTTP/2，无论是否有 TLS。sail 不支持 HTTP/3：出站的 `version` 3 使用 HTTP/2，入站只服务其余版本，均给出警告。入站在 HTTP/2 上只代理 CONNECT。
+
+REALITY 出站无论 `tls.alpn` 如何都提供其指纹的 ALPN，因此经 REALITY 的 HTTP 出站虽然使用 HTTP/1.1，仍会在 ALPN 中提供 `h2`。对 sail 与 sing-box 的服务端无害：sail 的 REALITY 服务端不协商 ALPN，sing-box 的 HTTP 入站按收到的请求本身判断。
+
 与 sing-box 一致，`resolve` 路由动作把目标域名解析出的地址交给连接所走的任一出站：代理服务器收到的是由本地 DNS 决定的地址，而不是域名，它不会自己再解析。
 
 在默认拨号器绑定套接字时（占用默认路由的 TUN 即如此），`local` 服务器自己询问系统的 DNS 服务器：按顺序询问，每个服务器平分查询剩余的时间，最多三个，每个至少一秒；sing-box 给每个服务器 resolv.conf 的超时（5 秒），因此在 10 秒的查询里它的第三个服务器永远不会被询问。没有可发送的接口时立即失败，而不去询问不属于任何网络的系统服务器（sing-box 此时回退到 127.0.0.1 和 ::1）。在 macOS 上 sing-box 把名字交给系统解析器，sail 则询问其拨号器所走接口的服务器：手动设置的优先，否则用网络告知的。sail 会遵循系统的分离 DNS，sing-box 自己询问服务器的 local 服务器和 Mihomo 的 `system` 都不会：名字落在只负责部分域名的解析器的域名下（macOS 上带 `SupplementalMatchDomains` 的解析器，或 /etc/resolver 下的文件；Linux 上 systemd-resolved 某条链路的路由域名或搜索域名；Windows 上带 DNS 服务器的 NRPT 规则）时，询问该解析器的服务器，并从系统询问它所用的接口发出（NRPT 不指定接口，则从系统路由到该服务器的接口发出），最长的域名优先。位于 sail 自己 TUN 上、或服务器全在其网络内的解析器会被跳过；带 `detour` 或自己设了 `bind_interface` 的服务器不遵循分离 DNS。
 
 Windows 无法实现的拨号字段在 Windows 上报错。已知缺口是 `tcp_fast_open`：Windows 只在连接调用本身（`ConnectEx`）里随 SYN 发送 Fast Open 数据，而 sail 在首次写入之前就已连接；Linux 和 macOS 则由内核把 SYN 留到首次写入。sing-box 的 tfo-go 返回自己的连接类型，在首次写入时才连接。`routing_mark` 与 `route.default_mark` 只在 Linux 上支持（Windows 没有 socket 标记，出口由 `bind_interface` 选择），`protect_path` 只在 Unix 上支持，`bind_address_no_port` 只在 Linux 上支持：Windows 接受 `SO_REUSE_UNICASTPORT`，但设了它的 socket 仍在 bind 时分到端口，读回该选项也是未设置，无法证明它起作用。
 
-出站保留的承载连接（Hysteria2 连接、quic 与 grpc 传输层池中的连接、mux 与 amux 会话）在 60 秒内没有任何打开的流或 UDP 会话时关闭，下一个连接重新拨号。分组当前选中的成员也是如此；sing-box 1.14.3 起保留它，只关闭没有任何规则或分组选择引用的出站。",
+出站保留的承载连接（Hysteria2 连接、quic 与 grpc 传输层池中的连接、HTTP 代理的 HTTP/2 连接、mux 与 amux 会话）在 60 秒内没有任何打开的流或 UDP 会话时关闭，下一个连接重新拨号。分组当前选中的成员也是如此；sing-box 1.14.3 起保留它，只关闭没有任何规则或分组选择引用的出站。",
     summary: "## 汇总",
     area: "部分",
     total: "字段数",

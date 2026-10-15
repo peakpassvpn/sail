@@ -33,6 +33,10 @@ pub(crate) const DEFAULT_REALM: &str = "sail";
 
 const BAD_REQUEST: &[u8] = b"HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n";
 
+/// The answer to an HTTP/1 request where only HTTP/2 is served.
+const VERSION_NOT_SUPPORTED: &[u8] =
+    b"HTTP/1.1 505 HTTP Version Not Supported\r\nConnection: close\r\nContent-Length: 0\r\n\r\n";
+
 fn bad_request() -> io::Error {
     io::Error::other("bad request")
 }
@@ -188,7 +192,7 @@ impl TryFrom<&[u8]> for RequestHead {
 
 /// The user `Proxy-Authorization` authenticates as, if it names one of
 /// `users` with their password: `Some(None)` for a user without a name.
-fn authenticate(
+pub(super) fn authenticate(
     users: &Passwords,
     authorization: Option<&str>,
 ) -> Option<Option<crate::user::UserRef>> {
@@ -372,6 +376,11 @@ pub struct Handler {
     skip_auth: crate::user::SkipAuth,
     /// What a `407` names as the realm.
     realm: Arc<str>,
+    /// Whether HTTP/1.1 is served.
+    http1: bool,
+    /// HTTP/2, when it is served: to a connection that starts with its
+    /// preface.
+    h2: Option<super::h2::Server>,
 }
 
 impl Handler {
@@ -380,7 +389,33 @@ impl Handler {
             users: Arc::new(users),
             skip_auth: Default::default(),
             realm: realm.into(),
+            http1: true,
+            h2: None,
         }
+    }
+
+    /// Serves HTTP/1.1 if `http1`, and HTTP/2 as `h2` says if given.
+    pub(super) fn with_versions(mut self, http1: bool, h2: Option<super::h2::Server>) -> Self {
+        self.http1 = http1;
+        self.h2 = h2;
+        self
+    }
+
+    /// Serves HTTP/2 too, with the defaults of `options`' profile, as the
+    /// mixed inbound does.
+    #[cfg_attr(not(feature = "inbound-mixed"), allow(dead_code))]
+    pub(crate) fn with_http2(mut self, options: &crate::runtime::RuntimeOptions) -> Self {
+        let stall_timeout = crate::transport::muxcore::Tuning::from(options).stall_timeout;
+        self.h2 = Some(super::h2::Server {
+            settings: crate::protocol::http::h2::Settings::new(
+                "",
+                &Default::default(),
+                options.profile,
+            )
+            .expect("the defaults"),
+            stall_timeout,
+        });
+        self
     }
 
     /// Lets the clients `skip_auth` covers in without credentials.
@@ -394,19 +429,33 @@ impl Handler {
     pub(crate) async fn handle_with_prefix(
         &self,
         mut sess: Session,
-        stream: AnyStream,
-        prefix: Vec<u8>,
+        mut stream: AnyStream,
+        mut prefix: Vec<u8>,
     ) -> io::Result<AnyInboundTransport> {
+        let skip_auth = self.skip_auth.covers(sess.source.ip());
+        if let Some(h2) = &self.h2 {
+            if super::h2::read_preface(&mut stream, &mut prefix).await? {
+                let users = match skip_auth {
+                    true => Arc::new(Passwords::new()),
+                    false => self.users.clone(),
+                };
+                let stream = Box::new(HttpStream {
+                    cache: prefix,
+                    origin: stream,
+                });
+                return h2.serve(sess, stream, users, self.realm.clone()).await;
+            }
+        }
         let mut http_stream = HttpStream {
             cache: Vec::new(),
             origin: stream,
         };
+        if !self.http1 {
+            let _ = crate::net::refuse(&mut http_stream.origin, VERSION_NOT_SUPPORTED).await;
+            return Err(io::Error::other("http: HTTP/1 is not served (version)"));
+        }
         let none = Passwords::new();
-        let users = if self.skip_auth.covers(sess.source.ip()) {
-            &none
-        } else {
-            &*self.users
-        };
+        let users = if skip_auth { &none } else { &*self.users };
         let (destination, user) = http_stream.accept(users, &self.realm, prefix).await?;
         sess.destination = destination;
         if user.is_some() {

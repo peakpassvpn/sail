@@ -59,6 +59,7 @@ fn read(s: &str, zero_unset: bool) -> Result<Config> {
     config.warnings = warnings;
     config.warnings.extend(config.http_client_warnings());
     config.warnings.extend(config.http_outbound_warnings());
+    config.warnings.extend(config.http_inbound_warnings());
     Ok(config)
 }
 
