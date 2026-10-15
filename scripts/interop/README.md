@@ -13,6 +13,7 @@
 - sail 和 sing-box 读同一份 sing-box JSON，Mihomo 读 Clash YAML（脚本自己生成，块格式，字符串按 JSON 加引号）。每格的两份配置、两边的日志和 `result.json` 都在该格的目录里。
 - 每格的检查，都经客户端的 SOCKS 入站：TCP 回显（1 字节到 200000 字节的 6 条消息，逐字节比对）；协议承载 UDP 时的 UDP 回显（16 到 1200 字节的 5 个数据报，各最多发 4 次）；大块传输上行、下行各一次（默认 64 MiB，按 1 MiB 块编号的确定性数据，SHA-256 校验，上行由目标回送摘要）。最后确认服务端日志里出现过目标地址，即流量确实经过了被测服务端。
 - AnyTLS 的格子另有几项：UDP 回显加上超过 MTU 的数据报（1400 到 16000 字节；再大的 sing-box 自己就丢，sb>sb 也一样）；50 个 60 字节数据报同时发出（像 DNS），记下第一轮回来几个；会话池复用（`reuse`：6 个连接先后、6 个同时、再各一轮，从 `/proc/net/tcp` 数客户端到服务端的 TCP 连接，先后的一轮与第二次同时的一轮都不应新开会话）。`anytls(padding)` 一行的服务端用自己的填充方案，检查程序在 lo 上抓包（packet socket），读客户端发出的 TLS 记录长度，要求第一个之后的会话按这个方案填充。
+- HTTP 代理的 HTTP/2 各行（`http(v2...)` 等，sing-box 1.15 的 `version`，只在 sail 与 sing-box 之间）：版本 1、2 × 回退开关 × 有无用户，另有不带 TLS 的 v2（实为 HTTP/1.1），以及服务端只服务 HTTP/1.1（`version: [1]`）的两行。每格另检查 100 个同时的 CONNECT（`parallel`）；6 个同时保持的隧道在 HTTP/2 上共用 1 条到服务端的连接、在 HTTP/1.1 上各用一条（`conns`，读 `/proc/net/tcp`）；错误密码经客户端的第二个 SOCKS 入站（SOCKS 端口 +1）被拒、客户端日志写明 407 或 “authentication required”（`wrong_password`）。`v2,server-v1` 一行在 lo 上抓包读各连接 ClientHello 的 ALPN：第一条提供 `h2, http/1.1`，之后的只提供 `http/1.1`（`sticky`）；`v2,nofb,server-v1` 一行要求连接失败且客户端日志含 `server does not support HTTP/2`（`refused`）。
 - 有 Mihomo 参与的格子，检查前先等一个字节能往返（最多 10 秒，记为 `warmup_s`）：Mihomo 先打开 listener，再加载 provider，最后才让隧道开始处理连接（`hub/executor/executor.go`），其间到达的连接被直接丢弃（`tunnel/tunnel.go` 的 `isHandle`）。只有 sail 与 sing-box 的格子不等，sail 启动后第一个连接就算数。
 - 某一边不支持的组合不跑，列为 skip 并写明原因（`unsupported()`、`dir_skip()`）；协议支持的组合都跑，不因已知失败而跳过。
 

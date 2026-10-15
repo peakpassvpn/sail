@@ -158,6 +158,25 @@ def cases():
     out.append(Case("http", "tcp", "tls", udp=False))
     out.append(Case("mixed", variant="socks"))
     out.append(Case("mixed", udp=False, via="http", variant="http"))
+    # HTTP/2 CONNECT (sing-box 1.15's `version`): HTTP/1.1 and HTTP/2, with
+    # and without the version fallback, with users and without; HTTP/2
+    # asked for without TLS, which is HTTP/1.1; and a server serving
+    # HTTP/1.1 alone, which the client falls back to (later connections
+    # offer http/1.1 alone) or, without the fallback, fails on.
+    for version in (1, 2):
+        for fallback in (True, False):
+            for auth in (True, False):
+                out.append(Case("http", "tcp", "tls", udp=False, h2=True, version=version,
+                                fallback=fallback, auth=auth,
+                                variant=f"v{version}" + ("" if fallback else ",nofb")
+                                + ("" if auth else ",noauth")))
+    out.append(Case("http", udp=False, h2=True, version=2, fallback=True, auth=True,
+                    variant="v2"))
+    out.append(Case("http", "tcp", "tls", udp=False, h2=True, version=2, fallback=True,
+                    auth=True, server_versions=[1], sticky=True, variant="v2,server-v1"))
+    out.append(Case("http", "tcp", "tls", udp=False, h2=True, version=2, fallback=False,
+                    auth=True, server_versions=[1], expect_error="server does not support HTTP/2",
+                    variant="v2,nofb,server-v1"))
     out.append(Case("wireguard", "udp"))
     return out
 
@@ -171,6 +190,8 @@ def unsupported(case, role, impl):
                     "Encrypted Client Hello on an inbound is an error)")
         if role == "server" and case.opt.get("obfs") and p == "ss":
             return "sail's Shadowsocks inbound has no simple-obfs"
+    if case.opt.get("h2") and impl in ("mh", "sailY"):
+        return "the HTTP/2 rows are sing-box 1.15's `version`, which Mihomo has no counterpart of"
     if impl == "sailY":
         if role == "server" and p not in ("ss", "socks", "http", "mixed"):
             return (f"sail's Clash front-end has no {p} listeners "
@@ -364,7 +385,11 @@ def sb_server(case, m, port):
         inbounds.append({"type": "shadowsocks", "tag": "ss-in", "method": case.opt["method"],
                          "password": SS_KEYS.get(case.opt["method"], PASSWORD)})
     elif p in ("socks", "http", "mixed"):
-        ib = dict(base, type=p, users=[{"username": USER, "password": PASSWORD}])
+        ib = dict(base, type=p)
+        if case.opt.get("auth", True):
+            ib["users"] = [{"username": USER, "password": PASSWORD}]
+        if case.opt.get("server_versions"):
+            ib["version"] = case.opt["server_versions"]
         tls = sb_tls_server(case, m)
         if tls:
             ib["tls"] = tls
@@ -441,11 +466,20 @@ def sb_client(case, m, port, socks_port):
     elif p in ("socks", "mixed") and case.opt.get("via") != "http":
         outbounds.append(dict(base, type="socks", version="5", username=USER, password=PASSWORD))
     elif p in ("http", "mixed"):
-        ob = dict(base, type="http", username=USER, password=PASSWORD)
+        ob = dict(base, type="http")
+        if case.opt.get("auth", True):
+            ob.update(username=USER, password=PASSWORD)
         tls = sb_tls_client(case, m)
         if tls:
             ob["tls"] = tls
+        if case.opt.get("h2"):
+            ob["version"] = case.opt["version"]
+            if not case.opt["fallback"]:
+                ob["disable_version_fallback"] = True
         outbounds.append(ob)
+        if case.opt.get("h2") and case.opt.get("auth", True):
+            # The wrong password, through a SOCKS inbound of its own.
+            outbounds.append(dict(ob, tag="wrong", password=PASSWORD + "-wrong"))
     elif p == "wireguard":
         endpoints.append({"type": "wireguard", "tag": "proxy", "address": ["10.77.0.2/32"],
                           "private_key": m.k["wg_client"]["PrivateKey"], "mtu": 1408,
@@ -458,6 +492,16 @@ def sb_client(case, m, port, socks_port):
                          "listen_port": socks_port}]}
     if endpoints:
         cfg["endpoints"] = endpoints
+    if case.opt.get("h2"):
+        # sail logs why a dial failed at debug, which the refusal checks read.
+        cfg["log"]["level"] = "debug"
+    if any(o["tag"] == "wrong" for o in outbounds):
+        cfg["inbounds"].append({"type": "socks", "tag": "socks-wrong", "listen": LOCAL,
+                                "listen_port": socks_port + 1})
+        cfg["outbounds"] = outbounds
+        cfg["route"] = {"rules": [{"inbound": ["socks-wrong"], "outbound": "wrong"}],
+                        "final": "proxy"}
+        return cfg
     cfg["outbounds"] = outbounds
     cfg["route"] = {"final": "proxy"}
     return cfg
@@ -1067,6 +1111,141 @@ def check_reuse(socks_port, server_port, n=6):
     return phases
 
 
+def check_parallel(socks_port, n=100):
+    """n CONNECTs open at once, each echoing a few messages."""
+    errors = []
+
+    def run(i):
+        try:
+            s = socks_connect(socks_port, TARGET, ECHO_PORT, timeout=20)
+            try:
+                s.settimeout(20)
+                for j, size in enumerate((1, 1000, 20000)):
+                    msg = random.Random(10000 * i + j).randbytes(size)
+                    s.sendall(msg)
+                    if recv_exact(s, size) != msg:
+                        raise RuntimeError(f"echo of {size} bytes differs")
+            finally:
+                s.close()
+        except Exception as e:
+            errors.append(f"connection {i}: {type(e).__name__}: {e}")
+    threads = [threading.Thread(target=run, args=(i,)) for i in range(n)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    if errors:
+        raise RuntimeError(f"{len(errors)} of {n} failed; {errors[0]}")
+    return {"connections": n}
+
+
+def check_conns(socks_port, server_port, h2, n=6):
+    """n CONNECTs held open at once: over HTTP/2 one connection to the
+    server carries them all, over HTTP/1.1 each has its own."""
+    socks = []
+    try:
+        for i in range(n):
+            s = socks_connect(socks_port, TARGET, ECHO_PORT)
+            s.settimeout(15)
+            s.sendall(b"x")
+            if recv_exact(s, 1) != b"x":
+                raise RuntimeError(f"connection {i}: no echo")
+            socks.append(s)
+        open_now = len(client_ports(server_port))
+    finally:
+        for s in socks:
+            s.close()
+    if h2 and open_now != 1:
+        raise RuntimeError(f"{n} tunnels over HTTP/2 on {open_now} connections, not 1")
+    if not h2 and open_now < n:
+        raise RuntimeError(f"{n} tunnels over HTTP/1.1 on {open_now} connections, not {n}")
+    return {"tunnels": n, "connections": open_now}
+
+
+def log_has(path, words, deadline=3):
+    """Whether the log at path comes to hold one of words within deadline."""
+    t0 = time.time()
+    while True:
+        text = open(path, errors="replace").read()
+        found = [w for w in words if w in text]
+        if found or time.time() - t0 > deadline:
+            return found
+        time.sleep(0.2)
+
+
+def check_refused(socks_port, log_path, words):
+    """A CONNECT through socks_port fails, and the client's log says why
+    with one of words."""
+    try:
+        s = socks_connect(socks_port, TARGET, ECHO_PORT, timeout=10)
+        try:
+            s.settimeout(10)
+            s.sendall(b"x")
+            if recv_exact(s, 1) == b"x":
+                raise AssertionError("echoed")
+        finally:
+            s.close()
+    except AssertionError:
+        raise RuntimeError("the CONNECT went through") from None
+    except Exception:
+        pass
+    found = log_has(log_path, words)
+    if not found:
+        raise RuntimeError(f"refused, but the client's log says none of {words}")
+    return {"logged": found[0]}
+
+
+def hello_alpn(data):
+    """The ALPN list a ClientHello, the first TLS record of data, offers;
+    None for what is not one, or is cut short."""
+    try:
+        return _hello_alpn(data)
+    except (IndexError, struct.error, UnicodeDecodeError):
+        return None
+
+
+def _hello_alpn(data):
+    if len(data) < 9 or data[0] != 22 or data[5] != 1:
+        return None
+    end = 5 + struct.unpack(">H", data[3:5])[0]
+    i = 9 + 2 + 32
+    i += 1 + data[i]                                        # session id
+    i += 2 + struct.unpack(">H", data[i:i + 2])[0]          # cipher suites
+    i += 1 + data[i]                                        # compression
+    i += 2
+    while i + 4 <= end:
+        kind, ln = struct.unpack(">HH", data[i:i + 4])
+        if kind == 16:
+            body, out, j = data[i + 6:i + 4 + ln], [], 0
+            while j < len(body):
+                out.append(body[j + 1:j + 1 + body[j]].decode())
+                j += 1 + body[j]
+            return out
+        i += 4 + ln
+    return []
+
+
+def check_sticky(cap):
+    """The client offered h2 on its first connection, the server picked
+    none, and every later connection offers http/1.1 alone."""
+    offers = []
+    for (sport, dport), flow in cap.flows.items():
+        if dport != cap.port or not flow["data"]:
+            continue
+        buf = bytearray()
+        for off in sorted(flow["data"]):
+            if off != len(buf):
+                break   # a gap, or a segment seen twice
+            buf += flow["data"][off]
+        if buf:
+            offers.append(hello_alpn(bytes(buf)))
+    if len(offers) < 2:
+        raise RuntimeError(f"{len(offers)} ClientHellos seen")
+    if offers[0] != ["h2", "http/1.1"] or any(o != ["http/1.1"] for o in offers[1:]):
+        raise RuntimeError(f"offered {offers[:4]}")
+    return {"hellos": len(offers), "first": offers[0], "later": offers[1]}
+
+
 class Capture:
     """The first bytes of each TCP connection to a port, from a packet
     socket on lo in this namespace: for reading TLS record sizes."""
@@ -1307,6 +1486,8 @@ def run_cell(args, m, case, client, server, worker, out, nth=0):
             # Before the client starts: its first session is the one whose
             # padding is the default.
             cap = Capture(port)
+        if case.opt.get("sticky"):
+            cap = Capture(port)
         if server in ("mh", "sailY"):
             cfg = mh_server(case, m, port)
             spath = os.path.join(cell_dir, "server.yaml")
@@ -1338,6 +1519,24 @@ def run_cell(args, m, case, client, server, worker, out, nth=0):
             # isHandle): wait until a byte goes through and back.
             res["warmup_s"] = warm_up(socks_port, procs)
         checks = [("tcp", lambda: check_tcp(socks_port))]
+        h2 = case.opt.get("h2")
+        if h2 and case.opt.get("expect_error"):
+            checks = [("refused", lambda: check_refused(socks_port, cp.log_path,
+                                                        [case.opt["expect_error"]]))]
+        elif h2:
+            over_h2 = (case.opt["version"] == 2 and case.tls != "off"
+                       and not case.opt.get("server_versions"))
+            checks.append(("parallel", lambda: check_parallel(socks_port)))
+            checks.append(("conns", lambda: check_conns(socks_port, port, over_h2)))
+            if cap and case.opt.get("sticky"):
+                # Before the wrong password's outbound dials, with its own
+                # first offer.
+                checks.append(("sticky", lambda: check_sticky(cap)))
+            if case.opt.get("auth", True):
+                # sing-box says "authentication required", sail the status.
+                checks.append(("wrong_password", lambda: check_refused(
+                    socks_port + 1, cp.log_path,
+                    ["authentication required", "407 Proxy Authentication Required"])))
         if case.udp:
             sizes = BIG_UDP_SIZES if case.opt.get("big_udp") else UDP_SIZES
             checks.append(("udp", lambda: check_udp(socks_port, sizes)))
@@ -1345,11 +1544,12 @@ def run_cell(args, m, case, client, server, worker, out, nth=0):
             checks.append(("udp_burst", lambda: check_udp_burst(socks_port)))
         if case.opt.get("reuse"):
             checks.append(("reuse", lambda: check_reuse(socks_port, port)))
-        if cap:
+        if cap and case.opt.get("padding"):
             checks.append(("padding", lambda: check_padding(cap, ANYTLS_PADDING_SIZES)))
         total = args.bulk_mib << 20
-        checks.append(("up", lambda: check_bulk(socks_port, b"U", total, args.bulk_timeout)))
-        checks.append(("down", lambda: check_bulk(socks_port, b"D", total, args.bulk_timeout)))
+        if not case.opt.get("expect_error"):
+            checks.append(("up", lambda: check_bulk(socks_port, b"U", total, args.bulk_timeout)))
+            checks.append(("down", lambda: check_bulk(socks_port, b"D", total, args.bulk_timeout)))
         for name, fn in checks:
             r = None
             try:
@@ -1371,7 +1571,8 @@ def run_cell(args, m, case, client, server, worker, out, nth=0):
         # The traffic went through the server under test, not around it:
         # each server logs the destinations it connects to at info.
         sp.log.flush()
-        if res["ok"] and TARGET not in open(sp.log_path, errors="replace").read():
+        if res["ok"] and not case.opt.get("expect_error") \
+                and TARGET not in open(sp.log_path, errors="replace").read():
             res["ok"] = False
             res["error"] = f"harness: the server's log never names {TARGET}"
     except CellError as e:
