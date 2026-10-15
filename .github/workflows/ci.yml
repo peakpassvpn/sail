@@ -1465,6 +1465,25 @@ jobs:
           sudo ip netns del sail-ci-kernel
           exit $status
 
+      # The netstack against Linux's TCP and UDP over a real TUN device:
+      # the ignored tests under protocol::tun::packet_io, connections both
+      # ways, multi-queue, GSO, loss with Nagle, a short soak. Nothing ran
+      # them, and a TIME-WAIT that dropped unread bytes failed one for
+      # two weeks unseen.
+      - name: the netstack against the kernel
+        if: always() && steps.build.outcome == 'success'
+        env:
+          LIB: ${{ steps.build.outputs.lib }}
+        run: |
+          cd sail
+          sudo ip netns add sail-ci-packet
+          sudo ip netns exec sail-ci-packet ip link set lo up
+          status=0
+          sudo ip netns exec sail-ci-packet "$LIB" --ignored --test-threads=1 --nocapture \
+            protocol::tun::packet_io::tests::linux_ || status=1
+          sudo ip netns del sail-ci-packet
+          exit $status
+
       # The WireGuard endpoint against the kernel's in namespaces it makes
       # (test_wireguard_kernel, but its throughput measurement).
       - name: WireGuard's kernel tests
