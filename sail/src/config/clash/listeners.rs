@@ -807,9 +807,9 @@ fn mihomo_mbps(rate: &str) -> Option<u64> {
 }
 
 /// A QUIC listener's TLS, as Mihomo's: a certificate and its key, PEM or
-/// a path in the data directory; `alpn`, h3 unless given; and client
-/// authentication. Without both Mihomo serves a random self-signed
-/// certificate, which sail does not yet.
+/// a path in the data directory, or without both a self-signed one made
+/// at start (`self_signed`), as Mihomo makes one up; `alpn`, h3 unless
+/// given; and client authentication.
 fn quic_tls(
     f: &mut Fields,
     home: Option<&std::path::Path>,
@@ -831,11 +831,7 @@ fn quic_tls(
             }
         }
         (None, None) => {
-            return Err(anyhow!(
-                "{}: missing: Mihomo serves a random self-signed certificate without one, \
-                 sail cannot yet",
-                f.at("certificate")
-            ))
+            tls.insert("self_signed".into(), json!(true));
         }
         (certificate, _) => {
             let (has, lacks) = if certificate.is_some() {

@@ -2517,6 +2517,10 @@ fn a_hysteria2_listener_is_a_hysteria2_inbound() {
     assert_eq!(v["ignore_client_bandwidth"], true);
     assert_eq!(v["masquerade"], "https://www.example.com");
 
+    // Without a certificate, one made at start, as Mihomo makes one up.
+    let (v, _) = inbound(", users: { alice: a }").unwrap();
+    assert_eq!(v["tls"], json!({ "enabled": true, "self_signed": true }));
+
     // A bare number is Mbps, one Mihomo cannot read none; two users with
     // one password are one, the last; what sail does not tune by, and
     // sing-mux, are warned of.
@@ -2536,10 +2540,6 @@ fn a_hysteria2_listener_is_a_hysteria2_inbound() {
     assert!(warnings[3].starts_with("listeners[0].mux-option: sail serves no sing-mux"));
 
     for (fields, error) in [
-        (
-            String::new(),
-            "listeners[0].certificate: missing: Mihomo serves a random self-signed certificate",
-        ),
         (
             ", certificate: c.pem".to_string(),
             "listeners[0].certificate: without private-key: Mihomo refuses",
@@ -2603,6 +2603,10 @@ fn a_tuic_listener_is_a_tuic_inbound() {
     assert_eq!(v["auth_timeout"], "2000ms");
     assert_eq!(v["zero_rtt_handshake"], true);
 
+    // Without a certificate, one made at start, as Mihomo makes one up.
+    let (v, _) = inbound(&format!(", users: {{ {}: p }}", UUID)).unwrap();
+    assert_eq!(v["tls"], json!({ "enabled": true, "self_signed": true }));
+
     // Mihomo's defaults; a key that is no UUID is the nil one; tuning
     // and sing-mux are warned of.
     let (v, warnings) = inbound(&format!(
@@ -2635,19 +2639,8 @@ fn a_tuic_listener_is_a_tuic_inbound() {
         warnings[2].starts_with("listeners[0].users.b: 00000000-0000-0000-0000-000000000000 again")
     );
 
-    for (fields, error) in [
-        (
-            format!("{}, token: [t]", tls),
-            "listeners[0].token: TUIC v4's",
-        ),
-        (
-            String::new(),
-            "listeners[0].certificate: missing: Mihomo serves a random self-signed certificate",
-        ),
-    ] {
-        let e = inbound(&fields).unwrap_err();
-        assert!(e.contains(error), "{}: {}", fields, e);
-    }
+    let e = inbound(&format!("{}, token: [t]", tls)).unwrap_err();
+    assert!(e.contains("listeners[0].token: TUIC v4's"), "{}", e);
 }
 
 /// An anytls listener is an anytls inbound: users by name, its TLS or
