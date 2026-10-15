@@ -140,7 +140,9 @@ pub(crate) fn address(tun: &str, address: IpAddr, up: &[(String, IpAddr)]) -> Op
 }
 
 /// Whether the TUN `tun`'s DNS servers of a family (`family`: "IPv4")
-/// are still `wanted`, those sail set: `got`, in any order.
+/// are still `wanted`, those sail set: `got`, in any order. Windows reads
+/// an adapter's DNS servers; macOS's are the system's, checked elsewhere.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 pub(crate) fn dns(tun: &str, family: &str, wanted: &[IpAddr], got: &[IpAddr]) -> Option<Broken> {
     let same = wanted.iter().all(|a| got.contains(a)) && got.iter().all(|a| wanted.contains(a));
     let list = |servers: &[IpAddr]| match servers {
