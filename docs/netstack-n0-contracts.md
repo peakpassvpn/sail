@@ -16,9 +16,11 @@ silently changing the design baseline.
   one another). The `netstack` Cargo feature builds it; `inbound-tun` turns
   it on. Only the device adapters stay in `sail/src/protocol/tun/packet_io.rs`.
 - `sail/src/protocol/tun/inbound.rs` builds the stack from the `netstack`
-  runtime options (`budget`, `batch_size`, `max_queues`, `offload`, and the
-  command and UDP channel sizes), which every `--profile` presets and
-  `--set netstack.<name>=<value>` overrides.
+  runtime options (`budget`, `batch_size`, `offload`, and the command and
+  UDP channel sizes), which every `--profile` presets and
+  `--set netstack.<name>=<value>` overrides. How many device queues (and
+  shards) it opens is the TUN inbound's `multi_queue` (Linux), one queue
+  unless set.
 - Accepted TCP streams become a `Session` and enter `Dispatcher::dispatch_stream`.
 - UDP datagrams enter `NatManager::send`; its return channel sends replies back
   through the stack adapter.

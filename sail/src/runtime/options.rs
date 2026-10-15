@@ -185,9 +185,6 @@ pub struct Netstack {
     pub budget: NetstackBudget,
     /// Packets read from or written to the device at a time.
     pub batch_size: usize,
-    /// Linux: device queues, each with a runner of its own; no more than
-    /// there are CPUs.
-    pub max_queues: usize,
     /// Linux: GSO/GRO offload, which needs `batch_size` to hold a whole
     /// 64 KiB super-packet at the configured MTU.
     pub offload: bool,
@@ -475,7 +472,6 @@ impl RuntimeOptions {
             netstack: Netstack {
                 budget: NetstackBudget::Desktop,
                 batch_size: 32,
-                max_queues: 4,
                 offload: false,
                 command_channel_size: 512,
                 udp_uplink_channel_size: 256,
@@ -552,7 +548,6 @@ impl RuntimeOptions {
                 netstack: Netstack {
                     budget: NetstackBudget::Mobile,
                     batch_size: 1,
-                    max_queues: 1,
                     offload: false,
                     command_channel_size: 256,
                     udp_uplink_channel_size: 128,
@@ -606,7 +601,6 @@ impl RuntimeOptions {
                 netstack: Netstack {
                     budget: NetstackBudget::Router,
                     batch_size: 4,
-                    max_queues: 1,
                     offload: false,
                     command_channel_size: 128,
                     udp_uplink_channel_size: 64,
@@ -684,7 +678,6 @@ impl RuntimeOptions {
                 netstack: Netstack {
                     budget: NetstackBudget::Server,
                     batch_size: 64,
-                    max_queues: 8,
                     offload: true,
                     command_channel_size: 1024,
                     udp_uplink_channel_size: 1024,

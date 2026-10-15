@@ -52,7 +52,7 @@ sail -c config.json --profile server \
 
 这些参数描述宿主资源预算，不改变代理行为。协议、DNS 和路由仍应写入配置文件。
 
-参数分组为 `relay`（TCP 转发缓冲区与半关闭后的空闲超时）、`udp`、`netstack`（TUN 协议栈的预算、批量、队列与 TCP 窗口）、`inbound`（握手超时、多路复用接受并发、TCP 发送缓冲区）、`quic`、`ws`、`dns`（`max_retries`、`dualstack_delay`）、`stats`、`lifecycle` 和 `mux`。几个随配置档变化的值：
+参数分组为 `relay`（TCP 转发缓冲区与半关闭后的空闲超时）、`udp`、`netstack`（TUN 协议栈的预算、批量与 TCP 窗口）、`inbound`（握手超时、多路复用接受并发、TCP 发送缓冲区）、`quic`、`ws`、`dns`（`max_retries`、`dualstack_delay`）、`stats`、`lifecycle` 和 `mux`。几个随配置档变化的值：
 
 | 参数 | `desktop` | `mobile` | `router` | `server` |
 | --- | --- | --- | --- | --- |

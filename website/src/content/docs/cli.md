@@ -64,7 +64,7 @@ sail -c config.json --profile server \
 
 These settings describe the host runtime, not proxy behavior. Keep protocol, DNS and routing decisions in the configuration file.
 
-The groups are `relay` (TCP relay buffers and half-close idle timeouts), `udp`, `netstack` (the TUN stack's budget, batches, queues and TCP windows), `inbound` (handshake timeout, multiplex accept concurrency, TCP send buffer), `quic`, `ws`, `dns` (`max_retries`, `dualstack_delay`), `stats`, `lifecycle` and `mux`. A few values that differ by profile:
+The groups are `relay` (TCP relay buffers and half-close idle timeouts), `udp`, `netstack` (the TUN stack's budget, batches and TCP windows), `inbound` (handshake timeout, multiplex accept concurrency, TCP send buffer), `quic`, `ws`, `dns` (`max_retries`, `dualstack_delay`), `stats`, `lifecycle` and `mux`. A few values that differ by profile:
 
 | Setting | `desktop` | `mobile` | `router` | `server` |
 | --- | --- | --- | --- | --- |

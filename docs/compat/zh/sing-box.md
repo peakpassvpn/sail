@@ -3197,6 +3197,7 @@ sail 接受而 sing-box 没有的字段和类型。
 | `inbounds[anytls|http|hysteria2|trojan|tuic|vless|vmess].tls.client_certificate_sha256` | sing-box 1.15's, read ahead: clients' certificates taken by the SHA-256 of the whole leaf (its DER), standard base64 or hex, with a verifying `client_authentication`; looked at before `client_certificate_public_key_sha256`, either list passing |
 | `inbounds[http|mixed].realm` | The realm a 407 names, which clients show when asking for credentials; `sail` when unset (sing-box sends `sing-box`) |
 | `inbounds[http|socks|mixed].skip_auth_prefixes` | The clients that go in without credentials, by the IP prefixes they connect from (Mihomo's skip-auth-prefixes) |
+| `inbounds[tun].multi_queue` | sing-box 1.15's, read ahead: Linux opens the device with `IFF_MULTI_QUEUE`, a queue and a netstack shard to each CPU, eight at most; one queue, the default, measured faster in every case tried; elsewhere, and on a device the host opens, ignored with a warning |
 | `inbounds[shadowtls].handshake.skip_default_domain_resolver` | As an outbound's, for the handshake server's name |
 | `inbounds[http|trojan|vless|vmess].tls.reality.handshake.skip_default_domain_resolver` | As an outbound's, for the REALITY handshake server's name |
 | `inbounds[http|trojan|vless|vmess].tls.reality.server_names` | More names REALITY clients may ask for, beside `tls.server_name`, which may then be left out; none may be empty (Xray's serverNames, Mihomo's server-names) |

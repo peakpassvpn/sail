@@ -356,13 +356,21 @@ fn run<I: sail_netstack::PacketIo + 'static>(
     })
 }
 
-/// One multi-queue device, a queue per shard, each with its own runner.
+/// The most queues `multi_queue` opens: the server profile's old default.
+#[cfg(target_os = "linux")]
+const MAX_QUEUES: usize = 8;
+
+/// The device's queues, a shard each with its own runner: one, or with
+/// `multi_queue` one to each CPU, up to [`MAX_QUEUES`].
 #[cfg(target_os = "linux")]
 fn linux_queues(settings: &TunSettings, netstack: &Netstack) -> Result<Vec<TunRsPacketIo>> {
-    let available = std::thread::available_parallelism()
-        .map(NonZeroUsize::get)
-        .unwrap_or(1);
-    let queue_count = available.min(netstack.max_queues).max(1);
+    let queue_count = if settings.multi_queue {
+        std::thread::available_parallelism()
+            .map_or(1, NonZeroUsize::get)
+            .min(MAX_QUEUES)
+    } else {
+        1
+    };
     let mut builder = tun_rs::DeviceBuilder::new()
         .name(&settings.name)
         .mtu(settings.mtu)
@@ -418,6 +426,14 @@ struct TunInboundOptions {
     /// deprecated there; the two may not disagree.
     #[serde(default)]
     endpoint_independent_nat: Option<bool>,
+    /// sing-box 1.15's: Linux opens the device with `IFF_MULTI_QUEUE`, a
+    /// queue and a netstack shard to each CPU, eight at most. Off, the
+    /// default, one queue: measured faster in every case tried (Trojan
+    /// over TUN, 2 and 4 cores, 2026-10-15: 2 queues 3-9% slower, 4
+    /// queues 4-9%). Elsewhere, and on a device the host opens, ignored
+    /// with a warning.
+    #[serde(default)]
+    multi_queue: bool,
     /// The device's name, used as it is: a start fails if it is taken.
     /// Without it, on macOS one past the highest utunN is chosen at start,
     /// as sing-box chooses, and kept across reloads (a host reads it back);
@@ -546,6 +562,9 @@ pub(crate) struct TunSettings {
     pub name: String,
     /// Whether a datagram from an address the app never sent to reaches it.
     pub endpoint_independent_nat: bool,
+    /// Linux: a queue and a netstack shard to each CPU, eight at most;
+    /// otherwise one.
+    pub multi_queue: bool,
     pub ipv4: Option<Ipv4Inet>,
     pub ipv6: Option<Ipv6Inet>,
     pub mtu: u16,
@@ -985,7 +1004,10 @@ pub(crate) fn options(inbound: &Inbound, host: &crate::runtime::Host) -> Result<
         .ok_or_else(|| error(format!("mtu {} is outside {minimum} to 65535", options.mtu)))?;
     let auto_redirect = auto_redirect(&options).map_err(error)?;
     let route = route_selection(&options).map_err(error)?;
-    let ignored = ignored_here(&options);
+    let mut ignored = ignored_here(&options);
+    if options.multi_queue && host_opens(host) && cfg!(target_os = "linux") {
+        ignored.push(("multi_queue", "the host opens the device"));
+    }
     let endpoint_independent_nat = match (
         options.udp_filtering.as_deref(),
         options.endpoint_independent_nat,
@@ -1014,6 +1036,7 @@ pub(crate) fn options(inbound: &Inbound, host: &crate::runtime::Host) -> Result<
     };
     Ok(TunSettings {
         endpoint_independent_nat,
+        multi_queue: options.multi_queue,
         name: options
             .interface_name
             .unwrap_or_else(|| DEFAULT_NAME.to_string()),
@@ -1064,6 +1087,11 @@ fn ignored_here(options: &TunInboundOptions) -> Vec<(&'static str, &'static str)
             iproute2,
         ),
         ("exclude_mptcp", options.exclude_mptcp, redirect),
+        (
+            "multi_queue",
+            options.multi_queue,
+            (!cfg!(target_os = "linux")).then_some("Linux only"),
+        ),
         (
             "auto_redirect_input_mark",
             options.auto_redirect_input_mark.is_some(),
@@ -2240,5 +2268,23 @@ mod tests {
             let err = read(extra).unwrap_err();
             assert!(err.contains(part), "{err}");
         }
+    }
+
+    /// `multi_queue` is off by default; on, it is a Linux device's, and
+    /// elsewhere warned of and ignored, as sing-box supports it on Linux
+    /// alone.
+    #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
+    #[test]
+    fn multi_queue_is_off_by_default_and_linux_only() {
+        use serde_json::json;
+        let off = options(&tun(json!({ "address": "172.19.0.1/30" }))).unwrap();
+        assert!(!off.multi_queue);
+        let on = options(&tun(
+            json!({ "address": "172.19.0.1/30", "multi_queue": true }),
+        ))
+        .unwrap();
+        assert!(on.multi_queue);
+        let warned = on.ignored.iter().any(|(field, _)| *field == "multi_queue");
+        assert_eq!(warned, !cfg!(target_os = "linux"));
     }
 }

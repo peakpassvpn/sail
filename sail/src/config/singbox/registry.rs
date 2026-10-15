@@ -1329,6 +1329,11 @@ const EXTENSIONS: &[(&str, &str, &str)] = &[
         "The clients that go in without credentials, by the IP prefixes they connect from (Mihomo's skip-auth-prefixes)",
     ),
     (
+        "inbounds[tun].multi_queue",
+        "true",
+        "sing-box 1.15's, read ahead: Linux opens the device with `IFF_MULTI_QUEUE`, a queue and a netstack shard to each CPU, eight at most; one queue, the default, measured faster in every case tried; elsewhere, and on a device the host opens, ignored with a warning",
+    ),
+    (
         "inbounds[shadowtls].handshake.skip_default_domain_resolver",
         "true",
         "As an outbound's, for the handshake server's name",

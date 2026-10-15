@@ -847,6 +847,7 @@ Rust: [`TunInboundOptions`](https://github.com/peakpassvpn/sail/blob/master/sail
 | `stack` | string, one of `system`, `gvisor`, `mixed` | — | Warned: One stack serves every `stack`; the platform proxy is the host's to set | — |
 | `platform` | object → [object](#inbounds-tun-platform) | — | Warned: One stack serves every `stack`; the platform proxy is the host's to set | — |
 | `endpoint_independent_nat` | bool | unset | Supported (deprecated in sing-box) | sing-box's older name for `udp_filtering: endpoint_independent`, deprecated there; the two may not disagree. |
+| `multi_queue` | bool | `false` | sail extension | sing-box 1.15's: Linux opens the device with `IFF_MULTI_QUEUE`, a queue and a netstack shard to each CPU, eight at most. Off, the default, one queue: measured faster in every case tried (Trojan over TUN, 2 and 4 cores, 2026-10-15: 2 queues 3-9% slower, 4 queues 4-9%). Elsewhere, and on a device the host opens, ignored with a warning. |
 
 <a id="inbounds-tun-platform"></a>
 
