@@ -148,14 +148,16 @@ impl Node {
         }
     }
 
-    /// A boolean, as Mihomo takes one: `"true"`, `1` and the like too.
+    /// A boolean, as Mihomo takes one: `"true"`, `1` and the like too, and
+    /// YAML 1.1's `yes`, `on`, `y` and their opposites, which Mihomo's
+    /// reader takes for a boolean field.
     pub fn as_bool(&self) -> Option<bool> {
         match self {
             Node::Bool(b) => Some(*b),
             Node::Int(i) => Some(*i != 0),
             Node::Str(s) => match s.trim().to_ascii_lowercase().as_str() {
-                "true" | "1" | "t" => Some(true),
-                "false" | "0" | "f" | "" => Some(false),
+                "true" | "1" | "t" | "yes" | "y" | "on" => Some(true),
+                "false" | "0" | "f" | "" | "no" | "n" | "off" => Some(false),
                 _ => None,
             },
             _ => None,
@@ -176,12 +178,16 @@ impl Node {
 
 /// Reads a YAML document. Aliases are expanded and merge keys (`<<`)
 /// applied; the aliases may be many for their anchors, as templates reuse a
-/// few anchors throughout.
+/// few anchors throughout. Only `true` and `false` are booleans, as in
+/// YAML 1.2 and Mihomo's reader: a name `N` or `on` is a string, where YAML
+/// 1.1 would make it `false` or `true` (`as_bool` takes them where a
+/// boolean is wanted, as Mihomo's does).
 pub fn parse(s: &str) -> Result<Node> {
     let mut budget = serde_saphyr::Budget::default();
     budget.alias_anchor_ratio_multiplier = 1_000;
     let mut options = serde_saphyr::Options::default();
     options.budget = Some(budget);
+    options.strict_booleans = true;
     serde_saphyr::from_str_with_options(s, options).map_err(|e| anyhow!("{}", e))
 }
 

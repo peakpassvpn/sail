@@ -49,8 +49,8 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 | `listeners[trojan]` | 73 | 28 | 7 | 38 |
 | `listeners[trusttunnel]` | 18 | 0 | 0 | 18 |
 | `listeners[tuic]` | 26 | 12 | 11 | 3 |
-| `listeners[tun]` | 55 | 0 | 0 | 55 |
-| `listeners[tunnel]` | 8 | 0 | 0 | 8 |
+| `listeners[tun]` | 55 | 37 | 10 | 8 |
+| `listeners[tunnel]` | 8 | 6 | 1 | 1 |
 | `listeners[vless]` | 93 | 29 | 7 | 57 |
 | `listeners[vmess]` | 116 | 28 | 7 | 81 |
 | `ntp` | 7 | 7 | 0 | 0 |
@@ -90,7 +90,7 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 | `tls` | 7 | 0 | 7 | 0 |
 | `tuic-server` | 13 | 0 | 0 | 13 |
 | `tun` | 50 | 34 | 9 | 7 |
-| **All** | **2077** | **670** | **165** | **1242** |
+| **All** | **2077** | **713** | **176** | **1188** |
 
 
 ## `general`
@@ -698,13 +698,74 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 
 | Field | sail | What sail says |
 |---|---|---|
-| `listeners[tun]` | Error | listeners[0].type: sail does not implement "tun" listeners yet |
+| `listeners[tun].auto-detect-interface` | Supported |  |
+| `listeners[tun].auto-redirect` | Supported |  |
+| `listeners[tun].auto-redirect-input-mark` | Supported |  |
+| `listeners[tun].auto-redirect-iproute2-fallback-rule-index` | Supported |  |
+| `listeners[tun].auto-redirect-output-mark` | Supported |  |
+| `listeners[tun].auto-route` | Supported |  |
+| `listeners[tun].device` | Supported |  |
+| `listeners[tun].disable-icmp-forwarding` | Warned | listeners[0].disable-icmp-forwarding: sail does not implement this field; ignored |
+| `listeners[tun].dns-hijack` | Supported | listeners[0].dns-hijack[0]: "x" names no port |
+| `listeners[tun].endpoint-independent-nat` | Supported |  |
+| `listeners[tun].exclude-dst-port` | Error | listeners[0].exclude-dst-port: sail does not implement this field yet |
+| `listeners[tun].exclude-dst-port-range` | Error | listeners[0].exclude-dst-port-range: sail does not implement this field yet |
+| `listeners[tun].exclude-interface` | Supported |  |
+| `listeners[tun].exclude-mac-address` | Error | listeners[0].exclude-mac-address: sail does not implement this field yet |
+| `listeners[tun].exclude-package` | Supported |  |
+| `listeners[tun].exclude-src-port` | Error | listeners[0].exclude-src-port: sail does not implement this field yet |
+| `listeners[tun].exclude-src-port-range` | Error | listeners[0].exclude-src-port-range: sail does not implement this field yet |
+| `listeners[tun].exclude-uid` | Supported | listeners[0].exclude-uid: "x" is not a user ID |
+| `listeners[tun].exclude-uid-range` | Supported |  |
+| `listeners[tun].file-descriptor` | Error | listeners[0].file-descriptor: 1: sail does not take a device opened elsewhere yet |
+| `listeners[tun].gso` | Warned | listeners[0].gso: sail does not implement this field; ignored |
+| `listeners[tun].gso-max-size` | Warned | listeners[0].gso-max-size: sail does not implement this field; ignored |
+| `listeners[tun].icmp-timeout` | Warned | listeners[0].icmp-timeout: sail does not implement this field; ignored |
+| `listeners[tun].include-android-user` | Supported | listeners[0].include-android-user: "x" is not a user |
+| `listeners[tun].include-interface` | Supported |  |
+| `listeners[tun].include-mac-address` | Error | listeners[0].include-mac-address: sail does not implement this field yet |
+| `listeners[tun].include-package` | Supported |  |
+| `listeners[tun].include-uid` | Supported | listeners[0].include-uid: "x" is not a user ID |
+| `listeners[tun].include-uid-range` | Supported |  |
+| `listeners[tun].inet4-address` | Supported | listeners[0].inet4-address: "x" is not an IPv4 prefix |
+| `listeners[tun].inet4-route-address` | Supported |  |
+| `listeners[tun].inet4-route-exclude-address` | Supported |  |
+| `listeners[tun].inet6-address` | Supported | listeners[0].inet6-address: "x" is not an IPv6 prefix |
+| `listeners[tun].inet6-route-address` | Supported |  |
+| `listeners[tun].inet6-route-exclude-address` | Supported |  |
+| `listeners[tun].iproute2-rule-index` | Supported |  |
+| `listeners[tun].iproute2-table-index` | Supported |  |
+| `listeners[tun].listen` | Supported |  |
+| `listeners[tun].loopback-address` | Supported |  |
+| `listeners[tun].mtu` | Supported |  |
+| `listeners[tun].name` | Supported |  |
+| `listeners[tun].port` | Supported |  |
+| `listeners[tun].processors-per-channel` | Warned | listeners[0].processors-per-channel: sail does not implement this field; ignored |
+| `listeners[tun].proxy` | Supported | listeners[0].proxy: no proxy or group is named "x" |
+| `listeners[tun].recvmsgx` | Warned | listeners[0].recvmsgx: sail does not implement this field; ignored |
+| `listeners[tun].route-address` | Supported |  |
+| `listeners[tun].route-address-set` | Supported |  |
+| `listeners[tun].route-exclude-address` | Supported |  |
+| `listeners[tun].route-exclude-address-set` | Supported |  |
+| `listeners[tun].routing-mark` | Warned | listeners[0].routing-mark: sail does not implement this field; ignored |
+| `listeners[tun].rule` | Error | listeners[0].rule: sail does not implement this field yet |
+| `listeners[tun].sendmsgx` | Warned | listeners[0].sendmsgx: sail does not implement this field; ignored |
+| `listeners[tun].stack` | Warned | listeners[0].stack: sail does not implement this field; ignored |
+| `listeners[tun].strict-route` | Supported |  |
+| `listeners[tun].udp-timeout` | Warned | listeners[0].udp-timeout: sail does not implement this field; ignored |
 
 ## `listeners[tunnel]`
 
 | Field | sail | What sail says |
 |---|---|---|
-| `listeners[tunnel]` | Error | listeners[0].type: sail does not implement "tunnel" listeners yet |
+| `listeners[tunnel].listen` | Supported |  |
+| `listeners[tunnel].name` | Supported |  |
+| `listeners[tunnel].network` | Supported | listeners[0].network: "x" is neither tcp nor udp |
+| `listeners[tunnel].port` | Supported | listeners[0].port: "x": sail takes one port, not ranges, yet |
+| `listeners[tunnel].proxy` | Supported | listeners[0].proxy: no proxy or group is named "x" |
+| `listeners[tunnel].routing-mark` | Warned | listeners[0].routing-mark: sail does not implement this field; ignored |
+| `listeners[tunnel].rule` | Error | listeners[0].rule: sail does not implement this field yet |
+| `listeners[tunnel].target` | Supported | listeners[0].target: "x" names no port |
 
 ## `listeners[vless]`
 

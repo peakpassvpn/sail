@@ -3049,6 +3049,25 @@ fn tunnel_and_tun_listeners_are_inbounds_of_their_own() {
     }
 }
 
+/// YAML 1.1's other booleans are strings, as in Mihomo's YAML 1.2: a group
+/// named `N` or `on` keeps its name; where a boolean is wanted they are
+/// one, as Mihomo's reader takes them.
+#[test]
+fn yes_no_on_off_are_strings_but_booleans_where_one_is_wanted() {
+    let config = load(
+        "ipv6: yes\n\
+         proxy-groups:\n\
+         \x20 - { name: N, type: select, proxies: [DIRECT] }\n\
+         \x20 - { name: on, type: select, proxies: [N] }\n\
+         rules: [\"MATCH,on\"]",
+    );
+    assert_eq!(config.route.final_outbound.as_deref(), Some("on"));
+    let group = |tag: &str| config.outbounds.iter().find(|o| o.tag == tag);
+    assert!(group("N").is_some());
+    assert!(group("false").is_none());
+    assert!(config.warnings.is_empty(), "{:?}", config.warnings);
+}
+
 #[test]
 fn tunnels_forward_to_their_targets() {
     let config = load(

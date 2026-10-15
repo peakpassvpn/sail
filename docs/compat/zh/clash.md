@@ -49,8 +49,8 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `listeners[trojan]` | 73 | 28 | 7 | 38 |
 | `listeners[trusttunnel]` | 18 | 0 | 0 | 18 |
 | `listeners[tuic]` | 26 | 12 | 11 | 3 |
-| `listeners[tun]` | 55 | 0 | 0 | 55 |
-| `listeners[tunnel]` | 8 | 0 | 0 | 8 |
+| `listeners[tun]` | 55 | 37 | 10 | 8 |
+| `listeners[tunnel]` | 8 | 6 | 1 | 1 |
 | `listeners[vless]` | 93 | 29 | 7 | 57 |
 | `listeners[vmess]` | 116 | 28 | 7 | 81 |
 | `ntp` | 7 | 7 | 0 | 0 |
@@ -90,7 +90,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `tls` | 7 | 0 | 7 | 0 |
 | `tuic-server` | 13 | 0 | 0 | 13 |
 | `tun` | 50 | 34 | 9 | 7 |
-| **All** | **2077** | **670** | **165** | **1242** |
+| **All** | **2077** | **713** | **176** | **1188** |
 
 
 ## `general`
@@ -698,13 +698,74 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 
 | 字段 | sail | sail 的说明 |
 |---|---|---|
-| `listeners[tun]` | 报错 | listeners[0].type: sail does not implement "tun" listeners yet |
+| `listeners[tun].auto-detect-interface` | 支持 |  |
+| `listeners[tun].auto-redirect` | 支持 |  |
+| `listeners[tun].auto-redirect-input-mark` | 支持 |  |
+| `listeners[tun].auto-redirect-iproute2-fallback-rule-index` | 支持 |  |
+| `listeners[tun].auto-redirect-output-mark` | 支持 |  |
+| `listeners[tun].auto-route` | 支持 |  |
+| `listeners[tun].device` | 支持 |  |
+| `listeners[tun].disable-icmp-forwarding` | 警告 | listeners[0].disable-icmp-forwarding: sail does not implement this field; ignored |
+| `listeners[tun].dns-hijack` | 支持 | listeners[0].dns-hijack[0]: "x" names no port |
+| `listeners[tun].endpoint-independent-nat` | 支持 |  |
+| `listeners[tun].exclude-dst-port` | 报错 | listeners[0].exclude-dst-port: sail does not implement this field yet |
+| `listeners[tun].exclude-dst-port-range` | 报错 | listeners[0].exclude-dst-port-range: sail does not implement this field yet |
+| `listeners[tun].exclude-interface` | 支持 |  |
+| `listeners[tun].exclude-mac-address` | 报错 | listeners[0].exclude-mac-address: sail does not implement this field yet |
+| `listeners[tun].exclude-package` | 支持 |  |
+| `listeners[tun].exclude-src-port` | 报错 | listeners[0].exclude-src-port: sail does not implement this field yet |
+| `listeners[tun].exclude-src-port-range` | 报错 | listeners[0].exclude-src-port-range: sail does not implement this field yet |
+| `listeners[tun].exclude-uid` | 支持 | listeners[0].exclude-uid: "x" is not a user ID |
+| `listeners[tun].exclude-uid-range` | 支持 |  |
+| `listeners[tun].file-descriptor` | 报错 | listeners[0].file-descriptor: 1: sail does not take a device opened elsewhere yet |
+| `listeners[tun].gso` | 警告 | listeners[0].gso: sail does not implement this field; ignored |
+| `listeners[tun].gso-max-size` | 警告 | listeners[0].gso-max-size: sail does not implement this field; ignored |
+| `listeners[tun].icmp-timeout` | 警告 | listeners[0].icmp-timeout: sail does not implement this field; ignored |
+| `listeners[tun].include-android-user` | 支持 | listeners[0].include-android-user: "x" is not a user |
+| `listeners[tun].include-interface` | 支持 |  |
+| `listeners[tun].include-mac-address` | 报错 | listeners[0].include-mac-address: sail does not implement this field yet |
+| `listeners[tun].include-package` | 支持 |  |
+| `listeners[tun].include-uid` | 支持 | listeners[0].include-uid: "x" is not a user ID |
+| `listeners[tun].include-uid-range` | 支持 |  |
+| `listeners[tun].inet4-address` | 支持 | listeners[0].inet4-address: "x" is not an IPv4 prefix |
+| `listeners[tun].inet4-route-address` | 支持 |  |
+| `listeners[tun].inet4-route-exclude-address` | 支持 |  |
+| `listeners[tun].inet6-address` | 支持 | listeners[0].inet6-address: "x" is not an IPv6 prefix |
+| `listeners[tun].inet6-route-address` | 支持 |  |
+| `listeners[tun].inet6-route-exclude-address` | 支持 |  |
+| `listeners[tun].iproute2-rule-index` | 支持 |  |
+| `listeners[tun].iproute2-table-index` | 支持 |  |
+| `listeners[tun].listen` | 支持 |  |
+| `listeners[tun].loopback-address` | 支持 |  |
+| `listeners[tun].mtu` | 支持 |  |
+| `listeners[tun].name` | 支持 |  |
+| `listeners[tun].port` | 支持 |  |
+| `listeners[tun].processors-per-channel` | 警告 | listeners[0].processors-per-channel: sail does not implement this field; ignored |
+| `listeners[tun].proxy` | 支持 | listeners[0].proxy: no proxy or group is named "x" |
+| `listeners[tun].recvmsgx` | 警告 | listeners[0].recvmsgx: sail does not implement this field; ignored |
+| `listeners[tun].route-address` | 支持 |  |
+| `listeners[tun].route-address-set` | 支持 |  |
+| `listeners[tun].route-exclude-address` | 支持 |  |
+| `listeners[tun].route-exclude-address-set` | 支持 |  |
+| `listeners[tun].routing-mark` | 警告 | listeners[0].routing-mark: sail does not implement this field; ignored |
+| `listeners[tun].rule` | 报错 | listeners[0].rule: sail does not implement this field yet |
+| `listeners[tun].sendmsgx` | 警告 | listeners[0].sendmsgx: sail does not implement this field; ignored |
+| `listeners[tun].stack` | 警告 | listeners[0].stack: sail does not implement this field; ignored |
+| `listeners[tun].strict-route` | 支持 |  |
+| `listeners[tun].udp-timeout` | 警告 | listeners[0].udp-timeout: sail does not implement this field; ignored |
 
 ## `listeners[tunnel]`
 
 | 字段 | sail | sail 的说明 |
 |---|---|---|
-| `listeners[tunnel]` | 报错 | listeners[0].type: sail does not implement "tunnel" listeners yet |
+| `listeners[tunnel].listen` | 支持 |  |
+| `listeners[tunnel].name` | 支持 |  |
+| `listeners[tunnel].network` | 支持 | listeners[0].network: "x" is neither tcp nor udp |
+| `listeners[tunnel].port` | 支持 | listeners[0].port: "x": sail takes one port, not ranges, yet |
+| `listeners[tunnel].proxy` | 支持 | listeners[0].proxy: no proxy or group is named "x" |
+| `listeners[tunnel].routing-mark` | 警告 | listeners[0].routing-mark: sail does not implement this field; ignored |
+| `listeners[tunnel].rule` | 报错 | listeners[0].rule: sail does not implement this field yet |
+| `listeners[tunnel].target` | 支持 | listeners[0].target: "x" names no port |
 
 ## `listeners[vless]`
 
