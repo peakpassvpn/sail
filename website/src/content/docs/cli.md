@@ -72,6 +72,7 @@ The groups are `relay` (TCP relay buffers and half-close idle timeouts), `udp`, 
 | `relay.buffer_max_size` (KiB) | `128` | `64` | `64` | `256` |
 | `quic.max_concurrent_streams` | `1024` | `256` | `128` | `4096` |
 | `inbound.tcp_send_buffer` (KiB, `0` = system) | `0` | `0` | `256` | `0` |
+| `inbound.max_connections` (sessions at once, `0` = no limit) | `0` | `512` | `512`; on Linux below 276 MiB of memory, twice the MiB beyond 20, at least 64 | `0` |
 | `lifecycle.drain_timeout` | `0` | `0` | `0` | `30s` |
 
 `lifecycle.drain_timeout` is how long open TCP connections may finish after SIGTERM or Ctrl-C once no new ones are accepted; `0` stops at once, and a second signal always stops at once.

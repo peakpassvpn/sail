@@ -358,6 +358,8 @@ impl StartSettings {
             None => Profile::default(),
         };
         let mut options = RuntimeOptions::profile(profile);
+        // Before the settings, which win.
+        options.fit_to_memory(options::system_memory());
         options.set_all(self.set.iter().map(String::as_str))?;
         let socket_protect = self.socket_protect.map(socket_protect).transpose()?;
         Ok((

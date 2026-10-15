@@ -2299,6 +2299,12 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
     log.configure(&config.log);
     log_warnings(&config);
     tracing::debug!("runtime options: {:?}", env.options);
+    if let Some((sessions, mib)) = env.options.sessions_for_memory {
+        info!(
+            "router profile: {} sessions at once for {} MiB of memory",
+            sessions, mib
+        );
+    }
     #[cfg(unix)]
     log_file_limit();
 

@@ -60,6 +60,7 @@ sail -c config.json --profile server \
 | `relay.buffer_max_size`（KiB） | `128` | `64` | `64` | `256` |
 | `quic.max_concurrent_streams` | `1024` | `256` | `128` | `4096` |
 | `inbound.tcp_send_buffer`（KiB，`0` 表示交给系统） | `0` | `0` | `256` | `0` |
+| `inbound.max_connections`（同时存在的会话数，`0` 表示不限） | `0` | `512` | `512`；Linux 上内存不足 276 MiB 时为（MiB − 20）× 2，至少 64 | `0` |
 | `lifecycle.drain_timeout` | `0` | `0` | `0` | `30s` |
 
 `lifecycle.drain_timeout` 指收到 SIGTERM 或 Ctrl-C、停止接受新连接后，已有 TCP 连接最多还能继续多久；`0` 表示立即停止，第二次信号总是立即停止。

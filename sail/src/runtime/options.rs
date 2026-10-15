@@ -124,6 +124,10 @@ pub struct RuntimeOptions {
     /// The profile the options started from; not an option itself.
     #[serde(skip)]
     pub profile: Profile,
+    /// The sessions `fit_to_memory` lowered `inbound.max_connections` to,
+    /// and the memory it found, in MiB; not an option itself.
+    #[serde(skip)]
+    pub sessions_for_memory: Option<(usize, u64)>,
 }
 
 /// Forwarding a TCP connection.
@@ -455,6 +459,7 @@ impl RuntimeOptions {
     fn tuned(profile: Profile) -> Self {
         let desktop = RuntimeOptions {
             profile: Profile::Desktop,
+            sessions_for_memory: None,
             relay: Relay {
                 buffer_size: 16,
                 buffer_max_size: 128,
@@ -639,6 +644,7 @@ impl RuntimeOptions {
                     // trojan connections held and bursts of new ones: 1024
                     // was killed at 500 a second, 768 at 1000, and 512 and
                     // 384 lived through both (measured); the most that did.
+                    // Fewer with less memory: `router_sessions`.
                     max_connections: 512,
                     // A judgment, from the above: half the sessions the
                     // budget carries, at up to 37 KiB each in a musl build
@@ -745,10 +751,15 @@ impl RuntimeOptions {
             _ => serde_json::Value::String(value.to_string()),
         };
         let profile = self.profile;
+        // A setting of the sessions is the user's, not the memory's.
+        let fitted = self
+            .sessions_for_memory
+            .filter(|_| key != "inbound.max_connections");
         *self = serde_json::from_value(tree)
             .map_err(|e| anyhow!("runtime option \"{}\": {}", key, e))?;
-        // Not an option, so not in the tree: kept as it was.
+        // Not options, so not in the tree: kept as they were.
         self.profile = profile;
+        self.sessions_for_memory = fitted;
         Ok(())
     }
 
@@ -762,6 +773,67 @@ impl RuntimeOptions {
         }
         Ok(())
     }
+
+    /// The router profile's sessions, `inbound.max_connections`, lowered
+    /// to `router_sessions` of `memory`, the system's in bytes, where that
+    /// is fewer; nothing on other profiles, or when the memory is unknown.
+    pub fn fit_to_memory(&mut self, memory: Option<u64>) {
+        let Some(mib) = memory
+            .filter(|_| self.profile == Profile::Router)
+            .map(|bytes| bytes >> 20)
+        else {
+            return;
+        };
+        let sessions = router_sessions(mib);
+        if sessions < self.inbound.max_connections {
+            self.inbound.max_connections = sessions;
+            self.sessions_for_memory = Some((sessions, mib));
+        }
+    }
+}
+
+/// The sessions a router of `mib` MiB of memory (MemTotal) carries at
+/// once: twice its MiB beyond the first 20, 64 to 512.
+///
+/// Measured in a qemu guest (a Debian kernel, sail's musl router build in
+/// its initramfs, the LAN clients and the upstream outside it): a load of
+/// echoes, 8 MiB downloads and uploads and 100 new connections a second,
+/// with all the sessions but 24 stalled 60 s by readers that stopped while
+/// the upstream kept sending. With 128 MiB, MemTotal 84 MiB: 128 and 192
+/// sessions lived (MemAvailable down to 7 to 10 MiB at 192), 256 and more
+/// were killed for memory. With 256 MiB, MemTotal 210 MiB, and 512 MiB,
+/// MemTotal 462 MiB, 512 lived (MemAvailable down to 48 and 224 MiB). The
+/// rule takes the step below the most that lived, 128 and 384, and the
+/// line through them (a judgment between them and beyond).
+pub fn router_sessions(mib: u64) -> usize {
+    (mib.saturating_sub(20) * 2).clamp(64, 512) as usize
+}
+
+/// The memory the system has, in bytes: Linux's MemTotal; none elsewhere,
+/// or when it cannot be read.
+pub fn system_memory() -> Option<u64> {
+    #[cfg(target_os = "linux")]
+    {
+        mem_total(&std::fs::read_to_string("/proc/meminfo").ok()?)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        None
+    }
+}
+
+/// MemTotal of `/proc/meminfo`'s text, in bytes.
+#[cfg(any(target_os = "linux", test))]
+fn mem_total(meminfo: &str) -> Option<u64> {
+    let kib = meminfo
+        .lines()
+        .find_map(|line| line.strip_prefix("MemTotal:"))?
+        .trim()
+        .strip_suffix("kB")?
+        .trim()
+        .parse::<u64>()
+        .ok()?;
+    Some(kib << 10)
 }
 
 /// Durations as text, `10s`, both ways.
@@ -907,6 +979,55 @@ mod tests {
         assert_eq!(cap(Profile::Router), 512);
         assert_eq!(cap(Profile::Desktop), 0);
         assert_eq!(cap(Profile::Server), 0);
+    }
+
+    /// A router's sessions follow its memory: the measured points, and the
+    /// bounds.
+    #[test]
+    fn a_router_s_sessions_follow_its_memory() {
+        assert_eq!(router_sessions(0), 64);
+        assert_eq!(router_sessions(52), 64);
+        assert_eq!(router_sessions(84), 128);
+        assert_eq!(router_sessions(210), 380);
+        assert_eq!(router_sessions(276), 512);
+        assert_eq!(router_sessions(512), 512);
+        assert_eq!(router_sessions(u64::MAX >> 20), 512);
+        let mib = |n: u64| Some(n << 20);
+        let fitted = |profile, memory| {
+            let mut options = RuntimeOptions::profile(profile);
+            options.fit_to_memory(memory);
+            (options.inbound.max_connections, options.sessions_for_memory)
+        };
+        assert_eq!(fitted(Profile::Router, mib(84)), (128, Some((128, 84))));
+        // Enough memory, or none known: the profile's, and nothing to log.
+        assert_eq!(fitted(Profile::Router, mib(512)), (512, None));
+        assert_eq!(fitted(Profile::Router, None), (512, None));
+        // Other profiles keep theirs.
+        assert_eq!(fitted(Profile::Mobile, mib(84)), (512, None));
+        assert_eq!(fitted(Profile::Desktop, mib(84)), (0, None));
+        assert_eq!(fitted(Profile::Server, mib(84)), (0, None));
+    }
+
+    /// What the user sets wins over the memory, and only that setting
+    /// does.
+    #[test]
+    fn a_setting_of_the_sessions_wins_over_the_memory() {
+        let mut options = RuntimeOptions::profile(Profile::Router);
+        options.fit_to_memory(Some(84 << 20));
+        options.set("relay.buffer_size", "8").unwrap();
+        assert_eq!(options.inbound.max_connections, 128);
+        assert_eq!(options.sessions_for_memory, Some((128, 84)));
+        options.set("inbound.max_connections", "512").unwrap();
+        assert_eq!(options.inbound.max_connections, 512);
+        assert_eq!(options.sessions_for_memory, None);
+    }
+
+    #[test]
+    fn mem_total_is_read_from_meminfo() {
+        let meminfo = "MemTotal:          86464 kB\nMemFree:           46412 kB\n";
+        assert_eq!(mem_total(meminfo), Some(86464 << 10));
+        assert_eq!(mem_total("MemFree: 1 kB\n"), None);
+        assert_eq!(mem_total("MemTotal: many kB\n"), None);
     }
 
     #[test]
