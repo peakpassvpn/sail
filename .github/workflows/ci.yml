@@ -933,6 +933,89 @@ jobs:
           if ($LASTEXITCODE -ne 0) { $status = $LASTEXITCODE }
           exit $status
 
+  # Clippy for Windows and macOS on every ci/* branch, no tests: lints
+  # only those systems' builds show (their cfgs, dead code there), which
+  # windows-msvc and tun-macos would otherwise find first on master.
+  # Windows lints exactly what windows-msvc's clippy does, from its cache,
+  # so that only sail itself is checked again.
+  clippy-windows:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/ci/')
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
+      CARGO_INCREMENTAL: 0
+      # bindgen's libclang, from the runner's LLVM.
+      LIBCLANG_PATH: C:\Program Files\LLVM\bin
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: LF checkout
+        run: git config --global core.autocrlf false
+
+      - name: checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: install rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+          targets: x86_64-pc-windows-msvc
+          components: clippy
+
+      # The fork's BoringSSL, as the header says.
+      - name: prebuilt BoringSSL
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/prebuilt-boringssl.sh x86_64-pc-windows-msvc
+
+      - name: cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: windows-msvc
+          save-if: false
+
+      - name: clippy
+        run: cargo clippy --locked -p sail --features inbound-nf,fault-injection --target x86_64-pc-windows-msvc --lib --tests -- -D warnings
+
+  # Its cache is master's, saved by its run there.
+  clippy-macos:
+    if: >-
+      github.event_name == 'push' &&
+      (startsWith(github.ref, 'refs/heads/ci/') || github.ref == 'refs/heads/master')
+    runs-on: macos-15
+    timeout-minutes: 30
+    env:
+      CARGO_PROFILE_DEV_DEBUG: 0
+      CARGO_INCREMENTAL: 0
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: install rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+          components: clippy
+
+      # The fork's BoringSSL, as the header says.
+      - name: prebuilt BoringSSL
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/prebuilt-boringssl.sh aarch64-apple-darwin
+
+      - name: cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: clippy-macos
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+
+      - name: clippy
+        run: cargo clippy --locked -p sail --features fault-injection --target aarch64-apple-darwin --lib --tests -- -D warnings
+
   # L3: real traffic through a Wintun adapter (tests/test_tun_windows.rs),
   # as tun-macos and the Android emulator show of theirs: DNS, TCP and UDP
   # over IPv4 and IPv6, a stop and a start, no integrity event, nothing

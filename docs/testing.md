@@ -158,6 +158,7 @@ Start low: a check that L1 can make does not wait for L3's runner.
 | `netns-linux` | L3 | when the change reaches it | always |
 | `tun-macos` | L3 | when the change reaches it | always |
 | `tun-windows` | L3 | when the change reaches it | always |
+| `clippy-windows`, `clippy-macos`: clippy for those systems, no tests | — | always | macOS only, to keep its cache |
 | `bindings-kotlin`, `bindings-swift` | L3 | when the change reaches them | always |
 | `cross (<target>)` | L4 | no | always |
 | `test-aarch64` | L4 | no | always |
