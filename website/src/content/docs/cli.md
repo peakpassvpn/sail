@@ -101,6 +101,40 @@ The UDP sockets of QUIC (Hysteria2, TUIC, the `quic` transport, DNS over QUIC) t
 
 These are the only socket settings of QUIC. Windows' UDP receive offload (URO, `UDP_RECV_MAX_COALESCED_SIZE`) is deliberately not among them and should not be added as an optimisation: on some Windows 11 systems it silently corrupts datagrams.
 
+## One TCP connection on a router
+
+On a fast, distant link, one download over a TCP-based protocol (Trojan, VLESS, Shadowsocks, VMess and the like) runs at most at its receive buffer divided by the round-trip time. sail adds no limit of its own: it stays within 2% of plain TCP. Linux sizes the buffer from RAM at boot: the largest receive buffer (`net.ipv4.tcp_rmem`, third value) is free RAM / 128, from 128 KiB up to 6 MiB, and the largest send buffer (`net.ipv4.tcp_wmem`) the same from 64 KiB up to 4 MiB. All TCP sockets together are held to `net.ipv4.tcp_mem`, about 6–9% of free RAM, which eight full receive buffers already bring under memory pressure.
+
+| RAM | `tcp_rmem` max | `tcp_mem` limit |
+| --- | --- | --- |
+| 128 MiB | 598 KiB | 7.0 MiB |
+| 256 MiB | 1.56 MiB | 18.7 MiB |
+| 512 MiB | 3.51 MiB | 42 MiB |
+| 1 GiB | 6 MiB | 84 MiB |
+
+What one connection then reached, by receive buffer and round-trip time, in Mbit/s:
+
+| Receive buffer | 20 ms | 50 ms | 100 ms | 150 ms |
+| --- | --- | --- | --- | --- |
+| 2 MiB | 479 | 192 | 94 | 62 |
+| 4 MiB | 962 | 386 | 187 | 122 |
+| 6 MiB | 1305 | 552 | 275 | 176 |
+| 6 MiB, server `tcp_wmem` 16 MiB | 1453 | 579 | 283 | 183 |
+| 8 MiB, server `tcp_wmem` 16 MiB | 1635 | 650 | 317 | 205 |
+
+These numbers were measured on a test host (a sail client and server over Trojan, network namespaces and netem, downloads, three rounds of 20 s), not on a router; a router's own kernel is smaller and gives somewhat larger values for the same RAM. The server's send buffer is the next limit: at a typical VPS's 4 MiB, raising the router's buffer alone past it gains nothing.
+
+When one download is slow on a fast, long link and the router has memory to spare (512 MiB or more), raise the receive buffer on the router and the send buffer on the server, each in a file under `/etc/sysctl.d` to keep it:
+
+```sh
+# on the router
+sysctl -w net.ipv4.tcp_rmem="4096 131072 8388608"
+# on the server
+sysctl -w net.ipv4.tcp_wmem="4096 16384 16777216"
+```
+
+On a small router it does not help under load: with 512 connections on 256 MiB, all TCP sockets reach the `tcp_mem` limit whatever each one's buffer, and the kernel then shrinks every connection's window. A multiplexed outbound (h2mux, yamux, smux) carries all its streams in one TCP connection, so that connection's limit is shared by all of them. Hysteria2 and TUIC run QUIC over UDP and are not bound by the TCP buffers; their buffer is `quic.udp_receive_buffer` (1 MiB on the router profile), and they are the other answer to a slow long link.
+
 ## Paths and persisted state
 
 ```sh
