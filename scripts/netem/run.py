@@ -439,8 +439,12 @@ class Run:
         except subprocess.TimeoutExpired:
             os.killpg(p.pid, signal.SIGKILL)
             p.communicate()
-            return {"failed": 1, "_seconds": round(time.time() - t0, 2),
-                    "_error": f"{mode} did not finish within {timeout}s"}
+            # Said apart from a stream that failed: on a slow shaped link
+            # a large --bulk-bytes alone overruns it (4 x 512 MiB at loss2's
+            # 22 Mbit/s is 780 s), which is the cell's size, not a fault.
+            return {"failed": 1, "timed_out": 1, "_seconds": round(time.time() - t0, 2),
+                    "_error": f"{mode} did not finish within {timeout}s (timed out, not "
+                              f"failed: for a slow link, a smaller --bulk-bytes)"}
         out = stdout.strip().splitlines()
         try:
             res = json.loads(out[-1]) if out else {}
