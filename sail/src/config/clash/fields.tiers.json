@@ -1,5 +1,5 @@
 {
-  "mihomo": "v1.19.31",
+  "mihomo": "v1.19.32",
   "tiers": {
     "error": [
       "iptables",
@@ -1808,6 +1808,7 @@
       "proxy-groups[*].type",
       "proxy-groups[*].url",
       "proxy-groups[*].use",
+      "proxy-groups[load-balance].hash-key",
       "proxy-groups[load-balance].strategy",
       "proxy-groups[select].default-selected",
       "proxy-groups[url-test].tolerance",
@@ -1980,6 +1981,7 @@
       "listeners[tuic].mux-option.brutal.up",
       "listeners[tuic].mux-option.padding",
       "listeners[tuic].routing-mark",
+      "listeners[tun].congestion-controller",
       "listeners[tun].disable-icmp-forwarding",
       "listeners[tun].gso",
       "listeners[tun].gso-max-size",
@@ -2074,6 +2076,7 @@
       "tls.custom-certifactes",
       "tls.ech-key",
       "tls.private-key",
+      "tun.congestion-controller",
       "tun.disable-icmp-forwarding",
       "tun.gso",
       "tun.gso-max-size",

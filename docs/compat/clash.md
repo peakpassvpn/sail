@@ -2,7 +2,7 @@
 
 # Clash / Mihomo compatibility
 
-Every field Mihomo v1.19.31 takes, and how sail reads it: measured by reading a configuration of that field alone. Supported: read (or refused for its value). Warned: dropped with a warning. Error: refused as not implemented.
+Every field Mihomo v1.19.32 takes, and how sail reads it: measured by reading a configuration of that field alone. Supported: read (or refused for its value). Warned: dropped with a warning. Error: refused as not implemented.
 
 ## Deliberate differences
 
@@ -49,7 +49,7 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 | `listeners[trojan]` | 73 | 28 | 7 | 38 |
 | `listeners[trusttunnel]` | 18 | 0 | 0 | 18 |
 | `listeners[tuic]` | 26 | 12 | 11 | 3 |
-| `listeners[tun]` | 55 | 37 | 10 | 8 |
+| `listeners[tun]` | 56 | 37 | 11 | 8 |
 | `listeners[tunnel]` | 8 | 6 | 1 | 1 |
 | `listeners[vless]` | 93 | 29 | 7 | 57 |
 | `listeners[vmess]` | 116 | 28 | 7 | 81 |
@@ -83,14 +83,14 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 | `proxies[vmess]` | 128 | 47 | 1 | 80 |
 | `proxies[wireguard]` | 64 | 28 | 5 | 31 |
 | `proxies[zerotier]` | 30 | 0 | 0 | 30 |
-| `proxy-groups` | 23 | 19 | 4 | 0 |
+| `proxy-groups` | 24 | 20 | 4 | 0 |
 | `proxy-providers` | 39 | 28 | 8 | 3 |
 | `rule-providers` | 11 | 9 | 2 | 0 |
 | `sniffer` | 12 | 12 | 0 | 0 |
 | `tls` | 7 | 0 | 7 | 0 |
 | `tuic-server` | 13 | 0 | 0 | 13 |
-| `tun` | 50 | 34 | 9 | 7 |
-| **All** | **2077** | **713** | **176** | **1188** |
+| `tun` | 51 | 34 | 10 | 7 |
+| **All** | **2080** | **714** | **178** | **1188** |
 
 
 ## `general`
@@ -704,6 +704,7 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 | `listeners[tun].auto-redirect-iproute2-fallback-rule-index` | Supported |  |
 | `listeners[tun].auto-redirect-output-mark` | Supported |  |
 | `listeners[tun].auto-route` | Supported |  |
+| `listeners[tun].congestion-controller` | Warned | listeners[0].congestion-controller: sail does not implement this field; ignored |
 | `listeners[tun].device` | Supported |  |
 | `listeners[tun].disable-icmp-forwarding` | Warned | listeners[0].disable-icmp-forwarding: sail does not implement this field; ignored |
 | `listeners[tun].dns-hijack` | Supported | listeners[0].dns-hijack[0]: "x" names no port |
@@ -1864,6 +1865,7 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 | `proxy-groups[*].type` | Supported | proxy-groups[0].type: "x" is none of select, url-test, fallback, load-balance and smart |
 | `proxy-groups[*].url` | Supported |  |
 | `proxy-groups[*].use` | Supported | proxy-groups[0].use[0]: no proxy-provider is named "x" |
+| `proxy-groups[load-balance].hash-key` | Supported | proxy-groups[0].hash-key: "x" is not in-user |
 | `proxy-groups[load-balance].strategy` | Supported | proxy-groups[0].strategy: "x" is none of consistent-hashing, round-robin and sticky-sessions |
 | `proxy-groups[select].default-selected` | Supported |  |
 | `proxy-groups[url-test].tolerance` | Supported |  |
@@ -2016,6 +2018,7 @@ The dashboards (yacd, Yacd-meta, metacubexd) get every field they read, of the t
 | `tun.auto-redirect-iproute2-fallback-rule-index` | Supported |  |
 | `tun.auto-redirect-output-mark` | Supported |  |
 | `tun.auto-route` | Supported |  |
+| `tun.congestion-controller` | Warned | tun.congestion-controller: sail does not implement this field; ignored |
 | `tun.device` | Supported |  |
 | `tun.disable-icmp-forwarding` | Warned | tun.disable-icmp-forwarding: sail does not implement this field; ignored |
 | `tun.dns-hijack` | Supported | tun.dns-hijack[0]: "x" names no port |

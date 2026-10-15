@@ -59,7 +59,7 @@ Full table: [docs/compat/clash.md](https://github.com/peakpassvpn/sail/blob/mast
 | `listeners[trojan]` | 73 | 28 | 7 | 38 |
 | `listeners[trusttunnel]` | 18 | 0 | 0 | 18 |
 | `listeners[tuic]` | 26 | 12 | 11 | 3 |
-| `listeners[tun]` | 55 | 37 | 10 | 8 |
+| `listeners[tun]` | 56 | 37 | 11 | 8 |
 | `listeners[tunnel]` | 8 | 6 | 1 | 1 |
 | `listeners[vless]` | 93 | 29 | 7 | 57 |
 | `listeners[vmess]` | 116 | 28 | 7 | 81 |
@@ -93,14 +93,14 @@ Full table: [docs/compat/clash.md](https://github.com/peakpassvpn/sail/blob/mast
 | `proxies[vmess]` | 128 | 47 | 1 | 80 |
 | `proxies[wireguard]` | 64 | 28 | 5 | 31 |
 | `proxies[zerotier]` | 30 | 0 | 0 | 30 |
-| `proxy-groups` | 23 | 19 | 4 | 0 |
+| `proxy-groups` | 24 | 20 | 4 | 0 |
 | `proxy-providers` | 39 | 28 | 8 | 3 |
 | `rule-providers` | 11 | 9 | 2 | 0 |
 | `sniffer` | 12 | 12 | 0 | 0 |
 | `tls` | 7 | 0 | 7 | 0 |
 | `tuic-server` | 13 | 0 | 0 | 13 |
-| `tun` | 50 | 34 | 9 | 7 |
-| **All** | **2077** | **713** | **176** | **1188** |
+| `tun` | 51 | 34 | 10 | 7 |
+| **All** | **2080** | **714** | **178** | **1188** |
 
 ## Surge
 

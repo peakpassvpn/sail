@@ -42,6 +42,8 @@ const FIELDS: &[(&str, Tier)] = &[
     ("recvmsgx", Ignored),
     ("sendmsgx", Ignored),
     ("processors-per-channel", Ignored),
+    // The TCP stack's congestion control, the one stack's own.
+    ("congestion-controller", Ignored),
     // Which traffic is taken.
     ("exclude-src-port", Unsupported),
     ("exclude-src-port-range", Unsupported),

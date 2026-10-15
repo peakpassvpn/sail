@@ -2,7 +2,7 @@
 
 # Clash / Mihomo 兼容性
 
-Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只含该字段的配置实测。支持：读取（或仅因取值被拒）。警告：丢弃并警告。报错：未实现，拒绝。
+Mihomo v1.19.32 接受的全部字段，以及 sail 如何读取：逐个以只含该字段的配置实测。支持：读取（或仅因取值被拒）。警告：丢弃并警告。报错：未实现，拒绝。
 
 ## 有意的差异
 
@@ -49,7 +49,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `listeners[trojan]` | 73 | 28 | 7 | 38 |
 | `listeners[trusttunnel]` | 18 | 0 | 0 | 18 |
 | `listeners[tuic]` | 26 | 12 | 11 | 3 |
-| `listeners[tun]` | 55 | 37 | 10 | 8 |
+| `listeners[tun]` | 56 | 37 | 11 | 8 |
 | `listeners[tunnel]` | 8 | 6 | 1 | 1 |
 | `listeners[vless]` | 93 | 29 | 7 | 57 |
 | `listeners[vmess]` | 116 | 28 | 7 | 81 |
@@ -83,14 +83,14 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `proxies[vmess]` | 128 | 47 | 1 | 80 |
 | `proxies[wireguard]` | 64 | 28 | 5 | 31 |
 | `proxies[zerotier]` | 30 | 0 | 0 | 30 |
-| `proxy-groups` | 23 | 19 | 4 | 0 |
+| `proxy-groups` | 24 | 20 | 4 | 0 |
 | `proxy-providers` | 39 | 28 | 8 | 3 |
 | `rule-providers` | 11 | 9 | 2 | 0 |
 | `sniffer` | 12 | 12 | 0 | 0 |
 | `tls` | 7 | 0 | 7 | 0 |
 | `tuic-server` | 13 | 0 | 0 | 13 |
-| `tun` | 50 | 34 | 9 | 7 |
-| **All** | **2077** | **713** | **176** | **1188** |
+| `tun` | 51 | 34 | 10 | 7 |
+| **All** | **2080** | **714** | **178** | **1188** |
 
 
 ## `general`
@@ -704,6 +704,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `listeners[tun].auto-redirect-iproute2-fallback-rule-index` | 支持 |  |
 | `listeners[tun].auto-redirect-output-mark` | 支持 |  |
 | `listeners[tun].auto-route` | 支持 |  |
+| `listeners[tun].congestion-controller` | 警告 | listeners[0].congestion-controller: sail does not implement this field; ignored |
 | `listeners[tun].device` | 支持 |  |
 | `listeners[tun].disable-icmp-forwarding` | 警告 | listeners[0].disable-icmp-forwarding: sail does not implement this field; ignored |
 | `listeners[tun].dns-hijack` | 支持 | listeners[0].dns-hijack[0]: "x" names no port |
@@ -1864,6 +1865,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `proxy-groups[*].type` | 支持 | proxy-groups[0].type: "x" is none of select, url-test, fallback, load-balance and smart |
 | `proxy-groups[*].url` | 支持 |  |
 | `proxy-groups[*].use` | 支持 | proxy-groups[0].use[0]: no proxy-provider is named "x" |
+| `proxy-groups[load-balance].hash-key` | 支持 | proxy-groups[0].hash-key: "x" is not in-user |
 | `proxy-groups[load-balance].strategy` | 支持 | proxy-groups[0].strategy: "x" is none of consistent-hashing, round-robin and sticky-sessions |
 | `proxy-groups[select].default-selected` | 支持 |  |
 | `proxy-groups[url-test].tolerance` | 支持 |  |
@@ -2016,6 +2018,7 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `tun.auto-redirect-iproute2-fallback-rule-index` | 支持 |  |
 | `tun.auto-redirect-output-mark` | 支持 |  |
 | `tun.auto-route` | 支持 |  |
+| `tun.congestion-controller` | 警告 | tun.congestion-controller: sail does not implement this field; ignored |
 | `tun.device` | 支持 |  |
 | `tun.disable-icmp-forwarding` | 警告 | tun.disable-icmp-forwarding: sail does not implement this field; ignored |
 | `tun.dns-hijack` | 支持 | tun.dns-hijack[0]: "x" names no port |
