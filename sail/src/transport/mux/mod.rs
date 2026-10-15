@@ -32,6 +32,8 @@ use crate::session::{SocksAddr, SocksAddrWireType};
 
 pub mod brutal;
 pub mod client;
+#[cfg(feature = "fuzzing")]
+pub(crate) mod fuzz;
 mod h2mux;
 pub mod inbound;
 pub mod packet;

@@ -147,6 +147,12 @@ impl Codec for Amux {
     }
 }
 
+/// Fuzzing (sail::fuzzing): amux's frames, as a session reads them.
+#[cfg(all(feature = "fuzzing", feature = "mux"))]
+pub(crate) fn fuzz_frames(data: &[u8], step: usize) {
+    crate::transport::mux::fuzz::decode_all(&mut *Amux.decoder(false), data, step);
+}
+
 #[derive(Default)]
 struct AmuxDecoder {
     framing: Framing,

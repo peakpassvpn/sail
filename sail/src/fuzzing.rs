@@ -128,6 +128,20 @@ pub fn vless(data: &[u8]) {
     crate::protocol::vless::fuzz(data);
 }
 
+/// sing-mux: the requests a connection and its streams open with, a
+/// stream's status, and smux's and yamux's frames at each end.
+#[cfg(feature = "mux")]
+pub fn mux_frames(data: &[u8]) {
+    crate::transport::mux::fuzz::frames(data);
+}
+
+/// sing-mux: a whole session against a peer, a server's or a client's, on
+/// paused time: the session core every multiplexer shares.
+#[cfg(feature = "mux")]
+pub fn mux_session(data: &[u8]) {
+    crate::transport::mux::fuzz::session(data);
+}
+
 /// What a host pushes and answers through the C ABI, read without an
 /// instance: the network it is on (`sail_set_network_state`), and who
 /// opened a connection (the platform's `find_connection_owner`).

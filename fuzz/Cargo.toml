@@ -31,6 +31,7 @@ sail = { path = "../sail", default-features = false, features = [
     "inbound-tuic", "outbound-tuic",
     "inbound-shadowtls", "outbound-shadowtls",
     "inbound-vless", "outbound-vless",
+    "mux", "inbound-amux", "outbound-amux",
 ] }
 
 # The C functions themselves, called from Rust: sail-ffi's sources as a
@@ -169,6 +170,20 @@ bench = false
 [[bin]]
 name = "ffi_host"
 path = "fuzz_targets/ffi_host.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "mux_frames"
+path = "fuzz_targets/mux_frames.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "mux_session"
+path = "fuzz_targets/mux_session.rs"
 test = false
 doc = false
 bench = false

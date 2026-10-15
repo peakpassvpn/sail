@@ -213,7 +213,7 @@ alloc-stats = []
 ctrlc = ["tokio/signal"]
 # Pure in-memory parser entry points used only by the separate cargo-fuzz
 # workspace. Keep this out of default builds and runtime APIs.
-fuzzing = ["rule-set"]
+fuzzing = ["rule-set", "tokio/test-util"]
 # Panics a test arms (sail::fault), to see what a failing instance
 # leaves in the system. Never in a build that ships: CI fails a release
 # workflow or cross script that names it.
