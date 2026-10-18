@@ -57,6 +57,17 @@
 //! closed for another's sake; with `interrupt_exist_connections`, only
 //! for its member leaving the group.
 //!
+//! A connection to a site not pinned to a member races the members: when
+//! one is not ready within twice its average connect time (100 ms at
+//! least, 250 ms while it has none), the next is dialled beside it, two at
+//! a time, and the first ready carries the connection; the other is
+//! dropped, and not blamed. A site pinned to a member is not raced, so
+//! that it keeps its exit: the member is given four of its average connect
+//! times to connect, 1.5 s at least, before the next is tried. A member
+//! that multiplexes streams on a carrier it has open is ready at once, so
+//! it starts no race, and no second carrier. Datagrams and hellos sent
+//! again are not raced.
+//!
 //! Probes pause while the network is down. When it changes, the sites
 //! forget their members, and the members their failures and connect
 //! times, which were of the network before; their latencies are kept, as
@@ -67,7 +78,8 @@
 //! against a member, since the first response of a plain connection
 //! includes the server's think time; TCP retransmissions are not
 //! measured; a failure blamed on every member tried is blamed on none;
-//! no two members are raced for one connection. With a cache file, the
+//! a site's first connection races two members, as the Mihomo fork's
+//! does, staggered rather than at once. With a cache file, the
 //! sites are kept across restarts (memory.rs).
 
 mod datagram;
@@ -80,6 +92,7 @@ use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::io;
 use std::net::IpAddr;
+use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
@@ -87,11 +100,12 @@ use std::time::Duration;
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use futures::future::{abortable, BoxFuture};
-use futures::FutureExt;
+use futures::stream::FuturesUnordered;
+use futures::{FutureExt, StreamExt};
 use lru_time_cache::LruCache;
 use serde_derive::Deserialize;
 use tokio::sync::{watch, Notify, RwLock};
-use tokio::time::Instant;
+use tokio::time::{Instant, Sleep};
 use tracing::debug;
 
 use self::score::MemberStats;
@@ -111,7 +125,7 @@ use crate::app::SyncDnsClient;
 use crate::common::name_filter::NameFilter;
 use crate::config::model::GroupProviders;
 use crate::net::network::Network;
-use crate::session::{Session, SniffedProtocol};
+use crate::session::{Chain, Session, SniffedProtocol};
 
 pub(crate) fn register(registry: &mut OutboundRegistry) {
     registry.register("smart", OutboundFactory::composite(dependencies, build));
@@ -220,6 +234,20 @@ const MAX_PROBED: usize = 12;
 const MIN_REPROBE: Duration = Duration::from_secs(2);
 /// How often the member shown as selected is worked out again at most.
 const REPORT_EVERY: Duration = Duration::from_secs(1);
+/// Members connecting at once for one connection at most, raced.
+const RACED: usize = 2;
+
+/// How `try_members` goes through its members.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Dial {
+    /// One after another, each given `timeout`.
+    InTurn,
+    /// One after another, each given its own connect timeout: the site is
+    /// pinned to the first, and keeps its exit unless that one fails.
+    Pinned,
+    /// The next raced beside one slow to connect: the site is not pinned.
+    Race,
+}
 
 fn dependencies(tag: &str, options: &Options) -> Result<Vec<String>> {
     let options: SmartOutboundOptions = parse_options("outbound", tag, options)?;
@@ -455,6 +483,10 @@ impl crate::runtime::cache_file::Keep for Group {
     }
 }
 
+fn timed_out() -> io::Error {
+    io::Error::new(io::ErrorKind::TimedOut, "timed out")
+}
+
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
 }
@@ -528,13 +560,14 @@ impl Group {
     /// The members of `snapshot` a connection to `site` is tried through,
     /// in turn: of those that carry its network, as `carries` tells; one
     /// that does not, UDP alone or TCP alone (an outbound with sing-box's
-    /// `network`), is passed over, and so neither tried nor failed.
+    /// `network`), is passed over, and so neither tried nor failed. And
+    /// whether the site is pinned to the first.
     fn plan(
         &self,
         snapshot: &Snapshot,
         site: &str,
         carries: impl Fn(&AnyOutboundHandler) -> bool,
-    ) -> Vec<usize> {
+    ) -> (Vec<usize>, bool) {
         let now = Instant::now();
         let carrying: Vec<usize> = (0..snapshot.members.len())
             .filter(|&i| carries(&snapshot.members[i].handler))
@@ -557,17 +590,21 @@ impl Group {
                 })
                 .collect()
         };
-        let order = self.with_site(site, |site| {
+        let (order, pinned) = self.with_site(site, |site| {
             site.retain(|key| snapshot.position(key).is_some());
-            site::order(
+            let order = site::order(
                 &ranks,
                 Some(site),
                 self.tolerance,
                 now,
                 &mut rand::thread_rng(),
-            )
+            );
+            let pinned = order
+                .first()
+                .is_some_and(|&r| site.is_pinned_to(&ranks[r].key));
+            (order, pinned)
         });
-        order.into_iter().map(|r| carrying[r]).collect()
+        (order.into_iter().map(|r| carrying[r]).collect(), pinned)
     }
 
     /// Notes that the group is being used, which resumes paused probes.
@@ -857,10 +894,11 @@ impl Group {
         self.report_now(now);
     }
 
-    /// Tries `candidates` of `snapshot` in turn, with `connect`, until one
-    /// connects; each but the last has `timeout`. Returns the one that
-    /// did, how long it took, and what it connected; those that failed
-    /// are added to `failed`.
+    /// Tries `candidates` of `snapshot` with `connect`, as `dial` says,
+    /// until one connects; each but the last has `timeout`, or with
+    /// `Dial::Pinned` its own connect timeout. Returns the one that did,
+    /// how long it took, and what it connected; those that failed are
+    /// added to `failed`.
     #[allow(clippy::too_many_arguments)]
     async fn try_members<T, F, Fut>(
         &self,
@@ -870,12 +908,18 @@ impl Group {
         site: &str,
         failed: &mut Vec<MemberKey>,
         tell: bool,
+        dial: Dial,
         connect: F,
     ) -> io::Result<(usize, Duration, T)>
     where
-        F: Fn(AnyOutboundHandler) -> Fut,
+        F: Fn(Session, AnyOutboundHandler) -> Fut,
         Fut: Future<Output = io::Result<T>>,
     {
+        if dial == Dial::Race && candidates.len() > 1 {
+            return self
+                .race(sess, snapshot, candidates, site, failed, tell, connect)
+                .await;
+        }
         let mut last_error = None;
         for (n, &i) in candidates.iter().enumerate() {
             let member = &snapshot.members[i];
@@ -886,11 +930,15 @@ impl Group {
             let more = n + 1 < candidates.len();
             let told = tell.then(|| Attempt::start(sess, &member.key.name, more));
             let start = Instant::now();
-            let attempt = connect(member.handler.clone());
+            let attempt = connect(sess.clone(), member.handler.clone());
             let result = if more {
-                tokio::time::timeout(self.timeout, attempt)
+                let limit = match dial {
+                    Dial::Pinned => self.connect_timeout(&member.key),
+                    _ => self.timeout,
+                };
+                tokio::time::timeout(limit, attempt)
                     .await
-                    .unwrap_or_else(|_| Err(io::Error::new(io::ErrorKind::TimedOut, "timed out")))
+                    .unwrap_or_else(|_| Err(timed_out()))
             } else {
                 attempt.await
             };
@@ -902,21 +950,175 @@ impl Group {
                     return Ok((i, start.elapsed(), v));
                 }
                 Err(e) => {
-                    debug!(
-                        "[{}] failed to handle [{}:{}] through [{}]: {}",
-                        self.tag, sess.network, sess.destination, member.key.name, e
-                    );
-                    if let Some(told) = told {
-                        let stage = crate::control::events::DialStage::guessed(e.kind());
-                        told.failed(&self.events, sess, &e, stage);
-                    }
-                    self.failed_site(&member.key, site);
-                    failed.push(member.key.clone());
+                    self.attempt_failed(sess, &member.key, site, failed, told, &e);
                     last_error = Some(e);
                 }
             }
         }
         Err(last_error.unwrap_or_else(|| io::Error::other("no outbound to try")))
+    }
+
+    /// `try_members` for a site not pinned: the next member is raced beside
+    /// one that is slow to connect (`race_after`), `RACED` at a time, and
+    /// the first ready wins. A failure starts the next at once. Each
+    /// attempt goes in a chain of its own (`Chain::fork`), and the
+    /// session's is the winner's in the end, or the last failed one's. An
+    /// attempt outrun is dropped, which closes what it opened, and is not
+    /// blamed; only slow, if it was for it.
+    #[allow(clippy::too_many_arguments)]
+    async fn race<T, F, Fut>(
+        &self,
+        sess: &Session,
+        snapshot: &Snapshot,
+        candidates: &[usize],
+        site: &str,
+        failed: &mut Vec<MemberKey>,
+        tell: bool,
+        connect: F,
+    ) -> io::Result<(usize, Duration, T)>
+    where
+        F: Fn(Session, AnyOutboundHandler) -> Fut,
+        Fut: Future<Output = io::Result<T>>,
+    {
+        let outer = sess.chain.more();
+        let limit = self.timeout;
+        let mut next = 0;
+        let mut racing = FuturesUnordered::new();
+        // The members racing: which, their chain, and when they started.
+        let mut running: Vec<(usize, Chain, Instant)> = Vec::new();
+        // The chains of those that failed.
+        let mut ended: Vec<Chain> = Vec::new();
+        // Until the next member is raced beside those running.
+        let mut wait: Option<Pin<Box<Sleep>>> = None;
+        let mut last_error = None;
+        loop {
+            if next < candidates.len()
+                && (running.is_empty() || (running.len() < RACED && wait.is_none()))
+            {
+                let i = candidates[next];
+                next += 1;
+                let member = &snapshot.members[i];
+                debug!(
+                    "[{}] handles [{}:{}] to [{}]{}",
+                    self.tag,
+                    sess.network,
+                    sess.destination,
+                    member.key.name,
+                    if running.is_empty() { "" } else { ", raced" }
+                );
+                let more = next < candidates.len() || !running.is_empty();
+                let at = Session {
+                    chain: sess.chain.fork(),
+                    ..sess.clone()
+                };
+                let told = tell.then(|| Attempt::start(&at, &member.key.name, more));
+                let started = Instant::now();
+                running.push((i, at.chain.clone(), started));
+                let attempt = connect(at.clone(), member.handler.clone());
+                racing.push(async move {
+                    let result = if more {
+                        tokio::time::timeout(limit, attempt)
+                            .await
+                            .unwrap_or_else(|_| Err(timed_out()))
+                    } else {
+                        attempt.await
+                    };
+                    (i, at, told, started.elapsed(), result)
+                });
+                wait = (next < candidates.len() && running.len() < RACED)
+                    .then(|| Box::pin(tokio::time::sleep(self.race_after(&member.key))));
+            }
+            if running.is_empty() {
+                break;
+            }
+            tokio::select! {
+                Some((i, at, told, took, result)) = racing.next() => {
+                    running.retain(|(m, ..)| *m != i);
+                    match result {
+                        Ok(v) => {
+                            if let Some(told) = told {
+                                told.connected(&at);
+                            }
+                            for chain in &ended {
+                                sess.chain.join(chain, false);
+                            }
+                            sess.chain.join(&at.chain, true);
+                            let now = Instant::now();
+                            for (m, _, started) in &running {
+                                let key = &snapshot.members[*m].key;
+                                let slow = self.with_stats(key, |s| s.outrun(now - *started, now));
+                                debug!(
+                                    "[{}] [{}] outrun by [{}]{}",
+                                    self.tag,
+                                    key.name,
+                                    snapshot.members[i].key.name,
+                                    if slow { ", slow to connect" } else { "" }
+                                );
+                            }
+                            // `racing` goes with those outrun in it.
+                            return Ok((i, took, v));
+                        }
+                        Err(e) => {
+                            let going_on = next < candidates.len() || !running.is_empty();
+                            for (_, chain, _) in &running {
+                                chain.set_more(going_on || outer);
+                            }
+                            let told = told.map(|t| t.going_on(going_on));
+                            let key = &snapshot.members[i].key;
+                            self.attempt_failed(&at, key, site, failed, told, &e);
+                            ended.push(at.chain);
+                            last_error = Some(e);
+                            wait = None;
+                        }
+                    }
+                }
+                _ = async { wait.as_mut().expect("armed").await }, if wait.is_some() => {
+                    wait = None;
+                }
+            }
+        }
+        let last = ended.len().saturating_sub(1);
+        for (n, chain) in ended.iter().enumerate() {
+            sess.chain.join(chain, n == last);
+        }
+        Err(last_error.unwrap_or_else(|| io::Error::other("no outbound to try")))
+    }
+
+    /// An attempt through `member`, in `sess`, failed with `e`: told, if
+    /// `told`, and the member tried last for the site for a while.
+    fn attempt_failed(
+        &self,
+        sess: &Session,
+        member: &MemberKey,
+        site: &str,
+        failed: &mut Vec<MemberKey>,
+        told: Option<Attempt>,
+        e: &io::Error,
+    ) {
+        debug!(
+            "[{}] failed to handle [{}:{}] through [{}]: {}",
+            self.tag, sess.network, sess.destination, member.name, e
+        );
+        if let Some(told) = told {
+            let stage = crate::control::events::DialStage::guessed(e.kind());
+            told.failed(&self.events, sess, e, stage);
+        }
+        self.failed_site(member, site);
+        failed.push(member.clone());
+    }
+
+    /// How long a connection through `member` goes alone before the next
+    /// is raced, `timeout` at most.
+    fn race_after(&self, member: &MemberKey) -> Duration {
+        self.with_stats(member, |s| s.race_after())
+            .min(self.timeout)
+    }
+
+    /// How long `member` is given to connect for a site pinned to it,
+    /// `timeout` at most.
+    fn connect_timeout(&self, member: &MemberKey) -> Duration {
+        self.with_stats(member, |s| s.connect_timeout())
+            .min(self.timeout)
     }
 
     /// What ends a connection through `member`, with

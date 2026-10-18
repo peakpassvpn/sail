@@ -54,6 +54,21 @@ pub fn slower(latency: f64, than: f64, times: f64) -> bool {
 pub const FIRST_BYTE_TIMEOUT: Duration = Duration::from_secs(3);
 const FIRST_BYTE_CONNECTS: f64 = 3.0;
 
+/// A connection to a site not pinned to a member races the next member
+/// once the first took this many of its average connect times,
+/// `RACE_AFTER_AT_LEAST` at least, or `RACE_AFTER_UNKNOWN` while it has
+/// none. The first two are judgments (the times reuse the site's
+/// `SLOWER`); the last is RFC 8305's Connection Attempt Delay.
+const RACE_AFTER_CONNECTS: f64 = 2.0;
+const RACE_AFTER_AT_LEAST: Duration = Duration::from_millis(100);
+const RACE_AFTER_UNKNOWN: Duration = Duration::from_millis(250);
+
+/// A connection to a pinned site gives its member this many of its average
+/// connect times to connect, `CONNECT_TIMEOUT_AT_LEAST` at least: one lost
+/// SYN, with an initial RTO of 1 s, and a margin. Judgments.
+const CONNECT_TIMEOUT_CONNECTS: f64 = 4.0;
+const CONNECT_TIMEOUT_AT_LEAST: Duration = Duration::from_millis(1500);
+
 /// How fast a member's capacity, the most it was seen to carry for one
 /// connection, is forgotten: it halves in this time. A judgment: the
 /// penalty's half-life.
@@ -225,17 +240,50 @@ impl MemberStats {
     /// A connection through it took `took` to be ready. Returns whether
     /// that was slow for it, which costs half a failure's penalty.
     pub fn connected(&mut self, took: Duration, now: Instant) -> bool {
+        let slow = self.slow_connect(took, now);
+        Ewma::add(&mut self.connect, took.as_secs_f64() * 1000.0, 1.0, now);
+        slow
+    }
+
+    /// A connection through it was given up after `took`, another member
+    /// having connected first: no failure, but slow if it was already slow
+    /// for it, as a connection that took that long would be.
+    pub fn outrun(&mut self, took: Duration, now: Instant) -> bool {
+        self.slow_connect(took, now)
+    }
+
+    /// Whether `took` is slow to connect for it; if so, half a failure's
+    /// penalty.
+    fn slow_connect(&mut self, took: Duration, now: Instant) -> bool {
         let ms = took.as_secs_f64() * 1000.0;
         let slow = self.connect.is_some_and(|c| {
             c.weight(now) >= SLOW_AFTER_WEIGHT && slower(ms, c.mean(), SLOW_CONNECT)
         });
-        Ewma::add(&mut self.connect, ms, 1.0, now);
         if slow {
             let penalty = (self.penalty(now) + PENALTY_BASE_MS / 2.0).min(PENALTY_CAP_MS);
             self.penalty = penalty;
             self.penalty_at = now;
         }
         slow
+    }
+
+    /// How long a connection through it, to a site not pinned to it, goes
+    /// alone before the next member is raced.
+    pub fn race_after(&self) -> Duration {
+        self.connect.map_or(RACE_AFTER_UNKNOWN, |c| {
+            Duration::from_secs_f64(c.mean() * RACE_AFTER_CONNECTS / 1000.0)
+                .max(RACE_AFTER_AT_LEAST)
+        })
+    }
+
+    /// How long a connection through it, to a site pinned to it, is given
+    /// to connect.
+    pub fn connect_timeout(&self) -> Duration {
+        let connects = self
+            .connect
+            .map(|c| Duration::from_secs_f64(c.mean() * CONNECT_TIMEOUT_CONNECTS / 1000.0))
+            .unwrap_or_default();
+        CONNECT_TIMEOUT_AT_LEAST.max(connects)
     }
 
     /// The first bytes sent through it were answered `latency` after the

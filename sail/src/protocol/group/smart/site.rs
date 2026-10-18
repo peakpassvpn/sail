@@ -219,6 +219,12 @@ impl Site {
         }
     }
 
+    /// Whether it is pinned to `member`: its connections then go to that
+    /// member alone, not raced, so that it keeps one exit.
+    pub fn is_pinned_to(&self, member: &MemberKey) -> bool {
+        self.pinned.as_ref() == Some(member)
+    }
+
     /// The member it is pinned to, if any.
     #[cfg(test)]
     pub fn pinned(&self) -> Option<&MemberKey> {

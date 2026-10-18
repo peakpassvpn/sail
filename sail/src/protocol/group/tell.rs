@@ -67,6 +67,15 @@ impl Attempt {
         }
     }
 
+    /// Whether the group goes on to another member if this one fails, as
+    /// it is now: of a race, the others may have failed meanwhile, or
+    /// still be going.
+    #[cfg_attr(not(feature = "outbound-smart"), allow(dead_code))]
+    pub(crate) fn going_on(mut self, more: bool) -> Self {
+        self.more = more;
+        self
+    }
+
     /// The member connected: it stays in the chain.
     pub(crate) fn connected(self, sess: &Session) {
         sess.chain.set_more(self.outer);

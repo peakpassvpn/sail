@@ -579,6 +579,93 @@ fn test_mux_sing_box_to_sail() -> anyhow::Result<()> {
 }
 
 // ---------------------------------------------------------------------------
+// smart over multiplexed members
+// ---------------------------------------------------------------------------
+
+/// A client whose SOCKS inbound goes to a smart group of two members that
+/// multiplex over Shadowsocks, each to its own forwarder.
+#[cfg(all(feature = "outbound-smart", target_os = "linux"))]
+fn smart_client(ports: &Ports) -> String {
+    let member = |tag: &str, i: usize| {
+        json!({
+            "type": "shadowsocks",
+            "tag": tag,
+            "server": "127.0.0.1",
+            "server_port": ports.forwarder(i),
+            "method": SS_METHOD,
+            "password": SS_KEY,
+            "multiplex": { "enabled": true, "protocol": "smux" },
+        })
+    };
+    json!({
+        "inbounds": [{
+            "type": "socks",
+            "tag": "in",
+            "listen": "127.0.0.1",
+            "listen_port": ports.socks(0),
+        }],
+        "outbounds": [
+            {
+                "type": "smart",
+                "tag": "auto",
+                "outbounds": ["a", "b"],
+                "url": "http://probe.test/generate_204",
+                "interval": "1h",
+            },
+            member("a", 0),
+            member("b", 1),
+        ],
+        "route": { "final": "auto" },
+    })
+    .to_string()
+}
+
+/// Streams to new sites, each raced if its member is slow to connect: a
+/// member's stream on the carrier it has open is ready at once, so no
+/// race starts, and neither member opens a second carrier. Loopback
+/// addresses other than 127.0.0.1 make the sites, so Linux only.
+#[cfg(all(feature = "outbound-smart", target_os = "linux"))]
+#[test]
+fn test_mux_smart_opens_no_second_carrier() -> anyhow::Result<()> {
+    let certs = certs("smart")?;
+    common::retry_port_clash(|| {
+        let ports = Ports::new();
+        let rt = runtime()?;
+        let ids = common::run_sail_instances(
+            &rt,
+            vec![sail_server(&ports, &certs), smart_client(&ports)],
+        )?;
+        let result = rt.block_on(async {
+            let a = counting_forwarder(ports.forwarder(0), ports.shadowsocks).await?;
+            let b = counting_forwarder(ports.forwarder(1), ports.shadowsocks).await?;
+            let (echo, serve) = common::run_tcp_echo_server("0.0.0.0:0").await?;
+            let serve = tokio::spawn(serve);
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            let streams = async {
+                for site in 1..=10u8 {
+                    let to = SocketAddr::from(([127, 0, site, 1], echo.port()));
+                    echo_stream(ports.socks(0), to, site, 10_000).await?;
+                }
+                anyhow::Ok(())
+            }
+            .await;
+            serve.abort();
+            streams?;
+            let (a, b) = (a.load(Ordering::SeqCst), b.load(Ordering::SeqCst));
+            anyhow::ensure!(
+                a <= 1 && b <= 1,
+                "carriers opened: a {}, b {}, one each at most",
+                a,
+                b
+            );
+            anyhow::Ok(())
+        });
+        common::shutdown_instances(&rt, ids);
+        result
+    })
+}
+
+// ---------------------------------------------------------------------------
 // What an inbound's multiplex block refuses
 // ---------------------------------------------------------------------------
 

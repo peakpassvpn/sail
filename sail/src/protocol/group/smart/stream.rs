@@ -14,7 +14,7 @@ use tokio::time::{Instant, Sleep};
 use tracing::debug;
 
 use super::score::PLAIN_WEIGHT;
-use super::{is_handshake, Group, Verdict};
+use super::{is_handshake, Dial, Group, Verdict};
 use crate::adapter::{AnyOutboundHandler, AnyStream};
 use crate::app::SyncDnsClient;
 use crate::protocol::group::interrupt;
@@ -44,14 +44,24 @@ pub async fn connect(group: Arc<Group>, sess: &Session) -> io::Result<AnyStream>
         return Err(io::Error::other("no outbound to try"));
     }
     let site: Arc<str> = group.site(sess).into();
-    let order = group.plan(&snapshot, &site, |m| m.stream().is_ok());
+    let (order, pinned) = group.plan(&snapshot, &site, |m| m.stream().is_ok());
     let mut failed = Vec::new();
     let dns_client = group.dns_client.clone();
+    let how = if pinned { Dial::Pinned } else { Dial::Race };
     let result = group
-        .try_members(sess, &snapshot, &order, &site, &mut failed, true, |a| {
-            let dns_client = dns_client.clone();
-            async move { dial(sess, dns_client, &a).await }
-        })
+        .try_members(
+            sess,
+            &snapshot,
+            &order,
+            &site,
+            &mut failed,
+            true,
+            how,
+            |at, a| {
+                let dns_client = dns_client.clone();
+                async move { dial(&at, dns_client, &a).await }
+            },
+        )
         .await;
     let verdict = Verdict::new(group.clone(), failed);
     let (i, took, stream) = result?;
@@ -266,11 +276,12 @@ impl SmartStream {
                     &site,
                     &mut failed,
                     false,
-                    |a| {
+                    Dial::InTurn,
+                    |at, a| {
                         let dns_client = dns_client.clone();
-                        let (sess, replay) = (&sess, &replay);
+                        let replay = &replay;
                         async move {
-                            let mut stream = dial(sess, dns_client, &a).await?;
+                            let mut stream = dial(&at, dns_client, &a).await?;
                             stream.write_all(replay).await?;
                             stream.flush().await?;
                             Ok(stream)

@@ -14,7 +14,7 @@ use tokio::sync::Notify;
 use tokio::time::Instant;
 
 use super::score::PLAIN_WEIGHT;
-use super::{is_handshake, lock, Group, Verdict};
+use super::{is_handshake, lock, Dial, Group, Verdict};
 use crate::adapter::*;
 use crate::protocol::group::interrupt;
 use crate::protocol::group::members::MemberKey;
@@ -30,14 +30,24 @@ pub async fn connect(group: Arc<Group>, sess: &Session) -> io::Result<AnyOutboun
         return Err(io::Error::other("no outbound to try"));
     }
     let site = group.site(sess);
-    let order = group.plan(&snapshot, &site, |m| m.datagram().is_ok());
+    // Datagrams go to their members in turn, not raced.
+    let (order, _) = group.plan(&snapshot, &site, |m| m.datagram().is_ok());
     let mut failed = Vec::new();
     let dns_client = group.dns_client.clone();
     let result = group
-        .try_members(sess, &snapshot, &order, &site, &mut failed, true, |a| {
-            let dns_client = dns_client.clone();
-            async move { crate::net::dial_domain::datagram_through(sess, dns_client, &a).await }
-        })
+        .try_members(
+            sess,
+            &snapshot,
+            &order,
+            &site,
+            &mut failed,
+            true,
+            Dial::InTurn,
+            |at, a| {
+                let dns_client = dns_client.clone();
+                async move { crate::net::dial_domain::datagram_through(&at, dns_client, &a).await }
+            },
+        )
         .await;
     let verdict = Verdict::new(group.clone(), failed);
     let (i, took, datagram) = result?;

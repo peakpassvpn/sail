@@ -28,6 +28,31 @@ struct Fake {
     name: String,
     behaviour: Behaviour,
     received: Arc<Mutex<Vec<Vec<u8>>>>,
+    dialing: Dialing,
+}
+
+/// How long a fake takes to connect, and how many connections through it
+/// are connecting now: one given up goes from the count when dropped.
+#[derive(Clone, Default)]
+struct Dialing {
+    delay_ms: Arc<portable_atomic::AtomicU64>,
+    now: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+/// One connection connecting, until dropped.
+struct Connecting(Arc<std::sync::atomic::AtomicUsize>);
+
+impl Connecting {
+    fn new(now: &Arc<std::sync::atomic::AtomicUsize>) -> Self {
+        now.fetch_add(1, Ordering::SeqCst);
+        Connecting(now.clone())
+    }
+}
+
+impl Drop for Connecting {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
 }
 
 #[async_trait]
@@ -42,6 +67,12 @@ impl OutboundStreamHandler for Fake {
         _lhs: Option<&mut AnyStream>,
         _stream: Option<AnyStream>,
     ) -> io::Result<AnyStream> {
+        let connecting = Connecting::new(&self.dialing.now);
+        let delay = self.dialing.delay_ms.load(Ordering::SeqCst);
+        if delay > 0 {
+            tokio::time::sleep(Duration::from_millis(delay)).await;
+        }
+        drop(connecting);
         if let Behaviour::Refuse = self.behaviour {
             return Err(io::Error::new(io::ErrorKind::ConnectionRefused, "refused"));
         }
@@ -139,6 +170,7 @@ impl OutboundDatagramHandler for Fake {
 struct Fakes {
     group: Arc<Group>,
     received: Vec<Arc<Mutex<Vec<Vec<u8>>>>>,
+    dialing: Vec<Dialing>,
 }
 
 impl Fakes {
@@ -169,6 +201,18 @@ impl Fakes {
         s
     }
 
+    /// Member `i` takes `delay` to connect from now on.
+    fn connect_in(&self, i: usize, delay: Duration) {
+        self.dialing[i]
+            .delay_ms
+            .store(delay.as_millis() as u64, Ordering::SeqCst);
+    }
+
+    /// The connections through member `i` connecting now.
+    fn connecting(&self, i: usize) -> usize {
+        self.dialing[i].now.load(Ordering::SeqCst)
+    }
+
     /// Makes `name` known, with `latency`.
     fn known(&self, name: &str, latency: u64) {
         self.group.with_stats(&MemberKey::outbound(name), |s| {
@@ -177,12 +221,14 @@ impl Fakes {
     }
 }
 
-fn fake_member(name: &str, behaviour: Behaviour) -> (Member, Arc<Mutex<Vec<Vec<u8>>>>) {
+fn fake_member(name: &str, behaviour: Behaviour) -> (Member, Arc<Mutex<Vec<Vec<u8>>>>, Dialing) {
     let received = Arc::new(Mutex::new(Vec::new()));
+    let dialing = Dialing::default();
     let fake = Arc::new(Fake {
         name: name.to_string(),
         behaviour,
         received: received.clone(),
+        dialing: dialing.clone(),
     });
     let handler = HandlerBuilder::default()
         .tag(name.to_string())
@@ -193,7 +239,7 @@ fn fake_member(name: &str, behaviour: Behaviour) -> (Member, Arc<Mutex<Vec<Vec<u
         handler,
         kind: "",
     };
-    (member, received)
+    (member, received, dialing)
 }
 
 /// A fake that carries UDP as well, or, with `udp_alone`, UDP alone, as
@@ -208,6 +254,7 @@ fn fake_udp(
         name: name.to_string(),
         behaviour,
         received: received.clone(),
+        dialing: Dialing::default(),
     });
     let handler = HandlerBuilder::default()
         .tag(name.to_string())
@@ -274,13 +321,19 @@ fn group_of(members: Vec<Member>) -> Arc<Group> {
 }
 
 fn fakes(members: &[(&str, Behaviour)]) -> Fakes {
-    let (members, received): (Vec<Member>, Vec<_>) = members
-        .iter()
-        .map(|(name, behaviour)| fake_member(name, *behaviour))
-        .unzip();
+    let mut built = Vec::new();
+    let mut received = Vec::new();
+    let mut dialing = Vec::new();
+    for (name, behaviour) in members {
+        let (member, r, d) = fake_member(name, *behaviour);
+        built.push(member);
+        received.push(r);
+        dialing.push(d);
+    }
     Fakes {
-        group: group_of(members),
+        group: group_of(built),
         received,
+        dialing,
     }
 }
 
@@ -481,13 +534,14 @@ async fn the_priority_steers_the_choice() {
 
 #[tokio::test(start_paused = true)]
 async fn a_member_gone_takes_its_state_and_a_new_one_is_unknown() {
-    let (a, _) = fake_member("a", ANSWER);
-    let (b, _) = fake_member("b", ANSWER);
-    let (c, _) = fake_member("c", ANSWER);
+    let (a, _, _) = fake_member("a", ANSWER);
+    let (b, _, _) = fake_member("b", ANSWER);
+    let (c, _, _) = fake_member("c", ANSWER);
     let group = group_of(vec![a.clone(), b]);
     let f = Fakes {
         group: group.clone(),
         received: Vec::new(),
+        dialing: Vec::new(),
     };
     f.known("a", 10);
     f.known("b", 20);
@@ -496,7 +550,7 @@ async fn a_member_gone_takes_its_state_and_a_new_one_is_unknown() {
     group.merged(&snapshot, true);
     assert!(!lock(&group.stats).contains_key(&MemberKey::outbound("b")));
     // c is tried after the known, until measured.
-    assert_eq!(group.plan(&snapshot, "example.com", |_| true), [0, 1]);
+    assert_eq!(group.plan(&snapshot, "example.com", |_| true).0, [0, 1]);
     assert_eq!(f.stats("c").score(Instant::now()), None);
     group.probed(&snapshot, &[1], &[Some(Duration::from_millis(5))]);
     assert_eq!(f.stats("c").score(Instant::now()), Some(5.0));
@@ -535,6 +589,7 @@ async fn probes_go_to_stale_and_failed_members_twelve_at_most() {
     let f = Fakes {
         group: group.clone(),
         received: Vec::new(),
+        dialing: Vec::new(),
     };
     assert_eq!(group.to_probe(&snapshot).len(), MAX_PROBED);
     // Known lately: only the failed, and the suspected, are probed.
@@ -652,6 +707,7 @@ async fn a_member_that_carries_udp_alone_is_not_probed() {
     let f = Fakes {
         group: group.clone(),
         received: Vec::new(),
+        dialing: Vec::new(),
     };
     group.network.detected(on("en0"), ChangeReason::State);
     let snapshot = group.members.load();
@@ -690,6 +746,7 @@ async fn a_connection_goes_to_the_members_that_carry_its_network() {
     let f = Fakes {
         group: group_of(vec![a, u]),
         received: vec![a_received, u_received],
+        dialing: Vec::new(),
     };
     f.known("a", 10);
     let udp = Session {
@@ -713,11 +770,107 @@ async fn a_connection_goes_to_the_members_that_carry_its_network() {
     // Of a site new to them, in turn.
     let by_tcp = f
         .group
-        .plan(&snapshot, "example.net", |m| m.stream().is_ok());
+        .plan(&snapshot, "example.net", |m| m.stream().is_ok())
+        .0;
     assert_eq!(by_tcp, [0]);
     let by_udp = f
         .group
-        .plan(&snapshot, "example.net", |m| m.datagram().is_ok());
+        .plan(&snapshot, "example.net", |m| m.datagram().is_ok())
+        .0;
     assert_eq!(by_udp, [0, 1]);
     assert!(!f.stats("u").is_failed(Instant::now()));
+}
+
+/// Connects through the group to `host` (a site not pinned yet, unless an
+/// earlier connection pinned it), says `x`, and returns the member that
+/// answered and how long the connection took to be ready.
+async fn reach(f: &Fakes, sess: &Session) -> (String, Duration) {
+    let start = Instant::now();
+    let mut s = stream::connect(f.group.clone(), sess).await.unwrap();
+    let took = start.elapsed();
+    s.write_all(b"x").await.unwrap();
+    let answer = read_some(&mut s).await.unwrap();
+    (answer[..1].to_string(), took)
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_new_site_races_the_next_member_beside_one_slow_to_connect() {
+    let f = fakes(&[("a", ANSWER), ("b", ANSWER)]);
+    f.known("a", 10);
+    f.known("b", 100);
+    // a stalls; it has no connect time yet, so b is raced after 250 ms.
+    f.connect_in(0, Duration::from_secs(60));
+    let sess = plain_session("example.com");
+    let (member, took) = reach(&f, &sess).await;
+    assert_eq!(member, "b");
+    assert_eq!(took, Duration::from_millis(250));
+    // a's attempt was dropped with the race, and is not blamed.
+    assert_eq!(f.connecting(0), 0);
+    assert!(!f.stats("a").is_failed(Instant::now()));
+    // The session's chain is the winner's.
+    assert_eq!(sess.chain.get(), ["b"]);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_member_ready_in_time_is_not_raced() {
+    let f = fakes(&[("a", ANSWER), ("b", ANSWER)]);
+    f.known("a", 10);
+    f.known("b", 100);
+    // As a multiplexed member's stream on a carrier it has open.
+    for i in 0..5 {
+        let (member, _) = reach(&f, &plain_session(&format!("site{}.example", i))).await;
+        assert_eq!(member, "a");
+    }
+    assert!(f.received(1).is_empty(), "b was dialled");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_race_waits_twice_the_connect_time_of_the_member_it_races() {
+    let f = fakes(&[("a", ANSWER), ("b", ANSWER)]);
+    f.known("a", 10);
+    f.known("b", 100);
+    let now = Instant::now();
+    f.group.with_stats(&MemberKey::outbound("a"), |s| {
+        for _ in 0..3 {
+            s.connected(Duration::from_millis(80), now);
+        }
+    });
+    f.connect_in(0, Duration::from_secs(60));
+    let (member, took) = reach(&f, &plain_session("example.com")).await;
+    assert_eq!(member, "b");
+    assert_eq!(took, Duration::from_millis(160));
+    assert_eq!(f.connecting(0), 0);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_pinned_site_is_not_raced_but_its_member_has_a_timeout_of_its_own() {
+    let f = fakes(&[("a", ANSWER), ("b", ANSWER)]);
+    f.known("a", 10);
+    f.known("b", 100);
+    let sess = || plain_session("example.com");
+    assert_eq!(reach(&f, &sess()).await.0, "a");
+    // Pinned to a, which stalls now: b is not raced; a is given 1.5 s, its
+    // connect times being short.
+    f.connect_in(0, Duration::from_secs(60));
+    let (member, took) = reach(&f, &sess()).await;
+    assert_eq!(member, "b");
+    assert_eq!(took, Duration::from_millis(1500));
+    assert_eq!(f.received(1).len(), 1, "b was dialled once");
+    assert_eq!(f.connecting(0), 0);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_failure_in_a_race_starts_the_next_at_once() {
+    let f = fakes(&[("a", ANSWER), ("b", Behaviour::Refuse), ("c", ANSWER)]);
+    // Apart by more than the tolerance: tried in this order.
+    f.known("a", 10);
+    f.known("b", 100);
+    f.known("c", 300);
+    f.connect_in(0, Duration::from_secs(60));
+    f.connect_in(1, Duration::from_millis(50));
+    // b is raced at 250 ms and refuses at 300; c starts then, beside a.
+    let (member, took) = reach(&f, &plain_session("example.com")).await;
+    assert_eq!(member, "c");
+    assert_eq!(took, Duration::from_millis(300));
+    assert_eq!(f.connecting(0), 0);
 }

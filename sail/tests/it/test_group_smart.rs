@@ -161,6 +161,32 @@ async fn blackhole() -> (AbortHandle, u16) {
     (handle, port)
 }
 
+/// A server that takes connections and never answers; it counts those it
+/// took and those the client closed.
+async fn stalling() -> (AbortHandle, Arc<AtomicUsize>, Arc<AtomicUsize>, u16) {
+    let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (taken, closed) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
+    let (counted_taken, counted_closed) = (taken.clone(), closed.clone());
+    let (task, handle) = abortable(async move {
+        while let Ok((mut stream, _)) = listener.accept().await {
+            counted_taken.fetch_add(1, Ordering::SeqCst);
+            let closed = counted_closed.clone();
+            tokio::spawn(async move {
+                let mut buf = [0u8; 512];
+                while let Ok(n) = stream.read(&mut buf).await {
+                    if n == 0 {
+                        break;
+                    }
+                }
+                closed.fetch_add(1, Ordering::SeqCst);
+            });
+        }
+    });
+    tokio::spawn(task);
+    (handle, taken, closed, port)
+}
+
 fn smart(members: &[(&str, u16)], extra: serde_json::Value) -> serde_json::Value {
     let tags: Vec<&str> = members.iter().map(|(tag, _)| *tag).collect();
     let mut group = json!({
@@ -232,6 +258,53 @@ fn a_member_that_never_answers_is_passed_over_and_then_left() {
             );
         }
         hole.abort();
+        socks_b.abort();
+    });
+}
+
+#[test]
+fn a_new_site_races_past_a_member_that_stalls_and_closes_what_it_opened() {
+    rt().block_on(async {
+        let (_b, p_b) = serve("b", Duration::ZERO).await;
+        let (socks_b, s_b) = socks(p_b).await;
+        let (stall, taken, closed, p_stall) = stalling().await;
+        let m = manager(
+            smart(
+                &[("a", p_stall), ("b", s_b)],
+                // In turn, a would hold the connection for 5 s.
+                json!({ "interval": "1h", "timeout": "5s" }),
+            ),
+            &env("smart-race"),
+        )
+        .unwrap();
+        let start = std::time::Instant::now();
+        let sess = session("10.0.0.1", "example.com");
+        assert_eq!(reached(&m, "auto", &sess).await.unwrap(), "b");
+        assert!(
+            start.elapsed() < Duration::from_secs(2),
+            "{:?}",
+            start.elapsed()
+        );
+        // The attempt through a was dropped: its socket is closed at once,
+        // while a probe through a still waits for its 5 s.
+        let one_closed = || closed.load(Ordering::SeqCst) >= 1;
+        assert!(
+            eventually(Duration::from_secs(1), one_closed).await,
+            "taken {}, closed {}",
+            taken.load(Ordering::SeqCst),
+            closed.load(Ordering::SeqCst)
+        );
+        // In the end none is left open.
+        assert!(
+            eventually(Duration::from_secs(8), || {
+                closed.load(Ordering::SeqCst) == taken.load(Ordering::SeqCst)
+            })
+            .await,
+            "taken {}, closed {}",
+            taken.load(Ordering::SeqCst),
+            closed.load(Ordering::SeqCst)
+        );
+        stall.abort();
         socks_b.abort();
     });
 }
