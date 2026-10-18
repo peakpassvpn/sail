@@ -79,6 +79,7 @@ pub async fn connect(group: Arc<Group>, sess: &Session) -> io::Result<AnyStream>
         sent_at: None,
         answered: false,
         deadline: None,
+        meter: Meter::new(took),
         verdict,
         read_waker: None,
         write_waker: None,
@@ -128,9 +129,73 @@ pub struct SmartStream {
     answered: bool,
     /// When the member's time to answer the handshake is up.
     deadline: Option<Pin<Box<Sleep>>>,
+    /// The rate of what comes back.
+    meter: Meter,
     verdict: Verdict,
     read_waker: Option<Waker>,
     write_waker: Option<Waker>,
+}
+
+/// The rate of a stream's downstream, over its bursts: the bytes of the
+/// reads that come within `gap` of the one before, over the time between
+/// them. A longer gap is the server's (a pause, a player's next segment,
+/// a long poll), not the member's, and is left out; so is the client's
+/// own pace, as nothing is read while the client's side is full, which
+/// makes no gap shorter.
+///
+/// MIN_BYTES and GAP_TIMES were measured against 256 KiB and 4 MiB, and
+/// 2 and 8 times, on a lossy and a clean member: neither way did better.
+struct Meter {
+    gap: Duration,
+    last: Option<Instant>,
+    bytes: u64,
+    time: Duration,
+}
+
+impl Meter {
+    /// Bytes a transfer moves before its rate counts.
+    const MIN_BYTES: u64 = 1 << 20;
+    /// Bytes between two samples of one long transfer.
+    const SAMPLE_EVERY: u64 = 8 << 20;
+    /// Reads further apart than this many connect times, and 50 ms, end a
+    /// burst.
+    const GAP_TIMES: u32 = 4;
+
+    fn new(connect: Duration) -> Self {
+        let gap = (connect * Self::GAP_TIMES).max(Duration::from_millis(50));
+        Self {
+            gap,
+            last: None,
+            bytes: 0,
+            time: Duration::ZERO,
+        }
+    }
+
+    /// `n` bytes were read at `now`: a sample, in bytes a second and the
+    /// time it is over, when enough moved since the last.
+    fn read(&mut self, n: usize, now: Instant) -> Option<(f64, Duration)> {
+        if let Some(last) = self.last {
+            let gap = now.saturating_duration_since(last);
+            if gap <= self.gap {
+                self.bytes += n as u64;
+                self.time += gap;
+            }
+        }
+        self.last = Some(now);
+        (self.bytes >= Self::SAMPLE_EVERY).then(|| self.take())
+    }
+
+    /// The rate of what is left, at the stream's end, if enough moved.
+    fn rest(&mut self) -> Option<(f64, Duration)> {
+        (self.bytes >= Self::MIN_BYTES && !self.time.is_zero()).then(|| self.take())
+    }
+
+    fn take(&mut self) -> (f64, Duration) {
+        let rate = self.bytes as f64 / self.time.as_secs_f64().max(1e-6);
+        let time = std::mem::take(&mut self.time);
+        self.bytes = 0;
+        (rate, time)
+    }
 }
 
 fn no_answer() -> io::Error {
@@ -247,6 +312,7 @@ impl SmartStream {
                 );
                 self.member = i;
                 self.connect = took;
+                self.meter = Meter::new(took);
                 self.remaining = remaining;
                 self.state = State::Ready(stream);
                 let key = self.key().clone();
@@ -330,6 +396,11 @@ impl AsyncRead for SmartStream {
                 Poll::Ready(Ok(())) if buf.filled().len() > before => {
                     if !this.answered {
                         this.on_answer();
+                    }
+                    let read = buf.filled().len() - before;
+                    if let Some((rate, time)) = this.meter.read(read, Instant::now()) {
+                        let key = this.key().clone();
+                        this.group.rated(&key, &this.site, rate, time);
                     }
                     return Poll::Ready(Ok(()));
                 }
@@ -425,5 +496,49 @@ impl AsyncWrite for SmartStream {
             State::Ready(stream) => Pin::new(stream).poll_shutdown(cx),
             _ => Poll::Ready(Ok(())),
         }
+    }
+}
+
+impl Drop for SmartStream {
+    fn drop(&mut self) {
+        if let (State::Ready(_), Some((rate, time))) = (&self.state, self.meter.rest()) {
+            let key = self.key().clone();
+            self.group.rated(&key, &self.site, rate, time);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test(start_paused = true)]
+    async fn a_meter_counts_bursts_and_leaves_out_the_pauses_between() {
+        let start = Instant::now();
+        // Connected in 10 ms: reads 50 ms apart at most are one burst.
+        let mut meter = Meter::new(Duration::from_millis(10));
+        let mut now = start;
+        let mut sample = None;
+        for burst in 0..2 {
+            if burst == 1 {
+                // The server pauses for 4 s.
+                now += Duration::from_secs(4);
+            }
+            for _ in 0..=64 {
+                sample = sample.or(meter.read(64 * 1024, now));
+                now += Duration::from_millis(1);
+            }
+        }
+        // 128 reads of 64 KiB counted, 1 ms apart: 8 MiB in 128 ms.
+        let (rate, time) = sample.expect("a sample at 8 MiB");
+        assert_eq!(time, Duration::from_millis(128));
+        let want = (8 << 20) as f64 / 0.128;
+        assert!(
+            (rate - want).abs() / want < 0.01,
+            "{} against {}",
+            rate,
+            want
+        );
+        assert_eq!(meter.rest(), None, "nothing left to tell");
     }
 }

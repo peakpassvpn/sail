@@ -7,6 +7,7 @@
 //! address, and remembers how each member it tried did for it.
 
 use std::net::IpAddr;
+use std::time::Duration;
 
 use rand::Rng;
 use tokio::time::Instant;
@@ -30,6 +31,11 @@ pub const SITE_FAILED_FOR: std::time::Duration = std::time::Duration::from_secs(
 /// member's average, or its member's average this many times the best
 /// member's, and the site tries another.
 const SLOWER: f64 = 2.0;
+
+/// A bulk site goes over to another member it tried once that member's
+/// rate for it is this many times its own member's. A judgment: above
+/// the run-to-run noise of one transfer, well below `SLOWER`.
+const RATE_MARGIN: f64 = 1.25;
 
 /// Autonomous systems that are CDNs, whose addresses serve unrelated
 /// sites: an address in one is keyed by its network rather than by its
@@ -80,6 +86,8 @@ struct Tried {
     member: MemberKey,
     /// Its first responses for the site, with connecting.
     latency: Option<Ewma>,
+    /// Its rate for the site's transfers, in bytes a second.
+    rate: Option<Ewma>,
     failed_until: Option<Instant>,
     at: Instant,
 }
@@ -122,6 +130,7 @@ impl Site {
                 self.tried.push(Tried {
                     member: member.clone(),
                     latency: None,
+                    rate: None,
                     failed_until: None,
                     at: now,
                 });
@@ -137,6 +146,75 @@ impl Site {
         self.tried(member)
             .and_then(|t| t.failed_until)
             .is_some_and(|until| now < until)
+    }
+
+    /// Whether a transfer of it was big enough to have a rate: its
+    /// members are then ranked by rate for it rather than by latency.
+    fn is_bulk(&self) -> bool {
+        self.tried.iter().any(|t| t.rate.is_some())
+    }
+
+    fn rate(&self, member: &MemberKey) -> Option<f64> {
+        self.tried(member).and_then(|t| t.rate).map(|r| r.mean())
+    }
+
+    /// Of the members tried for it, the one with the best rate, of those
+    /// that did not fail it and `usable` keeps.
+    fn best_rate(
+        &self,
+        now: Instant,
+        usable: impl Fn(&MemberKey) -> bool,
+    ) -> Option<(MemberKey, f64)> {
+        self.tried
+            .iter()
+            .filter(|t| usable(&t.member) && !self.failed_for(&t.member, now))
+            .filter_map(|t| t.rate.map(|r| (t.member.clone(), r.mean())))
+            .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+    }
+
+    /// A transfer of it through `member` moved `rate` bytes a second for
+    /// `time`; `others` are the group's other members that carry it, with
+    /// their capacity if known. It goes over to a member it tried that is
+    /// much faster for it; and, unless settled, tries next a member it has
+    /// not tried whose capacity is unknown or more than twice its rate.
+    ///
+    /// A sample weighs its time, so a member's rate is the bytes it moved
+    /// over the time it took: on a lossy member one stream may run at
+    /// 300 Mbit/s while three others crawl at 10, and the transfer takes
+    /// as long as the crawling ones.
+    pub fn rated(
+        &mut self,
+        member: &MemberKey,
+        rate: f64,
+        time: Duration,
+        others: &[(MemberKey, Option<f64>)],
+        now: Instant,
+    ) {
+        let t = self.tried_mut(member, now);
+        Ewma::add(&mut t.rate, rate, time.as_secs_f64().max(1e-3), now);
+        let site_rate = t.rate.map_or(rate, |r| r.mean());
+        if let Some((best, best_rate)) = self.best_rate(now, |_| true) {
+            // A member pinned without a rate yet is being tried: it keeps
+            // the site until it has one.
+            let pinned_rate = self.pinned.as_ref().and_then(|p| self.rate(p));
+            let go = match pinned_rate {
+                Some(pinned_rate) => best_rate > pinned_rate * RATE_MARGIN,
+                None => self.pinned.is_none(),
+            };
+            if go {
+                self.pinned = Some(best);
+            }
+        }
+        if !self.settled
+            && self.pinned.as_ref() == Some(member)
+            && others.iter().any(|(k, capacity)| {
+                k != member
+                    && self.tried(k).is_none()
+                    && capacity.is_none_or(|c| c > site_rate * SLOWER)
+            })
+        {
+            self.switch = true;
+        }
     }
 
     /// The member it is pinned to, if any.
@@ -296,6 +374,7 @@ impl Site {
             .filter(|t| kept(&t.member.key()))
             .take(MAX_TRIED + 1)
             .map(|t| Tried {
+                rate: None,
                 member: t.member.key(),
                 latency: t
                     .mean
@@ -331,6 +410,8 @@ pub struct Rank {
     /// `None` while unknown.
     pub score: Option<f64>,
     pub failed: bool,
+    /// The most it carried, in bytes a second, if known.
+    pub capacity: Option<f64>,
 }
 
 /// How close to the best a member must be to be picked.
@@ -392,14 +473,27 @@ pub fn order(
         first = pinned(ranks, site, best, tolerance, now, &position);
         if first.is_none() && site.switch && !site.settled {
             site.switch = false;
-            // Another member it has not tried, the best there is.
-            let untried = up
+            // Another member it has not tried, the best there is: for a
+            // bulk site, the one that carried the most, if more than twice
+            // its best rate, else the first whose capacity is unknown.
+            let mut untried: Vec<usize> = up
                 .iter()
                 .chain(&unknown)
                 .copied()
-                .find(|&i| site.tried(&ranks[i].key).is_none() && !failed_for_site(i));
+                .filter(|&i| site.tried(&ranks[i].key).is_none() && !failed_for_site(i))
+                .collect();
+            if site.is_bulk() {
+                let rate = site.best_rate(now, |_| true).map_or(0.0, |(_, r)| r);
+                let class = |i: usize| match ranks[i].capacity {
+                    Some(c) if c > rate * SLOWER => (0, -c),
+                    None => (1, 0.0),
+                    Some(_) => (2, 0.0),
+                };
+                untried.sort_by(|&a, &b| class(a).partial_cmp(&class(b)).unwrap());
+            }
+            let untried = untried.first().copied();
             if site.tried.len() >= MAX_TRIED || untried.is_none() {
-                settle(site, ranks, &position);
+                settle(site, ranks, now, &position);
                 first = pinned(ranks, site, best, tolerance, now, &position);
             } else {
                 first = untried;
@@ -458,6 +552,9 @@ fn pinned(
         // A site that settled keeps its member, however slow.
         Some(i) if site.settled => Some(i),
         Some(_) if site.switch => None,
+        // A bulk site's member is the one with the best rate for it
+        // (`rated`), or one being tried: latency does not move it.
+        Some(i) if site.is_bulk() => Some(i),
         Some(i) => {
             let for_site = site
                 .tried(&key)
@@ -484,11 +581,24 @@ fn pinned(
     keep
 }
 
-/// Pins the site to the member that was fastest for it, and stops it
+/// Pins the site to the member that was fastest for it (by rate, for a
+/// bulk site), and stops it
 /// switching.
-fn settle(site: &mut Site, ranks: &[Rank], position: &impl Fn(&MemberKey) -> Option<usize>) {
+fn settle(
+    site: &mut Site,
+    ranks: &[Rank],
+    now: Instant,
+    position: &impl Fn(&MemberKey) -> Option<usize>,
+) {
     site.settled = true;
     site.switch = false;
+    if site.is_bulk() {
+        let usable = |key: &MemberKey| position(key).is_some_and(|i| !ranks[i].failed);
+        if let Some((member, _)) = site.best_rate(now, usable) {
+            site.pinned = Some(member);
+        }
+        return;
+    }
     let best = site
         .tried
         .iter()
@@ -510,6 +620,7 @@ mod tests {
             key: MemberKey::outbound(name),
             score,
             failed,
+            capacity: None,
         }
     }
 
@@ -587,6 +698,129 @@ mod tests {
             assert_eq!(order(&ranks, Some(&mut site), t, now, &mut rng)[0], first);
         }
         assert_eq!(site.pinned(), Some(&ranks[first].key));
+    }
+
+    /// Bytes a second of `mbit` Mbit/s.
+    fn mbit(mbit: f64) -> f64 {
+        mbit * 1e6 / 8.0
+    }
+
+    /// One connection to `site`: the member it goes through, which then
+    /// moves `rate` for it; `capacity` is each member's.
+    fn transfer(
+        site: &mut Site,
+        ranks: &[Rank],
+        rate: impl Fn(&str) -> f64,
+        now: Instant,
+    ) -> String {
+        let first = order(ranks, Some(site), tolerance(0.0, 0.0), now, &mut rng())[0];
+        let member = ranks[first].key.clone();
+        site.connected(&member, now);
+        let others: Vec<(MemberKey, Option<f64>)> = ranks
+            .iter()
+            .filter(|r| r.key != member)
+            .map(|r| (r.key.clone(), r.capacity))
+            .collect();
+        site.rated(
+            &member,
+            rate(&member.name),
+            Duration::from_secs(1),
+            &others,
+            now,
+        );
+        member.name.to_string()
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_slow_bulk_site_tries_a_member_of_unknown_capacity_and_keeps_the_faster() {
+        let now = Instant::now();
+        // a answers first; b carries more.
+        let ranks = [up("a", 20.0), up("b", 40.0)];
+        let rate = |m: &str| if m == "a" { mbit(8.0) } else { mbit(300.0) };
+        let mut site = Site::default();
+        let went: Vec<String> = (0..5)
+            .map(|_| transfer(&mut site, &ranks, rate, now))
+            .collect();
+        assert_eq!(went, ["a", "b", "b", "b", "b"]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_bulk_site_tries_the_member_that_carried_most_elsewhere() {
+        let now = Instant::now();
+        let mut ranks = [up("a", 20.0), up("b", 40.0), up("c", 60.0)];
+        ranks[1].capacity = Some(mbit(10.0));
+        ranks[2].capacity = Some(mbit(300.0));
+        let rate = |m: &str| if m == "c" { mbit(250.0) } else { mbit(8.0) };
+        let mut site = Site::default();
+        let went: Vec<String> = (0..3)
+            .map(|_| transfer(&mut site, &ranks, rate, now))
+            .collect();
+        assert_eq!(went, ["a", "c", "c"]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_bulk_site_whose_server_is_the_limit_tries_three_members_and_stays() {
+        let now = Instant::now();
+        let ranks = [up("a", 20.0), up("b", 40.0), up("c", 60.0), up("d", 80.0)];
+        // 20 Mbit/s whatever the member, give or take.
+        let rate = |m: &str| mbit(if m == "b" { 21.0 } else { 19.0 });
+        let mut site = Site::default();
+        let went: Vec<String> = (0..10)
+            .map(|_| transfer(&mut site, &ranks, rate, now))
+            .collect();
+        let mut tried = went.clone();
+        tried.sort();
+        tried.dedup();
+        assert!(tried.len() <= 3, "{:?}", went);
+        assert!(went[3..].windows(2).all(|w| w[0] == w[1]), "{:?}", went);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_lossy_member_s_one_fast_stream_does_not_hide_its_slow_ones() {
+        let now = Instant::now();
+        let mut site = Site::default();
+        let b_unknown = [(key("b"), None)];
+        // Four streams of 8 MiB through a, lossy: one fast, three slow.
+        site.connected(&key("a"), now);
+        for mbit_s in [300.0, 11.0, 10.0, 9.0] {
+            let rate = mbit(mbit_s);
+            let time = Duration::from_secs_f64((8 << 20) as f64 / rate);
+            site.rated(&key("a"), rate, time, &b_unknown, now);
+        }
+        // One stream of 8 MiB through b, clean: slower than a's fast one
+        // and than the mean of a's four rates, but the transfer is done
+        // far sooner.
+        site.connected(&key("b"), now);
+        let rate = mbit(100.0);
+        let time = Duration::from_secs_f64((8 << 20) as f64 / rate);
+        site.rated(&key("b"), rate, time, &[(key("a"), Some(mbit(300.0)))], now);
+        assert_eq!(site.pinned, Some(key("b")));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn latency_does_not_move_a_bulk_site() {
+        let now = Instant::now();
+        let mut site = Site::default();
+        site.connected(&key("b"), now);
+        site.rated(
+            &key("b"),
+            mbit(300.0),
+            Duration::from_secs(1),
+            &[(key("a"), Some(mbit(10.0)))],
+            now,
+        );
+        // b ten times as slow to answer as a.
+        let ranks = [up("a", 20.0), up("b", 200.0)];
+        assert_eq!(
+            order(
+                &ranks,
+                Some(&mut site),
+                tolerance(0.0, 0.0),
+                now,
+                &mut rng()
+            )[0],
+            1
+        );
     }
 
     #[tokio::test(start_paused = true)]

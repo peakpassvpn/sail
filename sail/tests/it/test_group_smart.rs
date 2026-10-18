@@ -2,6 +2,8 @@
 
 use crate::test_group_common;
 
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use futures::future::{abortable, AbortHandle};
@@ -52,6 +54,99 @@ async fn socks(upstream: u16) -> (AbortHandle, u16) {
     (handle, port)
 }
 
+/// A server that answers a probe (a request starting `GET`) with 204, and
+/// `BLK` with `BULK` bytes; it counts the bulk transfers. It reads the
+/// whole request first: unread bytes at the close would reset the
+/// connection under what is still in flight.
+async fn bulk() -> (AbortHandle, Arc<AtomicUsize>, u16) {
+    let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let transfers = Arc::new(AtomicUsize::new(0));
+    let counted = transfers.clone();
+    let (task, handle) = abortable(async move {
+        loop {
+            let Ok((mut client, _)) = listener.accept().await else {
+                continue;
+            };
+            let counted = counted.clone();
+            tokio::spawn(async move {
+                let mut first = [0u8; 3];
+                client.read_exact(&mut first).await?;
+                if &first == b"GET" {
+                    client
+                        .write_all(b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n")
+                        .await?;
+                } else {
+                    counted.fetch_add(1, Ordering::SeqCst);
+                    client.write_all(&vec![0u8; BULK]).await?;
+                }
+                client.shutdown().await?;
+                Ok::<_, std::io::Error>(())
+            });
+        }
+    });
+    tokio::spawn(task);
+    (handle, transfers, port)
+}
+
+/// Bytes of one bulk transfer: more than the 1 MiB a rate needs.
+const BULK: usize = 2 << 20;
+
+/// A SOCKS5 server like `socks`, that answers each request after `delay`
+/// and passes what comes back at most 16 KiB each `pace` (16 KiB each
+/// 8 ms is 16 Mbit/s).
+async fn socks_paced(upstream: u16, delay: Duration, pace: Option<Duration>) -> (AbortHandle, u16) {
+    let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (task, handle) = abortable(async move {
+        loop {
+            let Ok((mut client, _)) = listener.accept().await else {
+                continue;
+            };
+            tokio::spawn(async move {
+                let mut buf = [0u8; 262];
+                client.read_exact(&mut buf[..2]).await?;
+                let n = buf[1] as usize;
+                client.read_exact(&mut buf[..n]).await?;
+                client.write_all(&[5, 0]).await?;
+                client.read_exact(&mut buf[..4]).await?;
+                let len = match buf[3] {
+                    1 => 4,
+                    4 => 16,
+                    _ => {
+                        client.read_exact(&mut buf[..1]).await?;
+                        buf[0] as usize
+                    }
+                };
+                client.read_exact(&mut buf[..len + 2]).await?;
+                tokio::time::sleep(delay).await;
+                let server = TcpStream::connect(("127.0.0.1", upstream)).await?;
+                client.write_all(&[5, 0, 0, 1, 0, 0, 0, 0, 0, 0]).await?;
+                let (mut from_client, mut to_client) = client.into_split();
+                let (mut from_server, mut to_server) = server.into_split();
+                tokio::spawn(
+                    async move { tokio::io::copy(&mut from_client, &mut to_server).await },
+                );
+                let mut chunk = vec![0u8; 16 * 1024];
+                loop {
+                    let n = from_server.read(&mut chunk).await?;
+                    if n == 0 {
+                        break;
+                    }
+                    to_client.write_all(&chunk[..n]).await?;
+                    if let Some(pace) = pace {
+                        tokio::time::sleep(pace).await;
+                    }
+                }
+                to_client.shutdown().await?;
+                Ok::<_, std::io::Error>(())
+            });
+        }
+    });
+    tokio::spawn(task);
+    (handle, port)
+}
+
 /// A server that takes connections and never answers.
 async fn blackhole() -> (AbortHandle, u16) {
     let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
@@ -64,12 +159,6 @@ async fn blackhole() -> (AbortHandle, u16) {
     });
     tokio::spawn(task);
     (handle, port)
-}
-
-/// A port nothing listens on.
-async fn refusing() -> u16 {
-    let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
-    listener.local_addr().unwrap().port()
 }
 
 fn smart(members: &[(&str, u16)], extra: serde_json::Value) -> serde_json::Value {
@@ -97,7 +186,8 @@ fn a_member_that_refuses_is_passed_over() {
     rt().block_on(async {
         let (_b, p_b) = serve("b", Duration::ZERO).await;
         let (socks_b, s_b) = socks(p_b).await;
-        let dead = refusing().await;
+        // Held, so no server of another test takes it meanwhile.
+        let (_held, dead) = refusing_port();
         let m = manager(
             smart(&[("a", dead), ("b", s_b)], json!({})),
             &env("smart-refuses"),
@@ -182,6 +272,52 @@ fn a_site_stays_on_one_member() {
         assert!(shown == "a" || shown == "b", "{}", shown);
         socks_a.abort();
         socks_b.abort();
+    });
+}
+
+#[test]
+fn a_bulk_site_goes_to_the_member_that_moves_its_bytes_faster() {
+    rt().block_on(async {
+        // a answers at once but carries 16 Mbit/s; b answers 100 ms later
+        // and carries what the host can.
+        let (server_a, transfers_a, p_a) = bulk().await;
+        let (server_b, transfers_b, p_b) = bulk().await;
+        let (socks_a, s_a) = socks_paced(p_a, Duration::ZERO, Some(Duration::from_millis(8))).await;
+        let (socks_b, s_b) = socks_paced(p_b, Duration::from_millis(100), None).await;
+        let m = manager(
+            smart(&[("a", s_a), ("b", s_b)], json!({})),
+            &env("smart-bulk"),
+        )
+        .unwrap();
+        let sess = session("10.0.0.1", "downloads.example");
+        let mut went = String::new();
+        for _ in 0..4 {
+            let (a, b) = (
+                transfers_a.load(Ordering::SeqCst),
+                transfers_b.load(Ordering::SeqCst),
+            );
+            let mut stream = connect(&m, "auto", &sess).await.unwrap();
+            stream.write_all(b"BLK").await.unwrap();
+            let mut got = Vec::new();
+            tokio::time::timeout(Duration::from_secs(10), stream.read_to_end(&mut got))
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(got.len(), BULK);
+            drop(stream);
+            went.push(if transfers_a.load(Ordering::SeqCst) > a {
+                'a'
+            } else {
+                assert!(transfers_b.load(Ordering::SeqCst) > b);
+                'b'
+            });
+        }
+        // At most one transfer to find a slow, then b, however a answers.
+        assert!(went.matches('a').count() <= 1, "{}", went);
+        assert!(went.ends_with("bb"), "{}", went);
+        for h in [socks_a, socks_b, server_a, server_b] {
+            h.abort();
+        }
     });
 }
 

@@ -552,6 +552,7 @@ impl Group {
                         key: m.key.clone(),
                         score: s.score(now),
                         failed: s.is_failed(now),
+                        capacity: s.capacity(now),
                     }
                 })
                 .collect()
@@ -660,6 +661,38 @@ impl Group {
             true => s.answered(member, ms, usual, now),
             false => s.connected(member, now),
         });
+    }
+
+    /// A transfer through `member` for `site` moved `rate` bytes a second
+    /// for `time`.
+    fn rated(&self, member: &MemberKey, site: &str, rate: f64, time: Duration) {
+        let now = Instant::now();
+        let snapshot = self.members.load();
+        let others: Vec<(MemberKey, Option<f64>)> = {
+            let mut stats = lock(&self.stats);
+            stats
+                .entry(member.clone())
+                .or_insert_with(|| MemberStats::new(self.priority(&member.name), now))
+                .rated(rate, now);
+            snapshot
+                .members
+                .iter()
+                .filter(|m| m.key != *member && m.handler.stream().is_ok())
+                .filter(|m| !stats.get(&m.key).is_some_and(|s| s.is_failed(now)))
+                .map(|m| {
+                    let capacity = stats.get(&m.key).and_then(|s| s.capacity(now));
+                    (m.key.clone(), capacity)
+                })
+                .collect()
+        };
+        self.with_site(site, |s| s.rated(member, rate, time, &others, now));
+        debug!(
+            "[{}] [{}] carried {} at {:.0} Mbit/s",
+            self.tag,
+            member.name,
+            site,
+            rate * 8.0 / 1e6
+        );
     }
 
     /// A connection through `member` got an answer without a sample to

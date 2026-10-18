@@ -51,6 +51,11 @@ pub fn slower(latency: f64, than: f64, times: f64) -> bool {
 pub const FIRST_BYTE_TIMEOUT: Duration = Duration::from_secs(3);
 const FIRST_BYTE_CONNECTS: f64 = 3.0;
 
+/// How fast a member's capacity, the most it was seen to carry for one
+/// connection, is forgotten: it halves in this time. A judgment: the
+/// penalty's half-life.
+pub const CAPACITY_HALF_LIFE: Duration = Duration::from_secs(10 * 60);
+
 /// How fast a member's recent uses are forgotten, for the member shown
 /// as selected and the probes of a large group.
 const USE_HALF_LIFE: Duration = Duration::from_secs(3 * 60);
@@ -136,6 +141,8 @@ pub struct MemberStats {
     uses_at: Instant,
     /// `policy_priority`'s factor for it.
     priority: f64,
+    /// The most it carried for a connection, in bytes a second, and when.
+    capacity: Option<(f64, Instant)>,
 }
 
 impl MemberStats {
@@ -151,6 +158,7 @@ impl MemberStats {
             uses: 0.0,
             uses_at: now,
             priority,
+            capacity: None,
         }
     }
 
@@ -159,6 +167,20 @@ impl MemberStats {
     pub fn score(&self, now: Instant) -> Option<f64> {
         self.latency
             .map(|l| (l.mean() + self.penalty(now)) * self.priority)
+    }
+
+    /// A connection through it moved `rate` bytes a second.
+    pub fn rated(&mut self, rate: f64, now: Instant) {
+        let held = self.capacity(now).unwrap_or(0.0);
+        self.capacity = Some((held.max(rate), now));
+    }
+
+    /// The most it was seen to carry, decayed since: a high estimate, which
+    /// sites whose servers were the limit do not pull down. `None` while no
+    /// connection through it moved enough to tell.
+    pub fn capacity(&self, now: Instant) -> Option<f64> {
+        self.capacity
+            .map(|(c, at)| c * decay(now.saturating_duration_since(at), CAPACITY_HALF_LIFE))
     }
 
     /// Its average latency, without penalty or priority.
@@ -244,11 +266,12 @@ impl MemberStats {
         FIRST_BYTE_TIMEOUT.max(connects)
     }
 
-    /// The network changed: its failures and connect times were of the
-    /// one before, and go; its latency is kept until new samples replace
+    /// The network changed: its failures, connect times and capacity were
+    /// of the one before, and go; its latency is kept until new samples replace
     /// it, as it ranks the members much as it did.
     pub fn network_changed(&mut self, now: Instant) {
         self.connect = None;
+        self.capacity = None;
         self.failures = 0;
         self.penalty = 0.0;
         self.penalty_at = now;
