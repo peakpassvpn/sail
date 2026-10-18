@@ -2728,21 +2728,11 @@ mod tests {
 
             tokio::task::spawn_blocking(move || crate::network_changed(runtime_id, Some(1_400)))
                 .await??;
-            // The TUN's flows are reset after the call returns: a query
-            // that crosses the reset is lost, as any packet in flight at a
-            // network change may be, and a resolver asks again.
-            let mut remapped = None;
-            for _ in 0..3 {
-                if let Ok(address) =
-                    fake_dns_lookup(&dns_socket, dns_server, 0x7003, "netstack.test.").await
-                {
-                    remapped = Some(address);
-                    break;
-                }
-            }
-            let remapped = remapped.ok_or_else(|| {
-                anyhow::anyhow!("no answer in three tries after the network changed")
-            })?;
+            // The call returns with the change handled: the TUN's flows are
+            // reset already, so a query sent now reaches the new stack.
+            let remapped = fake_dns_lookup(&dns_socket, dns_server, 0x7003, "netstack.test.")
+                .await
+                .map_err(|e| anyhow::anyhow!("no answer after the network changed: {e}"))?;
             anyhow::ensure!(
                 remapped == fake_ip,
                 "network reset changed the stable FakeIP mapping"

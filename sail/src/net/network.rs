@@ -419,6 +419,10 @@ pub struct Network {
     state: Arc<watch::Sender<Current>>,
     /// The last change the connections do not survive.
     changes: Arc<watch::Sender<Option<Arc<NetworkChange>>>>,
+    /// The generation of the last change `follow_network_changes` has fully
+    /// handled: a caller that announced a change waits on it, so the call
+    /// returns with the old network torn down, not merely told.
+    handled: Arc<watch::Sender<u64>>,
     /// Every such change, in order.
     events: Arc<broadcast::Sender<Arc<NetworkChange>>>,
     /// Held while a change is made and told, and while a subscriber takes
@@ -447,6 +451,7 @@ impl Default for Network {
         Network {
             state: Arc::new(watch::Sender::new(Current::default())),
             changes: Arc::new(watch::Sender::new(None)),
+            handled: Arc::new(watch::Sender::new(0)),
             events: Arc::new(broadcast::Sender::new(EVENTS)),
             telling: Arc::default(),
             known: Arc::default(),
@@ -523,8 +528,10 @@ impl Network {
     }
 
     /// Tells of a change whatever the state says: the host says the network
-    /// changed, or the system woke.
-    pub fn announce(&self, reason: ChangeReason) {
+    /// changed, or the system woke. Returns the generation the change took,
+    /// or None when the word folded into a pushed state told already (the
+    /// generation to wait on is the state's then, `snapshot_with_generation`).
+    pub fn announce(&self, reason: ChangeReason) -> Option<u64> {
         let _telling = self.telling.lock().unwrap_or_else(|e| e.into_inner());
         // The host's word right after the state it pushed is about that
         // state, which sail handled as it came: folded into it.
@@ -539,7 +546,7 @@ impl Network {
             tracing::debug!(
                 "network changed: the host's word, after the state it pushed; folded into it"
             );
-            return;
+            return None;
         }
         let mut change = None;
         self.state.send_modify(|current| {
@@ -551,7 +558,37 @@ impl Network {
                 new: current.state.clone(),
             });
         });
-        self.tell(change.expect("set in send_modify"));
+        let change = change.expect("set in send_modify");
+        let generation = change.generation;
+        self.tell(change);
+        Some(generation)
+    }
+
+    /// Marks `generation` handled: what the change drops is dropped, and a
+    /// caller waiting on `wait_handled` for it or an older one goes on.
+    pub(crate) fn mark_handled(&self, generation: u64) {
+        self.handled.send_modify(|handled| {
+            if generation > *handled {
+                *handled = generation;
+            }
+        });
+    }
+
+    /// Waits until the change `generation` has been handled, without a
+    /// bound of its own: callers that need one put a timeout around it.
+    /// The host's word through the TUN inbound is its only caller.
+    #[cfg(feature = "inbound-tun")]
+    pub(crate) async fn wait_handled(&self, generation: u64) {
+        let mut handled = self.handled.subscribe();
+        loop {
+            if *handled.borrow() >= generation {
+                return;
+            }
+            // None left to handle any change: never satisfied, stop waiting.
+            if handled.changed().await.is_err() {
+                return;
+            }
+        }
     }
 
     /// Tells the subscribers of `change`, whose state is stored already;
@@ -1099,6 +1136,41 @@ mod tests {
             changes.borrow_and_update().as_ref().unwrap().reason,
             ChangeReason::Wake
         );
+    }
+
+    /// `announce` comes back with the generation a caller waits on: its own
+    /// when a change was told, or the state's when the word folded into a
+    /// pushed one, told already.
+    #[test]
+    fn the_hosts_word_says_which_generation_to_wait_on() {
+        let network = Network::default();
+        network.settle_first(Some(on("en0", &["192.168.1.2/24"])));
+        // No push before it: a change of its own.
+        assert_eq!(network.announce(ChangeReason::HostPush), Some(2));
+        // Folded into the pushed state: the state's generation is the one.
+        network.push(on("wlan0", &["10.0.2.16/24"]));
+        assert_eq!(network.announce(ChangeReason::HostPush), None);
+        assert_eq!(network.snapshot_with_generation().generation, 3);
+    }
+
+    /// The wait a caller of `announce` puts on handling ends only when the
+    /// change (or a newer one) has been handled.
+    #[cfg(feature = "inbound-tun")]
+    #[test]
+    fn the_wait_on_handling_ends_when_the_change_is_marked() {
+        let network = Network::default();
+        network.settle_first(Some(on("en0", &["192.168.1.2/24"])));
+        let generation = network.announce(ChangeReason::HostPush).unwrap();
+        assert!(
+            futures::FutureExt::now_or_never(network.wait_handled(generation)).is_none(),
+            "an unhandled change does not release the wait"
+        );
+        network.mark_handled(generation);
+        futures::executor::block_on(network.wait_handled(generation));
+        // A newer handled change releases an older wait.
+        let generation = network.announce(ChangeReason::HostPush).unwrap();
+        network.mark_handled(generation + 5);
+        futures::executor::block_on(network.wait_handled(generation));
     }
 
     /// The host's sleep: timed work waits while it lasts, its wake is told

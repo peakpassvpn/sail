@@ -1404,7 +1404,11 @@ impl RuntimeManager {
 
     /// The host says its network changed: with `mtu`, the TUN inbound's
     /// stack takes the new interface MTU; then the instance drops what was
-    /// of the network before, as for any change (`network_moved`).
+    /// of the network before, as for any change (`network_moved`). The call
+    /// returns only when that has been done: a packet sent after it returns
+    /// does not meet a flow the change was to reset (the wait is bounded, so
+    /// a stalled handler cannot stall the host's thread; a stall is told in
+    /// the log).
     #[cfg(feature = "inbound-tun")]
     pub async fn network_changed(&self, mtu: Option<usize>) -> Result<(), Error> {
         let Some(mut control) = self.tun_control.clone() else {
@@ -1414,8 +1418,23 @@ impl RuntimeManager {
             let _update = self.update.lock().await;
             control.update_mtu(mtu).await?;
         }
-        self.network()
-            .announce(net::network::ChangeReason::HostPush);
+        let generation = self
+            .network()
+            .announce(net::network::ChangeReason::HostPush)
+            .unwrap_or_else(|| self.network().snapshot_with_generation().generation);
+        // A safety bound against a handler that stalled, not a measured
+        // one: the handling is normally milliseconds.
+        const HANDLED_WITHIN: std::time::Duration = std::time::Duration::from_secs(10);
+        if tokio::time::timeout(HANDLED_WITHIN, self.network().wait_handled(generation))
+            .await
+            .is_err()
+        {
+            warn!(
+                "network changed: generation {} was not handled in {}s; flows of the network before may still reset",
+                generation,
+                HANDLED_WITHIN.as_secs(),
+            );
+        }
         Ok(())
     }
 
@@ -1641,7 +1660,11 @@ pub fn host_sleep(key: RuntimeId, asleep: bool) -> Result<(), Error> {
 }
 
 /// Tells the TUN inbound of runtime `key` that the host's network changed,
-/// with the new interface MTU when it changed too.
+/// with the new interface MTU when it changed too. The call returns when the
+/// change has been applied — the connections and TUN flows of the network
+/// before are gone — so packets sent after it returns are not answered by
+/// what the change reset (a stall in that is logged, and does not hold the
+/// call past ten seconds).
 pub fn network_changed(key: RuntimeId, mtu: Option<usize>) -> Result<(), Error> {
     let manager = runtime_manager(key).ok_or(Error::RuntimeManager)?;
     #[cfg(feature = "inbound-tun")]
@@ -1817,6 +1840,8 @@ async fn follow_network_changes(manager: Arc<RuntimeManager>) {
         } else {
             manager.woke(&change).await;
         }
+        // Told only now: a caller that announced the change and waits goes on.
+        manager.network().mark_handled(change.generation);
     }
     std::future::pending().await
 }
