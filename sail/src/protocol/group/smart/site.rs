@@ -86,7 +86,9 @@ struct Tried {
     member: MemberKey,
     /// Its first responses for the site, with connecting.
     latency: Option<Ewma>,
-    /// Its rate for the site's transfers, in bytes a second.
+    /// Its rate for the site's transfers, in bytes a second, each sample
+    /// weighing its seconds. Not kept across restarts: a bulk site goes
+    /// by latency again until its first transfer of 1 MiB.
     rate: Option<Ewma>,
     failed_until: Option<Instant>,
     at: Instant,

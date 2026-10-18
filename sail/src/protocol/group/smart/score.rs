@@ -8,7 +8,10 @@ use tokio::time::Instant;
 /// How fast old samples lose their weight: one this old counts half.
 pub const HALF_LIFE: Duration = Duration::from_secs(5 * 60);
 /// The most weight the samples so far carry together: a new sample of
-/// weight 1 always moves the average by at least a sixth of the way.
+/// weight 1 always moves the average by at least a sixth of the way. A
+/// rate's samples weigh their seconds, so a rate is the bytes over the
+/// time of about the last 5 s of transfer, and one sample longer than
+/// that outweighs all before it.
 const MAX_WEIGHT: f64 = 5.0;
 
 /// The penalty of a first failure; each consecutive one doubles it.
