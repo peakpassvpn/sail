@@ -288,7 +288,8 @@ pub struct Quic {
     /// takes eight of them.
     pub hysteria2_receive_window: usize,
     /// What a Hysteria2 stream's peer may send ahead of what is read, in
-    /// KiB: what one stream nobody reads holds. 8 MiB, the reference
+    /// KiB: what one stream nobody reads holds, and what holds one stream
+    /// to about this much per round trip. 8 MiB, the reference
     /// implementation's, but on a router.
     pub hysteria2_stream_window: usize,
     /// What a Hysteria2 connection keeps sent and not yet acknowledged, in
@@ -658,9 +659,10 @@ impl RuntimeOptions {
                     // At 8 MiB, four streams a LAN client stopped reading
                     // filled the 32 MiB and froze the connection's other
                     // streams for good; at 4 MiB the others went on, and
-                    // the stuck ones held 14 to 18 MB less. One stream
-                    // alone, at 250 ms, carried 20 to 30% less (measured,
-                    // two noisy rounds).
+                    // the client's peak RSS was about 12 MB lower. The
+                    // window holds one stream alone to about 85% of 4 MiB
+                    // a round trip: 565, 290 and 116 Mbit/s at 50, 100 and
+                    // 250 ms, 40% less than at 8 MiB (measured, #4).
                     hysteria2_stream_window: 4 << 10,
                     // As mobile's.
                     udp_receive_buffer: 1024,
