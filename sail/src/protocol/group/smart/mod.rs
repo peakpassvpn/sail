@@ -28,9 +28,12 @@
 //! `interval`, at less weight: those nothing told of for the interval,
 //! and those that failed, so that they recover; of a group of more than
 //! twelve, the most used and those probed longest ago, twelve at most.
-//! A member that carries UDP alone (an outbound with sing-box's
-//! `network: udp`) is not probed, as a probe goes over a stream: its score
-//! is of its connections alone.
+//! A member no connection went through lately ranks by its latest probe,
+//! as urltest's members do, rather than by an average of probes long
+//! past; and the first round is done again two seconds after it, as a
+//! process just started can be slow to probe. A member that carries UDP
+//! alone (an outbound with sing-box's `network: udp`) is not probed, as a
+//! probe goes over a stream: its score is of its connections alone.
 //!
 //! A connection goes to the members that carry its network only: one
 //! that carries TCP alone, or UDP alone, is passed over for the other,
@@ -1144,8 +1147,11 @@ fn pick_probed(mut wanted: Vec<(usize, &MemberStats)>, now: Instant) -> Vec<usiz
 }
 
 /// Probes the members, `interval` apart or sooner when woken, while the
-/// group is in use and there.
+/// group is in use and there. The first round is done again
+/// `MIN_REPROBE` after it: a round in a process just started can be slow
+/// for its own warming up, and would rank the members for an interval.
 async fn probe_loop(group: Weak<Group>, probe: HttpProbe) {
+    let mut first = true;
     loop {
         let Some(g) = group.upgrade() else {
             return;
@@ -1178,6 +1184,13 @@ async fn probe_loop(group: Weak<Group>, probe: HttpProbe) {
                 g.probed(&snapshot, &probed, &results);
             }
             g.probes.evaluated.send_replace(true);
+            if !probed.is_empty() && std::mem::take(&mut first) {
+                lock(&g.probes.suspects)
+                    .extend(probed.iter().map(|&i| snapshot.members[i].key.clone()));
+                drop(g);
+                tokio::time::sleep(MIN_REPROBE).await;
+                continue;
+            }
         } else {
             debug!("[{}] not used lately, probes paused", g.tag);
         }

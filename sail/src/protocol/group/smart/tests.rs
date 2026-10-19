@@ -18,6 +18,8 @@ enum Behaviour {
     Answer(Duration),
     /// Answers once, then closes.
     AnswerOnce,
+    /// Answers each read with an HTTP 204, as a probe's server does.
+    NoContent,
 }
 
 const ANSWER: Behaviour = Behaviour::Answer(Duration::ZERO);
@@ -86,8 +88,10 @@ impl OutboundStreamHandler for Fake {
         let (delay, answers, once) = match self.behaviour {
             Behaviour::Blackhole => (Duration::ZERO, false, false),
             Behaviour::Answer(delay) => (delay, true, false),
+            Behaviour::NoContent => (Duration::ZERO, true, false),
             _ => (Duration::ZERO, true, true),
         };
+        let no_content = matches!(self.behaviour, Behaviour::NoContent);
         let name = self.name.clone();
         tokio::spawn(async move {
             let mut buf = vec![0u8; 64 * 1024];
@@ -100,7 +104,10 @@ impl OutboundStreamHandler for Fake {
                     continue;
                 }
                 tokio::time::sleep(delay).await;
-                let answer = format!("{}:{}", name, String::from_utf8_lossy(&buf[..n]));
+                let answer = match no_content {
+                    true => "HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n".to_string(),
+                    false => format!("{}:{}", name, String::from_utf8_lossy(&buf[..n])),
+                };
                 if server.write_all(answer.as_bytes()).await.is_err() || once {
                     break;
                 }
@@ -873,4 +880,26 @@ async fn a_failure_in_a_race_starts_the_next_at_once() {
     assert_eq!(member, "c");
     assert_eq!(took, Duration::from_millis(300));
     assert_eq!(f.connecting(0), 0);
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_first_probe_round_is_done_again_soon() {
+    let f = fakes(&[("a", Behaviour::NoContent)]);
+    let probe = HttpProbe::new(
+        "http://example.com/",
+        f.group.dns_client.clone(),
+        &Default::default(),
+    )
+    .unwrap();
+    let start = Instant::now();
+    tokio::spawn(probe_loop(Arc::downgrade(&f.group), probe));
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    let probed = || f.stats("a").last_probed.unwrap() - start;
+    assert!(!f.stats("a").is_failed(Instant::now()), "the probe failed");
+    assert_eq!(probed(), Duration::ZERO);
+    tokio::time::sleep(MIN_REPROBE).await;
+    assert_eq!(probed(), MIN_REPROBE);
+    // Then every interval, as before.
+    tokio::time::sleep(DEFAULT_INTERVAL / 2).await;
+    assert_eq!(probed(), MIN_REPROBE);
 }

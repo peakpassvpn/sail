@@ -146,6 +146,10 @@ pub struct MemberStats {
     /// The time to the first response: to connect and have the first
     /// bytes sent answered.
     latency: Option<Ewma>,
+    /// The weight of the samples of real connections in `latency`,
+    /// decayed as theirs is, and when it was: below a probe's, the next
+    /// probe replaces `latency` rather than joins it.
+    real: Option<(f64, Instant)>,
     penalty: f64,
     penalty_at: Instant,
     /// The failures since the last success.
@@ -168,6 +172,7 @@ impl MemberStats {
         Self {
             connect: None,
             latency: None,
+            real: None,
             penalty: 0.0,
             penalty_at: now,
             failures: 0,
@@ -289,6 +294,30 @@ impl MemberStats {
     /// The first bytes sent through it were answered `latency` after the
     /// connection began: a sample of `weight`, and a success.
     pub fn answered(&mut self, latency: Duration, weight: f64, now: Instant) {
+        let real = self.real_weight(now);
+        self.real = Some((real + weight, now));
+        self.sample(latency, weight, now);
+    }
+
+    /// A probe through it took `result`, or failed. With no real
+    /// connection through it lately, it ranks by its latest probe, as
+    /// urltest does: a first probe slowed by a cold start, averaged with
+    /// those after, would keep it behind for several intervals, nothing
+    /// else telling of it.
+    pub fn probed(&mut self, result: Option<Duration>, now: Instant) {
+        self.last_probed = Some(now);
+        match result {
+            Some(latency) if self.real_weight(now) < PROBE_WEIGHT => {
+                self.latency = None;
+                self.sample(latency, PROBE_WEIGHT, now);
+            }
+            Some(latency) => self.sample(latency, PROBE_WEIGHT, now),
+            None => self.failed(now),
+        }
+    }
+
+    /// A first response after `latency`, of `weight`: a success.
+    fn sample(&mut self, latency: Duration, weight: f64, now: Instant) {
         Ewma::add(
             &mut self.latency,
             latency.as_secs_f64() * 1000.0,
@@ -298,13 +327,11 @@ impl MemberStats {
         self.succeeded(now);
     }
 
-    /// A probe through it took `result`, or failed.
-    pub fn probed(&mut self, result: Option<Duration>, now: Instant) {
-        self.last_probed = Some(now);
-        match result {
-            Some(latency) => self.answered(latency, PROBE_WEIGHT, now),
-            None => self.failed(now),
-        }
+    /// The weight of its real connections' samples, at `now`.
+    fn real_weight(&self, now: Instant) -> f64 {
+        self.real.map_or(0.0, |(w, at)| {
+            w * decay(now.saturating_duration_since(at), HALF_LIFE)
+        })
     }
 
     /// How long a TLS or QUIC handshake through it is given to be
@@ -352,6 +379,30 @@ mod tests {
 
     fn ms(v: u64) -> Duration {
         Duration::from_millis(v)
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn with_probes_alone_the_latest_counts() {
+        let t0 = Instant::now();
+        let mut s = MemberStats::new(1.0, t0);
+        // A cold first probe, then the member as it is.
+        s.probed(Some(ms(380)), t0);
+        s.probed(Some(ms(61)), t0 + Duration::from_secs(30));
+        assert_eq!(s.latency(), Some(61.0));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_probe_joins_real_samples_and_replaces_them_once_they_are_old() {
+        let t0 = Instant::now();
+        let mut s = MemberStats::new(1.0, t0);
+        s.answered(ms(100), 1.0, t0);
+        s.probed(Some(ms(200)), t0);
+        let joined = s.latency().unwrap();
+        assert!(joined > 100.0 && joined < 200.0, "{}", joined);
+        // Three half-lives on, the real samples weigh less than a probe.
+        let later = t0 + HALF_LIFE * 3;
+        s.probed(Some(ms(50)), later);
+        assert_eq!(s.latency(), Some(50.0));
     }
 
     #[tokio::test(start_paused = true)]
