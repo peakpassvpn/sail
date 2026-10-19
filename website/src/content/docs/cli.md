@@ -125,16 +125,26 @@ What one connection then reached, by receive buffer and round-trip time, in Mbit
 
 These numbers were measured on a test host (a sail client and server over Trojan, network namespaces and netem, downloads, three rounds of 20 s), not on a router; a router's own kernel is smaller and gives somewhat larger values for the same RAM. The server's send buffer is the next limit: at a typical VPS's 4 MiB, raising the router's buffer alone past it gains nothing.
 
-When one download is slow on a fast, long link and the router has memory to spare (512 MiB or more), raise the receive buffer on the router and the send buffer on the server, each in a file under `/etc/sysctl.d` to keep it:
+On a router's memory (qemu guests of 128, 256 and 512 MiB running sail's router build, the upstream 100 ms away over Trojan, the server's send buffer at 4 MiB), what downloads reached in Mbit/s, with the kernel's cap and with it raised to 6 MiB:
+
+| RAM | one, kernel's cap | one, 6 MiB | four at once, kernel's cap | four at once, 6 MiB |
+| --- | --- | --- | --- | --- |
+| 128 MiB | 12–14 | 96–118 | 55–61 | 241–257 |
+| 256 MiB | 34–37 | 70–120 | 140–150 | 346–376 |
+| 512 MiB | 47–73 | 98–117 | | |
+
+The OpenWrt package raises the cap by default: its `tcp_buffers` option writes `/etc/sysctl.d/90-sail-tcp.conf`, keeps the low and default values, and leaves a cap already above 6 MiB alone (`uci set sail.main.tcp_buffers=0` turns it off). Elsewhere, raise it on the router, and the send buffer on the server, each in a file under `/etc/sysctl.d` to keep it:
 
 ```sh
-# on the router
-sysctl -w net.ipv4.tcp_rmem="4096 131072 8388608"
+# on the router: the first two values as they are, the cap 6 MiB
+sysctl -w net.ipv4.tcp_rmem="4096 131072 6291456"
 # on the server
 sysctl -w net.ipv4.tcp_wmem="4096 16384 16777216"
 ```
 
-On a small router it does not help under load: with 512 connections on 256 MiB, all TCP sockets reach the `tcp_mem` limit whatever each one's buffer, and the kernel then shrinks every connection's window. A multiplexed outbound (h2mux, yamux, smux) carries all its streams in one TCP connection, so that connection's limit is shared by all of them. Hysteria2 and TUIC run QUIC over UDP and are not bound by the TCP buffers; their buffer is `quic.udp_receive_buffer` (1 MiB on the router profile), and they are the other answer to a slow long link.
+A larger cap costs no memory by itself. The kernel grows a connection's buffer only while it is read fast, and all TCP buffers together stay within `tcp_mem`. In the same guests, with all sessions but 24 stalled for a minute while the upstream kept sending, the lowest free memory and sail's own were the same with either cap, and no connection was dropped for memory. Under such a load every connection's window shrinks, whatever its cap: all TCP sockets reach `tcp_mem`.
+
+sail does not set a fixed receive buffer on its own connections (`SO_RCVBUF`), which would turn the kernel's tuning off for them. In the same guests, one download then reached 180 Mbit/s, but four at once on 128 MiB pushed all TCP memory into pressure (166–231 Mbit/s together). A multiplexed outbound (h2mux, yamux, smux) carries all its streams in one TCP connection, so that connection's limit is shared by all of them. Hysteria2 and TUIC run QUIC over UDP and are not bound by the TCP buffers; their buffer is `quic.udp_receive_buffer` (1 MiB on the router profile), and they are the other answer to a slow long link.
 
 ## Paths and persisted state
 
