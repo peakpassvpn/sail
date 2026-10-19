@@ -344,6 +344,10 @@ public final class Sail {
         try check { sail_set_network_state(handle, state, $0) }
     }
 
+    /// The host's network changed (`sail_network_changed`); `mtu` 0 keeps
+    /// the TUN's. Returns once the change is handled, the previous
+    /// network's connections and TUN flows closed, which takes up to 10 s:
+    /// call it on a queue that may block, never the main one.
     public func networkChanged(mtu: UInt16 = 0) throws {
         try check { sail_network_changed(handle, mtu, $0) }
     }

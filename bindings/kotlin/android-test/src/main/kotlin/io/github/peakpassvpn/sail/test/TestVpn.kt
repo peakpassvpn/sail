@@ -8,8 +8,8 @@ import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.net.VpnService
 import android.os.Handler
+import android.os.HandlerThread
 import android.os.IBinder
-import android.os.Looper
 import android.system.OsConstants
 import io.github.peakpassvpn.sail.ConnectionOwner
 import io.github.peakpassvpn.sail.ConnectionQuery
@@ -54,6 +54,8 @@ class TestVpn : VpnService() {
         private set
 
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    /** Where the network callback runs: `networkChanged` blocks, so not the main thread. */
+    private var networkThread: HandlerThread? = null
     private var lastNetwork: Network? = null
 
     override fun onCreate() {
@@ -90,6 +92,12 @@ class TestVpn : VpnService() {
             getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(it)
         }
         networkCallback = null
+        // No callback runs once the thread has ended, so none uses the instance freed below.
+        networkThread?.let {
+            it.quitSafely()
+            it.join()
+        }
+        networkThread = null
         lastNetwork = null
         sail?.let {
             it.stop()
@@ -101,7 +109,9 @@ class TestVpn : VpnService() {
     /**
      * Follows the best network that is not a VPN, the one under ours: each
      * change is told to sail (`setNetworkState`), and a new network is also
-     * a change the TUN's flows do not survive (`networkChanged`).
+     * a change the TUN's flows do not survive (`networkChanged`). The
+     * callback runs on a thread of its own: `networkChanged` returns once
+     * the change is handled, up to 10 s, too long for the main thread.
      */
     private fun followNetwork() {
         val connectivity = getSystemService(ConnectivityManager::class.java)
@@ -118,11 +128,13 @@ class TestVpn : VpnService() {
                 tell(network, connectivity.getNetworkCapabilities(network), link)
             }
         }
+        val thread = HandlerThread("sail network").apply { start() }
         connectivity.registerBestMatchingNetworkCallback(
             request,
             callback,
-            Handler(Looper.getMainLooper()),
+            Handler(thread.looper),
         )
+        networkThread = thread
         networkCallback = callback
     }
 

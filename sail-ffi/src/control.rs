@@ -731,7 +731,9 @@ pub unsafe extern "C" fn sail_set_network_state(
 /// Tells the TUN inbound that the host's network changed, as after a
 /// switch between Wi-Fi and cellular: flows of the previous network are
 /// reset, and new ones start on the current one. The tunnel process's
-/// host tells it: not a client.
+/// host tells it: not a client. The call returns once the change is
+/// handled, the previous network's connections and TUN flows closed: up to
+/// 10 s, so a host calls it on a thread that may block, never the main one.
 ///
 /// @param mtu The interface's new MTU, or 0 to keep it.
 /// @return SAIL_ERR_CONFIG when there is no TUN inbound.

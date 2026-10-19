@@ -166,6 +166,12 @@ class Sail private constructor(private val handle: Long) : AutoCloseable {
     fun mode(): Mode = json.decodeFromString(Native.mode(handle))
     fun setMode(mode: String) = Native.setMode(handle, mode)
     fun setNetworkState(state: String) = Native.setNetworkState(handle, state)
+    /**
+     * The host's network changed (sail_network_changed); [mtu] 0 keeps the
+     * TUN's. Returns once the change is handled, the previous network's
+     * connections and TUN flows closed, which takes up to 10 s: call it on
+     * a thread that may block, never the main one.
+     */
     fun networkChanged(mtu: Int = 0) = Native.networkChanged(handle, mtu)
     /** The system goes to sleep (sail_sleep): timed checks and updates wait. */
     fun sleep() = Native.sleep(handle)
