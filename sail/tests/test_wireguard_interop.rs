@@ -3,6 +3,8 @@
 //! Ignored by default: it needs root, `wireguard-tools`, `socat`, and the
 //! namespaces below. The kernel peer lives in `sailwg-a`; this test runs in
 //! `sailwg-b` and crafts IP packets straight into the sans-IO core's shell.
+//! Keys reach `wg` on a pipe: Ubuntu's AppArmor profile for it (26.04 on)
+//! lets it open no file but under /etc/wireguard.
 //!
 //! ```sh
 //! ip netns add sailwg-a && ip netns add sailwg-b
@@ -12,7 +14,7 @@
 //! for n in a b; do ip -n sailwg-$n link set lo up; ip -n sailwg-$n link set sailwg-v$n up; done
 //! wg genkey > kernel.key && wg genkey > sail.key
 //! ip -n sailwg-a link add wg0 type wireguard
-//! ip netns exec sailwg-a wg set wg0 private-key kernel.key listen-port 51820 \
+//! cat kernel.key | ip netns exec sailwg-a wg set wg0 private-key /dev/stdin listen-port 51820 \
 //!     peer "$(wg pubkey < sail.key)" allowed-ips 10.99.0.2/32,fd99::2/128 \
 //!     endpoint 172.31.99.2:51821
 //! ip -n sailwg-a addr add 10.99.0.1/24 dev wg0
@@ -385,8 +387,9 @@ async fn kernel_wireguard_scoped() {
     // point it at us: another test may have moved its endpoint.
     let sail_public = base64(&sail::protocol::wireguard::crypto::public_key(&private));
     let script = format!(
-        "set -e; c=$(mktemp); wg showconf wg0 > $c; wg set wg0 peer {p} remove; \
-         wg addconf wg0 $c; rm $c; wg set wg0 peer {p} endpoint 172.31.99.2:51821",
+        "set -e; c=$(wg showconf wg0); wg set wg0 peer {p} remove; \
+         printf '%s\n' \"$c\" | wg addconf wg0 /dev/stdin; \
+         wg set wg0 peer {p} endpoint 172.31.99.2:51821",
         p = sail_public
     );
     let reset = std::process::Command::new("ip")

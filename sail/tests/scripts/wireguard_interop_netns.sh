@@ -6,7 +6,9 @@
 #
 # Needs root, iproute2, wireguard-tools, socat and the kernel's wireguard
 # module. Everything it changes is inside the namespaces it creates. Keys
-# are made for the run and thrown away with it. WG_INTEROP_REKEY (a run of
+# are made for the run and kept in memory only: Ubuntu's AppArmor profile
+# for `wg` (26.04 on) lets it open no file but under /etc/wireguard, so a
+# key reaches it on a pipe. WG_INTEROP_REKEY (a run of
 # over three minutes) is left to whoever sets it.
 #
 #   sudo sail/tests/scripts/wireguard_interop_netns.sh [extra cargo test args]
@@ -22,18 +24,15 @@ set -euo pipefail
 KERNEL=sailwg-a
 SAIL=sailwg-b
 SAIL_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
-KEYS=
 
 cleanup() {
     ip netns pids "$KERNEL" 2>/dev/null | xargs -r kill 2>/dev/null || true
     ip netns pids "$SAIL" 2>/dev/null | xargs -r kill -9 2>/dev/null || true
     ip netns del "$KERNEL" 2>/dev/null || true
     ip netns del "$SAIL" 2>/dev/null || true
-    if [ -n "$KEYS" ]; then rm -rf "$KEYS"; fi
 }
 trap cleanup EXIT
 cleanup
-KEYS=$(mktemp -d)
 
 if ! modprobe wireguard 2>/dev/null && ! [ -d /sys/module/wireguard ]; then
     echo "the kernel has no wireguard module: the interop test cannot run here"
@@ -56,10 +55,11 @@ in_ns "$SAIL" ip addr add 172.31.99.2/24 dev sailwg-vb
 in_ns "$KERNEL" ip link set sailwg-va up
 in_ns "$SAIL" ip link set sailwg-vb up
 
-(umask 077 && wg genkey >"$KEYS/kernel.key" && wg genkey >"$KEYS/sail.key")
+KERNEL_KEY=$(wg genkey)
+SAIL_KEY=$(wg genkey)
 in_ns "$KERNEL" ip link add wg0 type wireguard
-in_ns "$KERNEL" wg set wg0 private-key "$KEYS/kernel.key" listen-port 51820 \
-    peer "$(wg pubkey <"$KEYS/sail.key")" allowed-ips 10.99.0.2/32,fd99::2/128 \
+printf '%s\n' "$KERNEL_KEY" | in_ns "$KERNEL" wg set wg0 private-key /dev/stdin listen-port 51820 \
+    peer "$(printf '%s\n' "$SAIL_KEY" | wg pubkey)" allowed-ips 10.99.0.2/32,fd99::2/128 \
     endpoint 172.31.99.2:51821
 in_ns "$KERNEL" ip addr add 10.99.0.1/24 dev wg0
 in_ns "$KERNEL" ip addr add fd99::1/64 dev wg0
@@ -81,7 +81,7 @@ cd "$SAIL_DIR"
 # Built outside the namespaces, where cargo may reach the network.
 cargo test -p sail --features wireguard --test test_wireguard_interop --no-run
 
-in_ns "$SAIL" env WG_KERNEL_PUBLIC="$(wg pubkey <"$KEYS/kernel.key")" \
-    WG_SAIL_PRIVATE="$(cat "$KEYS/sail.key")" \
+in_ns "$SAIL" env WG_KERNEL_PUBLIC="$(printf '%s\n' "$KERNEL_KEY" | wg pubkey)" \
+    WG_SAIL_PRIVATE="$SAIL_KEY" \
     cargo test --offline -p sail --features wireguard --test test_wireguard_interop "$@" \
     -- --ignored --nocapture --test-threads=1

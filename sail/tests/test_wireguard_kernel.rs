@@ -96,6 +96,25 @@ fn sh(args: &[&str]) {
     assert!(status.success(), "{:?}: {}", args, status);
 }
 
+/// `wg set IFACE private-key KEY ARGS...` in the namespace `ns`, the key
+/// on a pipe: Ubuntu's AppArmor profile for `wg` (26.04 on) lets it open
+/// no file but under /etc/wireguard, and a pipe is not a file.
+fn wg_set(ns: &str, iface: &str, key: &str, args: &[&str]) {
+    let mut child = Command::new("ip")
+        .args(["netns", "exec", ns, "wg", "set", iface])
+        .args(["private-key", "/dev/stdin"])
+        .args(args)
+        .stdin(std::process::Stdio::piped())
+        .spawn()
+        .unwrap_or_else(|e| panic!("wg set {}: {}", iface, e));
+    // Closed at once, so that wg reads to its end.
+    let mut stdin = child.stdin.take().unwrap();
+    stdin.write_all(key.as_bytes()).unwrap();
+    drop(stdin);
+    let status = child.wait().unwrap();
+    assert!(status.success(), "wg set {} in {}: {}", iface, ns, status);
+}
+
 fn output(args: &[&str]) -> String {
     let out = Command::new(args[0]).args(&args[1..]).output().unwrap();
     assert!(out.status.success(), "{:?}", args);
@@ -125,8 +144,8 @@ fn in_netns<T: Send + 'static>(name: &str, f: impl FnOnce() -> T + Send + 'stati
 const WG0_PORT: u16 = 51820;
 const SRV_PORT: u16 = 51830;
 
-/// The namespaces, the kernel's interfaces and the keys; deleted when
-/// dropped.
+/// The namespaces, the kernel's interfaces and the keys; the namespaces
+/// are deleted when dropped.
 struct Lab {
     k: String,
     s: String,
@@ -136,7 +155,6 @@ struct Lab {
     out: Keys,
     det: Keys,
     srv: Keys,
-    _dir: common::TempDir,
 }
 
 impl Lab {
@@ -157,7 +175,6 @@ impl Lab {
             out: Keys::new(),
             det: Keys::new(),
             srv: Keys::new(),
-            _dir: common::TempDir::new("wg-kernel").unwrap(),
         };
         lab.setup(&id);
         lab
@@ -190,35 +207,25 @@ impl Lab {
             sh(&["ip", "-n", ns, "addr", "add", addr, "dev", dev]);
             sh(&["ip", "-n", ns, "link", "set", dev, "up"]);
         }
-        let key = |name: &str, keys: &Keys| {
-            let path = self._dir.join(name);
-            std::fs::write(&path, &keys.private).unwrap();
-            path.to_string_lossy().into_owned()
-        };
-        let (wg0_key, wg1_key) = (key("wg0.key", &self.wg0), key("wg1.key", &self.wg1));
         // wg0: the peer of sail's wg-out and wg-det.
         sh(&["ip", "-n", k, "link", "add", "wg0", "type", "wireguard"]);
-        sh(&[
-            "ip",
-            "netns",
-            "exec",
+        wg_set(
             k,
-            "wg",
-            "set",
             "wg0",
-            "private-key",
-            &wg0_key,
-            "listen-port",
-            &WG0_PORT.to_string(),
-            "peer",
-            &self.out.public,
-            "allowed-ips",
-            "10.98.0.2/32,fd98::2/128",
-            "peer",
-            &self.det.public,
-            "allowed-ips",
-            "10.98.0.3/32",
-        ]);
+            &self.wg0.private,
+            &[
+                "listen-port",
+                &WG0_PORT.to_string(),
+                "peer",
+                &self.out.public,
+                "allowed-ips",
+                "10.98.0.2/32,fd98::2/128",
+                "peer",
+                &self.det.public,
+                "allowed-ips",
+                "10.98.0.3/32",
+            ],
+        );
         sh(&["ip", "-n", k, "addr", "add", "10.98.0.1/24", "dev", "wg0"]);
         sh(&[
             "ip",
@@ -235,25 +242,21 @@ impl Lab {
         // wg1: a client of sail's wg-srv, through which the echo server in
         // e is reached.
         sh(&["ip", "-n", k, "link", "add", "wg1", "type", "wireguard"]);
-        sh(&[
-            "ip",
-            "netns",
-            "exec",
+        wg_set(
             k,
-            "wg",
-            "set",
             "wg1",
-            "private-key",
-            &wg1_key,
-            "peer",
-            &self.srv.public,
-            "allowed-ips",
-            "10.97.0.0/24,172.31.97.0/24",
-            "endpoint",
-            &format!("172.31.98.2:{}", SRV_PORT),
-            "persistent-keepalive",
-            "25",
-        ]);
+            &self.wg1.private,
+            &[
+                "peer",
+                &self.srv.public,
+                "allowed-ips",
+                "10.97.0.0/24,172.31.97.0/24",
+                "endpoint",
+                &format!("172.31.98.2:{}", SRV_PORT),
+                "persistent-keepalive",
+                "25",
+            ],
+        );
         sh(&["ip", "-n", k, "addr", "add", "10.97.0.2/32", "dev", "wg1"]);
         sh(&["ip", "-n", k, "link", "set", "wg1", "mtu", "1420", "up"]);
         sh(&[

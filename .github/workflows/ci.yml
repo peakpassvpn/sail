@@ -1507,32 +1507,51 @@ jobs:
               --no-run --message-format=json | exe)"
           } >>"$GITHUB_OUTPUT"
 
+      # The suites run as root on the runner's toolchain, target and
+      # BoringSSL, which the build above left done. sudo-rs (Ubuntu 26.04)
+      # ignores `-E`, and a root without them built everything again, so
+      # what they need is passed by name.
+      - name: as root, with the runner's toolchain
+        run: |
+          {
+            echo '#!/usr/bin/env bash'
+            printf 'exec sudo env'
+            for v in PATH HOME CARGO_HOME RUSTUP_HOME RUSTUP_TOOLCHAIN CARGO_TARGET_DIR \
+                CARGO_TERM_COLOR CARGO_PROFILE_DEV_DEBUG CARGO_INCREMENTAL RUSTFLAGS \
+                $(compgen -e | grep '^BORING_BSSL_'); do
+              [ -n "${!v+x}" ] && printf ' %q' "$v=${!v}"
+            done
+            echo ' "$@"'
+          } >"$RUNNER_TEMP/as-root"
+          chmod +x "$RUNNER_TEMP/as-root"
+          sed 's/=[^ ]*/=…/g' "$RUNNER_TEMP/as-root"
+
       - name: auto_redirect, and what a failing instance leaves
         if: always() && steps.build.outcome == 'success'
-        run: sudo -E env "PATH=$PATH" sail/tests/scripts/auto_redirect_netns.sh
+        run: '"$RUNNER_TEMP/as-root" sail/tests/scripts/auto_redirect_netns.sh'
 
       - name: auto_route
         if: always() && steps.build.outcome == 'success'
-        run: sudo -E env "PATH=$PATH" sail/tests/scripts/auto_route_netns.sh
+        run: '"$RUNNER_TEMP/as-root" sail/tests/scripts/auto_route_netns.sh'
 
       - name: tproxy
         if: always() && steps.build.outcome == 'success'
-        run: sudo -E env "PATH=$PATH" sail/tests/scripts/tproxy_netns.sh
+        run: '"$RUNNER_TEMP/as-root" sail/tests/scripts/tproxy_netns.sh'
 
       - name: a network switch
         if: always() && steps.build.outcome == 'success'
-        run: sudo -E env "PATH=$PATH" sail/tests/scripts/network_switch_netns.sh
+        run: '"$RUNNER_TEMP/as-root" sail/tests/scripts/network_switch_netns.sh'
 
       - name: WireGuard against the kernel's
         if: always() && steps.build.outcome == 'success'
-        run: sudo -E env "PATH=$PATH" sail/tests/scripts/wireguard_interop_netns.sh
+        run: '"$RUNNER_TEMP/as-root" sail/tests/scripts/wireguard_interop_netns.sh'
 
       - name: the TUN end to end
         if: always() && steps.build.outcome == 'success'
         env:
           TUN: ${{ steps.build.outputs.tun }}
         # One at a time: the tests share the namespace and the TUN's name.
-        run: cd sail && sudo -E "$TUN" --ignored --nocapture --test-threads=1
+        run: cd sail && "$RUNNER_TEMP/as-root" "$TUN" --ignored --nocapture --test-threads=1
 
       # sail's own netlink, nf_tables and nfnetlink_queue code: the ignored
       # tests under platform::, in a namespace made for them.
@@ -1573,7 +1592,7 @@ jobs:
         if: always() && steps.build.outcome == 'success'
         env:
           WG: ${{ steps.build.outputs.wg }}
-        run: cd sail && sudo -E "$WG" --ignored --nocapture --test-threads=1 --skip test_wireguard_kernel_throughput
+        run: cd sail && "$RUNNER_TEMP/as-root" "$WG" --ignored --nocapture --test-threads=1 --skip test_wireguard_kernel_throughput
 
   # tools/security's gate (docs/dependency-security.md): the committed
   # dependency sources, RustSec's advisories against the root lock file,
