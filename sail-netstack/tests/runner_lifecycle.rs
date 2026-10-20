@@ -917,6 +917,31 @@ fn every_observed_pressure_transition_is_counted_and_traced() {
     assert_eq!(changes, 6);
 }
 
+/// TCP bytes past the critical pressure do not refuse new flows: the
+/// connections holding them can hold them for as long as they live, and a
+/// DNS query must still go through (peakpassvpn/sail#6).
+#[test]
+fn tcp_bytes_under_pressure_refuse_no_new_udp_flow() {
+    let (mut io, _) = MockIo::new(1);
+    io.push_recv(vec![udp_packet(40_000, b"query")]);
+    let budget = BudgetProfile::Mobile.budget();
+    let ledger = ResourceLedger::new(budget).unwrap();
+    let _held = ledger
+        .try_acquire(
+            ResourceKind::TcpPayloadBytes,
+            budget.tcp_payload_bytes.saturating_mul(900) / 1_000,
+        )
+        .unwrap();
+    assert_eq!(ledger.snapshot().pressure, PressureLevel::Critical);
+    assert_eq!(ledger.snapshot().admission, PressureLevel::Normal);
+    let mut runner =
+        SingleShardRunner::new(io, Arc::clone(&ledger), deterministic_runner_config()).unwrap();
+
+    let outcome = block_on(runner.step(1)).unwrap();
+    assert_eq!(outcome.datagrams.len(), 1);
+    assert_eq!(runner.stats_snapshot().pressure_rejected_new_flows, 0);
+}
+
 #[test]
 fn critical_pressure_keeps_existing_udp_flows_serviceable() {
     let packet = udp_packet(40_000, b"query");

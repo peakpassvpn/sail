@@ -324,6 +324,20 @@ pub(crate) struct NativeRuntime<I> {
     flows: HashMap<TcpFlowToken, FlowBridge>,
     connecting: HashMap<TcpFlowToken, oneshot::Sender<io::Result<NativeConnection>>>,
     pending_connects: Vec<PendingConnect>,
+    /// Flows let go of or aborted while the stack had no room for the
+    /// packet that goes with it, retried on each tick: given up, they would
+    /// stay in the table for good, holding their windows (as hundreds of
+    /// connections closing at once did, peakpassvpn/sail#6).
+    pending_releases: Vec<(TcpFlowToken, Release)>,
+}
+
+/// How a flow the runtime no longer bridges is let go of.
+#[derive(Clone, Copy)]
+enum Release {
+    /// Closed by the application: it finishes its close alone.
+    Closed,
+    /// Reset.
+    Abort,
 }
 
 impl<I: PacketIo> NativeRuntime<I> {
@@ -395,6 +409,7 @@ impl<I: PacketIo> NativeRuntime<I> {
                 flows: HashMap::new(),
                 connecting: HashMap::new(),
                 pending_connects: Vec::new(),
+                pending_releases: Vec::new(),
             },
             commands_tx,
         ))
@@ -629,7 +644,7 @@ impl<I: PacketIo> NativeRuntime<I> {
     fn connected(&mut self, connection: TcpConnection) {
         let token = connection.token;
         let Some(response) = self.connecting.remove(&token) else {
-            let _ = self.runner.abort_tcp(token);
+            self.release(token, Release::Abort);
             return;
         };
         let opened = self.bridge(connection);
@@ -670,13 +685,19 @@ impl<I: PacketIo> NativeRuntime<I> {
         let asked = max_bytes.min(flow.readable_bytes);
         // Bytes beyond what the reader asked for, kept by its stream for its
         // next reads, are charged as the stack's own were: once read they
-        // open the window, and would otherwise be memory nothing sees. With
-        // no room in the budget the read takes only what was asked.
+        // open the window, and would otherwise be memory nothing sees. A
+        // stalled reader holds them, so they are granted only within the
+        // budget's optional share, never from what sends and new
+        // connections need; past it the read takes only what was asked.
         let extra = (flow.readable_bytes - asked).min(self.read_ahead.saturating_sub(asked));
         let mut lease = (extra > 0)
             .then(|| {
                 self.ledger
-                    .try_acquire(ResourceKind::TcpPayloadBytes, extra)
+                    .try_acquire_within(
+                        ResourceKind::TcpPayloadBytes,
+                        extra,
+                        self.ledger.budget().tcp_optional_ceiling(),
+                    )
                     .ok()
             })
             .flatten();
@@ -868,6 +889,9 @@ impl<I: PacketIo> NativeRuntime<I> {
     }
 
     fn retry_pending(&mut self) {
+        for (token, release) in std::mem::take(&mut self.pending_releases) {
+            self.release(token, release);
+        }
         let tokens: Vec<_> = self.flows.keys().copied().collect();
         for token in tokens {
             self.retry_write(token);
@@ -914,7 +938,7 @@ impl<I: PacketIo> NativeRuntime<I> {
                 if let Some(flow) = self.flows.remove(&token) {
                     flow.fail("TCP stream released");
                 }
-                let _ = self.runner.release_tcp(token);
+                self.release(token, Release::Closed);
             }
             _ => self.abort_flow(token),
         }
@@ -924,7 +948,21 @@ impl<I: PacketIo> NativeRuntime<I> {
         if let Some(flow) = self.flows.remove(&token) {
             flow.fail("TCP stream aborted");
         }
-        let _ = self.runner.abort_tcp(token);
+        self.release(token, Release::Abort);
+    }
+
+    /// Hands a flow back to the stack, and again on each tick while the
+    /// stack has no room for its packet.
+    fn release(&mut self, token: TcpFlowToken, release: Release) {
+        let result = match release {
+            Release::Closed => self.runner.release_tcp(token),
+            Release::Abort => self.runner.abort_tcp(token),
+        };
+        if let Err(error) = result {
+            if retryable(&error) {
+                self.pending_releases.push((token, release));
+            }
+        }
     }
 
     fn finish_flow(&mut self, token: TcpFlowToken) {
@@ -1406,6 +1444,205 @@ mod tests {
         let (first, second) = read_then_stop_the_runtime(true).await;
         assert_eq!(first, b"0123");
         assert!(second.is_err(), "nothing was read ahead: {second:?}");
+    }
+
+    /// peakpassvpn/sail#6: on the mobile budget, connections opened until
+    /// the stack refuses more, each holding bytes read ahead of its reader,
+    /// put the TCP bytes past the pressure that refused every new flow: no
+    /// DNS query went through while they lived. A new UDP flow still opens,
+    /// those connections still send, and once they close a new one opens.
+    #[tokio::test]
+    async fn a_stack_full_of_connections_still_sends_and_opens_again_once_they_close() {
+        let (inbound_tx, inbound_rx) = tokio_mpsc::channel(4);
+        let (outbound_tx, mut outbound_rx) = tokio_mpsc::channel(16);
+        let io = ChannelPacketIo::new(inbound_rx, outbound_tx, 1);
+        let ledger = ResourceLedger::new(BudgetProfile::Mobile.budget()).unwrap();
+        let (mut runtime, mut accepted, mut datagrams, _udp_reply) =
+            NativeRuntime::new(io, Arc::clone(&ledger), RunnerConfig::default(), 4, 4, 4).unwrap();
+        runtime.set_read_ahead(64 << 10);
+        let runtime_task = tokio::spawn(runtime.run());
+        let destination = SocketAddr::from((Ipv4Addr::new(10, 8, 7, 1), 443));
+        let client = |port: u16| SocketAddr::from((Ipv4Addr::new(10, 8, 7, 2), port));
+
+        // Opens the connection from `source`, its client sending a
+        // segment that the stream reads a byte of: what follows is read
+        // ahead and held, as by a relay whose other side has stalled.
+        async fn open(
+            source: SocketAddr,
+            destination: SocketAddr,
+            inbound_tx: &tokio_mpsc::Sender<Vec<u8>>,
+            outbound_rx: &mut tokio_mpsc::Receiver<Vec<u8>>,
+            accepted: &mut tokio_mpsc::Receiver<NativeConnection>,
+        ) -> Option<NativeConnection> {
+            inbound_tx
+                .send(tcp_packet(source, destination, 100, 0, TcpFlags::SYN, &[]))
+                .await
+                .unwrap();
+            // The answer to this SYN, past what the stack sent the others.
+            let answer = timeout(Duration::from_secs(1), async {
+                loop {
+                    let packet = outbound_rx.recv().await?;
+                    let segment =
+                        parse_tcp_segment(parse_ip_packet(&packet, true).unwrap(), true).unwrap();
+                    if segment.destination == source {
+                        return Some((segment.meta.flags, segment.meta.sequence));
+                    }
+                }
+            })
+            .await
+            .ok()??;
+            let (flags, sequence) = answer;
+            if !flags.contains(TcpFlags::SYN) {
+                return None;
+            }
+            let server_next = sequence.wrapping_add(1).get();
+            inbound_tx
+                .send(tcp_packet(
+                    source,
+                    destination,
+                    101,
+                    server_next,
+                    TcpFlags::ACK,
+                    &[],
+                ))
+                .await
+                .unwrap();
+            let mut connection = timeout(Duration::from_secs(1), accepted.recv())
+                .await
+                .unwrap()
+                .unwrap();
+            inbound_tx
+                .send(tcp_packet(
+                    source,
+                    destination,
+                    101,
+                    server_next,
+                    TcpFlags::ACK,
+                    &[7; 1_200],
+                ))
+                .await
+                .unwrap();
+            let mut first = [0_u8; 1];
+            timeout(
+                Duration::from_secs(1),
+                connection.stream.read_exact(&mut first),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+            Some(connection)
+        }
+        let mut connections = Vec::new();
+        for port in 10_000..12_000 {
+            match open(
+                client(port),
+                destination,
+                &inbound_tx,
+                &mut outbound_rx,
+                &mut accepted,
+            )
+            .await
+            {
+                Some(connection) => connections.push(connection),
+                None => break,
+            }
+        }
+        assert!(
+            connections.len() < 2_000,
+            "the budget refused no connection"
+        );
+        // The window updates of the reads are not waited on.
+        while timeout(Duration::from_millis(50), outbound_rx.recv())
+            .await
+            .is_ok()
+        {}
+
+        let dns_client = SocketAddr::from((Ipv4Addr::new(10, 8, 7, 2), 53_000));
+        let dns_server = SocketAddr::from((Ipv4Addr::new(10, 8, 7, 1), 53));
+        inbound_tx
+            .send(emit_udp_packet(dns_client, dns_server, b"query", 64, 1).unwrap())
+            .await
+            .unwrap();
+        let query = timeout(Duration::from_secs(1), datagrams.recv())
+            .await
+            .expect("a DNS query of a full stack did not get through")
+            .unwrap();
+        assert_eq!(query.payload.to_vec(), b"query");
+
+        // More than a starting window: what the stack had left when it
+        // refused the next connection, it could send before.
+        let mut connection = connections.swap_remove(0);
+        let writer = tokio::spawn(async move {
+            connection.stream.write_all(&[9; 64 << 10]).await.unwrap();
+            connection
+        });
+        let sent = timeout(Duration::from_secs(5), async {
+            let mut received = 0;
+            while received < 64 << 10 {
+                let packet = outbound_rx.recv().await.unwrap();
+                let segment =
+                    parse_tcp_segment(parse_ip_packet(&packet, true).unwrap(), true).unwrap();
+                if segment.destination != client(10_000) || segment.payload.is_empty() {
+                    continue;
+                }
+                received += segment.payload.len();
+                let acknowledged = segment.meta.sequence.wrapping_add(segment.payload.len());
+                inbound_tx
+                    .send(tcp_packet(
+                        client(10_000),
+                        destination,
+                        1_301,
+                        acknowledged.get(),
+                        TcpFlags::ACK,
+                        &[],
+                    ))
+                    .await
+                    .unwrap();
+            }
+        })
+        .await;
+        assert!(
+            sent.is_ok(),
+            "a connection of a full stack did not send 64 KiB"
+        );
+        connections.push(writer.await.unwrap());
+
+        // Each goes with a reset, all of them taken before the next SYN. A
+        // flow whose SYN-ACK came too late for `open` may stay a while.
+        let held = connections.len();
+        let flows = ledger.snapshot().used(ResourceKind::TcpFlows);
+        drop(connections);
+        timeout(Duration::from_secs(10), async {
+            while ledger.snapshot().used(ResourceKind::TcpFlows) > flows - held {
+                while outbound_rx.try_recv().is_ok() {}
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap_or_else(|_| {
+            panic!(
+                "the closed connections kept {} of their {held} flows",
+                (ledger.snapshot().used(ResourceKind::TcpFlows) + held).saturating_sub(flows)
+            )
+        });
+        while timeout(Duration::from_millis(100), outbound_rx.recv())
+            .await
+            .is_ok()
+        {}
+        assert!(
+            open(
+                client(20_000),
+                destination,
+                &inbound_tx,
+                &mut outbound_rx,
+                &mut accepted,
+            )
+            .await
+            .is_some(),
+            "no connection opened once the others closed"
+        );
+
+        runtime_task.abort();
     }
 
     #[tokio::test]

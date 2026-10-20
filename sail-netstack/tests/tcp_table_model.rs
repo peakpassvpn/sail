@@ -1353,13 +1353,15 @@ fn fill_and_read(
 /// A flow whose application reads its whole window within a round trip
 /// gets a window twice as large, reserved before it is announced; without
 /// a ceiling, before a round trip passed, or when the budget refuses the
-/// step, the window stays.
+/// step, the window stays. A step is granted within half the TCP bytes
+/// only: 2 KiB of them take a 1 KiB window but not its growth.
 #[test]
 fn a_receive_window_the_reader_keeps_up_with_doubles_within_its_budget() {
     assert_eq!(fill_and_read(1 << 20, Some(4_096), 1), (2_048, 1, 2_048));
     assert_eq!(fill_and_read(1 << 20, None, 1), (1_024, 0, 1_024));
     assert_eq!(fill_and_read(1 << 20, Some(4_096), 0), (1_024, 0, 1_024));
-    assert_eq!(fill_and_read(1_024, Some(4_096), 1), (1_024, 0, 1_024));
+    assert_eq!(fill_and_read(2_048, Some(4_096), 1), (1_024, 0, 1_024));
+    assert_eq!(fill_and_read(4_096, Some(4_096), 1), (2_048, 1, 2_048));
 }
 
 #[test]

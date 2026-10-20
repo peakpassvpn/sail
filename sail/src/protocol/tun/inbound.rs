@@ -266,6 +266,8 @@ fn run<I: sail_netstack::PacketIo + 'static>(
     config.tcp.keepalive_idle_ms = Some(2 * 60 * 60 * 1_000);
     config.packets_per_step = PACKETS_PER_STEP;
     set_receive_window(&mut config.tcp, netstack);
+    config.tcp.max_send_buffer_bytes =
+        (netstack.send_buffer > 0).then_some(netstack.send_buffer << 10);
     let (mut runtime, mut accepted, datagrams, udp_reply, mut control) = NativeRuntimeGroup::new(
         queues,
         ledger,

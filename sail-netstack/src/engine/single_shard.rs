@@ -1928,7 +1928,7 @@ impl<I: PacketIo> SingleShardRunner<I> {
         let cancel_start = outcome.tcp_cancelled_timers.len();
         let event_start = outcome.tcp_events.len();
         let pressure_blocks_new = matches!(
-            self.ledger.snapshot().pressure,
+            self.ledger.snapshot().admission,
             PressureLevel::Critical | PressureLevel::Exhausted
         );
         let mut context = ScheduledContext {

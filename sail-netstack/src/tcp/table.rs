@@ -50,6 +50,11 @@ pub struct TcpTableConfig {
     /// reads as fast as it arrives, each step reserved when granted; with
     /// none, the window stays as it started.
     pub max_receive_credit_bytes: Option<usize>,
+    /// The most a flow holds for its peer, sent and not yet acknowledged
+    /// or waiting to be sent: a write beyond it waits for acknowledgments,
+    /// as one to a socket waits on its send buffer. With none, only the
+    /// peer's window and the budget bound it.
+    pub max_send_buffer_bytes: Option<usize>,
     /// The most payload one segment carries, whatever the link allows.
     pub max_segment_payload_bytes: usize,
     /// The MTU of the link the table's packets cross, when known. Each flow
@@ -87,6 +92,7 @@ impl Default for TcpTableConfig {
         Self {
             receive_credit_bytes: 16 * 1024,
             max_receive_credit_bytes: None,
+            max_send_buffer_bytes: None,
             max_segment_payload_bytes: 1_200,
             link_mtu: None,
             hop_limit: 64,
@@ -556,6 +562,10 @@ impl TcpTable {
             "TCP receive window ceiling must not be below its start"
         );
         assert!(
+            config.max_send_buffer_bytes != Some(0),
+            "TCP send buffer must be non-zero"
+        );
+        assert!(
             config.max_segment_payload_bytes > 0,
             "TCP maximum segment payload must be non-zero"
         );
@@ -863,9 +873,10 @@ impl TcpTable {
         let metadata_lease = self
             .ledger
             .try_acquire(ResourceKind::MetadataBytes, TCP_FLOW_METADATA_CHARGE)?;
-        let receive_credit = self.ledger.try_acquire(
+        let receive_credit = self.ledger.try_acquire_within(
             ResourceKind::TcpPayloadBytes,
             self.config.receive_credit_bytes,
+            self.ledger.budget().tcp_receive_ceiling(),
         )?;
         let id = FlowId::new(self.next_flow_id);
         let isn = self.initial_sequence(key, id);
@@ -1044,9 +1055,10 @@ impl TcpTable {
         let metadata_lease = self
             .ledger
             .try_acquire(ResourceKind::MetadataBytes, TCP_FLOW_METADATA_CHARGE)?;
-        let receive_credit = self.ledger.try_acquire(
+        let receive_credit = self.ledger.try_acquire_within(
             ResourceKind::TcpPayloadBytes,
             self.config.receive_credit_bytes,
+            self.ledger.budget().tcp_receive_ceiling(),
         )?;
         let pending_initial_receive = (!payload.is_empty())
             .then(|| receive_chunk(&self.ledger, payload))
@@ -1934,7 +1946,8 @@ impl TcpTable {
     /// what the peer and congestion windows leave room for, possibly many
     /// segments, which [`crate::SingleShardRunner::write_tcp`] cuts. A
     /// zero-window flow, or one Nagle holds back, may still accept one
-    /// segment into its pending slot.
+    /// segment into its pending slot. Either is no more than the flow's
+    /// send buffer (`max_send_buffer_bytes`) has room for.
     ///
     /// # Errors
     ///
@@ -1945,10 +1958,17 @@ impl TcpTable {
         if flow.pending_send.is_some() {
             return Ok(0);
         }
-        if flow.tcb.peer_window() == 0 || (self.config.nagle_enabled && !flow.send.is_empty()) {
-            return Ok(flow.max_send_segment_bytes);
-        }
-        Ok(flow.tcb.send_available())
+        let capacity = if flow.tcb.peer_window() == 0
+            || (self.config.nagle_enabled && !flow.send.is_empty())
+        {
+            flow.max_send_segment_bytes
+        } else {
+            flow.tcb.send_available()
+        };
+        Ok(match self.config.max_send_buffer_bytes {
+            Some(max) => capacity.min(max.saturating_sub(send_buffered_bytes(flow))),
+            None => capacity,
+        })
     }
 
     /// Returns the exact IP plus TCP packet size for a payload on this flow.
@@ -2906,16 +2926,21 @@ fn flow_stats_contribution(flow: &TcpFlow) -> FlowStatsContribution {
                 .iter()
                 .map(|chunk| chunk.bytes.len())
                 .sum::<usize>(),
-        send_buffered_bytes: flow
-            .send
-            .iter()
-            .map(|chunk| chunk.bytes.len())
-            .sum::<usize>()
-            + flow
-                .pending_send
-                .as_ref()
-                .map_or(0, |chunk| chunk.bytes.len()),
+        send_buffered_bytes: send_buffered_bytes(flow),
     }
+}
+
+/// What a flow holds for its peer: sent and not yet acknowledged, or
+/// waiting to be sent.
+fn send_buffered_bytes(flow: &TcpFlow) -> usize {
+    flow.send
+        .iter()
+        .map(|chunk| chunk.bytes.len())
+        .sum::<usize>()
+        + flow
+            .pending_send
+            .as_ref()
+            .map_or(0, |chunk| chunk.bytes.len())
 }
 
 fn replace_flow_stats(
@@ -3603,8 +3628,9 @@ fn pending_resegment_control(flow: &TcpFlow, old_send_unacked: SeqNumber) -> Opt
 /// at least half of it within one round trip: the window, not the reader,
 /// may be what holds the peer back. This is the test Linux's receive buffer
 /// autotuning makes (`tcp_rcv_space_adjust`), with a window that grows but
-/// never shrinks. Each step is reserved first; when the budget refuses it,
-/// the window stays.
+/// never shrinks. Each step is reserved first, within the budget's
+/// [`tcp_optional_ceiling`](crate::ResourceBudget::tcp_optional_ceiling):
+/// when the budget refuses it, the window stays.
 fn grow_receive_window(
     ledger: &Arc<ResourceLedger>,
     flow: &mut TcpFlow,
@@ -3627,7 +3653,11 @@ fn grow_receive_window(
     let ceiling = max.min(flow.tcb.announceable_receive_capacity());
     if flow.read_measure_bytes.saturating_mul(2) >= capacity && capacity < ceiling {
         let additional = capacity.min(ceiling - capacity);
-        if let Ok(lease) = ledger.try_acquire(ResourceKind::TcpPayloadBytes, additional) {
+        if let Ok(lease) = ledger.try_acquire_within(
+            ResourceKind::TcpPayloadBytes,
+            additional,
+            ledger.budget().tcp_optional_ceiling(),
+        ) {
             flow.receive_growth.push(lease);
             flow.tcb.grow_receive_capacity(additional);
             increment_counter(growths);
@@ -4318,5 +4348,96 @@ mod tests {
             released.meta.sequence,
             SeqNumber::new(server_next.wrapping_add(5))
         );
+    }
+
+    /// Opens connections from `peers` on `table` until one is refused,
+    /// each peer's window 64 KiB: the tokens of those that opened.
+    fn open_until_refused(table: &mut TcpTable, peers: u16) -> Vec<TcpFlowToken> {
+        let local = SocketAddr::from((Ipv4Addr::new(10, 7, 0, 1), 443));
+        let control = |sequence: u32, acknowledgment: u32, flags: TcpFlags| SendControl {
+            sequence: SeqNumber::new(sequence),
+            acknowledgment: SeqNumber::new(acknowledgment),
+            flags,
+            window: u16::MAX,
+        };
+        let mut tokens = Vec::new();
+        for port in 0..peers {
+            let peer = SocketAddr::from((Ipv4Addr::new(10, 7, 0, 2), 10_000 + port));
+            let Ok(syn_ack) =
+                table.ingest(&segment(peer, local, control(100, 0, TcpFlags::SYN), &[]))
+            else {
+                break;
+            };
+            let Some(syn_ack) = syn_ack.outgoing.first() else {
+                break;
+            };
+            let syn_ack = parse_tcp_segment(parse_ip_packet(syn_ack, true).unwrap(), true).unwrap();
+            if !syn_ack.meta.flags.contains(TcpFlags::SYN) {
+                break;
+            }
+            let server_next = syn_ack.meta.sequence.wrapping_add(1).get();
+            let accepted = table
+                .ingest(&segment(
+                    peer,
+                    local,
+                    control(101, server_next, TcpFlags::ACK),
+                    &[],
+                ))
+                .unwrap();
+            let Some(TcpEvent::Accepted(connection)) = accepted.events.first() else {
+                panic!("connection {port}: not accepted: {:?}", accepted.events);
+            };
+            table.accept(connection.token).unwrap();
+            tokens.push(connection.token);
+        }
+        tokens
+    }
+
+    /// The connections' starting windows take no more than the budget's
+    /// receive share of the TCP bytes: once new connections are refused,
+    /// those open still send (peakpassvpn/sail#6, where they took it all
+    /// and no write went out again).
+    #[test]
+    fn connections_refused_for_the_budget_leave_room_to_send() {
+        let ledger = ResourceLedger::new(BudgetProfile::Mobile.budget()).unwrap();
+        let mut table = TcpTable::new(
+            Arc::clone(&ledger),
+            NetworkGeneration::new(1),
+            TcpTableConfig::default(),
+        );
+        let tokens = open_until_refused(&mut table, 2_000);
+        let ceiling = ledger.budget().tcp_receive_ceiling();
+        assert_eq!(
+            tokens.len(),
+            ceiling / TcpTableConfig::default().receive_credit_bytes
+        );
+        for token in &tokens {
+            let sent = table.write(*token, &[7; 500]).unwrap();
+            assert_eq!(sent.outgoing.len(), 1);
+        }
+    }
+
+    /// A write takes no more than the flow's send buffer leaves room for,
+    /// whatever the peer's window.
+    #[test]
+    fn the_send_buffer_bounds_what_a_flow_holds_for_its_peer() {
+        let ledger = ResourceLedger::new(BudgetProfile::Mobile.budget()).unwrap();
+        let mut table = TcpTable::new(
+            ledger,
+            NetworkGeneration::new(1),
+            TcpTableConfig {
+                max_send_buffer_bytes: Some(4_096),
+                ..TcpTableConfig::default()
+            },
+        );
+        let token = open_until_refused(&mut table, 1)[0];
+        assert_eq!(table.write_capacity(token).unwrap(), 4_096);
+        // Segments of the 536 bytes a peer without the MSS option takes.
+        table.write(token, &[7; 512]).unwrap();
+        assert_eq!(table.write_capacity(token).unwrap(), 3_584);
+        for _ in 0..7 {
+            table.write(token, &[7; 512]).unwrap();
+        }
+        assert_eq!(table.write_capacity(token).unwrap(), 0);
     }
 }

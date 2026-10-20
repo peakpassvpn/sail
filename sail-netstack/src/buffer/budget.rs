@@ -56,6 +56,29 @@ impl ResourceBudget {
         }
         Ok(self)
     }
+
+    /// The TCP bytes a connection's receive side may be granted up to: its
+    /// starting window is reserved only while the pool's use stays within
+    /// three quarters of it. What the receive side holds lives as long as
+    /// the connection and is let go of only as the application reads, so
+    /// it must never take the bytes a send needs: a quarter is always left
+    /// to sends, which the client's acknowledgments give back. Linux keeps
+    /// sending possible under memory pressure in the same way (each socket
+    /// is let have `tcp_wmem[0]`). The share is a judgment.
+    #[must_use]
+    pub const fn tcp_receive_ceiling(&self) -> usize {
+        self.tcp_payload_bytes / 4 * 3
+    }
+
+    /// The TCP bytes a connection may be granted beyond what it needs, up
+    /// to: a receive window grown past its start, bytes read ahead of the
+    /// reader. Half the pool, so that under load these stop before new
+    /// connections are refused, as Linux stops growing receive buffers
+    /// under memory pressure (`tcp_mem[1]`). The share is a judgment.
+    #[must_use]
+    pub const fn tcp_optional_ceiling(&self) -> usize {
+        self.tcp_payload_bytes / 2
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -213,6 +236,15 @@ pub struct BudgetSnapshot {
     pub peaks: [usize; RESOURCE_KIND_COUNT],
     pub denied: u64,
     pub pressure: PressureLevel,
+    /// The pressure that refuses new flows: as `pressure`, but without the
+    /// TCP bytes. Those are not what a new flow is refused for: a TCP
+    /// flow's starting window is reserved within
+    /// [`ResourceBudget::tcp_receive_ceiling`], so one is refused once that
+    /// is reached, and a UDP flow takes none. Counted in, connections that
+    /// hold their windows and their reader's bytes (as many stalled ones
+    /// do, for as long as they live) shut out every new TCP and UDP flow,
+    /// DNS too (peakpassvpn/sail#6).
+    pub admission: PressureLevel,
 }
 
 impl BudgetSnapshot {
@@ -267,6 +299,22 @@ impl ResourceLedger {
         kind: ResourceKind,
         amount: usize,
     ) -> Result<BudgetLease, BudgetError> {
+        self.try_acquire_within(kind, amount, usize::MAX)
+    }
+
+    /// As [`Self::try_acquire`], granted only while the pool's use stays
+    /// within `ceiling` too, as [`ResourceBudget::tcp_receive_ceiling`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BudgetError::Exhausted`] without changing accounting when the
+    /// request would exceed its pool, `ceiling` or the global byte ceiling.
+    pub fn try_acquire_within(
+        self: &Arc<Self>,
+        kind: ResourceKind,
+        amount: usize,
+        ceiling: usize,
+    ) -> Result<BudgetLease, BudgetError> {
         if amount == 0 {
             return Ok(BudgetLease {
                 ledger: Arc::clone(self),
@@ -277,7 +325,8 @@ impl ResourceLedger {
         if kind.is_bytes() {
             self.reserve(&self.total_bytes, self.budget.total_bytes, kind, amount)?;
         }
-        if let Err(error) = self.reserve(&self.used[kind.index()], self.limit(kind), kind, amount) {
+        let limit = self.limit(kind).min(ceiling);
+        if let Err(error) = self.reserve(&self.used[kind.index()], limit, kind, amount) {
             if kind.is_bytes() {
                 self.total_bytes.fetch_sub(amount, Ordering::AcqRel);
             }
@@ -352,11 +401,19 @@ impl ResourceLedger {
             used,
             peaks,
             denied: self.denied.load(Ordering::Relaxed) as u64,
-            pressure: self.pressure(total_bytes, &used),
+            pressure: self.pressure(total_bytes, &used, None),
+            admission: self.pressure(total_bytes, &used, Some(ResourceKind::TcpPayloadBytes)),
         }
     }
 
-    fn pressure(&self, total_bytes: usize, used: &[usize; RESOURCE_KIND_COUNT]) -> PressureLevel {
+    /// The pressure of the global byte ceiling and of each pool but
+    /// `except`.
+    fn pressure(
+        &self,
+        total_bytes: usize,
+        used: &[usize; RESOURCE_KIND_COUNT],
+        except: Option<ResourceKind>,
+    ) -> PressureLevel {
         let mut max_permille = ratio_permille(total_bytes, self.budget.total_bytes);
         for kind in [
             ResourceKind::MetadataBytes,
@@ -372,6 +429,9 @@ impl ResourceLedger {
             ResourceKind::TimeWait,
             ResourceKind::PmtuEntries,
         ] {
+            if Some(kind) == except {
+                continue;
+            }
             max_permille = max_permille.max(ratio_permille(used[kind.index()], self.limit(kind)));
         }
         match max_permille {

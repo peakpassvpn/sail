@@ -213,6 +213,13 @@ pub struct Netstack {
     /// as intended (not a reason to grow the budget). Zero reads no more
     /// than asked. Measured on the router profile; a judgement on others.
     pub read_ahead: usize,
+    /// The most a TUN connection holds for its client, in KiB: sent and not
+    /// yet acknowledged, or waiting to be sent. A relay's write beyond it
+    /// waits for the client's acknowledgments, as `inbound.tcp_send_buffer`
+    /// does for an inbound's socket; without it, a fast download holds up
+    /// to the client's receive window in the budget's TCP bytes. Zero, no
+    /// limit but the client's window and the budget.
+    pub send_buffer: usize,
 }
 
 /// A budget preset of the TUN inbound's stack.
@@ -486,6 +493,12 @@ impl RuntimeOptions {
                 receive_window: 16,
                 receive_window_max: 256,
                 read_ahead: 64,
+                // As the server profile's, measured there: Trojan over TUN, 1 GiB, 4
+                // streams, 3 interleaved rounds, medians: download 6682 Mbit/s without a
+                // limit, 5687 at 128 KiB, 6675 at 256 and 6809 at 1024, the client's peak
+                // RSS 95 MB without and 85 at 256 or 1024; upload unchanged. Four times
+                // what still cost nothing, as a margin (a judgment).
+                send_buffer: 1024,
             },
             inbound: Inbound {
                 handshake_timeout: Duration::from_secs(60),
@@ -566,6 +579,10 @@ impl RuntimeOptions {
                     receive_window: 4,
                     receive_window_max: 128,
                     read_ahead: 32,
+                    // Measured as the desktop's: download 3838 Mbit/s without a limit,
+                    // 3806 at 128 KiB, 3785 at 256 and 3759 at 1024, peak RSS the same;
+                    // twice what still cost nothing.
+                    send_buffer: 256,
                 },
                 inbound: Inbound {
                     multiplex_accept_concurrency: 64,
@@ -632,6 +649,8 @@ impl RuntimeOptions {
                     // (3.65, 3.20, 3.06 CPU s a GiB); download unchanged
                     // (measured).
                     read_ahead: 64,
+                    // As mobile's (not measured on this profile).
+                    send_buffer: 256,
                 },
                 inbound: Inbound {
                     multiplex_accept_concurrency: 32,
@@ -702,6 +721,8 @@ impl RuntimeOptions {
                     receive_window: 16,
                     receive_window_max: 256,
                     read_ahead: 64,
+                    // Measured: see the desktop profile's.
+                    send_buffer: 1024,
                 },
                 inbound: Inbound {
                     multiplex_accept_concurrency: 1024,
