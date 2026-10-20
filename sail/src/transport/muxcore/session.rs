@@ -23,9 +23,10 @@ use std::time::Duration;
 
 use bytes::{Buf, Bytes, BytesMut};
 use futures::future::{abortable, AbortHandle};
+use futures::FutureExt;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
 use tokio::sync::{mpsc, Notify};
-use tokio::time::Instant;
+use tokio::time::{timeout, Instant};
 use tracing::{debug, trace};
 
 use super::stats::{self, Counters};
@@ -37,10 +38,23 @@ const OUT_SOFT_LIMIT: usize = 1 << 20;
 /// Control frames queued for the connection: past this, the peer does not
 /// read what it asks for, and loses the session.
 const CONTROL_LIMIT: usize = 1 << 20;
-/// Written to the connection at once, at most.
+/// Written to the connection at once, at most. The batch is as large as
+/// what is queued, and is given back once nothing is.
 const WRITE_BATCH: usize = 64 << 10;
-/// Read from the connection at once, at most.
+/// Read from the connection at once, at most. A session reads into
+/// `READ_SMALL` at first, and twice as much each time a read fills what it
+/// had room for, up to this.
 const READ_BUFFER: usize = 64 << 10;
+/// What a session reads into at first, and once it has had nothing to read
+/// for `READ_IDLE_AFTER`: a session that carries little, or is idle, pooled
+/// or with streams that send nothing, holds this much of a buffer rather
+/// than `READ_BUFFER`.
+const READ_SMALL: usize = 4 << 10;
+/// How long a session goes without anything to read before its read
+/// buffer is small again. A reader that keeps up with its connection waits
+/// often and briefly, and would read in small pieces if every wait made it
+/// small (a sixth less upload through AnyTLS).
+const READ_IDLE_AFTER: Duration = Duration::from_secs(1);
 /// Streams one session carries at once.
 pub const MAX_STREAMS: usize = 1024;
 /// The most a peer may grant a stream, beyond which it is taken to be
@@ -733,18 +747,37 @@ impl Drop for Session {
 /// Reads the connection until it ends, and does what its frames ask.
 async fn read_loop<R: AsyncRead + Unpin>(shared: &Arc<Shared>, mut r: R) -> io::Result<()> {
     let mut decoder = shared.codec.decoder(shared.server);
-    let mut buf = BytesMut::with_capacity(READ_BUFFER);
+    let mut buf = BytesMut::new();
+    let mut want = READ_SMALL;
     loop {
         while let Some(event) = decoder.decode(&mut buf)? {
             shared.apply(event)?;
         }
         shared.wait_for_room().await;
-        buf.reserve(READ_BUFFER);
-        if r.read_buf(&mut buf).await? == 0 {
-            if buf.is_empty() {
-                return Ok(());
-            }
-            return Err(io::ErrorKind::UnexpectedEof.into());
+        buf.reserve(want);
+        let room = buf.capacity() - buf.len();
+        let read = match buf.is_empty() && want > READ_SMALL {
+            // Nothing half read: once nothing has come for a while either,
+            // the wait goes on with a small buffer, the large one given
+            // back. What is ready is read without a timer.
+            true => match r.read_buf(&mut buf).now_or_never() {
+                Some(read) => read,
+                None => match timeout(READ_IDLE_AFTER, r.read_buf(&mut buf)).await {
+                    Ok(read) => read,
+                    Err(_) => {
+                        buf = BytesMut::with_capacity(READ_SMALL);
+                        want = READ_SMALL;
+                        r.read_buf(&mut buf).await
+                    }
+                },
+            },
+            false => r.read_buf(&mut buf).await,
+        };
+        match read? {
+            0 if buf.is_empty() => return Ok(()),
+            0 => return Err(io::ErrorKind::UnexpectedEof.into()),
+            n if n == room => want = (want * 2).min(READ_BUFFER),
+            _ => {}
         }
     }
 }
@@ -752,7 +785,7 @@ async fn read_loop<R: AsyncRead + Unpin>(shared: &Arc<Shared>, mut r: R) -> io::
 /// Writes what is queued until the session ends and all of it is written,
 /// and says why.
 async fn write_loop<W: AsyncWrite + Unpin>(shared: &Shared, mut w: W) -> String {
-    let mut batch = BytesMut::with_capacity(WRITE_BATCH);
+    let mut batch = BytesMut::new();
     let mut shaper = shared.codec.shaper();
     loop {
         let notified = shared.writer.notified();
@@ -760,6 +793,7 @@ async fn write_loop<W: AsyncWrite + Unpin>(shared: &Shared, mut w: W) -> String 
         let (ended, control, data) = {
             let mut guard = shared.lock();
             let state = &mut *guard;
+            batch.reserve((state.control.bytes + state.data.bytes).min(WRITE_BATCH));
             let control = take(&mut state.control, &mut batch, shaped);
             let data = match shaped && control > 0 {
                 true => 0,
@@ -772,6 +806,9 @@ async fn write_loop<W: AsyncWrite + Unpin>(shared: &Shared, mut w: W) -> String 
                 let _ = w.shutdown().await;
                 return "closed".to_string();
             }
+            // Nothing to write: the batch's memory goes back until there
+            // is.
+            batch = BytesMut::new();
             notified.await;
             continue;
         }
