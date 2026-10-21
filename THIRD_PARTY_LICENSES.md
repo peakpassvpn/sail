@@ -1,6 +1,6 @@
 # Third-party licenses
 
-## webpki-root-certs 1.0.9
+## webpki-root-certs 1.0.10
 
 Sail includes Mozilla trusted root certificate data distributed by
 `webpki-root-certs`. The data is derived from the Common CA Database (CCADB)
