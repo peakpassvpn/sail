@@ -86,7 +86,7 @@ which is where a drop condition is seen to be met.
 | --- | --- | --- |
 | `btls` | BoringSSL hooks REALITY needs (the first ClientHello before it is sent, an extra accepted signature algorithm), a fixed ECH GREASE shape, and the Apple deployment target for BoringSSL's build. | When upstream has equivalents; the REALITY and ECH GREASE hooks are likely to stay Sail's, so not planned. |
 | `quinn` (`quinn-proto`) | The client's ClientHello scattered over its first Initial packets, as Chrome and quic-go do, so a middlebox decrypting them does not find the SNI in one piece. Tracks upstream's `0.11.x`. | When upstream quinn scatters the client's first CRYPTO data itself. |
-| `quinn-btls` | The `btls` crypto provider for `quinn`, with five fixes upstream lacks: the exporter context (TUIC's token), ECH retry configs read only after a rejection, no IP literal in SNI and no panics on fallible calls, the server's session ticket sent in 1-RTT, and `lru` 0.18 (`RUSTSEC-2026-0253`). | When upstream has equivalents of all five. |
+| `quinn-btls` | The `btls` crypto provider for `quinn`, with five fixes upstream lacks: the exporter context (TUIC's token), ECH retry configs read only after a rejection, no IP literal in SNI and no panics on fallible calls, the server's session ticket sent in 1-RTT, and `lru` 0.18 (`RUSTSEC-2026-0253`). | Not planned: upstream is archived. |
 
 `tun-rs`'s netlink crates, `netconfig-rs` 0.1.6 and `route_manager` 0.2.16,
 come from crates.io since 2026-10-22 (they were a fork and a pin of upstream's

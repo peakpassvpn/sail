@@ -302,6 +302,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "bindgen"
+version = "0.73.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "787ef8ef523575546b106a58213d6e6b06198a05c2f757258c68a74273670cfa"
+dependencies = [
+ "bitflags 2.13.2",
+ "cexpr",
+ "clang-sys",
+ "proc-macro2",
+ "quote",
+ "regex",
+ "rustc-hash",
+ "shlex 2.0.1",
+ "syn 3.0.6",
+]
+
+[[package]]
 name = "bit-set"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -385,7 +402,7 @@ dependencies = [
 [[package]]
 name = "btls"
 version = "0.5.6"
-source = "git+https://github.com/peakpassvpn/btls.git?rev=c0fb9dd9f610d0f76ae2b5afb30d65dce9b5e74c#c0fb9dd9f610d0f76ae2b5afb30d65dce9b5e74c"
+source = "git+https://github.com/peakpassvpn/btls.git?rev=132da2caff5d94c0f9ea52aa82bbc170bf2baaa6#132da2caff5d94c0f9ea52aa82bbc170bf2baaa6"
 dependencies = [
  "bitflags 2.13.2",
  "btls-sys",
@@ -397,9 +414,9 @@ dependencies = [
 [[package]]
 name = "btls-sys"
 version = "0.5.6"
-source = "git+https://github.com/peakpassvpn/btls.git?rev=c0fb9dd9f610d0f76ae2b5afb30d65dce9b5e74c#c0fb9dd9f610d0f76ae2b5afb30d65dce9b5e74c"
+source = "git+https://github.com/peakpassvpn/btls.git?rev=132da2caff5d94c0f9ea52aa82bbc170bf2baaa6#132da2caff5d94c0f9ea52aa82bbc170bf2baaa6"
 dependencies = [
- "bindgen",
+ "bindgen 0.73.2",
  "cmake",
  "fs_extra",
  "fslock",
@@ -770,7 +787,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1969,7 +1986,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2368,7 +2385,7 @@ checksum = "33cb294fe86a74cbcf50d4445b37da762029549ebeea341421c7c70370f86cac"
 [[package]]
 name = "quinn"
 version = "0.11.12"
-source = "git+https://github.com/peakpassvpn/quinn.git?rev=f814623b47c3435cf71b7570780c1dcf136a9b5c#f814623b47c3435cf71b7570780c1dcf136a9b5c"
+source = "git+https://github.com/peakpassvpn/quinn.git?rev=678a94b1fd354a9d084e44e3ec2df8ba4424bcf3#678a94b1fd354a9d084e44e3ec2df8ba4424bcf3"
 dependencies = [
  "bytes",
  "cfg_aliases",
@@ -2387,7 +2404,7 @@ dependencies = [
 [[package]]
 name = "quinn-btls"
 version = "0.1.0"
-source = "git+https://github.com/peakpassvpn/quinn-btls.git?rev=abf888f2bc1ff076df4ed6d652325de8cc231bc8#abf888f2bc1ff076df4ed6d652325de8cc231bc8"
+source = "git+https://github.com/peakpassvpn/quinn-btls.git?rev=e57c89ddb9e3e661b1226977764bc299226b8472#e57c89ddb9e3e661b1226977764bc299226b8472"
 dependencies = [
  "btls",
  "btls-sys",
@@ -2404,7 +2421,7 @@ dependencies = [
 [[package]]
 name = "quinn-proto"
 version = "0.11.19"
-source = "git+https://github.com/peakpassvpn/quinn.git?rev=f814623b47c3435cf71b7570780c1dcf136a9b5c#f814623b47c3435cf71b7570780c1dcf136a9b5c"
+source = "git+https://github.com/peakpassvpn/quinn.git?rev=678a94b1fd354a9d084e44e3ec2df8ba4424bcf3#678a94b1fd354a9d084e44e3ec2df8ba4424bcf3"
 dependencies = [
  "bytes",
  "getrandom 0.4.3",
@@ -2424,14 +2441,14 @@ dependencies = [
 [[package]]
 name = "quinn-udp"
 version = "0.5.16"
-source = "git+https://github.com/peakpassvpn/quinn.git?rev=f814623b47c3435cf71b7570780c1dcf136a9b5c#f814623b47c3435cf71b7570780c1dcf136a9b5c"
+source = "git+https://github.com/peakpassvpn/quinn.git?rev=678a94b1fd354a9d084e44e3ec2df8ba4424bcf3#678a94b1fd354a9d084e44e3ec2df8ba4424bcf3"
 dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
  "socket2 0.6.5",
  "tracing",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2631,7 +2648,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2789,7 +2806,7 @@ name = "sail-ffi"
 version = "0.22.0"
 dependencies = [
  "anyhow",
- "bindgen",
+ "bindgen 0.72.1",
  "futures",
  "http",
  "hyper",
@@ -3181,7 +3198,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix 1.1.5",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4091,7 +4108,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d6f32a0ff4a9f6f01231eb2059cc85479330739333e0e58cadf03b6af2cca10"
 dependencies = [
  "cfg-if",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
