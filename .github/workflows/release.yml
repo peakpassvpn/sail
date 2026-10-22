@@ -486,6 +486,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: write
     env:
       VERSION: ${{ inputs.version }}
     steps:
@@ -534,3 +535,11 @@ jobs:
             --title "sail $VERSION" --notes-file notes.md --draft dist/*
           read -ra flags <<<"$RELEASE_FLAGS"
           gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --draft=false "${flags[@]}"
+
+      # ci on the tag, for its performance numbers (roadmap 5.4): the next
+      # release's baseline. A tag this workflow pushes starts no run, a
+      # dispatch does.
+      - name: ci on the tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref "v$VERSION"

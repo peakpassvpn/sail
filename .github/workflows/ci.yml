@@ -1926,7 +1926,10 @@ jobs:
       # The baselines, from the `perf` artifact of the newest successful
       # ci run that has one: of the schedule's and the v* tags' runs on
       # another commit (the weekly schedule's have none), and of the last
-      # release's tag.
+      # release's tag. A tag's run is the dispatch release.yml makes once
+      # it has published: the tag it pushes starts none. Every release
+      # before 1.0 is a pre-release, so the last is the newest of any
+      # kind but this run's own.
       - name: baselines
         run: |
           runs() {
@@ -1946,14 +1949,16 @@ jobs:
           first base-last $(
             { runs --event schedule --limit 30
               runs --event push --limit 200 --jq '[.[] | select(.headBranch | test("^v[0-9]"))]'
+              runs --event workflow_dispatch --limit 50 --jq '[.[] | select(.headBranch | test("^v[0-9]"))]'
             } | jq -rs --arg sha "$GITHUB_SHA" \
                   'add | map(select(.headSha != $sha)) | sort_by(.createdAt) | reverse | .[].databaseId'
           )
-          tag=$(gh release view -R "$GITHUB_REPOSITORY" --json tagName --jq .tagName 2>/dev/null || true)
+          tag=$(gh release list -R "$GITHUB_REPOSITORY" --exclude-drafts --limit 10 --json tagName \
+                  --jq ".[].tagName | select(. != \"$GITHUB_REF_NAME\")" 2>/dev/null | head -1 || true)
           if [ -n "$tag" ]; then
             # shellcheck disable=SC2046
             first base-release $(
-              runs --event push --branch "$tag" --limit 10 \
+              runs --branch "$tag" --limit 10 \
                 --jq ".[] | select(.headSha != \"$GITHUB_SHA\") | .databaseId"
             )
           fi

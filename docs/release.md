@@ -46,7 +46,10 @@ workflow adds the hashes, provenance and size lines after them.
    `release v0.16.0: publish=true, gh release edit --prerelease --latest=false, notes docs/releases/0.16.0.md (present)`.
    The release stays a draft until every file is in it, then is
    published; the tag's commit carries `Package.swift` pointing at the
-   release's `SailC.xcframework.zip`. Only the tag is pushed.
+   release's `SailC.xcframework.zip`. Only the tag is pushed. Once it is
+   published, the workflow dispatches `ci` on the tag: its performance
+   numbers are the next release's baseline (a tag the workflow pushes
+   starts no run of its own).
 6. Check the release: every file, `SHA256SUMS`,
    `gh attestation verify <file> -R peakpassvpn/sail`, and that SwiftPM
    resolves the tag.
