@@ -16,7 +16,8 @@
     report.py compare NEW BASE [--release RELEASE]
         Compares NEW with BASE (the last scheduled or tag run) and, if given, with
         RELEASE (the last release's), by the thresholds below; writes a
-        Markdown table, and exits 1 if any metric crossed one.
+        Markdown table, and exits 3 if any metric crossed one (any other
+        failure exits 1).
 
 The file holds numbers, metric names and the commit only: it is published
 as a workflow artifact of a public repository.
@@ -50,6 +51,10 @@ THRESHOLDS = [
     ("rss_kb", 0.07, 0.07, "measured: spread <=4.8%"),
     ("_ms", 1.00, None, "measured: spread up to 62%; only a doubling"),
 ]
+
+# compare's status when a metric crossed its limit, told apart from a
+# failure: the CI reports a crossing and goes on.
+CROSSED = 3
 
 NAME = re.compile(r"^[a-z0-9_.-]+$")
 
@@ -169,7 +174,7 @@ def compare(args):
     print("\n".join(lines))
     if crossed:
         print("\nOver the limit:\n" + "\n".join(f"- {c}" for c in crossed))
-        sys.exit(1)
+        sys.exit(CROSSED)
 
 
 def main():

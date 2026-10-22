@@ -174,7 +174,9 @@ ci.yml and release.yml are the only workflows. A schedule runs only
 `upstream-watch` and the perf jobs (the weekly cron `upstream-watch` and
 `perf-macos`, the daily one the other three); a `v*` tag runs only the
 perf jobs. `perf-report` compares with the newest successful scheduled or
-tag run's numbers on another commit, and with the last release's.
+tag run's numbers on another commit, and with the last release's. It does
+not block: a metric over its limit is a warning on the run, while a
+measurement or comparison that fails turns it red (`perf-macos` alike).
 
 A dispatch (`gh workflow run ci.yml --ref <branch>`) runs every job but
 `upstream-watch` (and `docs` off master), and looks up no receipt. `features` runs clippy only: each feature set's

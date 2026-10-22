@@ -1964,11 +1964,13 @@ jobs:
             echo "No scheduled or tag run to compare with yet." >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          set -o pipefail
           release=()
           [ -f base-release/perf.json ] && release=(--release base-release/perf.json)
+          status=0
           tools/perf/report.py compare perf.json base-last/perf.json "${release[@]}" \
-            | tee -a "$GITHUB_STEP_SUMMARY"
+            > compare.md || status=$?
+          tee -a "$GITHUB_STEP_SUMMARY" < compare.md
+          tools/perf/crossed.sh "$status" compare.md
 
   # iOS limits a Network Extension by its footprint: the FFI's numbers on
   # macOS, on the weekly schedule (the same cron as upstream-watch) and on
@@ -2028,5 +2030,7 @@ jobs:
             echo "No earlier week to compare with yet." >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          set -o pipefail
-          tools/perf/report.py compare perf-macos.json base/perf-macos.json | tee -a "$GITHUB_STEP_SUMMARY"
+          status=0
+          tools/perf/report.py compare perf-macos.json base/perf-macos.json > compare.md || status=$?
+          tee -a "$GITHUB_STEP_SUMMARY" < compare.md
+          tools/perf/crossed.sh "$status" compare.md
