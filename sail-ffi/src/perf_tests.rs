@@ -1,6 +1,7 @@
 //! The FFI's numbers for the performance regression checks (roadmap 5.4):
 //! an instance made, started, loaded and stopped through the C ABI as an
-//! app does, with the mobile profile and one thread, its defaults.
+//! app does, with the mobile profile, which it names (only iOS and Android
+//! default to it), and one thread, the default.
 //!
 //!   cargo test -p sail-ffi --release --features alloc-stats --lib \
 //!     perf_tests -- --ignored --nocapture
@@ -26,7 +27,8 @@ const SHORT_CONNECTIONS: usize = 200;
 const SHORT_BYTES: usize = 1024;
 const BULK_STREAMS: usize = 4;
 const BULK_MIB: usize = 64;
-const HELD: usize = 2000;
+// Within the mobile profile's 512 sessions (`inbound.max_connections`).
+const HELD: usize = 512;
 const SETTLE: Duration = Duration::from_secs(3);
 
 fn ok(what: &str, f: impl FnOnce(*mut *mut c_char) -> i32) {
@@ -185,9 +187,10 @@ fn measure() {
     let rss_before = rss_kb();
     let footprint_before = footprint_kb();
 
+    let settings = CString::new(r#"{"profile": "mobile"}"#).unwrap();
     let mut instance = 0;
     ok("new", |err| unsafe {
-        sail_instance_new(std::ptr::null(), std::ptr::null(), &mut instance, err)
+        sail_instance_new(settings.as_ptr(), std::ptr::null(), &mut instance, err)
     });
     let begun = Instant::now();
     ok("start", |err| unsafe {
@@ -214,8 +217,11 @@ fn measure() {
     let held_footprint_kb_per_connection = footprint_kb()
         .zip(footprint_idle)
         .map(|(now, before)| now.saturating_sub(before) as f64 / HELD as f64);
+    // Both ends: with the far one kept, a session lives on half-closed,
+    // and the profile's 512 would refuse the connections that follow.
     drop(held);
-    thread::sleep(Duration::from_millis(500));
+    kept.lock().unwrap().clear();
+    thread::sleep(SETTLE);
 
     // Short connections: each a small echo, one after another.
     let before = counts();

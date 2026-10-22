@@ -31,6 +31,11 @@ SHORT_CONNECTIONS = 200
 BULK_STREAMS = 4
 BULK_BYTES = 64 << 20
 HELD = 2000
+# The sessions a profile keeps at once (`inbound.max_connections`, 0 for
+# none), as sail/src/runtime/options.rs has them: held connections stay
+# within it, as the profile is shipped. The router's is lowered on a host
+# with less than 276 MiB, never on a runner.
+MAX_CONNECTIONS = {"desktop": 0, "server": 0, "mobile": 512, "router": 512}
 SETTLE = 3.0
 # The counts file is rewritten every 100 ms.
 COUNTS_SETTLE = 0.5
@@ -84,7 +89,13 @@ def netgen(binary, *args):
     return result
 
 
+def held_for(profile):
+    cap = MAX_CONNECTIONS[profile]
+    return min(HELD, cap) if cap else HELD
+
+
 def measure(sail, net, profile, work):
+    held_conns = held_for(profile)
     serve_port, socks_port = free_port(), free_port()
     server = subprocess.Popen(
         [net, "serve", "-listen", f"127.0.0.1:{serve_port}"],
@@ -119,7 +130,7 @@ def measure(sail, net, profile, work):
         # Held first, before a load leaves freed memory for it to take.
         held = subprocess.Popen(
             [net, "concurrent", "-proxy", proxy, "-target", target,
-             "-conns", str(HELD), "-hold", f"{int(SETTLE * 3)}s"],
+             "-conns", str(held_conns), "-hold", f"{int(SETTLE * 3)}s"],
             stdout=subprocess.PIPE,
             text=True,
         )
@@ -144,7 +155,7 @@ def measure(sail, net, profile, work):
         return {
             "profile": profile,
             "idle_rss_kb": idle,
-            "held_kb_per_connection": (during - idle) / HELD,
+            "held_kb_per_connection": (during - idle) / held_conns,
             "allocations_per_connection": (short[0] - before[0]) / SHORT_CONNECTIONS,
             "allocations_per_mib": (bulk[0] - short[0]) / mib,
             "allocated_bytes_per_mib": (bulk[1] - short[1]) / mib,

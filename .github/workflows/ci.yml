@@ -1776,13 +1776,17 @@ jobs:
       - name: build sail for measuring
         run: cargo build -p sail-cli --release --features alloc-stats
 
+      # pipefail: a measurement that fails turns the run red, not tee's
+      # success.
       - name: sail-cli
         run: |
+          set -o pipefail
           tools/perf/cli.py --sail target/release/sail --netgen "$RUNNER_TEMP/netgen" --rounds 5 \
             | tee "$RUNNER_TEMP/cli.log"
 
       - name: ffi
         run: |
+          set -o pipefail
           cargo test -p sail-ffi --release --features alloc-stats --lib --no-run
           for _ in 1 2 3 4 5; do
             cargo test -q -p sail-ffi --release --features alloc-stats --lib perf_tests -- --ignored --nocapture \
@@ -1960,6 +1964,7 @@ jobs:
             echo "No scheduled or tag run to compare with yet." >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
+          set -o pipefail
           release=()
           [ -f base-release/perf.json ] && release=(--release base-release/perf.json)
           tools/perf/report.py compare perf.json base-last/perf.json "${release[@]}" \
@@ -1989,6 +1994,7 @@ jobs:
 
       - name: ffi
         run: |
+          set -o pipefail
           cargo test -p sail-ffi --release --features alloc-stats --lib --no-run
           for _ in 1 2 3 4 5; do
             cargo test -q -p sail-ffi --release --features alloc-stats --lib perf_tests -- --ignored --nocapture \
@@ -2022,4 +2028,5 @@ jobs:
             echo "No earlier week to compare with yet." >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
+          set -o pipefail
           tools/perf/report.py compare perf-macos.json base/perf-macos.json | tee -a "$GITHUB_STEP_SUMMARY"
