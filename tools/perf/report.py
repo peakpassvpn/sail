@@ -31,18 +31,23 @@ import sys
 
 # metric suffix -> (largest growth against the last scheduled or tag run, against the
 # last release, or None; source). The design's section 6, set from the
-# calibration (ten runners, five rounds each, 2026-10-01): "spread" is the
-# largest difference between two runners' medians. The most specific
-# suffix first.
+# calibration (ten runners, five rounds each, 2026-10-01; twenty again
+# 2026-10-22, with the router and the FFI's mobile profile measured):
+# "spread" is the largest difference between two runners' medians. The
+# most specific suffix first.
 THRESHOLDS = [
     ("size_bytes", 0.02, 0.05, "5%: 5.8's release threshold; 2%: judgment (sizes are reproducible)"),
     ("allocations_per_connection", 0.02, 0.02, "measured: spread <=0.9%"),
     ("allocations_per_mib", 0.03, 0.03, "measured: spread <=1.9%"),
-    ("allocated_bytes_per_mib", 0.25, 0.25, "measured: spread ~20%, a coarse alarm"),
+    ("router.allocated_bytes_per_mib", 0.60, 0.60, "measured: spread 46%, a coarse alarm"),
+    ("allocated_bytes_per_mib", 0.30, 0.30, "measured: spread <=23.7%, a coarse alarm"),
     ("footprint_kb_per_connection", 0.10, 0.10, "judgment: macOS not yet calibrated"),
     ("footprint_kb", 0.10, 0.10, "judgment: macOS not yet calibrated"),
-    ("kb_per_connection", 0.03, 0.03, "measured: spread <=0.8%"),
-    ("rss_kb", 0.05, 0.05, "measured: spread <=2.7%"),
+    # 512 held, not 2000: less to average over.
+    ("router.held_kb_per_connection", 0.25, 0.25, "measured: spread 16.1%"),
+    ("ffi.mobile.held_kb_per_connection", 0.25, 0.25, "measured: spread 17.2%"),
+    ("kb_per_connection", 0.10, 0.10, "measured: spread <=7.4%"),
+    ("rss_kb", 0.07, 0.07, "measured: spread <=4.8%"),
     ("_ms", 1.00, None, "measured: spread up to 62%; only a doubling"),
 ]
 
@@ -64,8 +69,8 @@ def collect(args):
                 if not line.startswith("PERF "):
                     continue
                 row = json.loads(line[5:])
-                # cli.py names its profile; perf_tests is the FFI's.
-                prefix = "cli." + row.pop("profile") if "profile" in row else "ffi"
+                # cli.py names its profile; perf_tests is the FFI's, the mobile.
+                prefix = "cli." + row.pop("profile") if "profile" in row else "ffi.mobile"
                 row.pop("round", None)
                 for key, value in row.items():
                     if isinstance(value, (int, float)) and not isinstance(value, bool):
