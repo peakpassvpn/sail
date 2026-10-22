@@ -41,10 +41,24 @@ SETTLE = 3.0
 COUNTS_SETTLE = 0.5
 
 
-def free_port():
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+def free_ports(n):
+    # All bound at once: one after another, the kernel may hand the same
+    # port out twice, and sail, failing to bind it, exits while the port
+    # still answers.
+    socks = [socket.socket() for _ in range(n)]
+    try:
+        for s in socks:
+            s.bind(("127.0.0.1", 0))
+        return [s.getsockname()[1] for s in socks]
+    finally:
+        for s in socks:
+            s.close()
+
+
+def running(proc, name, log):
+    if proc.poll() is not None:
+        with open(log) as f:
+            raise RuntimeError(f"{name} exited with {proc.returncode}:\n{f.read()}")
 
 
 def rss_kb(pid):
@@ -96,11 +110,12 @@ def held_for(profile):
 
 def measure(sail, net, profile, work):
     held_conns = held_for(profile)
-    serve_port, socks_port = free_port(), free_port()
+    serve_port, socks_port = free_ports(2)
+    server_log = os.path.join(work, f"{profile}.netgen.log")
     server = subprocess.Popen(
         [net, "serve", "-listen", f"127.0.0.1:{serve_port}"],
         stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stderr=open(server_log, "w"),
     )
     config = os.path.join(work, f"{profile}.json")
     with open(config, "w") as f:
@@ -114,17 +129,21 @@ def measure(sail, net, profile, work):
         )
     stats = os.path.join(work, f"{profile}.counts")
     env = dict(os.environ, SAIL_ALLOC_STATS=stats)
+    sail_log = os.path.join(work, f"{profile}.log")
     proc = subprocess.Popen(
         [sail, "-c", config, "--profile", profile],
         env=env,
         stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stderr=open(sail_log, "w"),
     )
     try:
         wait_port(serve_port)
         wait_port(socks_port)
         proxy, target = f"127.0.0.1:{socks_port}", f"127.0.0.1:{serve_port}"
         time.sleep(SETTLE)
+        # A port that answers may be another's: sail is still running.
+        running(server, "netgen serve", server_log)
+        running(proc, "sail", sail_log)
         idle = rss_kb(proc.pid)
 
         # Held first, before a load leaves freed memory for it to take.
@@ -151,6 +170,7 @@ def measure(sail, net, profile, work):
                    "-streams", str(BULK_STREAMS), "-bytes", str(BULK_BYTES), "-dir", direction)
         bulk = counts(stats)
         mib = BULK_STREAMS * BULK_BYTES * 2 / (1 << 20)
+        running(proc, "sail", sail_log)
 
         return {
             "profile": profile,
