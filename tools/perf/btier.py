@@ -5,7 +5,7 @@ nightly.sh run, and which crossed the design's limits.
     btier.py RUN_DIR
 
 RUN_DIR holds results/{base,new}/r<N>/results/*/summary.json (netem's run.py,
-one per round and build) and results/server/results/*/summary.json
+one or more per round and build) and results/server/results/*/summary.json
 (server-accept, which pairs the two itself). Prints a Markdown table; exits
 1 when a ratio's 95% interval lies wholly past its limit. With base and new
 the same build (a calibration), the spread of the ratios is the noise.
@@ -85,7 +85,8 @@ def netem(run_dir):
     for which in ("base", "new"):
         for path in glob.glob(f"{run_dir}/results/{which}/r*/results/*/summary.json"):
             n = int(re.search(r"/r(\d+)/", path).group(1))
-            rounds.setdefault(n, {})[which] = netem_metrics(path)
+            # A round may hold several summaries, one a run.py run.
+            rounds.setdefault(n, {}).setdefault(which, {}).update(netem_metrics(path))
     ratios = {}
     for n, sides in sorted(rounds.items()):
         if set(sides) != {"base", "new"}:

@@ -32,9 +32,13 @@
 #     removing the file makes the next night a calibration). A night
 #     without a reference is the calibration: new against itself, the
 #     spread is the noise, and new becomes the reference. One pair a
-#     night: a round takes 16 minutes (two runs of netem's cells at 5,
+#     night: a round took 16 minutes (two runs of netem's cells at 5,
 #     one of server-accept's at 6, measured on the host), so 4 rounds
-#     end 65 minutes after MEASURE_AT and a calibration's 6 after 100.
+#     ended 65 minutes after MEASURE_AT and a calibration's 6 after 100.
+#     The desktop and router cells (Trojan) add about 5 minutes a round
+#     (an estimate: a quarter of the netem cells again, twice), so 4
+#     rounds end about 85 minutes after it and a calibration's 6 about
+#     130; the timer's limit must allow the calibration's.
 #  4. Write status.txt (ran / skipped: why / failed: why) and, when it ran,
 #     summary.json and report-*.md; keep the last KEEP runs.
 set -uo pipefail
@@ -145,7 +149,7 @@ cores: $4
 netns: nc$NETEM_NS/ns$NETEM_NS, ${SERVER_NAME}c/${SERVER_NAME}s; subnets 10.$NETEM_NET-10.$((NETEM_NET + 2)), 10.$SERVER_NET
 resources: ${LOCKS[*]}
 started: $(date -u '+%Y-%m-%d %H:%M UTC')
-expected end: about 02:15 UTC (a calibration: 02:50)
+expected end: about 02:35 UTC (a calibration: 03:20)
 stop: systemctl stop sail-perf-nightly.service (it releases its locks and removes this file)
 JOBFILE
 }
@@ -212,6 +216,13 @@ compare() {
       (cd "$RUN/work/netem" && python3 run.py --work "$dir/results/$which/r$round" \
         --sail "$BIN/$sha/sail" --netgen "$NETGEN" \
         --protocols direct,trojan --clients sail-mobile,sail-server \
+        --only baseline --bulk-bytes "$BULK_BYTES" \
+        --cpus "$CLIENT_CPU" --server-cpus "$SERVER_CPU") || return 1
+      # The desktop and router budgets, Trojan alone: what a night has room
+      # for.
+      (cd "$RUN/work/netem" && python3 run.py --work "$dir/results/$which/r$round" \
+        --sail "$BIN/$sha/sail" --netgen "$NETGEN" \
+        --protocols trojan --clients sail-desktop,sail-router \
         --only baseline --bulk-bytes "$BULK_BYTES" \
         --cpus "$CLIENT_CPU" --server-cpus "$SERVER_CPU") || return 1
     done

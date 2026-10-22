@@ -148,8 +148,9 @@ rsync -az --no-o --no-g "$STATE/netgen" "$PERF_HOST:$WORK/netgen"
 rsync -az --no-o --no-g --exclude netgen --exclude __pycache__ "$ROOT/scripts/netem/" "$PERF_HOST:$WORK/netem/"
 rsync -az --no-o --no-g --exclude __pycache__ "$ROOT/scripts/server-accept/" "$PERF_HOST:$WORK/server-accept/"
 
-# Client budgets (mobile and server profiles of the client), turn by turn:
-# base then new on odd rounds, new then base on even ones.
+# Client budgets (mobile and server profiles of the client, and Trojan
+# alone on the desktop and router profiles), turn by turn: base then new
+# on odd rounds, new then base on even ones.
 for round in $(seq 1 "$ROUNDS"); do
   order="base new"
   [ $((round % 2)) -eq 0 ] && order="new base"
@@ -159,6 +160,11 @@ for round in $(seq 1 "$ROUNDS"); do
       --protocols direct,trojan --clients sail-mobile,sail-server \
       --only baseline --bulk-bytes ${BULK_BYTES:-2147483648} \
       --cpus $CLIENT_CPU --server-cpus $SERVER_CPU" > "$OUT/netem-$which-r$round.log" 2>&1
+    remote "cd $WORK/netem && NETEM_NS=$NETEM_NS NETEM_NET=$NETEM_NET python3 run.py \
+      --work $WORK/$which/r$round --sail $WORK/$which/sail --netgen $WORK/netgen \
+      --protocols trojan --clients sail-desktop,sail-router \
+      --only baseline --bulk-bytes ${BULK_BYTES:-2147483648} \
+      --cpus $CLIENT_CPU --server-cpus $SERVER_CPU" >> "$OUT/netem-$which-r$round.log" 2>&1
   done
 done
 
