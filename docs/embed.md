@@ -34,8 +34,8 @@ instance.stop().await?;
 
 ## Building against sail
 
-sail builds with forks of a few crates (BoringSSL bindings, QUIC, TUN route
-management) through `[patch.crates-io]`. A `[patch]` section applies only
+sail builds with forks of a few crates (BoringSSL bindings, QUIC) through
+`[patch.crates-io]`. A `[patch]` section applies only
 in the workspace that declares it, so a workspace that depends on sail, even
 through another crate, copies sail's section exactly. Its CI checks that the
 copy is still exact, after `cargo fetch`:

@@ -1833,14 +1833,15 @@ checksum = "743fb55ba31b18fb1ecef6bdc9aa2743314978ac084044301a7eee33fb99a20d"
 [[package]]
 name = "netconfig-rs"
 version = "0.1.6"
-source = "git+https://github.com/peakpassvpn/netconfig-rs.git?rev=c4186a6416cce1b66ca65200b7a23b5e859181d7#c4186a6416cce1b66ca65200b7a23b5e859181d7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "733ad7a1352f0748a620368f2ea5cd94f0e449c5108fbac86ace31df1601bf6f"
 dependencies = [
  "cfg-if",
  "core-foundation",
  "ipnet",
  "libc",
- "netlink-packet-core",
- "netlink-packet-route",
+ "netlink-packet-core 0.8.2",
+ "netlink-packet-route 0.25.1",
  "netlink-sys",
  "nix 0.30.1",
  "scopeguard",
@@ -1852,9 +1853,30 @@ dependencies = [
 
 [[package]]
 name = "netlink-packet-core"
+version = "0.8.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b897d7bd4f0af82e68d40d0344cf37e97f9c97ddf74a098de3e4da05e96ca395"
+dependencies = [
+ "paste",
+]
+
+[[package]]
+name = "netlink-packet-core"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2d6e2daf9a8c2e21302714706860a0e6be02e03d17294ecc66b354ea7d4059dd"
+
+[[package]]
+name = "netlink-packet-route"
+version = "0.25.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3ec2f5b6839be2a19d7fa5aab5bc444380f6311c2b693551cb80f45caaa7b5ef"
+dependencies = [
+ "bitflags 2.13.2",
+ "libc",
+ "log",
+ "netlink-packet-core 0.8.2",
+]
 
 [[package]]
 name = "netlink-packet-route"
@@ -1865,15 +1887,15 @@ dependencies = [
  "bitflags 2.13.2",
  "libc",
  "log",
- "netlink-packet-core",
+ "netlink-packet-core 0.9.0",
  "zerocopy",
 ]
 
 [[package]]
 name = "netlink-sys"
-version = "0.9.0"
+version = "0.8.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c99d38e00b420df49e940fe0826e667c3dad82ac68eb4c2bbf754c1c14a83a10"
+checksum = "cd6c30ed10fa69cc491d491b85cc971f6bdeb8e7367b7cde2ee6cc878d583fae"
 dependencies = [
  "bytes",
  "libc",
@@ -2026,6 +2048,12 @@ dependencies = [
  "smallvec",
  "windows-link 0.2.1",
 ]
+
+[[package]]
+name = "paste"
+version = "1.0.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
 
 [[package]]
 name = "pem"
@@ -2554,12 +2582,13 @@ dependencies = [
 [[package]]
 name = "route_manager"
 version = "0.2.16"
-source = "git+https://github.com/tun-rs/route_manager.git?rev=d0a6c5e3fbea1b4fba74bd2ad9739bc670936aaf#d0a6c5e3fbea1b4fba74bd2ad9739bc670936aaf"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0a9574baeb2df5827a7bf633474a73105c2b19ff9e37bdbf4b9aea73601e1520"
 dependencies = [
  "flume",
  "libc",
- "netlink-packet-core",
- "netlink-packet-route",
+ "netlink-packet-core 0.9.0",
+ "netlink-packet-route 0.33.0",
  "netlink-sys",
  "windows-sys 0.61.2",
 ]

@@ -68,8 +68,8 @@ fails python3 "$check" "$scratch/host" --
 grep -q "not among the dependencies" "$scratch/out"
 
 # An entry left out is named.
-sed -i.bak '/^route_manager = /d' "$scratch/host/Cargo.toml"
+sed -i.bak '/^quinn-proto = /d' "$scratch/host/Cargo.toml"
 fails python3 "$check" "$scratch/host"
-grep -q "route_manager: missing" "$scratch/out"
+grep -q "quinn-proto: missing" "$scratch/out"
 
 echo "embed-patch-check-test: ok"

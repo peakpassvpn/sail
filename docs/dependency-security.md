@@ -87,13 +87,20 @@ which is where a drop condition is seen to be met.
 | `btls` | BoringSSL hooks REALITY needs (the first ClientHello before it is sent, an extra accepted signature algorithm), a fixed ECH GREASE shape, and the Apple deployment target for BoringSSL's build. | When upstream has equivalents; the REALITY and ECH GREASE hooks are likely to stay Sail's, so not planned. |
 | `quinn` (`quinn-proto`) | The client's ClientHello scattered over its first Initial packets, as Chrome and quic-go do, so a middlebox decrypting them does not find the SNI in one piece. Tracks upstream's `0.11.x`. | When upstream quinn scatters the client's first CRYPTO data itself. |
 | `quinn-btls` | The `btls` crypto provider for `quinn`, with five fixes upstream lacks: the exporter context (TUIC's token), ECH retry configs read only after a rejection, no IP literal in SNI and no panics on fallible calls, the server's session ticket sent in 1-RTT, and `lru` 0.18 (`RUSTSEC-2026-0253`). | When upstream has equivalents of all five. |
-| `netconfig-rs` | `netlink-sys` 0.9 and `netlink-packet-core` 0.9, without the unmaintained `paste` (`RUSTSEC-2024-0436`). Built on Linux and Windows through `tun-rs`. | `tun-rs/netconfig-rs` releases on `netlink-sys` 0.9 and `netlink-packet-core` 0.9 or later and `tun-rs` takes it. |
 
-`route_manager` is no fork: `[patch.crates-io]` pins upstream's `main` (`tun-rs/route_manager`), which has the same update past its 0.2.16 release, so that the tree has one `netlink-sys`. `tun-rs` uses it on macOS and the BSDs. It goes when upstream releases on `netlink-sys` 0.9 and `tun-rs` takes it.
+`tun-rs`'s netlink crates, `netconfig-rs` 0.1.6 and `route_manager` 0.2.16,
+come from crates.io since 2026-10-22 (they were a fork and a pin of upstream's
+`main`, on `netlink-packet-core` 0.9); both are on `netlink-sys` 0.8, so the
+tree still has one. Through `netlink-packet-core` 0.8 they bring the
+unmaintained `paste` (`RUSTSEC-2024-0436`), a proc macro used at compile time
+only, allowed with its reason in `tools/security/deny.toml`, whose list
+`tools/security/check.sh` also passes to `cargo-audit`. It goes when
+`netconfig-rs` releases on `netlink-packet-core` 0.9 and `tun-rs` takes it
+(upstream PR `tun-rs/netconfig-rs#4`).
 
-Since 2026-10-02 `cargo-audit` reports no warning: of the warnings below,
-`lru` 0.16.4 is closed by `quinn-btls`, `paste` by the last two forks, and the
-yanked `yoke-derive` 0.8.3 by 0.8.4.
+Since 2026-10-02 `cargo-audit` reports no warning but that one: of the
+warnings below, `lru` 0.16.4 is closed by `quinn-btls`, and the yanked
+`yoke-derive` 0.8.3 by 0.8.4.
 
 ## Remediation status (2026-09-29)
 

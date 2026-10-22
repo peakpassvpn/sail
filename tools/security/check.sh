@@ -83,6 +83,11 @@ run_audit() {
     return "$EXIT_ERROR"
   fi
   local -a audit_args=(cargo audit --file "$lockfile")
+  # The advisories deny.toml allows, each with its reason there.
+  local id
+  for id in $(grep -oE 'id = "RUSTSEC-[0-9]{4}-[0-9]{4}"' "$script_dir/deny.toml" | grep -oE 'RUSTSEC-[0-9-]+'); do
+    audit_args+=(--ignore "$id")
+  done
   if [[ -n "${CARGO_AUDIT_DB:-}" ]]; then
     audit_args+=(--db "$CARGO_AUDIT_DB")
   fi
