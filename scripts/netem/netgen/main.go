@@ -4,13 +4,13 @@
 // checks it: a corrupted, short or reordered transfer is counted, not
 // missed.
 //
-//	netgen serve -listen 10.95.0.2:9000
+//	netgen serve -listen 10.95.0.2:9000[,10.95.0.2:9001,...]
 //	netgen bulk       -proxy P -target T -streams 8 -bytes 67108864 -dir down|up
 //	netgen echo       -proxy P -target T -conns 16 -rounds 200 -size 4096
 //	netgen setup      -proxy P -target T -n 500
 //	netgen concurrent -proxy P -target T -conns 2000 -hold 20s
 //	netgen hold       -proxies P1,P2 -targets T1,T2 -conns 100000 -rate 2000 -hold 60s
-//	netgen churn      -proxy P -target T -rate 200 -duration 30s
+//	netgen churn      -proxy P -targets T1,T2 -rate 200 -duration 30s
 //	netgen halfclose  -proxy P -target T -n 50 -bytes 1048576
 //	netgen probe      -proxy P -target T -duration 60s -interval 100ms
 //
@@ -59,10 +59,10 @@ func main() {
 		os.Exit(2)
 	}
 	fs := flag.NewFlagSet(os.Args[1], flag.ExitOnError)
-	listen := fs.String("listen", "127.0.0.1:9000", "serve: listen address")
+	listen := fs.String("listen", "127.0.0.1:9000", "serve: listen addresses, comma-separated, one handler")
 	proxy := fs.String("proxy", "", "SOCKS5 proxy; empty dials the target directly")
 	proxies := fs.String("proxies", "", "hold: SOCKS5 proxies, comma-separated, taken in turn; overrides -proxy")
-	targets := fs.String("targets", "", "hold: servers, comma-separated, taken in turn; overrides -target")
+	targets := fs.String("targets", "", "hold/churn: servers, comma-separated, taken in turn; overrides -target")
 	target := fs.String("target", "127.0.0.1:9000", "server address, as the proxy sees it")
 	streams := fs.Int("streams", 8, "bulk: parallel streams")
 	size := fs.Int64("bytes", 64<<20, "bulk/halfclose: bytes per stream")
@@ -96,7 +96,7 @@ func main() {
 	var err error
 	switch os.Args[1] {
 	case "serve":
-		err = serve(*listen)
+		err = serve(list("-listen", *listen))
 	case "bulk":
 		res = runBulk(d, *streams, *size, *dir)
 	case "echo":
@@ -119,7 +119,16 @@ func main() {
 		dial := func(i int) dialer { return dialer{proxy: ps[i%len(ps)], target: ts[i%len(ts)]} }
 		res = runHold(dial, *conns, *rate, *hold)
 	case "churn":
-		res = runChurn(d, *rate, *duration)
+		// Connection i to target i mod T: short connections to one address
+		// and port leave the side that closes first a TIME-WAIT each, and
+		// at hundreds a second the kernel's search for a free source port
+		// among them, not the proxy, becomes what is measured.
+		ts := []string{*target}
+		if *targets != "" {
+			ts = list("-targets", *targets)
+		}
+		dial := func(i int) dialer { return dialer{proxy: *proxy, target: ts[i%len(ts)]} }
+		res = runChurn(dial, *rate, *duration)
 	case "halfclose":
 		res = runHalfClose(d, *n, *size)
 	case "probe":
@@ -231,18 +240,25 @@ func closeWrite(c net.Conn) error {
 
 // ---- server ----
 
-func serve(addr string) error {
-	ln, err := net.Listen("tcp", addr)
-	if err != nil {
-		return err
-	}
-	for {
-		c, err := ln.Accept()
+func serve(addrs []string) error {
+	errs := make(chan error, len(addrs))
+	for _, addr := range addrs {
+		ln, err := net.Listen("tcp", addr)
 		if err != nil {
 			return err
 		}
-		go handle(c)
+		go func() {
+			for {
+				c, err := ln.Accept()
+				if err != nil {
+					errs <- err
+					return
+				}
+				go handle(c)
+			}
+		}()
 	}
+	return <-errs
 }
 
 func handle(c net.Conn) {
@@ -756,8 +772,9 @@ type churnResult struct {
 	Setup   latencies `json:"setup"`
 }
 
-// runChurn opens short connections at `rate` a second for `duration`.
-func runChurn(d dialer, rate int, duration time.Duration) any {
+// runChurn opens short connections at `rate` a second for `duration`,
+// connection i through dial(i).
+func runChurn(dial func(int) dialer, rate int, duration time.Duration) any {
 	r := &churnResult{Rate: rate}
 	var mu sync.Mutex
 	var setups []time.Duration
@@ -765,20 +782,20 @@ func runChurn(d dialer, rate int, duration time.Duration) any {
 	tick := time.NewTicker(time.Second / time.Duration(rate))
 	defer tick.Stop()
 	start := time.Now()
-	for time.Since(start) < duration {
+	for i := 0; time.Since(start) < duration; i++ {
 		<-tick.C
 		wg.Add(1)
-		go func() {
+		go func(i int) {
 			defer wg.Done()
 			t0 := time.Now()
-			err := echoOnce(d, 64)
+			err := echoOnce(dial(i), 64)
 			r.add(err)
 			if err == nil {
 				mu.Lock()
 				setups = append(setups, time.Since(t0))
 				mu.Unlock()
 			}
-		}()
+		}(i)
 	}
 	wg.Wait()
 	r.Seconds = time.Since(start).Seconds()

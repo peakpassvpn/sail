@@ -47,7 +47,13 @@ TARGET = SERVER_ADDR + ":9000"
 # The same server off the link (netns.sh), for a TUN to take the traffic.
 FAR_ADDR = f"10.{int(NETEM_NET) + 1}.0.1"
 FAR_TARGET = FAR_ADDR + ":9000"
-LISTEN = "0.0.0.0:9000"
+# The churn's targets: the same server on this many ports, taken in turn. To
+# one address and port, the side that closes first keeps a TIME-WAIT per
+# connection, and at 500 a second the kernel's search for a free source port
+# among them takes milliseconds a connect(): with one worker thread, that,
+# not the proxy, was what the cell measured.
+CHURN_PORTS = 16
+LISTEN = ",".join(f"0.0.0.0:{9000 + i}" for i in range(CHURN_PORTS))
 SOCKS = "127.0.0.1:1081"
 SS_METHOD = "2022-blake3-aes-128-gcm"
 SS_KEY = "a8C5QncIl9HvTmenrEb7aw=="
@@ -422,11 +428,15 @@ class Run:
         self.failures = []
         self.procs = {}
 
-    def netgen(self, mode, *flags, timeout=600):
+    def netgen(self, mode, *flags, timeout=600, spread=False):
         proxy = f"-proxy {SOCKS} " if self.args.inbound == "socks" else ""
         target = (TARGET if self.args.inbound == "socks" and self.args.only != "route_switch"
                   else FAR_TARGET)
-        cmd = in_ns_netgen(CLIENT_NS, f"{self.args.netgen} {mode} {proxy}-target {target} "
+        to = f"-target {target}"
+        if spread:
+            host = target.rsplit(":", 1)[0]
+            to = "-targets " + ",".join(f"{host}:{9000 + i}" for i in range(CHURN_PORTS))
+        cmd = in_ns_netgen(CLIENT_NS, f"{self.args.netgen} {mode} {proxy}{to} "
                     + " ".join(flags))
         t0 = time.time()
         # Its own process group: a timeout ends the traffic tool itself, not
@@ -838,7 +848,8 @@ class Run:
               flush=True)
         for rate in self.args.churn_rates:
             m = sampler.mark()
-            res = self.netgen("churn", f"-rate {rate}", f"-duration {10 if self.args.quick else 30}s")
+            res = self.netgen("churn", f"-rate {rate}", f"-duration {10 if self.args.quick else 30}s",
+                              spread=True)
             self.record("concurrency", f"churn{rate}", res, sampler.since(m), None,
                         self.idle(sampler))
             self.check("concurrency", f"churn{rate}", res)
