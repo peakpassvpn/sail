@@ -41,8 +41,20 @@ apt_install() {
 		dpkg -s "$p" >/dev/null 2>&1 || missing+=("$p")
 	done
 	if [ ${#missing[@]} -gt 0 ]; then
-		$sudo apt-get update -qq
-		DEBIAN_FRONTEND=noninteractive $sudo apt-get install -y -qq --no-install-recommends "${missing[@]}"
+		# The packages are kept in $SAIL_CROSS_DIR, which CI caches: the
+		# hosted runners' mirror once took 8 to 17 minutes a package set,
+		# and held the windows-gnu job (wine) past its time four times
+		# running (2026-10-23). A stalled connection is dropped and retried.
+		# The directory is the user's, as the rest of $SAIL_CROSS_DIR is
+		# created after this; apt's _apt user cannot reach a home
+		# directory, so the download runs as root.
+		local apt=(-o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquire::Retries=5
+			-o Dir::Cache::archives="$SAIL_CROSS_DIR/apt" -o APT::Sandbox::User=root)
+		mkdir -p "$SAIL_CROSS_DIR/apt/partial"
+		$sudo apt-get "${apt[@]}" update -qq
+		DEBIAN_FRONTEND=noninteractive $sudo apt-get "${apt[@]}" install -y -qq --no-install-recommends "${missing[@]}"
+		# Readable by the cache's upload; apt leaves partial/ to root.
+		$sudo chmod -R a+rX "$SAIL_CROSS_DIR/apt"
 	fi
 }
 

@@ -690,7 +690,9 @@ jobs:
   cross:
     if: (github.ref == 'refs/heads/master' && github.event_name != 'schedule') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # 60, not 30: until a cache entry is saved, wine for windows-gnu comes
+    # from the runners' mirror, which took past 30 minutes (2026-10-23).
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -721,7 +723,8 @@ jobs:
         with:
           toolchain: 1.98.1
 
-      # scripts/install_cross_toolchain.sh downloads into ~/.sail-cross. The
+      # scripts/install_cross_toolchain.sh downloads into ~/.sail-cross, apt's
+      # packages too. The
       # four Android jobs share one NDK entry (it is large).
       - name: cache cross toolchain
         uses: actions/cache@v4
