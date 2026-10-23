@@ -297,7 +297,7 @@ pub struct Quic {
     /// What a Hysteria2 or TUIC stream's peer may send ahead of what is
     /// read, in KiB: what one stream nobody reads holds, and what holds
     /// one stream to about this much per round trip. 8 MiB, Hysteria2's
-    /// reference implementation's, but on a router.
+    /// reference implementation's, but on a phone or a router.
     pub stream_window: usize,
     /// What a Hysteria2 or TUIC connection keeps sent and not yet
     /// acknowledged, in KiB: the memory it may take for what it sends.
@@ -596,7 +596,16 @@ impl RuntimeOptions {
                 },
                 quic: Quic {
                     max_concurrent_streams: 256,
-                    receive_window: 32 << 10,
+                    // An iOS network extension may be killed at 50 MiB.
+                    // Four streams over Hysteria2 or TUIC from an idle
+                    // 26 MB peaked at 36-50 MB with these (measured,
+                    // glibc), 55-63 at 16/4/16 MiB and 58-91 at
+                    // desktop's 8 MiB a stream; a download at 300 ms
+                    // runs at about sing-box's (152-156 Mbit/s against
+                    // 145-149), an upload at 0.64-0.77 of it.
+                    receive_window: 8 << 10,
+                    stream_window: 2 << 10,
+                    send_window: 8 << 10,
                     // A judgment: a phone's links are not those the
                     // 7 MiB was measured for, and its memory is short.
                     udp_receive_buffer: 1024,

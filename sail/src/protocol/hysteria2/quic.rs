@@ -115,15 +115,16 @@ mod tests {
     }
 
     /// A stream's window, the connection's, and what is kept in flight,
-    /// as each profile sets them: a router's connection takes eight times
-    /// a stream, so that streams nobody reads leave room for the rest.
+    /// as each profile sets them: a phone's connection takes four times a
+    /// stream and a router's eight, so that streams nobody reads leave
+    /// room for the rest.
     #[test]
     fn windows_follow_the_profile() {
         let mib = |n: u64| (n << 20).to_string();
         for profile in [Profile::Desktop, Profile::Server] {
             assert_eq!(windows(profile), (mib(8), mib(64), mib(16)));
         }
-        assert_eq!(windows(Profile::Mobile), (mib(8), mib(32), mib(16)));
+        assert_eq!(windows(Profile::Mobile), (mib(2), mib(8), mib(8)));
         assert_eq!(windows(Profile::Router), (mib(4), mib(32), mib(16)));
     }
 }
