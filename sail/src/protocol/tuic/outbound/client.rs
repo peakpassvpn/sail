@@ -19,7 +19,8 @@ use crate::net::dial::BoundInterface;
 use crate::net::{peek_tcp_one_off, Dialer};
 use crate::session::{Session, SocksAddr};
 use crate::transport::quic::{
-    endpoint_on, ClientConfigs, ClientTls, FragmentBudget, QuicStream, Side, MAX_FRAGMENT_BYTES,
+    endpoint_on, ClientConfigs, ClientTls, FragmentBudget, QuicStream, Side, Silence,
+    MAX_FRAGMENT_BYTES,
 };
 
 use super::super::common::{
@@ -110,13 +111,21 @@ impl Client {
         self.conn.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// The connection in use, if it is open.
+    /// The connection in use, if it is open. One whose server has gone
+    /// silent is given up, though not closed: what is open on it stays,
+    /// and the next request dials anew.
     fn live(&self) -> Option<Arc<ClientConn>> {
-        self.slot()
-            .conn
-            .as_ref()
-            .filter(|conn| conn.conn.close_reason().is_none())
-            .cloned()
+        let mut current = self.slot();
+        let conn = current.conn.as_ref()?;
+        if conn.conn.close_reason().is_some() {
+            return None;
+        }
+        if conn.silence.gone(&conn.conn) {
+            debug!("tuic: the server stopped answering, dialling anew");
+            current.conn = None;
+            return None;
+        }
+        Some(conn.clone())
     }
 
     /// The connection in use, or a new one if it has closed.
@@ -271,6 +280,7 @@ impl Client {
             bound,
             associations,
             activity,
+            silence: Silence::default(),
             zero_rtt,
             _endpoint: endpoint,
             _tasks: tasks,
@@ -314,6 +324,8 @@ struct ClientConn {
     bound: BoundInterface,
     associations: Arc<Mutex<Associations>>,
     activity: Activity,
+    /// Whether its server still answers.
+    silence: Silence,
     /// Whether the server took the 0-RTT data, once the handshake says so;
     /// never set when the connection was not resumed with 0-RTT.
     #[cfg_attr(not(all(test, feature = "inbound-tuic")), allow(dead_code))]
@@ -446,6 +458,7 @@ impl OutboundStreamHandler for StreamHandler {
         let payload = peek_tcp_one_off(lhs).await;
         send.write_all(&encode_connect(&sess.destination, &payload)?)
             .await?;
+        conn.silence.sent(&conn.conn);
         conn.bound.onto(sess);
         let active = conn.activity.start();
         Ok(Box::new(QuicStream::guarded(send, recv, (active, conn))))

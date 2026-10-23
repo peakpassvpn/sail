@@ -301,8 +301,15 @@ mod tests {
     async fn fixture_idle(idle_timeout: Duration) -> (Arc<Client>, AnyIncomingTransport) {
         let rcgen::CertifiedKey { cert, key_pair } =
             rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
+        let (port, incoming) = serve(&cert.pem(), &key_pair.serialize_pem()).await;
+        (client_idle(port, &cert.pem(), idle_timeout), incoming)
+    }
+
+    /// A server in process with the certificate `cert` and its key: its
+    /// port on 127.0.0.1, and what it accepts.
+    async fn serve(cert: &str, key: &str) -> (u16, AnyIncomingTransport) {
         let alpns = alpn_protocols(None, quic::DEFAULT_ALPN);
-        let crypto = server_crypto(&cert.pem(), &key_pair.serialize_pem(), &alpns).unwrap();
+        let crypto = server_crypto(cert, key, &alpns).unwrap();
         let server = Arc::new(Server {
             tag: "hy2".into(),
             users: [("pw".to_string(), None)].into(),
@@ -322,7 +329,7 @@ mod tests {
         let InboundTransport::Incoming(incoming) = transport else {
             panic!("not incoming");
         };
-        (client_idle(port, &cert.pem(), idle_timeout), incoming)
+        (port, incoming)
     }
 
     /// A client of a server on `port` of 127.0.0.1 with the certificate
@@ -580,6 +587,77 @@ mod tests {
         open.write_all(b"pong").await.unwrap();
         served.read_exact(&mut got).await.unwrap();
         assert_eq!(&got, b"pong");
+    }
+
+    /// A relay of UDP on 127.0.0.1 to a server's port, which `to` can
+    /// point at another server: a server's restart, as its client sees
+    /// it. Only the server it points at is heard.
+    async fn relay(to: u16) -> (u16, Arc<std::sync::atomic::AtomicU16>) {
+        use std::sync::atomic::{AtomicU16, Ordering};
+        let front = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let back = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let port = front.local_addr().unwrap().port();
+        let to = Arc::new(AtomicU16::new(to));
+        let target = to.clone();
+        tokio::spawn(async move {
+            let (mut up, mut down) = (vec![0; 65536], vec![0; 65536]);
+            let mut client = None;
+            loop {
+                tokio::select! {
+                    got = front.recv_from(&mut up) => {
+                        let Ok((n, from)) = got else { return };
+                        client = Some(from);
+                        let server = ("127.0.0.1", target.load(Ordering::Relaxed));
+                        let _ = back.send_to(&up[..n], server).await;
+                    }
+                    got = back.recv_from(&mut down) => {
+                        let Ok((n, from)) = got else { return };
+                        if let Some(client) = client
+                            .filter(|_| from.port() == target.load(Ordering::Relaxed))
+                        {
+                            let _ = front.send_to(&down[..n], client).await;
+                        }
+                    }
+                }
+            }
+        });
+        (port, to)
+    }
+
+    /// A server that restarted has lost the connection and cannot say so:
+    /// its stateless resets do not verify. A stream opened meanwhile goes
+    /// unanswered, and once that has lasted a while the next one dials
+    /// anew, rather than at the idle timeout; the old connection is given
+    /// up, not closed.
+    #[tokio::test]
+    async fn a_server_that_restarted_is_dialled_anew() {
+        let rcgen::CertifiedKey { cert, key_pair } =
+            rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
+        let (cert, key) = (cert.pem(), key_pair.serialize_pem());
+        let (port, mut first) = serve(&cert, &key).await;
+        let (relayed, to) = relay(port).await;
+        let client = client_to(relayed, &cert);
+        let (mut open, mut served) = stream(&client, &mut first).await;
+        open.write_all(b"ping").await.unwrap();
+        let mut got = [0; 4];
+        served.read_exact(&mut got).await.unwrap();
+        let old = client.current().expect("connected");
+
+        let (port, mut second) = serve(&cert, &key).await;
+        to.store(port, std::sync::atomic::Ordering::Relaxed);
+        let _lost = StreamHandler(client.clone())
+            .handle(&session(), None, None)
+            .await
+            .unwrap();
+        // Past the second a silent server is given.
+        tokio::time::sleep(Duration::from_millis(1200)).await;
+
+        let (mut open, mut served) = stream(&client, &mut second).await;
+        assert_ne!(client.current().unwrap().stable_id(), old.stable_id());
+        open.write_all(b"pong").await.unwrap();
+        served.read_exact(&mut got).await.unwrap();
+        assert_eq!(&got, b"pong");
+        assert!(old.close_reason().is_none());
     }
 
     /// What the idle tests keep a connection with nothing open for: short,

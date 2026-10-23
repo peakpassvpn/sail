@@ -26,7 +26,7 @@ use crate::net::Dialer;
 use crate::session::{Session, SocksAddr};
 use crate::transport::idle::{self, Count, Idle, Open};
 use crate::transport::quic::{
-    endpoint_on, ClientTls, FragmentBudget, QuicStream, Side, MAX_FRAGMENT_BYTES,
+    endpoint_on, ClientTls, FragmentBudget, QuicStream, Side, Silence, MAX_FRAGMENT_BYTES,
 };
 
 use super::super::congestion::CongestionHandle;
@@ -103,17 +103,19 @@ impl Client {
     }
 
     /// The live connection, if there is one, counted as carrying one more
-    /// stream or UDP session while the guard lives.
+    /// stream or UDP session while the guard lives. One whose server has
+    /// gone silent is given up, though not closed: what is open on it
+    /// stays, and the next request dials anew.
     fn live(&self) -> Option<(Arc<Connection>, Open)> {
         let mut current = self.slot();
         let conn = current.conn.as_ref()?;
-        if conn.conn.close_reason().is_none() {
-            return Some((conn.clone(), conn.open.open()));
+        match conn.conn.close_reason() {
+            None if !conn.silence.gone(&conn.conn) => {
+                return Some((conn.clone(), conn.open.open()))
+            }
+            None => debug!("hysteria2: the server stopped answering, dialling anew"),
+            Some(reason) => debug!("hysteria2 connection closed: {:?}", reason),
         }
-        debug!(
-            "hysteria2 connection closed: {:?}",
-            conn.conn.close_reason()
-        );
         current.conn = None;
         None
     }
@@ -226,9 +228,10 @@ impl Client {
         send.write_all(&proto::tcp_request(&sess.destination, payload))
             .await
             .map_err(io::Error::other)?;
+        conn.silence.sent(&conn.conn);
         conn.bound.onto(sess);
         Ok(ProxiedStream {
-            inner: QuicStream::guarded(send, recv, open),
+            inner: QuicStream::guarded(send, recv, (open, conn)),
             response: Some(Vec::new()),
         })
     }
@@ -318,6 +321,7 @@ impl Client {
             udp: auth.udp,
             sessions,
             open: Count::default(),
+            silence: Silence::default(),
             next_session: AtomicU32::new(0),
             next_packet: AtomicU32::new(0),
             _tasks: tasks,
@@ -372,8 +376,9 @@ impl Client {
 /// does: until either side closes it, the relay's idle timeouts once one
 /// has, or the connection's idle timeout once the server is gone.
 pub struct ProxiedStream {
-    /// Counted on its connection while it lives.
-    inner: QuicStream<Open>,
+    /// Counted on its connection while it lives, and holding it: one
+    /// given up for a silent server stays while a stream is open on it.
+    inner: QuicStream<(Open, Arc<Connection>)>,
     /// The response read so far, until it is whole and OK.
     response: Option<Vec<u8>>,
 }
@@ -500,6 +505,8 @@ pub struct Connection {
     sessions: Arc<Sessions>,
     /// The streams and UDP sessions open on it.
     open: Count,
+    /// Whether its server still answers.
+    silence: Silence,
     next_session: AtomicU32,
     next_packet: AtomicU32,
     _tasks: Tasks,

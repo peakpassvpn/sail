@@ -3,9 +3,13 @@
 mod common;
 mod detour;
 mod recv_backoff;
+#[cfg(any(feature = "outbound-hysteria2", feature = "outbound-tuic"))]
+mod silence;
 
 pub use common::*;
 pub use detour::DetourSocket;
+#[cfg(any(feature = "outbound-hysteria2", feature = "outbound-tuic"))]
+pub use silence::Silence;
 
 #[cfg(feature = "inbound-quic")]
 pub mod inbound;
