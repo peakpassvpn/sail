@@ -31,17 +31,8 @@ pub fn transport_config(
             crate::transport::quic::STREAMS_BEFORE_AUTH,
         ));
     }
-    config
-        .max_concurrent_uni_streams(quinn::VarInt::from_u32(MAX_UNI_STREAMS))
-        .stream_receive_window(
-            quinn::VarInt::from_u64(tuning.hysteria2_stream_window as u64 * 1024)
-                .unwrap_or(quinn::VarInt::MAX),
-        )
-        .receive_window(
-            quinn::VarInt::from_u64(tuning.hysteria2_receive_window as u64 * 1024)
-                .unwrap_or(quinn::VarInt::MAX),
-        )
-        .send_window(tuning.hysteria2_send_window as u64 * 1024);
+    config.max_concurrent_uni_streams(quinn::VarInt::from_u32(MAX_UNI_STREAMS));
+    crate::transport::quic::proxy_windows(&mut config, tuning);
     config
 }
 

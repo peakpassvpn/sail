@@ -289,19 +289,19 @@ pub struct Quic {
     /// Zero sends none.
     #[serde(with = "duration")]
     pub server_keep_alive_interval: Duration,
-    /// What a Hysteria2 connection's peer may send ahead of what is read,
-    /// all streams together, in KiB. Streams nobody reads hold up the rest
-    /// once they fill it: at eight times `hysteria2_stream_window`, it
+    /// What a Hysteria2 or TUIC connection's peer may send ahead of what
+    /// is read, all streams together, in KiB. Streams nobody reads hold up
+    /// the rest once they fill it: at eight times `stream_window`, it
     /// takes eight of them.
-    pub hysteria2_receive_window: usize,
-    /// What a Hysteria2 stream's peer may send ahead of what is read, in
-    /// KiB: what one stream nobody reads holds, and what holds one stream
-    /// to about this much per round trip. 8 MiB, the reference
-    /// implementation's, but on a router.
-    pub hysteria2_stream_window: usize,
-    /// What a Hysteria2 connection keeps sent and not yet acknowledged, in
-    /// KiB: the memory it may take for what it sends.
-    pub hysteria2_send_window: usize,
+    pub receive_window: usize,
+    /// What a Hysteria2 or TUIC stream's peer may send ahead of what is
+    /// read, in KiB: what one stream nobody reads holds, and what holds
+    /// one stream to about this much per round trip. 8 MiB, Hysteria2's
+    /// reference implementation's, but on a router.
+    pub stream_window: usize,
+    /// What a Hysteria2 or TUIC connection keeps sent and not yet
+    /// acknowledged, in KiB: the memory it may take for what it sends.
+    pub send_window: usize,
     /// The receive buffer (`SO_RCVBUF`) asked for the UDP socket of a QUIC
     /// endpoint (Hysteria2, TUIC, the quic transport, DNS over QUIC), in
     /// KiB: the datagrams the system holds while sail is busy, and drops
@@ -517,9 +517,9 @@ impl RuntimeOptions {
                 server_idle_timeout: Duration::from_secs(120),
                 server_handshake_timeout: Duration::from_secs(5),
                 server_keep_alive_interval: Duration::ZERO,
-                hysteria2_receive_window: 64 << 10,
-                hysteria2_stream_window: 8 << 10,
-                hysteria2_send_window: 16 << 10,
+                receive_window: 64 << 10,
+                stream_window: 8 << 10,
+                send_window: 16 << 10,
                 // 7 MiB to receive, quic-go's. In Linux's 208 KiB a sender
                 // at some hundred Mbit/s on a path of 50 or 150 ms lost
                 // every fourth batch of datagrams, and a Hysteria2
@@ -596,7 +596,7 @@ impl RuntimeOptions {
                 },
                 quic: Quic {
                     max_concurrent_streams: 256,
-                    hysteria2_receive_window: 32 << 10,
+                    receive_window: 32 << 10,
                     // A judgment: a phone's links are not those the
                     // 7 MiB was measured for, and its memory is short.
                     udp_receive_buffer: 1024,
@@ -674,7 +674,7 @@ impl RuntimeOptions {
                 },
                 quic: Quic {
                     max_concurrent_streams: 128,
-                    hysteria2_receive_window: 32 << 10,
+                    receive_window: 32 << 10,
                     // At 8 MiB, four streams a LAN client stopped reading
                     // filled the 32 MiB and froze the connection's other
                     // streams for good; at 4 MiB the others went on, and
@@ -682,7 +682,7 @@ impl RuntimeOptions {
                     // window holds one stream alone to about 85% of 4 MiB
                     // a round trip: 565, 290 and 116 Mbit/s at 50, 100 and
                     // 250 ms, 40% less than at 8 MiB (measured, #4).
-                    hysteria2_stream_window: 4 << 10,
+                    stream_window: 4 << 10,
                     // As mobile's.
                     udp_receive_buffer: 1024,
                     ..desktop.quic

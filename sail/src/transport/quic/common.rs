@@ -370,6 +370,23 @@ pub fn transport_config(
     config
 }
 
+/// The flow-control windows of a Hysteria2 or TUIC connection, as the
+/// `quic` options set them, in place of quinn's: 1.25 MB a stream holds a
+/// stream to about that much per round trip.
+#[cfg(any(
+    feature = "inbound-hysteria2",
+    feature = "outbound-hysteria2",
+    feature = "inbound-tuic",
+    feature = "outbound-tuic"
+))]
+pub fn proxy_windows(config: &mut quinn::TransportConfig, tuning: &Tuning) {
+    let kib = |n: usize| quinn::VarInt::from_u64(n as u64 * 1024).unwrap_or(quinn::VarInt::MAX);
+    config
+        .stream_receive_window(kib(tuning.stream_window))
+        .receive_window(kib(tuning.receive_window))
+        .send_window(tuning.send_window as u64 * 1024);
+}
+
 /// The bytes of unfinished UDP packets, fragments waiting for the rest, a
 /// Hysteria2 or TUIC connection holds across all of its UDP sessions.
 /// Judgment: 64 packets of the largest size; fragments of one packet

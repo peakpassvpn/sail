@@ -69,9 +69,10 @@ pub fn transport_config(
     // TUIC keeps a connection alive with heartbeats while it relays, and
     // lets it go idle otherwise.
     config.keep_alive_interval(None);
-    // Flow control stays quinn's: 1.25 MB a stream, a connection without
-    // a bound of its own, so streams nobody reads never hold up the rest,
-    // and 10 MB sent and not yet acknowledged, apart from what is received.
+    // Hysteria2's windows: quinn's 1.25 MB a stream held a download of
+    // four streams to about half sing-box's at 150 and 300 ms (whose
+    // quic-go grows a stream's to 6 MiB).
+    crate::transport::quic::proxy_windows(&mut config, tuning);
     config
 }
 
@@ -230,5 +231,27 @@ mod tests {
         assert!(a.is_active());
         drop(h);
         assert!(!a.is_active());
+    }
+
+    /// A connection's windows are Hysteria2's, as each profile sets them.
+    #[test]
+    fn windows_are_hysteria2s() {
+        use crate::runtime::options::{Profile, RuntimeOptions};
+        let windows = |config: &quinn::TransportConfig| {
+            let shown = format!("{:?}", config);
+            ["stream_receive_window", "receive_window", "send_window"].map(|name| {
+                let start = shown.find(&format!(" {}: ", name)).expect(name) + name.len() + 3;
+                shown[start..].split([',', ' ']).next().unwrap().to_string()
+            })
+        };
+        for profile in [Profile::Desktop, Profile::Mobile, Profile::Router] {
+            let tuning = &RuntimeOptions::profile(profile).quic;
+            let mut expected = quinn::TransportConfig::default();
+            crate::transport::quic::proxy_windows(&mut expected, tuning);
+            for side in [Side::Client, Side::Server] {
+                let config = transport_config(CongestionControl::Cubic, tuning, side);
+                assert_eq!(windows(&config), windows(&expected));
+            }
+        }
     }
 }
