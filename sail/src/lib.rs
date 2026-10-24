@@ -2000,6 +2000,8 @@ pub(crate) fn dial_defaults(
     defaults.env.network = Some(env.network.clone());
     defaults.env.own_interfaces = own_interfaces.clone();
     defaults.env.quic_buffers = env.options.quic.udp_buffers();
+    defaults.env.tcp_congestion =
+        net::congestion::Congestion::new(&env.options.relay.tcp_congestion);
     let host_routes = env
         .host
         .platform

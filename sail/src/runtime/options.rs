@@ -179,6 +179,20 @@ pub struct Relay {
     /// cannot see it move, while the answer waits for it.
     #[serde(with = "duration")]
     pub downlink_idle_timeout: Duration,
+    /// The congestion control of sail's own TCP connections, those
+    /// outbounds dial and those inbounds accept, as the kernel names it
+    /// (`bbr`, `cubic`); empty, the system's (`net.ipv4.tcp_congestion_control`).
+    /// `bbr` on the mobile, desktop and router profiles, the system's on the
+    /// server's; a server takes BBR with `bbr` here or, for every program on
+    /// it, `net.ipv4.tcp_congestion_control = bbr` (with `tcp_bbr` loaded).
+    /// Linux and Android only; other systems choose it themselves. One the
+    /// system refuses, not built or loaded, or, without `CAP_NET_ADMIN` as
+    /// an Android app is, not in `net.ipv4.tcp_allowed_congestion_control`,
+    /// leaves the system's, and the log says once which is used. TCP Brutal,
+    /// where a multiplexed connection negotiates it, replaces it on that
+    /// connection. A sail extension, as Xray's `sockopt.tcpcongestion`:
+    /// sing-box and Mihomo leave it to the system.
+    pub tcp_congestion: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -527,6 +541,37 @@ impl RuntimeOptions {
                 write_stall_timeout: Duration::from_secs(300),
                 uplink_idle_timeout: Duration::from_secs(300),
                 downlink_idle_timeout: Duration::from_secs(300),
+                // The client profiles' (mobile, desktop, router), by the
+                // user's decision; the server's is the system's. Where the
+                // kernel's TCP limits a connection, BBR against the system's
+                // cubic, the same binary, the sending side (mobile profile,
+                // uploads, medians of 3, 3 protocols): 24-42x at 0.5% loss,
+                // 49-74x at 2%, 29-38x in loss bursts, 2.0-2.5x at 150 ms,
+                // 1.5x at 300 ms, 2.1-3.3x at 5% reordering, 0.99x at 10
+                // Mbit/s; the router profile's 35-37x, 68-75x, 30-47x,
+                // 1.9-2.6x, 1.6-1.7x, 2.1-2.8x and 0.99x; the desktop's
+                // (trojan) 19x at 0.5% loss, 62x at 2%, 50x in bursts, 1.8x
+                // at 150 ms, 1.5x at 300 ms. It retransmits 0.5% of what it
+                // sends at 0.5% loss (cubic 3.3%), 2.1% at 2% (2.2%), 2.8%
+                // in bursts (4.3%), 0.02% at 5% reordering (4.1%), 0.07% at
+                // 10 Mbit/s (0.6%); on the router and desktop profiles at
+                // most 2.6% in any cell's median. Under 25 +/- 10 ms of
+                // jitter each way it retransmits 0.02-0.07% (cubic
+                // 0.03-0.09%), uploads are 2.9-3.8x cubic, and its rounds
+                // split, about 420 against 510 Mbit/s (server profile, 9
+                // rounds): BBR's min_rtt filter keeps the low tail of the
+                // delays, 37 ms against 54 in the fast rounds, and its
+                // window, twice the bandwidth by that, falls below what the
+                // median round trip of 78 ms needs. Where it keeps 24-29 ms
+                // the estimate collapses, to 90-127 Mbit/s against cubic's
+                // 150-210 (2 of 3 rounds of one cell, the server sending).
+                // Its cost: beside a kernel cubic flow through 100
+                // Mbit/s at 40 ms, it takes 0.90 of a queue of half the
+                // path's BDP, as the system's own bbr does, and 0.31 of one
+                // of 4x (cubic against cubic 0.41-0.52; 9 rounds). On a
+                // client, that is the user's own last mile (measured
+                // 2026-10-25 to 27).
+                tcp_congestion: "bbr".to_owned(),
             },
             udp: Udp {
                 datagram_buffer_size: 64,
@@ -824,6 +869,15 @@ impl RuntimeOptions {
                 relay: Relay {
                     buffer_size: 16,
                     buffer_max_size: 256,
+                    // The system's, by the user's decision: a server's
+                    // egress is shared, and BBR takes 0.90 of a shallow
+                    // queue from the cubic flows beside it (see the
+                    // desktop profile's). It would gain on the weak cells
+                    // as a client does (server profile, against the
+                    // system's cubic: 29-44x at 0.5% loss, 45-76x at 2%,
+                    // 37-50x in bursts, 2.6-4.7x at 150 ms, 2.7-2.9x at 300
+                    // ms; measured 2026-10-24).
+                    tcp_congestion: String::new(),
                     ..desktop.relay
                 },
                 udp: Udp {
@@ -1180,6 +1234,19 @@ mod tests {
         options.set("inbound.max_connections", "512").unwrap();
         assert_eq!(options.inbound.max_connections, 512);
         assert_eq!(options.sessions_for_memory, None);
+    }
+
+    #[test]
+    fn clients_take_bbr_and_a_server_the_systems() {
+        for profile in [Profile::Mobile, Profile::Desktop, Profile::Router] {
+            assert_eq!(RuntimeOptions::profile(profile).relay.tcp_congestion, "bbr");
+        }
+        assert_eq!(
+            RuntimeOptions::profile(Profile::Server)
+                .relay
+                .tcp_congestion,
+            ""
+        );
     }
 
     #[test]

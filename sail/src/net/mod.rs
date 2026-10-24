@@ -16,6 +16,7 @@ use crate::{
 
 pub mod accept;
 pub mod backlog;
+pub mod congestion;
 pub mod datagram;
 pub mod dial;
 pub mod dial_domain;
@@ -112,6 +113,13 @@ impl TcpListener {
                 debug!("listener receive buffer: {}", e);
             }
         }
+        self
+    }
+
+    /// The congestion control of accepted connections, which they take
+    /// from the listening socket: set once, on it.
+    pub fn congestion(self, congestion: &congestion::Congestion) -> Self {
+        congestion.apply(SockRef::from(&self.inner));
         self
     }
 
@@ -918,6 +926,25 @@ mod tests {
                 .inbound
                 .tcp_receive_buffer
                 > 0
+        );
+    }
+
+    /// Accepted connections take the listener's congestion control (reno:
+    /// always built in, always allowed).
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[tokio::test]
+    async fn accepted_connections_get_the_listeners_congestion_control() {
+        let listener = TcpListener::bind_now(&"127.0.0.1:0".parse().unwrap())
+            .unwrap()
+            .congestion(&congestion::Congestion::new("reno"));
+        let addr = listener.io().local_addr().unwrap();
+        let _client = tokio::net::TcpStream::connect(addr).await.unwrap();
+        let (accepted, _) = listener.accept().await.unwrap();
+        let name = SockRef::from(&accepted).tcp_congestion().unwrap();
+        assert!(
+            name.starts_with(b"reno"),
+            "{:?}",
+            String::from_utf8_lossy(&name)
         );
     }
 
