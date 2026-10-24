@@ -134,6 +134,13 @@ impl Read for MemIo {
 
 impl Write for MemIo {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        // What the transport took goes before the buffer would grow: after
+        // a partial write, growing copied it along with the rest, and kept
+        // it until the buffer drained.
+        if self.tx_pos > 0 && self.tx.len() + buf.len() > self.tx.capacity() {
+            self.tx.drain(..self.tx_pos);
+            self.tx_pos = 0;
+        }
         self.tx.extend_from_slice(buf);
         Ok(buf.len())
     }
@@ -320,5 +327,47 @@ mod tests {
         }
         assert_eq!(io.rx_records, 1);
         assert!(io.rx.is_none(), "an idle connection keeps no buffer");
+    }
+
+    /// Takes at most `limit` bytes a write, as a full socket does.
+    struct Sink {
+        taken: Vec<u8>,
+        limit: usize,
+    }
+
+    impl Write for Sink {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            let n = buf.len().min(self.limit);
+            self.taken.extend_from_slice(&buf[..n]);
+            Ok(n)
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn writes_after_a_partial_drain_keep_only_what_is_left() {
+        let mut io = MemIo::default();
+        let mut sink = Sink {
+            taken: Vec::new(),
+            limit: 3 * RECORD,
+        };
+        let records: Vec<Vec<u8>> = (0..8u8).map(|i| vec![i; RECORD]).collect();
+        for record in &records[..4] {
+            io.write_all(record).unwrap();
+        }
+        io.drain_to(&mut sink).unwrap();
+        for record in &records[4..] {
+            io.write_all(record).unwrap();
+        }
+        // What the sink took is gone from the buffer, not carried along.
+        assert_eq!(io.tx_pos, 0);
+        assert_eq!(io.tx.len(), 5 * RECORD);
+        while io.has_tx() {
+            io.drain_to(&mut sink).unwrap();
+        }
+        assert_eq!(sink.taken, records.concat());
     }
 }
