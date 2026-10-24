@@ -467,6 +467,7 @@ impl NetworkInboundListener {
                 .map_err(|e| bind_failed("tcp", e))?
                 .abort_on_close(self.dispatcher.env().options.inbound.tcp_abort_on_close)
                 .send_buffer(self.dispatcher.env().options.inbound.tcp_send_buffer * 1024)
+                .receive_buffer(self.dispatcher.env().options.inbound.tcp_receive_buffer * 1024)
                 .keepalive(self.keepalive);
             crate::net::mark_listener(socket2::SockRef::from(listener.io()), self.dispatcher.env())
                 .map_err(|e| bind_failed("tcp", e))?;

@@ -251,6 +251,16 @@ pub struct Inbound {
     /// `net.ipv4.tcp_wmem` (4 MiB) while the connection goes fast. Linux
     /// keeps twice what is set, for its own bookkeeping.
     pub tcp_send_buffer: usize,
+    /// What an accepted TCP connection (an inbound's, or one
+    /// `auto_redirect` takes) holds received and not yet read by sail
+    /// (`SO_RCVBUF`), in KiB; zero leaves it to the system, which on Linux
+    /// grows it up to the largest of `net.ipv4.tcp_rmem` (6 MiB) while a
+    /// client sends faster than sail forwards, as an upload through a
+    /// slower upstream does. Linux keeps twice what is set. A client on the
+    /// LAN is a fraction of a millisecond away, so a small buffer does not
+    /// slow it; sail's own connections upstream keep the system's tuning.
+    #[serde(default)]
+    pub tcp_receive_buffer: usize,
     /// Proxied sessions (connections, UDP sessions, and streams of a
     /// multiplexed or QUIC inbound) live at once; 0, no limit. One more
     /// waits for one to end, `MAX_CONNECTIONS_WAIT` at most, and is then
@@ -290,18 +300,32 @@ pub struct Quic {
     #[serde(with = "duration")]
     pub server_keep_alive_interval: Duration,
     /// What a Hysteria2 or TUIC connection's peer may send ahead of what
-    /// is read, all streams together, in KiB. Streams nobody reads hold up
-    /// the rest once they fill it: at eight times `stream_window`, it
-    /// takes eight of them.
+    /// is read, all streams together, in KiB, to begin with. It grows
+    /// with its streams' windows (to 1.5 times the largest) and, as they
+    /// do, while it is read about as fast as data arrives, up to
+    /// `receive_window_max`.
     pub receive_window: usize,
     /// What a Hysteria2 or TUIC stream's peer may send ahead of what is
-    /// read, in KiB: what one stream nobody reads holds, and what holds
-    /// one stream to about this much per round trip. 8 MiB, Hysteria2's
-    /// reference implementation's, but on a phone or a router.
+    /// read, in KiB, to begin with. A stream read about as fast as data
+    /// arrives (more than half its window within four times that share of
+    /// a round trip) doubles it, as quic-go's do, up to
+    /// `stream_window_max`; a stream nobody reads keeps what it had.
     pub stream_window: usize,
     /// What a Hysteria2 or TUIC connection keeps sent and not yet
-    /// acknowledged, in KiB: the memory it may take for what it sends.
+    /// acknowledged, in KiB, at the least: it follows twice the
+    /// congestion window, up to `send_window_max`.
     pub send_window: usize,
+    /// The largest a stream's receive window grows to, in KiB.
+    pub stream_window_max: usize,
+    /// The largest a connection's receive window grows to, in KiB.
+    pub receive_window_max: usize,
+    /// The largest the send window grows to, in KiB.
+    pub send_window_max: usize,
+    /// What all Hysteria2 and TUIC connections' windows together may grow
+    /// by past their starting sizes, in KiB: one budget for the process,
+    /// so that one transfer can take a large window and many share it. A
+    /// window the budget cannot grow stays as it is.
+    pub window_budget: usize,
     /// The receive buffer (`SO_RCVBUF`) asked for the UDP socket of a QUIC
     /// endpoint (Hysteria2, TUIC, the quic transport, DNS over QUIC), in
     /// KiB: the datagrams the system holds while sail is busy, and drops
@@ -505,6 +529,7 @@ impl RuntimeOptions {
                 multiplex_accept_concurrency: 256,
                 tcp_abort_on_close: false,
                 tcp_send_buffer: 0,
+                tcp_receive_buffer: 0,
                 max_connections: 0,
                 // A judgment: a client's local inbounds see few at once.
                 max_handshakes: 1024,
@@ -517,9 +542,17 @@ impl RuntimeOptions {
                 server_idle_timeout: Duration::from_secs(120),
                 server_handshake_timeout: Duration::from_secs(5),
                 server_keep_alive_interval: Duration::ZERO,
-                receive_window: 64 << 10,
-                stream_window: 8 << 10,
-                send_window: 16 << 10,
+                // Judgments, to be measured (sail#9): windows start as
+                // quic-go's do and grow while they are read about as fast
+                // as data arrives, a stream to 16 MiB (four streams fill
+                // 450 Mbit/s at 300 ms each), a connection to 64 MiB.
+                receive_window: 768,
+                stream_window: 512,
+                send_window: 1 << 10,
+                stream_window_max: 16 << 10,
+                receive_window_max: 64 << 10,
+                send_window_max: 32 << 10,
+                window_budget: 256 << 10,
                 // 7 MiB to receive, quic-go's. In Linux's 208 KiB a sender
                 // at some hundred Mbit/s on a path of 50 or 150 ms lost
                 // every fourth batch of datagrams, and a Hysteria2
@@ -597,15 +630,20 @@ impl RuntimeOptions {
                 quic: Quic {
                     max_concurrent_streams: 256,
                     // An iOS network extension may be killed at 50 MiB.
-                    // Four streams over Hysteria2 or TUIC from an idle
-                    // 26 MB peaked at 36-50 MB with these (measured,
-                    // glibc), 55-63 at 16/4/16 MiB and 58-91 at
-                    // desktop's 8 MiB a stream; a download at 300 ms
-                    // runs at about sing-box's (152-156 Mbit/s against
-                    // 145-149), an upload at 0.64-0.77 of it.
-                    receive_window: 8 << 10,
-                    stream_window: 2 << 10,
-                    send_window: 8 << 10,
+                    // What windows hold is what a phone's memory goes to:
+                    // four streams at fixed 32/8/16 MiB windows held 23-49
+                    // MB of anonymous memory, 13-16 at 8/2/8 (measured,
+                    // glibc, sail#9). With these, four streams cold at
+                    // 150 and 300 ms or 2% loss came down at 1.21-1.43
+                    // times sing-box's and held at most 43.8 MB (measured,
+                    // sail#9); the maxima and the budget are judgments.
+                    receive_window: 384,
+                    stream_window: 256,
+                    send_window: 512,
+                    stream_window_max: 8 << 10,
+                    receive_window_max: 32 << 10,
+                    send_window_max: 16 << 10,
+                    window_budget: 24 << 10,
                     // A judgment: a phone's links are not those the
                     // 7 MiB was measured for, and its memory is short.
                     udp_receive_buffer: 1024,
@@ -667,6 +705,13 @@ impl RuntimeOptions {
                     // with it, 50 without (measured); twice this, what
                     // Linux keeps, carries 200 Mbit/s at 20 ms.
                     tcp_send_buffer: 256,
+                    // Uploads through Hysteria2 or TUIC queued 18-22 MB
+                    // in four LAN connections' receive buffers without it.
+                    // A client 8 ms away (Wi-Fi) uploaded as fast with 1 MiB
+                    // as with the system's tuning, 2706 and 2199 Mbit/s
+                    // against 2631 and 2071; 512 KiB held Hysteria2 to 2157,
+                    // 256 to about 1080 (measured, sail#9).
+                    tcp_receive_buffer: 1024,
                     // A settled session is 24 to 39 KiB, trojan's the
                     // most (one still connecting likely more; not
                     // measured). In a 64 MiB budget with 2000
@@ -684,19 +729,27 @@ impl RuntimeOptions {
                 quic: Quic {
                     max_concurrent_streams: 128,
                     // A router must not be killed at 64 MiB, with 16 MiB
-                    // to spare. A router build alone in a 64 MiB cgroup,
-                    // four Hysteria2 or TUIC streams at 150 ms and at 2%
-                    // loss, kept 16.5-20.1 MiB free with these (measured),
-                    // 11.2-14.7 at 8/2/8 MiB and 0.7-5.9 at 32/4/16. They
-                    // hold four streams at 150 ms to 140-162 Mbit/s, 0.57
-                    // to 0.65 of a sing-box client, which a router's CPU
-                    // seldom passes anyway. A connection takes four times
-                    // a stream, so that streams a LAN client stopped
-                    // reading leave room for the rest (at 8 MiB a stream,
-                    // four of them froze a 32 MiB connection for good: #4).
-                    receive_window: 4 << 10,
-                    stream_window: 1 << 10,
-                    send_window: 4 << 10,
+                    // to spare. In a 64 MiB cgroup a router build's peak
+                    // was 10-27 MB of anonymous memory, what the windows
+                    // held, 13.6 of its file's pages and 14-24 of socket
+                    // buffers (measured, sail#9). With
+                    // `inbound.tcp_receive_buffer`, four streams cold at
+                    // 150 and 300 ms or 2% loss came down at 1.10-1.20
+                    // times sing-box's with a 12 MiB budget and a 42.5 MiB
+                    // peak, 1.21-1.36 with 16 MiB but 49.5, 0.84-0.97 with
+                    // 8 (measured, sail#9): the most that keeps 16 MiB. A
+                    // connection takes four times a stream, so that
+                    // streams a LAN client stopped reading, which keep
+                    // what they grew to, leave room for the rest (at 8 MiB
+                    // a stream, four of them froze a 32 MiB connection for
+                    // good: #4).
+                    receive_window: 192,
+                    stream_window: 128,
+                    send_window: 256,
+                    stream_window_max: 4 << 10,
+                    receive_window_max: 16 << 10,
+                    send_window_max: 8 << 10,
+                    window_budget: 12 << 10,
                     // As mobile's.
                     udp_receive_buffer: 1024,
                     ..desktop.quic
@@ -753,6 +806,9 @@ impl RuntimeOptions {
                 },
                 quic: Quic {
                     max_concurrent_streams: 4096,
+                    // Judgment: what a server's many clients' windows may
+                    // grow by, all together.
+                    window_budget: 1 << 20,
                     ..desktop.quic
                 },
                 // Kubernetes' default grace period (terminationGracePeriod-

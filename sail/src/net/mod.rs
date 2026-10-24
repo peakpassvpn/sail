@@ -101,6 +101,20 @@ impl TcpListener {
         self
     }
 
+    /// The receive buffer of accepted connections, in bytes; zero leaves it
+    /// to the system. It is set on the listener, so that accepted
+    /// connections have it from their handshake, where the scale of their
+    /// window is chosen; past `net.core.rmem_max` where sail may
+    /// ([`dial::sockopt::receive_buffer`]).
+    pub fn receive_buffer(self, bytes: usize) -> Self {
+        if bytes > 0 {
+            if let Err(e) = dial::sockopt::receive_buffer(SockRef::from(&self.inner), bytes) {
+                debug!("listener receive buffer: {}", e);
+            }
+        }
+        self
+    }
+
     pub fn io(&self) -> &tokio::net::TcpListener {
         &self.inner
     }
@@ -873,6 +887,38 @@ mod tests {
         let (accepted, _) = listener.accept().await.unwrap();
         let size = SockRef::from(&accepted).send_buffer_size().unwrap();
         assert!((ASKED..=2 * ASKED).contains(&size), "{}", size);
+    }
+
+    /// Accepted connections get the receive buffer asked for, which Linux
+    /// doubles.
+    #[tokio::test]
+    async fn accepted_connections_get_the_receive_buffer_asked_for() {
+        const ASKED: usize = 96 << 10;
+        let listener = TcpListener::bind_now(&"127.0.0.1:0".parse().unwrap())
+            .unwrap()
+            .receive_buffer(ASKED);
+        let addr = listener.io().local_addr().unwrap();
+        let _client = tokio::net::TcpStream::connect(addr).await.unwrap();
+        let (accepted, _) = listener.accept().await.unwrap();
+        let size = SockRef::from(&accepted).recv_buffer_size().unwrap();
+        assert!((ASKED..=2 * ASKED).contains(&size), "{}", size);
+    }
+
+    #[test]
+    fn only_the_router_profile_caps_the_receive_buffer() {
+        use crate::runtime::options::{Profile, RuntimeOptions};
+        for profile in [Profile::Desktop, Profile::Mobile, Profile::Server] {
+            assert_eq!(
+                RuntimeOptions::profile(profile).inbound.tcp_receive_buffer,
+                0
+            );
+        }
+        assert!(
+            RuntimeOptions::profile(Profile::Router)
+                .inbound
+                .tcp_receive_buffer
+                > 0
+        );
     }
 
     #[test]

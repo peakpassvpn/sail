@@ -190,6 +190,23 @@ pub fn bind_address_no_port(_socket: SockRef<'_>) -> io::Result<()> {
     ))
 }
 
+/// A receive buffer of `bytes` on `socket`. Linux doubles what is asked
+/// and stops a plain request at `net.core.rmem_max` (208 KiB by default)
+/// without an error, so a request it cut short is made again past the limit
+/// (`SO_RCVBUFFORCE`), which a process with CAP_NET_ADMIN, as sail on a
+/// router, is given; without it the limit's size stays.
+pub fn receive_buffer(socket: SockRef<'_>, bytes: usize) -> io::Result<()> {
+    socket.set_recv_buffer_size(bytes)?;
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    if socket.recv_buffer_size()? < bytes.saturating_mul(2) {
+        let bytes = libc::c_int::try_from(bytes).unwrap_or(libc::c_int::MAX);
+        if let Err(e) = set_int(&socket, libc::SOL_SOCKET, libc::SO_RCVBUFFORCE, bytes) {
+            tracing::debug!("receive buffer held at net.core.rmem_max: {}", e);
+        }
+    }
+    Ok(())
+}
+
 /// `SO_REUSEADDR`, and `SO_REUSEPORT` on Unix, on a UDP socket not bound
 /// yet.
 pub fn reuse_addr(socket: SockRef<'_>) -> io::Result<()> {

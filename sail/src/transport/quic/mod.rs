@@ -1,11 +1,25 @@
 //! QUIC: the glue everything on quinn shares, and the quic transport.
 
+#[cfg(any(
+    feature = "inbound-hysteria2",
+    feature = "outbound-hysteria2",
+    feature = "inbound-tuic",
+    feature = "outbound-tuic"
+))]
+mod budget;
 mod common;
 mod detour;
 mod recv_backoff;
 #[cfg(any(feature = "outbound-hysteria2", feature = "outbound-tuic"))]
 mod silence;
 
+#[cfg(any(
+    feature = "inbound-hysteria2",
+    feature = "outbound-hysteria2",
+    feature = "inbound-tuic",
+    feature = "outbound-tuic"
+))]
+pub use budget::{window_budget, WindowBudget};
 pub use common::*;
 pub use detour::DetourSocket;
 #[cfg(any(feature = "outbound-hysteria2", feature = "outbound-tuic"))]

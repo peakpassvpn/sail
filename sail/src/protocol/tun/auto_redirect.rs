@@ -474,6 +474,17 @@ fn listen(ipv6: bool) -> Result<std::net::TcpListener> {
 
 /// Takes the redirected connections, each to be routed as the TUN's.
 async fn serve(listener: tokio::net::TcpListener, tag: String, dispatcher: Arc<Dispatcher>) {
+    // On the listener, as `TcpListener::receive_buffer` sets it: accepted
+    // connections take it from there, in time for their handshake.
+    let receive_buffer = dispatcher.env().options.inbound.tcp_receive_buffer * 1024;
+    if receive_buffer > 0 {
+        if let Err(e) = crate::net::dial::sockopt::receive_buffer(
+            socket2::SockRef::from(&listener),
+            receive_buffer,
+        ) {
+            debug!("auto_redirect: receive buffer: {}", e);
+        }
+    }
     let mut backoff = AcceptBackoff::new("auto_redirect: accept");
     loop {
         let (stream, peer) = match listener.accept().await {

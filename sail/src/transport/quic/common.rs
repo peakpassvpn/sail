@@ -371,8 +371,9 @@ pub fn transport_config(
 }
 
 /// The flow-control windows of a Hysteria2 or TUIC connection, as the
-/// `quic` options set them, in place of quinn's: 1.25 MB a stream holds a
-/// stream to about that much per round trip.
+/// `quic` options set them, in place of quinn's fixed 1.25 MB a stream:
+/// they start small and grow while they are read about as fast as data
+/// arrives, within the process's [`window_budget`](super::window_budget).
 #[cfg(any(
     feature = "inbound-hysteria2",
     feature = "outbound-hysteria2",
@@ -384,7 +385,15 @@ pub fn proxy_windows(config: &mut quinn::TransportConfig, tuning: &Tuning) {
     config
         .stream_receive_window(kib(tuning.stream_window))
         .receive_window(kib(tuning.receive_window))
-        .send_window(tuning.send_window as u64 * 1024);
+        .send_window(tuning.send_window as u64 * 1024)
+        .window_tuning(Some(
+            quinn::WindowTuning::new(
+                kib(tuning.stream_window_max),
+                kib(tuning.receive_window_max),
+                tuning.send_window_max as u64 * 1024,
+            )
+            .budget(super::window_budget(tuning.window_budget as u64 * 1024)),
+        ));
 }
 
 /// The bytes of unfinished UDP packets, fragments waiting for the rest, a

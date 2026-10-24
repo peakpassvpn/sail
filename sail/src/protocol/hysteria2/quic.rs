@@ -114,17 +114,15 @@ mod tests {
         )
     }
 
-    /// A stream's window, the connection's, and what is kept in flight,
-    /// as each profile sets them: a phone's and a router's connection take
-    /// four times a stream, so that streams nobody reads leave room for
-    /// the rest.
+    /// Where a stream's window, the connection's, and what is kept in
+    /// flight start in each profile; they grow from there.
     #[test]
     fn windows_follow_the_profile() {
-        let mib = |n: u64| (n << 20).to_string();
+        let kib = |n: u64| (n << 10).to_string();
         for profile in [Profile::Desktop, Profile::Server] {
-            assert_eq!(windows(profile), (mib(8), mib(64), mib(16)));
+            assert_eq!(windows(profile), (kib(512), kib(768), kib(1024)));
         }
-        assert_eq!(windows(Profile::Mobile), (mib(2), mib(8), mib(8)));
-        assert_eq!(windows(Profile::Router), (mib(1), mib(4), mib(4)));
+        assert_eq!(windows(Profile::Mobile), (kib(256), kib(384), kib(512)));
+        assert_eq!(windows(Profile::Router), (kib(128), kib(192), kib(256)));
     }
 }
