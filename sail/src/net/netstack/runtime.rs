@@ -294,10 +294,10 @@ impl FlowBridge {
     }
 
     /// Whether an operation waits that a retry may finish: backpressure
-    /// sends no event when it eases.
+    /// sends no event when it eases. A reservation waits for the flow's
+    /// `Writable` event instead.
     fn waits(&self) -> bool {
         self.pending_write.is_some()
-            || self.pending_write_reservation.is_some()
             || self.pending_close.is_some()
             || (self.pending_read.is_some() && (self.readable_bytes > 0 || self.peer_eof))
     }
@@ -882,9 +882,12 @@ impl<I: PacketIo> NativeRuntime<I> {
                 }
             }
         };
+        // No room is the flow's own (its window, its flight, its send
+        // buffer): the ACK or window update that makes room makes it
+        // writable, and that event retries the reservation. A stalled
+        // reader's flow then waits without a timer.
         if limit == 0 {
             flow.pending_write_reservation = Some((max_bytes, response));
-            self.retry_wanted = true;
             return;
         }
         let amount = max_bytes.min(limit);
@@ -1996,6 +1999,85 @@ mod tests {
         assert!(woken <= 2, "woken {woken} times in 500 ms");
 
         reader.abort();
+        runtime_task.abort();
+    }
+
+    #[tokio::test]
+    async fn a_write_a_full_window_holds_waits_without_waking_until_it_opens() {
+        let (inbound_tx, inbound_rx) = tokio_mpsc::channel(4);
+        let (outbound_tx, mut outbound_rx) = tokio_mpsc::channel(4);
+        let io = ChannelPacketIo::new(inbound_rx, outbound_tx, 1);
+        let ledger = ResourceLedger::new(BudgetProfile::Mobile.budget()).unwrap();
+        let (runtime, mut accepted, _datagrams, _udp_reply) =
+            NativeRuntime::new(io, ledger, RunnerConfig::default(), 4, 4, 4).unwrap();
+        let polls = Arc::new(AtomicUsize::new(0));
+        let runtime_task = tokio::spawn(CountPolls {
+            inner: Box::pin(runtime.run()),
+            polls: Arc::clone(&polls),
+        });
+        let source = SocketAddr::from((Ipv4Addr::new(10, 8, 4, 2), 40_000));
+        let destination = SocketAddr::from((Ipv4Addr::new(10, 8, 4, 1), 443));
+
+        inbound_tx
+            .send(tcp_packet(source, destination, 100, 0, TcpFlags::SYN, &[]))
+            .await
+            .unwrap();
+        let syn_ack = timeout(Duration::from_secs(1), outbound_rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        let syn_ack = parse_tcp_segment(parse_ip_packet(&syn_ack, true).unwrap(), true).unwrap();
+        let server_next = syn_ack.meta.sequence.wrapping_add(1).get();
+        // A reader that stopped after three bytes.
+        inbound_tx
+            .send(tcp_packet_with_window(
+                source,
+                destination,
+                101,
+                server_next,
+                TcpFlags::ACK,
+                3,
+                &[],
+            ))
+            .await
+            .unwrap();
+        let mut accepted = timeout(Duration::from_secs(1), accepted.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(accepted.stream.write(b"abc").await.unwrap(), 3);
+        let writer = tokio::spawn(async move {
+            let written = accepted.stream.write(b"def").await.unwrap();
+            (written, accepted)
+        });
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(!writer.is_finished(), "a write went past a full window");
+        let before = polls.load(AtomicOrdering::Relaxed);
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        let woken = polls.load(AtomicOrdering::Relaxed) - before;
+        // A 10 ms retry woke it 50 times here.
+        assert!(woken <= 2, "woken {woken} times in 500 ms");
+
+        // The three acknowledged, and room for more.
+        inbound_tx
+            .send(tcp_packet_with_window(
+                source,
+                destination,
+                101,
+                server_next.wrapping_add(3),
+                TcpFlags::ACK,
+                1_000,
+                &[],
+            ))
+            .await
+            .unwrap();
+        let (written, _accepted) = timeout(Duration::from_secs(1), writer)
+            .await
+            .expect("the window update did not wake the write")
+            .unwrap();
+        assert_eq!(written, 3);
+
         runtime_task.abort();
     }
 
