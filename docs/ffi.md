@@ -59,7 +59,8 @@ sail_instance_free(instance);
   `cache_dir`, `log_to_system`, `socket_protect`, `sub_store`,
   `ui_download_url`, `asset_sources`), and the FFI's own: `log_lines`, the
   lines of its log kept (3000, as both sing-box apps keep), and
-  `worker_threads` (unset or 0: one thread) with `stack_size`, and
+  `worker_threads` (unset or 0: the profile's, two workers on the mobile
+  and desktop profiles) with `stack_size`, and
   `stop_within_ms`, how long a stop waits for the instance's tasks to end
   (2000; what outlasts it is named in `sail_instance_stop_report`). An unknown
   setting is an error. On iOS and Android the "mobile" profile and the

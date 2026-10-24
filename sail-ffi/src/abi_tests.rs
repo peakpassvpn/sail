@@ -2005,7 +2005,7 @@ mod owner {
     }
 
     /// The host may take its time to tell (a binder call on Android):
-    /// meanwhile, on the instance's one thread, other connections go on.
+    /// meanwhile, even on one worker thread, other connections go on.
     #[test]
     fn a_slow_answer_holds_up_no_other_connection() {
         let _serial = serial();
@@ -2017,7 +2017,7 @@ mod owner {
                 slow: Mutex::new(0),
                 stalled: AtomicUsize::new(0),
             });
-            let instance = new_instance(None, Some(&platform(&owners)));
+            let instance = new_instance(Some(r#"{"worker_threads": 1}"#), Some(&platform(&owners)));
             let port = free_port();
             start(
                 instance,

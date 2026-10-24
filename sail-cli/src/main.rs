@@ -846,10 +846,10 @@ mod tests {
             runtime_threads(false, None, Profile::Desktop.threads()),
             (true, false, cpus.min(2))
         );
-        // A phone: one thread, as the embedding runs it.
+        // A phone: two workers too.
         assert_eq!(
             runtime_threads(false, None, Profile::Mobile.threads()),
-            (false, false, 0)
+            (true, false, cpus.min(2))
         );
         for profile in [Profile::Server, Profile::Router] {
             assert_eq!(profile.threads(), ProfileThreads::PerCpu);

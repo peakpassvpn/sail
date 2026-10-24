@@ -76,8 +76,8 @@ same.
 
 - **Where it runs.** By default each instance runs on a tokio runtime of
   its own, on threads of its own:
-  - one thread with the `mobile` profile;
-  - two workers with the `desktop` profile (one on a single CPU);
+  - two workers with the `mobile` and `desktop` profiles (one on a
+    single CPU);
   - a worker per core with the `server` and `router` profiles;
   - or what `Options::threads` says. `sail` the CLI runs each profile the
     same way.

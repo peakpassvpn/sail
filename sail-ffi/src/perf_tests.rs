@@ -1,7 +1,7 @@
 //! The FFI's numbers for the performance regression checks (roadmap 5.4):
 //! an instance made, started, loaded and stopped through the C ABI as an
 //! app does, with the mobile profile, which it names (only iOS and Android
-//! default to it), and one thread, the default.
+//! default to it), and the profile's threads, the default.
 //!
 //!   cargo test -p sail-ffi --release --features alloc-stats --lib \
 //!     perf_tests -- --ignored --nocapture

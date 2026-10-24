@@ -652,7 +652,7 @@ int32_t sail_unsubscribe(SailSubscription subscription, char **err);
      "cache_dir", "log_to_system", "socket_protect", "sub_store"}`; on
      iOS and Android the "mobile" profile and the system log unless
      said), and the FFI's: `log_lines`, the lines of its log kept
-     (3000), `worker_threads`, 0 or unset for one thread,
+     (3000), `worker_threads`, 0 or unset for the profile's,
      `stack_size` of each worker, in bytes, and `stop_within_ms`, how
      long a stop waits for the instance's tasks to end (2000).
      `socket_protect` is the path of a Unix socket each outbound

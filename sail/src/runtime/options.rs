@@ -58,25 +58,42 @@ pub enum ProfileThreads {
 /// of four where waking a thread is dear.
 const DESKTOP_WORKERS: usize = 2;
 
+/// The worker threads of a phone: two, as a desktop's (2026-10-24, the
+/// user's decision on roadmap 5.5's measurements). On one thread the TUN
+/// path held at about one CPU: Trojan through TUN on loopback ran at 0.68
+/// times sing-box both ways, its one thread busy 94-99% of the time,
+/// though at about 2.0 CPU seconds a GiB against sing-box's 2.6. Two,
+/// against one and sing-box (master 75d4b49f5, the same path, 2 GiB, 3
+/// rounds):
+///
+/// |                                   | 2 workers  | 1          | sing-box   |
+/// |-----------------------------------|------------|------------|------------|
+/// | Mbit/s down, up                   | 6098, 6007 | 4382, 4306 | 5739, 5468 |
+/// | CPU seconds a GiB down, up        | 2.52, 2.62 | 1.96, 1.99 | 2.83, 2.94 |
+/// | anon KiB idle, peak, glibc malloc | 4248, 6352 | 4212, 5658 |            |
+/// | idle wakeups a second             | 1.1        | 0.65       | 0.16       |
+///
+/// A byte costs about 30% more CPU than on one worker, still less than
+/// sing-box's; the memory and the idle wakeups barely move.
+const MOBILE_WORKERS: usize = 2;
+
 impl Profile {
     /// The threads its runtime runs on, unless told otherwise.
     ///
-    /// - A phone: one, as libbox's. It was the embedding's before it was
-    ///   measured anywhere, and no phone has been measured since: a
-    ///   judgment, which the desktop's and Linux's figures agree with, a
-    ///   phone's links being far from a CPU's worth of work.
+    /// - A phone: `MOBILE_WORKERS`, or its CPUs if fewer.
     /// - A desktop: `DESKTOP_WORKERS`, or its CPUs if fewer.
     /// - A server and a router: a worker to each CPU. A server of one
     ///   worker answered 500 new connections a second in 4.8 to 11 s at
     ///   the 99th percentile, against 6 to 12 ms; a router's CPUs are
     ///   slow enough that it needs each.
     pub fn threads(self) -> ProfileThreads {
+        let workers = |n: usize| {
+            let cpus = std::thread::available_parallelism().map_or(1, |n| n.get());
+            ProfileThreads::Workers(n.min(cpus))
+        };
         match self {
-            Profile::Mobile => ProfileThreads::One,
-            Profile::Desktop => {
-                let cpus = std::thread::available_parallelism().map_or(1, |n| n.get());
-                ProfileThreads::Workers(DESKTOP_WORKERS.min(cpus))
-            }
+            Profile::Mobile => workers(MOBILE_WORKERS),
+            Profile::Desktop => workers(DESKTOP_WORKERS),
             Profile::Server | Profile::Router => ProfileThreads::PerCpu,
         }
     }

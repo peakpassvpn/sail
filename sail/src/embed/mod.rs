@@ -80,10 +80,11 @@ pub enum Config {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Threads {
-    /// One thread: the mobile profile's default.
+    /// One thread.
     One,
     /// A worker a core: the server and router profiles' default. The
-    /// desktop profile's is two workers, see `runtime::Profile::threads`.
+    /// mobile and desktop profiles' is two workers, see
+    /// `runtime::Profile::threads`.
     Auto,
     /// `n` workers of `stack` bytes each.
     Workers(usize, usize),

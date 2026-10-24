@@ -124,13 +124,15 @@ impl Instance {
     fn new(settings: Option<&str>, platform: SailPlatform) -> Result<Arc<Self>, Failure> {
         let (ffi, core) = split_settings(settings)?;
         let settings = crate::tools::parse_settings(core.as_deref())?;
-        // A host that says nothing gets one thread, whatever the profile:
-        // the C ABI's default since it has one.
-        let threads = match ffi.worker_threads {
-            None | Some(0) => embed::Threads::One,
-            Some(n) => embed::Threads::Workers(n, ffi.stack_size.unwrap_or(STACK_SIZE)),
-        };
         let mut options = embed::Options::new();
+        // A host that says nothing gets the profile's threads, as the CLI
+        // and the embedding do.
+        if let Some(n) = ffi.worker_threads.filter(|&n| n > 0) {
+            options = options.threads(embed::Threads::Workers(
+                n,
+                ffi.stack_size.unwrap_or(STACK_SIZE),
+            ));
+        }
         if let Some(ms) = ffi.stop_within_ms {
             options = options.stop_within(std::time::Duration::from_millis(ms));
         }
@@ -139,7 +141,6 @@ impl Instance {
         let core = embed::Instance::new(
             options
                 .settings(settings)
-                .threads(threads)
                 .platform(Arc::new(FfiPlatform {
                     callbacks: callbacks.clone(),
                 }))
@@ -324,7 +325,7 @@ fn split_settings(settings: Option<&str>) -> Result<(FfiSettings, Option<String>
 ///     "cache_dir", "log_to_system", "socket_protect", "sub_store"}`; on
 ///     iOS and Android the "mobile" profile and the system log unless
 ///     said), and the FFI's: `log_lines`, the lines of its log kept
-///     (3000), `worker_threads`, 0 or unset for one thread,
+///     (3000), `worker_threads`, 0 or unset for the profile's,
 ///     `stack_size` of each worker, in bytes, and `stop_within_ms`, how
 ///     long a stop waits for the instance's tasks to end (2000).
 ///     `socket_protect` is the path of a Unix socket each outbound
