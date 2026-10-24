@@ -12,36 +12,60 @@ use btls::ssl::{ErrorCode, Ssl, SslStream};
 use crate::net::relay::{acquire_buffer, release_buffer};
 use crate::transport::tls_stream::TlsConnection;
 
-/// Ciphertext buffer size: one TLS record of any size fits.
-const RX_SIZE: usize = 5 + 16384 + 2048;
+/// One TLS record of any size, ciphertext.
+const RECORD: usize = 5 + 16384 + 2048;
+
+/// The most records one read from the transport takes. Reading one record
+/// at a time, a bulk download made a system call for every 18 KB, sing-box
+/// one for every 33-63 KB. Four, measured 2026-10-24 (Trojan through TUN,
+/// mobile profile, 2 GiB, 3 rounds, against one): download CPU seconds a
+/// GiB 2.19 to 1.94, its rate 3917 to 4412 Mbit/s (2.72 to 2.55 with two
+/// workers). Four is a judgment beside the smallest profile's relay buffer
+/// (64 KiB); more was not measured. The buffer grows only while reads fill it, as a relay's
+/// does.
+const RX_RECORDS: usize = 4;
 
 /// Plaintext taken per write: one full record.
 const MAX_PLAINTEXT: usize = 16384;
 
 /// Ciphertext between the stream and BoringSSL. Both directions hold memory
 /// only while they have data.
-#[derive(Default)]
 struct MemIo {
     // Read from the transport, not yet taken by BoringSSL: rx[rx_pos..rx_len].
     rx: Option<Box<[u8]>>,
     rx_pos: usize,
     rx_len: usize,
+    // Records the next buffer holds: 1 to RX_RECORDS.
+    rx_records: usize,
     // Written by BoringSSL, not yet written to the transport: tx[tx_pos..].
     tx: Vec<u8>,
     tx_pos: usize,
+}
+
+impl Default for MemIo {
+    fn default() -> Self {
+        Self {
+            rx: None,
+            rx_pos: 0,
+            rx_len: 0,
+            rx_records: 1,
+            tx: Vec::new(),
+            tx_pos: 0,
+        }
+    }
 }
 
 impl MemIo {
     fn rx_space(&self) -> usize {
         match &self.rx {
             Some(rx) => rx.len() - (self.rx_len - self.rx_pos),
-            None => RX_SIZE,
+            None => RECORD * self.rx_records,
         }
     }
 
     fn fill_from(&mut self, rd: &mut dyn Read) -> io::Result<usize> {
         if self.rx.is_none() {
-            self.rx = Some(acquire_buffer(RX_SIZE)?);
+            self.rx = Some(acquire_buffer(RECORD * self.rx_records)?);
         }
         let rx = self.rx.as_deref_mut().expect("buffer acquired above");
         if self.rx_pos > 0 {
@@ -49,9 +73,17 @@ impl MemIo {
             self.rx_len -= self.rx_pos;
             self.rx_pos = 0;
         }
+        let space = rx.len() - self.rx_len;
         let read = rd.read(&mut rx[self.rx_len..]);
         if let Ok(n) = read {
             self.rx_len += n;
+            // The next buffer: twice as large after a read that filled this
+            // one, half after one that took a quarter of it or less.
+            if n == space && self.rx_records < RX_RECORDS {
+                self.rx_records *= 2;
+            } else if n * 4 <= space && self.rx_records > 1 {
+                self.rx_records /= 2;
+            }
         }
         // Nothing buffered while idle.
         if self.rx_len == 0 {
@@ -245,5 +277,48 @@ impl TlsConnection for BoringConnection {
             self.close_sent = true;
             let _ = self.ssl.shutdown();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A transport that has `left` bytes for the taking.
+    struct Source {
+        left: usize,
+    }
+
+    impl Read for Source {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            let n = buf.len().min(self.left);
+            self.left -= n;
+            Ok(n)
+        }
+    }
+
+    /// Takes everything buffered, as BoringSSL does record by record.
+    fn drain(io: &mut MemIo) {
+        let mut sink = vec![0; RECORD];
+        while io.read(&mut sink).is_ok() {}
+    }
+
+    #[test]
+    fn reads_grow_to_four_records_on_a_bulk_transfer_and_back_when_it_ends() {
+        let mut io = MemIo::default();
+        let mut bulk = Source { left: usize::MAX };
+        let mut sizes = Vec::new();
+        for _ in 0..4 {
+            sizes.push(io.fill_from(&mut bulk).unwrap());
+            drain(&mut io);
+        }
+        assert_eq!(sizes, [RECORD, 2 * RECORD, 4 * RECORD, 4 * RECORD]);
+        // A trickle: the buffer halves back to one record.
+        for _ in 0..3 {
+            io.fill_from(&mut Source { left: 100 }).unwrap();
+            drain(&mut io);
+        }
+        assert_eq!(io.rx_records, 1);
+        assert!(io.rx.is_none(), "an idle connection keeps no buffer");
     }
 }
