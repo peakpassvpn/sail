@@ -2018,3 +2018,77 @@ fn client_authentication_that_checks_nothing_is_an_error() {
 fn pins_of_key() -> Vec<String> {
     vec![spki_pin(b"a SubjectPublicKeyInfo")]
 }
+
+/// A transport that keeps the size of each write it takes.
+struct Writes {
+    inner: DuplexStream,
+    sizes: std::sync::Arc<std::sync::Mutex<Vec<usize>>>,
+}
+
+impl tokio::io::AsyncRead for Writes {
+    fn poll_read(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.inner).poll_read(cx, buf)
+    }
+}
+
+impl tokio::io::AsyncWrite for Writes {
+    fn poll_write(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        let polled = std::pin::Pin::new(&mut self.inner).poll_write(cx, buf);
+        if let std::task::Poll::Ready(Ok(n)) = polled {
+            self.sizes.lock().unwrap().push(n);
+        }
+        polled
+    }
+    fn poll_flush(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.inner).poll_flush(cx)
+    }
+    fn poll_shutdown(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.inner).poll_shutdown(cx)
+    }
+}
+
+/// A 64 KiB write goes to the transport as four records in one write, not
+/// one write a record.
+#[tokio::test]
+async fn a_large_write_seals_four_records_into_one_transport_write() {
+    let server = server();
+    let client = TlsClient::new(&[], Some(&server.cert_pem), false, None, &test_roots()).unwrap();
+    let (c, s) = tokio::io::duplex(1 << 20);
+    let sizes = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let c = Writes {
+        inner: c,
+        sizes: std::sync::Arc::clone(&sizes),
+    };
+    let (c, s) = tokio::join!(
+        client.connect("localhost", c, None, None),
+        server.accept(s, None)
+    );
+    let (mut c, mut s) = (c.unwrap(), s.unwrap());
+    sizes.lock().unwrap().clear();
+    let data = vec![7u8; 64 * 1024];
+    let reader = tokio::spawn(async move {
+        let mut got = vec![0u8; 64 * 1024];
+        s.read_exact(&mut got).await.unwrap();
+        got
+    });
+    c.write_all(&data).await.unwrap();
+    c.flush().await.unwrap();
+    assert_eq!(reader.await.unwrap(), data);
+    let sizes = sizes.lock().unwrap().clone();
+    assert_eq!(sizes.len(), 1, "one transport write: {:?}", sizes);
+    assert!(sizes[0] > 4 * 16384, "four records: {:?}", sizes);
+}

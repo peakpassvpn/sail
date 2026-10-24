@@ -16,6 +16,16 @@ use crate::transport::vision::VisionState;
 /// Size of the ciphertext buffer used for exact reads; holds any record.
 const RX_SIZE: usize = 64 * 1024;
 
+/// The most records a write seals before they go to the transport, in one
+/// write. One at a time, a bulk upload made a system call for every 16 KB
+/// record. Four, measured 2026-10-24 (2 GiB, 3 rounds, against one): Trojan
+/// through TUN on the mobile profile, upload CPU seconds a GiB 2.23 to
+/// 2.00, its rate 3839 to 4310 Mbit/s (2.88 to 2.66 with two workers);
+/// Trojan over SOCKS on the server profile, 0.61 to 0.47 at the same rate.
+/// Four is a judgment beside the smallest profile's relay buffer (64 KiB),
+/// whose writes it takes whole; more was not measured.
+const WRITE_RECORDS: usize = 4;
+
 /// The parts of a TLS connection the stream drives, in the shape of a rustls
 /// connection.
 pub trait TlsConnection: Unpin {
@@ -551,16 +561,26 @@ impl<C: TlsConnection, S: AsyncRead + AsyncWrite + Unpin> AsyncWrite for TlsStre
             if pos == buf.len() {
                 return Poll::Ready(Ok(pos));
             }
-            let n = this.conn.write_plaintext(&buf[pos..])?;
-            if n == 0 {
-                // Nothing queued, yet the connection takes nothing (e.g. after
-                // close_notify).
-                return Poll::Ready(Err(io::Error::new(
-                    ErrorKind::WriteZero,
-                    "tls connection accepts no more data",
-                )));
+            // Up to WRITE_RECORDS records, then out to the transport together.
+            for sealed in 0..WRITE_RECORDS {
+                let n = this.conn.write_plaintext(&buf[pos..])?;
+                if n == 0 {
+                    if sealed > 0 {
+                        // Out with what it took; the next turn says why not more.
+                        break;
+                    }
+                    // Nothing queued, yet the connection takes nothing (e.g.
+                    // after close_notify).
+                    return Poll::Ready(Err(io::Error::new(
+                        ErrorKind::WriteZero,
+                        "tls connection accepts no more data",
+                    )));
+                }
+                pos += n;
+                if pos == buf.len() {
+                    break;
+                }
             }
-            pos += n;
         }
     }
 
