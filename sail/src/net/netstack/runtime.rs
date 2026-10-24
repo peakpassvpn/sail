@@ -17,7 +17,10 @@ use tokio::sync::{mpsc as tokio_mpsc, watch, Notify};
 
 use super::stream::{command_channel, next_command, NativeTcpStream, ReadReply, TcpCommand};
 
-const TIMER_POLL_INTERVAL: Duration = Duration::from_millis(10);
+/// How often the runtime tries again what the stack had no room for, while
+/// something waits: a write, read, close, connect or release refused by
+/// backpressure, or a connect whose caller may leave.
+const RETRY_INTERVAL_MS: u64 = 10;
 
 /// A TCP connection the stack carries, accepted from the network or opened
 /// by [`NativeRuntimeControl::connect`].
@@ -290,6 +293,15 @@ impl FlowBridge {
         }
     }
 
+    /// Whether an operation waits that a retry may finish: backpressure
+    /// sends no event when it eases.
+    fn waits(&self) -> bool {
+        self.pending_write.is_some()
+            || self.pending_write_reservation.is_some()
+            || self.pending_close.is_some()
+            || (self.pending_read.is_some() && (self.readable_bytes > 0 || self.peer_eof))
+    }
+
     fn fail(mut self, message: &'static str) {
         self.cleanup_active.store(false, AtomicOrdering::Release);
         if let Some((_, response)) = self.pending_read.take() {
@@ -329,6 +341,10 @@ pub(crate) struct NativeRuntime<I> {
     /// stay in the table for good, holding their windows (as hundreds of
     /// connections closing at once did, peakpassvpn/sail#6).
     pending_releases: Vec<(TcpFlowToken, Release)>,
+    /// Something was left to retry since the loop last looked.
+    retry_wanted: bool,
+    /// When the next retry is due, while something waits for one.
+    retry_at_ms: Option<u64>,
 }
 
 /// How a flow the runtime no longer bridges is let go of.
@@ -410,6 +426,8 @@ impl<I: PacketIo> NativeRuntime<I> {
                 connecting: HashMap::new(),
                 pending_connects: Vec::new(),
                 pending_releases: Vec::new(),
+                retry_wanted: false,
+                retry_at_ms: None,
             },
             commands_tx,
         ))
@@ -423,10 +441,35 @@ impl<I: PacketIo> NativeRuntime<I> {
     pub(crate) async fn run(mut self) -> Result<(), RunnerError> {
         let started = Instant::now();
         let cleanup_overflow = Arc::clone(&self.cleanup_overflow);
-        let mut interval = tokio::time::interval(TIMER_POLL_INTERVAL);
-        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        // One timer, for the stack's next deadline or the next retry, and
+        // none while neither waits: an idle stack does not wake.
+        let mut timer = std::pin::pin!(tokio::time::sleep(Duration::ZERO));
+        let mut armed_ms = None;
         loop {
-            let now_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+            let now_ms = elapsed_ms(started);
+            if std::mem::take(&mut self.retry_wanted) {
+                self.retry_at_ms
+                    .get_or_insert(now_ms.saturating_add(RETRY_INTERVAL_MS));
+            }
+            if self.retry_at_ms.is_some_and(|at_ms| at_ms <= now_ms) {
+                self.retry_at_ms = self
+                    .retry_pending()
+                    .then_some(now_ms.saturating_add(RETRY_INTERVAL_MS));
+            }
+            // What is due already the step does first thing; the timer is
+            // for what comes later.
+            let wake_ms = [self.runner.next_deadline_ms(), self.retry_at_ms]
+                .into_iter()
+                .flatten()
+                .min()
+                .filter(|wake_ms| *wake_ms > now_ms);
+            if wake_ms != armed_ms {
+                if let Some(wake_ms) = wake_ms {
+                    let at = started + Duration::from_millis(wake_ms);
+                    timer.as_mut().reset(at.into());
+                }
+                armed_ms = wake_ms;
+            }
             enum Wake {
                 Command(Option<TcpCommand>),
                 Cleanup(Option<TcpFlowToken>),
@@ -438,8 +481,8 @@ impl<I: PacketIo> NativeRuntime<I> {
                 command = next_command(&mut self.commands_rx) => Wake::Command(command),
                 cleanup = self.cleanup_rx.recv() => Wake::Cleanup(cleanup),
                 () = cleanup_overflow.notified() => Wake::CleanupOverflow,
-                result = self.runner.step(now_ms) => Wake::Step(result),
-                _ = interval.tick() => Wake::Timer,
+                result = self.runner.step_with_clock(now_ms, || elapsed_ms(started)) => Wake::Step(result),
+                () = &mut timer, if armed_ms.is_some() => Wake::Timer,
             };
             match wake {
                 Wake::Command(Some(command)) => {
@@ -464,7 +507,7 @@ impl<I: PacketIo> NativeRuntime<I> {
                     self.fail_all("native network runner failed");
                     return Err(error);
                 }
-                Wake::Timer => self.retry_pending(),
+                Wake::Timer => armed_ms = None,
             }
         }
     }
@@ -629,12 +672,16 @@ impl<I: PacketIo> NativeRuntime<I> {
         match self.runner.connect_tcp(local, remote) {
             Ok(token) => {
                 self.connecting.insert(token, response);
+                self.retry_wanted = true;
             }
-            Err(error) if retryable(&error) => self.pending_connects.push(PendingConnect {
-                local,
-                remote,
-                response,
-            }),
+            Err(error) if retryable(&error) => {
+                self.pending_connects.push(PendingConnect {
+                    local,
+                    remote,
+                    response,
+                });
+                self.retry_wanted = true;
+            }
             Err(error) => {
                 let _ = response.send(Err(runner_io_error(error)));
             }
@@ -715,7 +762,10 @@ impl<I: PacketIo> NativeRuntime<I> {
             // Reading reserves a control packet first (its window update),
             // and a full TX queue or packet budget is backpressure, as for
             // a write: the read waits for room, the stream lives on.
-            Err(error) if retryable(&error) => flow.pending_read = Some((max_bytes, response)),
+            Err(error) if retryable(&error) => {
+                flow.pending_read = Some((max_bytes, response));
+                self.retry_wanted = true;
+            }
             Err(error) => {
                 let _ = response.send(Err(runner_io_error(error)));
             }
@@ -784,8 +834,12 @@ impl<I: PacketIo> NativeRuntime<I> {
             // writable again, and the writer hears when all of it went.
             Ok((written, _)) => {
                 flow.pending_write = Some((payload[written..].to_vec(), response));
+                self.retry_wanted = true;
             }
-            Err(error) if retryable(&error) => flow.pending_write = Some((payload, response)),
+            Err(error) if retryable(&error) => {
+                flow.pending_write = Some((payload, response));
+                self.retry_wanted = true;
+            }
             Err(error) => {
                 let _ = response.send(Err(runner_io_error(error)));
             }
@@ -830,6 +884,7 @@ impl<I: PacketIo> NativeRuntime<I> {
         };
         if limit == 0 {
             flow.pending_write_reservation = Some((max_bytes, response));
+            self.retry_wanted = true;
             return;
         }
         let amount = max_bytes.min(limit);
@@ -871,7 +926,10 @@ impl<I: PacketIo> NativeRuntime<I> {
                 flow.closed = true;
                 let _ = response.send(Ok(()));
             }
-            Err(error) if retryable(&error) => flow.pending_close = Some(response),
+            Err(error) if retryable(&error) => {
+                flow.pending_close = Some(response);
+                self.retry_wanted = true;
+            }
             Err(error) => {
                 let _ = response.send(Err(runner_io_error(error)));
             }
@@ -888,7 +946,9 @@ impl<I: PacketIo> NativeRuntime<I> {
         }
     }
 
-    fn retry_pending(&mut self) {
+    /// Tries again what waits for room, and returns whether anything still
+    /// waits.
+    fn retry_pending(&mut self) -> bool {
         for (token, release) in std::mem::take(&mut self.pending_releases) {
             self.release(token, release);
         }
@@ -915,6 +975,10 @@ impl<I: PacketIo> NativeRuntime<I> {
                 self.connect(pending.local, pending.remote, pending.response);
             }
         }
+        !self.pending_releases.is_empty()
+            || !self.pending_connects.is_empty()
+            || !self.connecting.is_empty()
+            || self.flows.values().any(FlowBridge::waits)
     }
 
     fn cleanup_dropped_streams(&mut self) {
@@ -961,6 +1025,7 @@ impl<I: PacketIo> NativeRuntime<I> {
         if let Err(error) = result {
             if retryable(&error) {
                 self.pending_releases.push((token, release));
+                self.retry_wanted = true;
             }
         }
     }
@@ -1091,6 +1156,11 @@ impl<I: PacketIo> NativeRuntimeGroup<I> {
         let _ = completion.send(true);
         result
     }
+}
+
+/// Milliseconds since `started`, the stack's clock.
+fn elapsed_ms(started: Instant) -> u64 {
+    u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX)
 }
 
 fn retryable(error: &RunnerError) -> bool {
@@ -1522,11 +1592,19 @@ mod tests {
                 ))
                 .await
                 .unwrap();
+            // Its client reads what the stack sends meanwhile: one that
+            // stopped would hold the stack's next send, and with it what
+            // the stack receives after.
             let mut first = [0_u8; 1];
-            timeout(
-                Duration::from_secs(1),
-                connection.stream.read_exact(&mut first),
-            )
+            let mut read = std::pin::pin!(connection.stream.read_exact(&mut first));
+            timeout(Duration::from_secs(1), async {
+                loop {
+                    tokio::select! {
+                        result = &mut read => break result,
+                        Some(_) = outbound_rx.recv() => {}
+                    }
+                }
+            })
             .await
             .unwrap()
             .unwrap();
@@ -1842,6 +1920,82 @@ mod tests {
         assert_eq!(retransmit.meta.sequence, first.meta.sequence);
         assert_eq!(retransmit.payload, first.payload);
 
+        runtime_task.abort();
+    }
+
+    /// Counts how often the runtime's task is polled: each is a wake.
+    struct CountPolls<F> {
+        inner: std::pin::Pin<Box<F>>,
+        polls: Arc<AtomicUsize>,
+    }
+
+    impl<F: std::future::Future> std::future::Future for CountPolls<F> {
+        type Output = F::Output;
+
+        fn poll(
+            mut self: std::pin::Pin<&mut Self>,
+            context: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<F::Output> {
+            self.polls.fetch_add(1, AtomicOrdering::Relaxed);
+            std::future::Future::poll(self.inner.as_mut(), context)
+        }
+    }
+
+    #[tokio::test]
+    async fn an_idle_runtime_with_an_open_connection_does_not_wake() {
+        let (inbound_tx, inbound_rx) = tokio_mpsc::channel(4);
+        let (outbound_tx, mut outbound_rx) = tokio_mpsc::channel(4);
+        let io = ChannelPacketIo::new(inbound_rx, outbound_tx, 1);
+        let ledger = ResourceLedger::new(BudgetProfile::Mobile.budget()).unwrap();
+        let (runtime, mut accepted, _datagrams, _udp_reply) =
+            NativeRuntime::new(io, ledger, RunnerConfig::default(), 4, 4, 4).unwrap();
+        let polls = Arc::new(AtomicUsize::new(0));
+        let runtime_task = tokio::spawn(CountPolls {
+            inner: Box::pin(runtime.run()),
+            polls: Arc::clone(&polls),
+        });
+        let source = SocketAddr::from((Ipv4Addr::new(10, 8, 3, 2), 40_000));
+        let destination = SocketAddr::from((Ipv4Addr::new(10, 8, 3, 1), 443));
+
+        inbound_tx
+            .send(tcp_packet(source, destination, 100, 0, TcpFlags::SYN, &[]))
+            .await
+            .unwrap();
+        let syn_ack = timeout(Duration::from_secs(1), outbound_rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        let syn_ack = parse_tcp_segment(parse_ip_packet(&syn_ack, true).unwrap(), true).unwrap();
+        let server_next = syn_ack.meta.sequence.wrapping_add(1).get();
+        inbound_tx
+            .send(tcp_packet(
+                source,
+                destination,
+                101,
+                server_next,
+                TcpFlags::ACK,
+                &[],
+            ))
+            .await
+            .unwrap();
+        let mut accepted = timeout(Duration::from_secs(1), accepted.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        // The application waits to read, as an idle connection's does.
+        let reader = tokio::spawn(async move {
+            let mut buffer = [0_u8; 16];
+            let _ = accepted.stream.read(&mut buffer).await;
+        });
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let before = polls.load(AtomicOrdering::Relaxed);
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        let woken = polls.load(AtomicOrdering::Relaxed) - before;
+        // A 10 ms tick woke it 50 times here.
+        assert!(woken <= 2, "woken {woken} times in 500 ms");
+
+        reader.abort();
         runtime_task.abort();
     }
 

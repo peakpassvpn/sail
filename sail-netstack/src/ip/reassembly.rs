@@ -310,6 +310,12 @@ impl FragmentReassembler {
         Ok(expired)
     }
 
+    /// When the next incomplete datagram may expire: see [`TimerWheel::next_deadline_ms`].
+    #[must_use]
+    pub fn next_deadline_ms(&self) -> Option<u64> {
+        self.expiry.next_deadline_ms()
+    }
+
     pub fn clear(&mut self) {
         self.assemblies.clear();
         self.eviction_index.clear();

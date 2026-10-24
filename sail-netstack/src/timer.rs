@@ -59,6 +59,9 @@ pub struct TimerWheel<T> {
     current_tick: u64,
     next_id: u64,
     buckets: Vec<Vec<BTreeSet<TimerId>>>,
+    /// One bit per bucket that holds a timer, for finding the next deadline
+    /// without walking the buckets.
+    occupied: [[u64; SLOTS / 64]; LEVELS],
     entries: crate::FlowMap<TimerId, Entry<T>>,
 }
 
@@ -77,6 +80,7 @@ impl<T> TimerWheel<T> {
             current_tick: now_ms / tick_ms,
             next_id: 0,
             buckets,
+            occupied: [[0; SLOTS / 64]; LEVELS],
             entries: crate::FlowMap::default(),
         }
     }
@@ -124,15 +128,45 @@ impl<T> TimerWheel<T> {
                 value,
             },
         );
-        self.buckets[level][slot].insert(id);
+        self.insert_into(level, slot, id);
         Ok(id)
     }
 
     pub fn cancel(&mut self, id: TimerId) -> Option<T> {
-        self.entries.remove(&id).map(|entry| {
-            self.buckets[entry.level][entry.slot].remove(&id);
-            entry.value
-        })
+        let entry = self.entries.remove(&id)?;
+        self.remove_from(entry.level, entry.slot, id);
+        Some(entry.value)
+    }
+
+    /// The earliest time a timer may expire, or `None` with none scheduled.
+    ///
+    /// Within the first level's 256 ticks it is the deadline itself; past
+    /// them it is the start of the bucket the soonest waits in, when its
+    /// timers move a level down. It is never late: a caller that sleeps
+    /// until it and then advances fires each timer on time, waking early at
+    /// most once for each level a timer passes through.
+    #[must_use]
+    pub fn next_deadline_ms(&self) -> Option<u64> {
+        if self.entries.is_empty() {
+            return None;
+        }
+        let mut soonest: Option<u64> = None;
+        for level in 0..LEVELS {
+            let shift = 8 * level;
+            let window = self.current_tick >> shift;
+            // A higher level's buckets all start after this one's next.
+            if soonest.is_some_and(|tick| tick <= window.saturating_add(1) << shift) {
+                break;
+            }
+            let Some(ahead) =
+                first_occupied(&self.occupied[level], slot_for(self.current_tick, level))
+            else {
+                continue;
+            };
+            let tick = (window.saturating_add(ahead) << shift).max(self.current_tick + 1);
+            soonest = Some(soonest.map_or(tick, |soonest| soonest.min(tick)));
+        }
+        soonest.map(|tick| tick.saturating_mul(self.tick_ms))
     }
 
     /// Advances virtual time and returns expired values in deadline order.
@@ -162,7 +196,7 @@ impl<T> TimerWheel<T> {
             self.current_tick += 1;
             self.cascade_boundaries();
             let slot = slot_for(self.current_tick, 0);
-            let due = std::mem::take(&mut self.buckets[0][slot]);
+            let due = self.take_slot(0, slot);
             for id in due {
                 let Some(entry) = self.entries.remove(&id) else {
                     continue;
@@ -187,7 +221,7 @@ impl<T> TimerWheel<T> {
                 continue;
             }
             let slot = slot_for(self.current_tick, level);
-            let ids = std::mem::take(&mut self.buckets[level][slot]);
+            let ids = self.take_slot(level, slot);
             for id in ids {
                 if let Some(entry) = self.entries.get(&id) {
                     self.place(id, entry.deadline_tick);
@@ -215,6 +249,7 @@ impl<T> TimerWheel<T> {
                 slot.clear();
             }
         }
+        self.occupied = [[0; SLOTS / 64]; LEVELS];
         let future: Vec<_> = self
             .entries
             .iter()
@@ -232,8 +267,44 @@ impl<T> TimerWheel<T> {
             entry.level = level;
             entry.slot = slot;
         }
-        self.buckets[level][slot].insert(id);
+        self.insert_into(level, slot, id);
     }
+
+    fn insert_into(&mut self, level: usize, slot: usize, id: TimerId) {
+        self.buckets[level][slot].insert(id);
+        self.occupied[level][slot / 64] |= 1 << (slot % 64);
+    }
+
+    fn remove_from(&mut self, level: usize, slot: usize, id: TimerId) {
+        let bucket = &mut self.buckets[level][slot];
+        bucket.remove(&id);
+        if bucket.is_empty() {
+            self.occupied[level][slot / 64] &= !(1 << (slot % 64));
+        }
+    }
+
+    fn take_slot(&mut self, level: usize, slot: usize) -> BTreeSet<TimerId> {
+        self.occupied[level][slot / 64] &= !(1 << (slot % 64));
+        std::mem::take(&mut self.buckets[level][slot])
+    }
+}
+
+/// How many buckets past `start` the first occupied one is, wrapping
+/// around: `start` itself is 0.
+fn first_occupied(occupied: &[u64; SLOTS / 64], start: usize) -> Option<u64> {
+    let words = occupied.len();
+    let mut mask = u64::MAX << (start % 64);
+    // The start word twice: from `start` up first, all of it last.
+    for word in (start / 64..).take(words + 1) {
+        let hits = occupied[word % words] & mask;
+        if hits != 0 {
+            let bit = usize::try_from(hits.trailing_zeros()).expect("a bit index is below 64");
+            let slot = (word % words) * 64 + bit;
+            return Some(u64::try_from((slot + SLOTS - start) % SLOTS).expect("below 256"));
+        }
+        mask = u64::MAX;
+    }
+    None
 }
 
 fn bucket_for(current_tick: u64, deadline_tick: u64) -> (usize, usize) {
@@ -274,5 +345,63 @@ mod tests {
         assert_eq!(bucket_ids, wheel.len());
         assert_eq!(wheel.cancel(timer), Some(9_999));
         assert!(wheel.buckets.iter().flatten().all(BTreeSet::is_empty));
+    }
+
+    #[test]
+    fn next_deadline_is_none_when_empty_and_exact_within_the_first_level() {
+        let mut wheel = TimerWheel::new(10, 1_000);
+        assert_eq!(wheel.next_deadline_ms(), None);
+        let late = wheel.schedule(3_000, 1_u32).unwrap();
+        let soon = wheel.schedule(1_041, 2_u32).unwrap();
+        // Rounded up to the tick, as it fires.
+        assert_eq!(wheel.next_deadline_ms(), Some(1_050));
+        wheel.cancel(soon);
+        assert_eq!(wheel.next_deadline_ms(), Some(3_000));
+        wheel.cancel(late);
+        assert_eq!(wheel.next_deadline_ms(), None);
+        assert!(wheel.occupied.iter().flatten().all(|word| *word == 0));
+    }
+
+    /// Sleeping until each next deadline and advancing there fires every
+    /// timer at its deadline, never later, with few early wakes.
+    #[test]
+    fn sleeping_until_the_next_deadline_fires_every_timer_on_time() {
+        let mut seed = 0x9e37_79b9_7f4a_7c15_u64;
+        let mut next = move |bound: u64| {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed % bound
+        };
+        let mut wheel = TimerWheel::new(1, 0);
+        let mut live = std::collections::HashMap::new();
+        for value in 0..2_000_u64 {
+            // Spread over all four levels' ranges.
+            let deadline = 1 + next(10_u64.pow(1 + u32::try_from(value % 8).unwrap()));
+            let id = wheel.schedule(deadline, value).unwrap();
+            live.insert(value, (id, deadline));
+        }
+        for value in (0..2_000_u64).step_by(3) {
+            let (id, _) = live.remove(&value).unwrap();
+            assert_eq!(wheel.cancel(id), Some(value));
+        }
+        let mut now = 0;
+        let mut wakes = 0;
+        while let Some(deadline) = wheel.next_deadline_ms() {
+            let soonest = live.values().map(|(_, deadline)| *deadline).min().unwrap();
+            assert!(
+                deadline > now && deadline <= soonest,
+                "{deadline} {soonest}"
+            );
+            now = deadline;
+            wakes += 1;
+            for value in wheel.advance_to(now).unwrap() {
+                let (_, deadline) = live.remove(&value).unwrap();
+                assert_eq!(deadline, now, "timer {value}");
+            }
+        }
+        assert!(live.is_empty());
+        // One wake per distinct deadline, plus at most one per level passed.
+        assert!(wakes <= 2_000 * 4, "{wakes}");
     }
 }

@@ -751,6 +751,34 @@ fn runner_step_expires_idle_udp_flows_without_external_clock_calls() {
     assert_eq!(ledger.snapshot().used[ResourceKind::UdpFlows as usize], 0);
 }
 
+/// A caller that steps only at each next deadline the runner reports
+/// expires an idle UDP flow when one stepping on every tick does.
+#[test]
+fn stepping_at_each_next_deadline_expires_an_idle_udp_flow_on_time() {
+    let (mut io, _) = MockIo::new(1);
+    io.push_recv(vec![udp_packet(40_000, b"query")]);
+    io.would_block_recv();
+    let (mut runner, ledger) = runner(io);
+    assert_eq!(runner.next_deadline_ms(), None);
+    block_on(runner.step(1)).unwrap();
+    assert_eq!(ledger.snapshot().used[ResourceKind::UdpFlows as usize], 1);
+
+    let mut now = 1;
+    let mut wakes = 0;
+    while let Some(deadline) = runner.next_deadline_ms() {
+        assert!(
+            deadline > now && deadline <= 60_010,
+            "{deadline} after {now}"
+        );
+        now = deadline;
+        wakes += 1;
+        block_on(runner.step(now)).unwrap();
+    }
+    assert_eq!(now, 60_010);
+    assert!(wakes <= 3, "{wakes} wakes");
+    assert_eq!(ledger.snapshot().used[ResourceKind::UdpFlows as usize], 0);
+}
+
 #[test]
 fn critical_pressure_rejects_new_tcp_and_udp_flows_before_admission() {
     let source = SocketAddr::from((Ipv4Addr::new(10, 7, 7, 2), 40_100));

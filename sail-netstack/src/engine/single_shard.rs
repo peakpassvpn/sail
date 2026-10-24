@@ -1003,6 +1003,36 @@ impl<I: PacketIo> SingleShardRunner<I> {
         Ok(())
     }
 
+    /// When the runner next has work that no packet or command brings: a TCP
+    /// timer, an idle UDP flow, a fragment or a PMTU entry to expire, the
+    /// end of a shutdown, or, a tick on, resets it had no room to queue.
+    /// `None` when it has none, so that an idle stack
+    /// need not wake. It may come early, never late: a step at that time
+    /// does the work due, and a step that changes it returns, so that the
+    /// caller asks again.
+    #[must_use]
+    pub fn next_deadline_ms(&self) -> Option<u64> {
+        let shutdown = match self.state {
+            RunnerState::Draining { deadline_ms } => {
+                Some(self.closing_until_ms.unwrap_or(deadline_ms))
+            }
+            _ => None,
+        };
+        let resets = (!self.pending_resets.is_empty())
+            .then_some(self.tcp_timers.now_ms().saturating_add(self.timer_tick_ms));
+        [
+            resets,
+            self.tcp_timers.next_deadline_ms(),
+            self.udp.next_deadline_ms(),
+            self.fragments.next_deadline_ms(),
+            self.pmtu.next_deadline_ms(),
+            shutdown,
+        ]
+        .into_iter()
+        .flatten()
+        .min()
+    }
+
     /// Performs one bounded send/receive pass. `WouldBlock` is reported as a
     /// temporary outcome; other I/O errors transition the runner to `Failed`.
     ///
@@ -1011,6 +1041,21 @@ impl<I: PacketIo> SingleShardRunner<I> {
     /// Returns [`RunnerError`] for permanent I/O failures, invalid platform
     /// counts, reversed virtual time, or a closed runner.
     pub async fn step(&mut self, now_ms: u64) -> Result<StepOutcome, RunnerError> {
+        self.step_with_clock(now_ms, || now_ms).await
+    }
+
+    /// [`Self::step`], reading `clock` again for what it does after waiting
+    /// on the device: a step that waits for packets as long as nothing is
+    /// due takes them at the time they came, not at the one it began at.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::step`].
+    pub async fn step_with_clock(
+        &mut self,
+        mut now_ms: u64,
+        clock: impl Fn() -> u64,
+    ) -> Result<StepOutcome, RunnerError> {
         match self.state {
             RunnerState::Created => {
                 self.state = RunnerState::Running;
@@ -1041,6 +1086,7 @@ impl<I: PacketIo> SingleShardRunner<I> {
         }
 
         let mut outcome = StepOutcome::default();
+        let deadline = self.next_deadline_ms();
         // Commands between steps (connect, write, read, close) run at the
         // table's clock, which only packets and timers moved: an idle shard
         // would date a connect's SYN seconds early.
@@ -1071,12 +1117,25 @@ impl<I: PacketIo> SingleShardRunner<I> {
         if outcome.would_block || !self.tx.is_empty() {
             return Ok(outcome);
         }
+        now_ms = self.read_clock(now_ms, &clock)?;
         self.process_scheduled(now_ms, &mut outcome)?;
         if outcome.processed_packets > 0 || self.pending_rx() > 0 {
             return Ok(outcome);
         }
         let mut received = PacketBatch::with_limit(self.capabilities.max_batch);
-        let reported = match self.recv_batch(&mut received).await {
+        // A step with packets left to send (past `packets_per_step`) does
+        // not wait for packets, nor one that moved the next deadline: the
+        // adapter sleeps until the one it read before the step, and would
+        // wake late.
+        let received_now = if self.tx_pending.is_empty() && self.next_deadline_ms() == deadline {
+            self.recv_batch(&mut received).await
+        } else {
+            match poll_once(self.recv_batch(&mut received)) {
+                Some(result) => result,
+                None => return Ok(outcome),
+            }
+        };
+        let reported = match received_now {
             Ok(count) => count,
             Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
                 outcome.would_block = true;
@@ -1084,6 +1143,7 @@ impl<I: PacketIo> SingleShardRunner<I> {
             }
             Err(error) => return self.fail(error),
         };
+        now_ms = self.read_clock(now_ms, &clock)?;
         self.take_received(&mut received, reported, now_ms, &mut outcome)?;
         // More while the device has them at once, as sending does.
         while outcome.received_packets < self.packets_per_step {
@@ -1100,6 +1160,14 @@ impl<I: PacketIo> SingleShardRunner<I> {
         }
         self.process_scheduled(now_ms, &mut outcome)?;
         Ok(outcome)
+    }
+
+    /// The time after an await: `clock`'s, never before `now_ms`, with the
+    /// TCP table's clock moved to it. Timers due since go off next step.
+    fn read_clock(&mut self, now_ms: u64, clock: &impl Fn() -> u64) -> Result<u64, RunnerError> {
+        let now_ms = clock().max(now_ms);
+        self.tcp.advance_clock(now_ms)?;
+        Ok(now_ms)
     }
 
     /// Budgets and queues one batch the device returned.

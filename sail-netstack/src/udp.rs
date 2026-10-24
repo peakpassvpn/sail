@@ -482,6 +482,12 @@ impl UdpTable {
         Ok(self.remove_expired(&expired))
     }
 
+    /// When the next idle flow may expire: see [`TimerWheel::next_deadline_ms`].
+    #[must_use]
+    pub fn next_deadline_ms(&self) -> Option<u64> {
+        self.expiry.next_deadline_ms()
+    }
+
     pub fn reset_network(&mut self, generation: NetworkGeneration) {
         self.generation = generation;
         self.by_key.clear();
