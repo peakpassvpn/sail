@@ -644,6 +644,15 @@ class Run:
                 # The protocol server's CPU over the same span.
                 if srv0 and srv1 and srv0[0] == srv1[0] and srv1[1] >= srv0[1]:
                     rec["server_cpu_s"] = (srv1[1] - srv0[1]) / os.sysconf("SC_CLK_TCK")
+                # Both per GiB moved, beside Mbit/s: where the shared peer is
+                # not the limit, the compared arms can still differ in what
+                # the same rate costs them.
+                if res.get("bytes"):
+                    gib = res["bytes"] / (1 << 30)
+                    for key in ("cpu_s", "server_cpu_s"):
+                        if key in rec:
+                            res[f"{'client_' if key == 'cpu_s' else ''}{key}_per_gib"] = \
+                                round(rec[key] / gib, 3)
                 rec["round"] = round_ + 1
                 self.check(scenario, workload, res)
                 print(f"  {self.name} {scenario} {workload}: {brief(res)}", flush=True)
@@ -654,6 +663,8 @@ class Run:
             spread = {}
             for workload, results in cell.items():
                 for key, pick in (("mbps", lambda r: r.get("mbps")),
+                                  ("client_cpu_s_per_gib", lambda r: r.get("client_cpu_s_per_gib")),
+                                  ("server_cpu_s_per_gib", lambda r: r.get("server_cpu_s_per_gib")),
                                   ("p50_ms", lambda r: (r.get("rtt") or {}).get("p50_ms")),
                                   ("p99_ms", lambda r: (r.get("rtt") or {}).get("p99_ms"))):
                     vals = sorted(v for v in map(pick, results) if v is not None)
@@ -982,8 +993,8 @@ class Run:
 
 
 def brief(res):
-    keep = ("ok", "failed", "corrupt", "mbps", "rtt", "setup", "established", "survived",
-            "_error")
+    keep = ("ok", "failed", "corrupt", "mbps", "client_cpu_s_per_gib", "server_cpu_s_per_gib",
+            "rtt", "setup", "established", "survived", "_error")
     out = {k: res[k] for k in keep if k in res}
     for side in ("client_first", "server_first"):
         if side in res:
@@ -1127,6 +1138,13 @@ def main():
                     help="CPUs for the traffic tool at both ends, apart from the client's "
                          "and the server's; at least 4 for multi-Gbit cells (with 2, every "
                          "pair stopped near 3.3 Gbit/s on netgen's own CPU)")
+    ap.add_argument("--peer-cpus", default=None, metavar="LIST",
+                    help="with --matrix, CPUs for the side every pair shares (the sing-box "
+                         "server when only the clients differ, the client when only the "
+                         "servers do) in place of --server-cpus or --cpus, so that the "
+                         "reference peer is not what limits the compared arms; give it "
+                         "more than they have (at 2 each, a sing-box peer was the limit "
+                         "near 8-9 Gbit/s)")
     ap.add_argument("--server-profile", default="server",
                     help="the runtime profile of a sail server (default server)")
     ap.add_argument("--end-settle", type=float, default=10, metavar="SECONDS",
@@ -1196,7 +1214,7 @@ def main():
             ap.error(f"--matrix {pair!r}: client>server, each of {sorted(known)}")
     pinned = set()
     for opt, value in (("--cpus", args.cpus), ("--server-cpus", args.server_cpus),
-                       ("--netgen-cpus", args.netgen_cpus)):
+                       ("--netgen-cpus", args.netgen_cpus), ("--peer-cpus", args.peer_cpus)):
         try:
             pinned |= cpu_list(value)
         except ValueError:
@@ -1216,6 +1234,16 @@ def main():
         CPUS[SERVER_NS] = args.server_cpus or args.cpus
     elif args.server_cpus:
         CPUS[SERVER_NS] = args.server_cpus
+    if args.peer_cpus:
+        pairs = [p.split(">") for p in filter(None, args.matrix.split(","))]
+        clients, servers = {c for c, _ in pairs}, {s for _, s in pairs}
+        if len(clients) > 1 and len(servers) == 1:
+            CPUS[SERVER_NS] = args.peer_cpus
+        elif len(servers) > 1 and len(clients) == 1:
+            CPUS[CLIENT_NS] = args.peer_cpus
+        else:
+            ap.error("--peer-cpus: a --matrix whose pairs share their server (sail>sb,sb>sb) "
+                     "or their client (sb>sail,sb>sb)")
 
     free = shutil.disk_usage("/").free
     if free < 2 << 30:
