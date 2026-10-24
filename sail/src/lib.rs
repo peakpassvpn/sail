@@ -2671,19 +2671,49 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
         async move { scope.failed().await }
     }));
     drop(building);
-    // Each root task's panic fails the instance through the scope rather
-    // than unwinding run(): the stop below runs as on any end.
-    let tasks = tasks
-        .into_iter()
-        .map(|task| Box::pin(scope.root("root task", task)));
-    let (_, _, rest) = rt.block_on(scope.enter(futures::future::select_all(tasks)));
+    // With worker threads, each root task is spawned on them. Polled by
+    // this thread's block_on, as they were, they ran outside the workers:
+    // the TUN's netstack is one, and each wake of a connection's task went
+    // through tokio's inject queue with a worker unparked for it, about
+    // 32 000 futex calls a GiB through TUN on two workers. On a
+    // current-thread runtime this thread is the worker, and they stay on
+    // it: spawned, the netstack took its turn behind the connections'
+    // tasks, and a Trojan upload through TUN cost 8% more CPU a GiB.
+    // Either way a root task's panic fails the instance through the scope,
+    // as essential work, rather than unwinding run(): the stop below runs
+    // as on any end.
+    let mut spawned = Vec::new();
+    let mut here = Vec::new();
+    if rt.handle().runtime_flavor() == tokio::runtime::RuntimeFlavor::CurrentThread {
+        let tasks = tasks
+            .into_iter()
+            .map(|task| Box::pin(scope.root("root task", task)));
+        (_, _, here) = rt.block_on(scope.enter(futures::future::select_all(tasks)));
+    } else {
+        let tasks = tasks
+            .into_iter()
+            .map(|task| scope.spawn_essential_on(rt.handle(), "root task", task));
+        (_, _, spawned) = rt.block_on(futures::future::select_all(tasks));
+    }
 
     // In this order (design-notes, E2 teardown): what the instance changed
     // in the system (routes, rules, filters, DNS); then the root tasks
     // left, the TUN's among them, which closes the device; the instance;
     // its tasks, within the bound; the runtime, within it too.
     env.teardown.run_all();
-    drop(rest);
+    drop(here);
+    for task in &spawned {
+        task.abort();
+    }
+    // Gone once each has been dropped, on whichever worker it ran: waited
+    // for within the stop's bound, which the instance's tasks get the rest
+    // of, and one that outlasts it is the stop's to report.
+    let ending = std::time::Instant::now();
+    let _ = rt.block_on(tokio::time::timeout(
+        stop_within,
+        futures::future::join_all(spawned),
+    ));
+    let stop_within = stop_within.saturating_sub(ending.elapsed());
     runtime_manager.stop_watching();
     instance.stop();
     drop(instance);
