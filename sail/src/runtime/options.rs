@@ -683,15 +683,20 @@ impl RuntimeOptions {
                 },
                 quic: Quic {
                     max_concurrent_streams: 128,
-                    receive_window: 32 << 10,
-                    // At 8 MiB, four streams a LAN client stopped reading
-                    // filled the 32 MiB and froze the connection's other
-                    // streams for good; at 4 MiB the others went on, and
-                    // the client's peak RSS was about 12 MB lower. The
-                    // window holds one stream alone to about 85% of 4 MiB
-                    // a round trip: 565, 290 and 116 Mbit/s at 50, 100 and
-                    // 250 ms, 40% less than at 8 MiB (measured, #4).
-                    stream_window: 4 << 10,
+                    // A router must not be killed at 64 MiB, with 16 MiB
+                    // to spare. A router build alone in a 64 MiB cgroup,
+                    // four Hysteria2 or TUIC streams at 150 ms and at 2%
+                    // loss, kept 16.5-20.1 MiB free with these (measured),
+                    // 11.2-14.7 at 8/2/8 MiB and 0.7-5.9 at 32/4/16. They
+                    // hold four streams at 150 ms to 140-162 Mbit/s, 0.57
+                    // to 0.65 of a sing-box client, which a router's CPU
+                    // seldom passes anyway. A connection takes four times
+                    // a stream, so that streams a LAN client stopped
+                    // reading leave room for the rest (at 8 MiB a stream,
+                    // four of them froze a 32 MiB connection for good: #4).
+                    receive_window: 4 << 10,
+                    stream_window: 1 << 10,
+                    send_window: 4 << 10,
                     // As mobile's.
                     udp_receive_buffer: 1024,
                     ..desktop.quic
