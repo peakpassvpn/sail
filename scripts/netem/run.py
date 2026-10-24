@@ -70,6 +70,14 @@ REALITY_SHORT_ID = "0123456789abcdef"
 # longer for a larger ClientHello.
 REALITY_DEST = (SERVER_ADDR, 9443)
 
+# The ports the protocol servers listen on (server_config), whose
+# connections carry the proxied bytes over the shaped link.
+PROXY_PORTS = {8443, 8388}
+# The congestion controls ss names, to find one among a socket's details.
+CONGESTION = {"reno", "cubic", "bbr", "bbr2", "bbr3", "brutal", "bic", "dctcp", "highspeed",
+              "htcp", "hybla", "illinois", "lp", "scalable", "vegas", "veno", "westwood",
+              "yeah", "cdg", "nv"}
+
 # Recovery after the link returns: roadmap 2.12's acceptance ("3 秒内恢复新连接").
 RECOVERY_TARGET_S = 3.0
 # The concurrent case of the core comparison (bench/core-compare).
@@ -370,12 +378,32 @@ class Sampler:
             except OSError:
                 s["gone"] = True
         for ns in (CLIENT_NS, SERVER_NS):
-            states = {}
-            out = sh(in_ns(ns, "ss -tanH"), check=False).stdout
+            states, congestion = {}, {}
+            out = sh(in_ns(ns, "ss -taniH"), check=False).stdout
+            proxied = False
             for line in out.splitlines():
-                st = line.split()[0]
-                states[st] = states.get(st, 0) + 1
+                if not line.strip():
+                    continue
+                if not line[0].isspace():
+                    fields = line.split()
+                    st = fields[0]
+                    states[st] = states.get(st, 0) + 1
+                    proxied = st == "ESTAB" and len(fields) >= 5 and port(
+                        fields[4] if ns == CLIENT_NS else fields[3]) in PROXY_PORTS
+                    continue
+                # A socket's details: which congestion control the
+                # connections over the shaped link use, the client's to the
+                # server, the server's accepted ones.
+                if proxied:
+                    cc = next((w for w in line.split() if w in CONGESTION), None)
+                    if cc:
+                        congestion[cc] = congestion.get(cc, 0) + 1
+                    proxied = False
             s[f"tcp_{ns}"] = states
+            s[f"retrans_{ns}"] = retransmitted(ns)
+            if congestion:
+                s.setdefault("congestion", {})[
+                    "client" if ns == CLIENT_NS else "server"] = congestion
         return s
 
     def run(self):
@@ -391,6 +419,56 @@ class Sampler:
     def stop(self):
         self.stop_.set()
         self.t.join()
+
+
+def port(addr):
+    """The port of an ss address, `10.95.0.2:8443` or `[::1]:8443`."""
+    tail = addr.rsplit(":", 1)[-1]
+    return int(tail) if tail.isdigit() else None
+
+
+def retransmitted(ns):
+    """The TCP segments `ns` has retransmitted so far (TcpRetransSegs), each
+    namespace counting its own."""
+    out = sh(in_ns(ns, "cat /proc/net/snmp"), check=False).stdout.splitlines()
+    tcp = [line.split()[1:] for line in out if line.startswith("Tcp:")]
+    if len(tcp) == 2 and "RetransSegs" in tcp[0]:
+        return int(tcp[1][tcp[0].index("RetransSegs")])
+    return None
+
+
+def retransmits(before, after):
+    """Each side's retransmitted segments between two samples."""
+    out = {}
+    for side, ns in (("client", CLIENT_NS), ("server", SERVER_NS)):
+        b, a = before.get(f"retrans_{ns}"), after.get(f"retrans_{ns}")
+        if b is not None and a is not None:
+            out[side] = a - b
+    return out
+
+
+def congestion(samples):
+    """The congestion controls the proxied connections were seen with, each
+    side's, over `samples`: the most connections at once with each."""
+    seen = {}
+    for sample in samples:
+        for side, counts in sample.get("congestion", {}).items():
+            for cc, n in counts.items():
+                seen.setdefault(side, {})[cc] = max(n, seen.get(side, {}).get(cc, 0))
+    return seen
+
+
+def host_congestion():
+    """The system's congestion control, as each namespace has it: what a
+    side that does not choose its own (sing-box, or sail with
+    relay.tcp_congestion empty or refused) runs."""
+    out = {}
+    for where, cmd in (("host", ""), ("client_ns", CLIENT_NS), ("server_ns", SERVER_NS)):
+        for key in ("tcp_congestion_control", "tcp_available_congestion_control"):
+            read = f"sysctl -n net.ipv4.{key}"
+            res = sh(in_ns(cmd, read) if cmd else read, check=False)
+            out.setdefault(where, {})[key] = res.stdout.strip()
+    return out
 
 
 def proc_ticks(proc):
@@ -551,6 +629,8 @@ class Run:
         rec = {"scenario": scenario, "workload": workload, "result": res,
                "rss_peak_kb": peak(samples, "rss_kb"),
                "fds_peak": peak(samples, "fds"),
+               "congestion": congestion(samples),
+               "retrans": retransmits(samples[0], samples[-1]) if samples else {},
                "idle_before": idle_before, "idle_after": idle_after,
                "client_alive": self.procs["client"].alive()}
         self.records.append(rec)
@@ -613,6 +693,7 @@ class Run:
                 # The protocol server's CPU over the same span.
                 if srv0 and srv1 and srv0[0] == srv1[0] and srv1[1] >= srv0[1]:
                     rec["server_cpu_s"] = (srv1[1] - srv0[1]) / os.sysconf("SC_CLK_TCK")
+                rec["retrans"] = retransmits(before, after)
                 rec["round"] = round_ + 1
                 self.check(scenario, workload, res)
                 print(f"  {self.name} {scenario} {workload}: {brief(res)}", flush=True)
@@ -849,9 +930,18 @@ class Run:
         idle_before = self.idle(sampler, settle=2)
         m = sampler.mark()
         hold = 10 if self.args.quick else 20
+        before, srv0 = sampler.one(), proc_ticks(self.procs.get("server"))
         res = self.netgen("concurrent", f"-conns {CONCURRENT}", f"-hold {hold}s")
+        after, srv1 = sampler.one(), proc_ticks(self.procs.get("server"))
         rec = self.record("concurrency", "concurrent", res, sampler.since(m), idle_before,
                           self.idle(sampler, settle=10))
+        # The cost of holding them, each side's, and what the link resent.
+        rec["retrans"] = retransmits(before, after)
+        if before.get("pid") == after.get("pid") and "cpu_ticks" in before \
+                and "cpu_ticks" in after:
+            rec["cpu_s"] = (after["cpu_ticks"] - before["cpu_ticks"]) / os.sysconf("SC_CLK_TCK")
+        if srv0 and srv1 and srv0[0] == srv1[0]:
+            rec["server_cpu_s"] = (srv1[1] - srv0[1]) / os.sysconf("SC_CLK_TCK")
         if res.get("established") != CONCURRENT or res.get("survived") != CONCURRENT:
             self.fail(f"concurrency: {res.get('established')} established, "
                       f"{res.get('survived')} survived of {CONCURRENT}")
@@ -994,11 +1084,16 @@ def parse_network_changed(line):
     return fields
 
 
+# The system's congestion control, read once the namespaces are up.
+HOST_CONGESTION = {}
+
+
 def write_summary(out, summaries):
     """The runs, under a schema version that a reader (tools/perf) checks."""
     path = os.path.join(out, "summary.json")
     with open(path + ".tmp", "w") as f:
-        json.dump({"schema": 1, "runs": summaries}, f, indent=1)
+        json.dump({"schema": 1, "congestion": HOST_CONGESTION, "runs": summaries}, f,
+                  indent=1)
     os.replace(path + ".tmp", path)
 
 
@@ -1193,6 +1288,8 @@ def main():
            f"-keyout {args.work}/key.pem -out {args.work}/cert.pem")
 
     netns("up")
+    HOST_CONGESTION.update(host_congestion())
+    print(f"== congestion control: {json.dumps(HOST_CONGESTION)}", flush=True)
     summaries = []
     if args.matrix:
         try:

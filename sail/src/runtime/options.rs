@@ -162,6 +162,17 @@ pub struct Relay {
     /// cannot see it move, while the answer waits for it.
     #[serde(with = "duration")]
     pub downlink_idle_timeout: Duration,
+    /// The congestion control of sail's own TCP connections, those
+    /// outbounds dial and those inbounds accept, as the kernel names it
+    /// (`bbr`, `cubic`); empty, the system's (`net.ipv4.tcp_congestion_control`).
+    /// Linux and Android only; other systems choose it themselves. One the
+    /// system refuses, not built or loaded, or, without `CAP_NET_ADMIN` as
+    /// an Android app is, not in `net.ipv4.tcp_allowed_congestion_control`,
+    /// leaves the system's, and the log says once which is used. TCP Brutal,
+    /// where a multiplexed connection negotiates it, replaces it on that
+    /// connection. A sail extension, as Xray's `sockopt.tcpcongestion`:
+    /// sing-box and Mihomo leave it to the system.
+    pub tcp_congestion: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -475,6 +486,11 @@ impl RuntimeOptions {
                 write_stall_timeout: Duration::from_secs(300),
                 uplink_idle_timeout: Duration::from_secs(300),
                 downlink_idle_timeout: Duration::from_secs(300),
+                // Every profile's: where the kernel's TCP is what limits a
+                // connection, on loss and long round trips, both a sail
+                // and a sing-box client otherwise ride the system's cubic.
+                // A judgment until the A/B against the system's is in.
+                tcp_congestion: "bbr".to_owned(),
             },
             udp: Udp {
                 datagram_buffer_size: 64,

@@ -53,6 +53,9 @@ pub struct DialEnv {
     /// What the UDP socket of a QUIC connection asks the system to buffer
     /// (`quic.udp_receive_buffer`, `quic.udp_send_buffer`).
     pub quic_buffers: crate::runtime::options::UdpBuffers,
+    /// The congestion control of the TCP connections it dials
+    /// (`relay.tcp_congestion`).
+    pub tcp_congestion: crate::net::congestion::Congestion,
 }
 
 /// What an instance builds its dialers from: its defaults, and the
@@ -760,6 +763,8 @@ impl Dialer {
                 (spec, egress)
             }
         };
+
+        env.tcp_congestion.apply(SockRef::from(&socket));
 
         debug!("tcp dialing {}", &addr);
         let start = tokio::time::Instant::now();
