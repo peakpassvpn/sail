@@ -212,8 +212,10 @@ impl AsyncRead for NativeTcpStream {
             response,
         })?;
         self.pending_read = Some(receiver);
-        context.waker().wake_by_ref();
-        Poll::Pending
+        // Polling the reply registers this task for it: waking itself
+        // instead cost a reschedule per read, and with more than one
+        // worker often a futex to wake another.
+        self.poll_read(context, buffer)
     }
 }
 
@@ -278,8 +280,8 @@ impl AsyncWrite for NativeTcpStream {
             response,
         })?;
         self.pending_write_reservation = Some(receiver);
-        context.waker().wake_by_ref();
-        Poll::Pending
+        // As for a read: the reply wakes it.
+        self.poll_write(context, buffer)
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<io::Result<()>> {
@@ -306,8 +308,7 @@ impl AsyncWrite for NativeTcpStream {
         let token = self.token;
         self.start_command(TcpCommand::Close { token, response })?;
         self.pending_close = Some(receiver);
-        context.waker().wake_by_ref();
-        Poll::Pending
+        self.poll_shutdown(context)
     }
 }
 
