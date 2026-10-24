@@ -193,7 +193,8 @@ impl ResourceKind {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// Ordered by severity.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Ord)]
 pub enum PressureLevel {
     Normal,
     Constrained,
@@ -414,7 +415,7 @@ impl ResourceLedger {
         used: &[usize; RESOURCE_KIND_COUNT],
         except: Option<ResourceKind>,
     ) -> PressureLevel {
-        let mut max_permille = ratio_permille(total_bytes, self.budget.total_bytes);
+        let mut level = pressure_level(total_bytes, self.budget.total_bytes);
         for kind in [
             ResourceKind::MetadataBytes,
             ResourceKind::TcpPayloadBytes,
@@ -432,14 +433,9 @@ impl ResourceLedger {
             if Some(kind) == except {
                 continue;
             }
-            max_permille = max_permille.max(ratio_permille(used[kind.index()], self.limit(kind)));
+            level = level.max(pressure_level(used[kind.index()], self.limit(kind)));
         }
-        match max_permille {
-            1_000.. => PressureLevel::Exhausted,
-            850.. => PressureLevel::Critical,
-            700.. => PressureLevel::Constrained,
-            _ => PressureLevel::Normal,
-        }
+        level
     }
 
     const fn limit(&self, kind: ResourceKind) -> usize {
@@ -460,11 +456,24 @@ impl ResourceLedger {
     }
 }
 
-fn ratio_permille(value: usize, limit: usize) -> usize {
-    if limit == 0 {
-        return 1_000;
+/// The level of `value` against `limit`: from 700, 850 and 1000 permille
+/// of it. Counted in 64 bits: in a 32-bit target's usize, a byte pool's
+/// value times 1000 saturates past 4.29 MB, and a router's 16 MiB budget
+/// would never have left `Normal`.
+fn pressure_level(value: usize, limit: usize) -> PressureLevel {
+    let value = u64::try_from(value)
+        .unwrap_or(u64::MAX)
+        .saturating_mul(1_000);
+    let limit = u64::try_from(limit).unwrap_or(u64::MAX);
+    if value >= limit.saturating_mul(1_000) {
+        PressureLevel::Exhausted
+    } else if value >= limit.saturating_mul(850) {
+        PressureLevel::Critical
+    } else if value >= limit.saturating_mul(700) {
+        PressureLevel::Constrained
+    } else {
+        PressureLevel::Normal
     }
-    value.saturating_mul(1_000) / limit
 }
 
 #[derive(Debug)]
@@ -532,5 +541,53 @@ impl Drop for BudgetLease {
                 .total_bytes
                 .fetch_sub(self.amount, Ordering::AcqRel);
         }
+    }
+}
+
+#[cfg(test)]
+mod pressure_tests {
+    use super::{pressure_level, BudgetProfile, PressureLevel, ResourceKind, ResourceLedger};
+
+    #[test]
+    fn levels_are_whole_permille_of_the_limit() {
+        for limit in [0_usize, 1, 7, 1_000, 4_096, 16 << 20] {
+            for value in (0..=limit.saturating_mul(11) / 10).step_by((limit / 997).max(1)) {
+                let permille = if limit == 0 {
+                    1_000
+                } else {
+                    u64::try_from(value).unwrap() * 1_000 / u64::try_from(limit).unwrap()
+                };
+                let expected = match permille {
+                    1_000.. => PressureLevel::Exhausted,
+                    850.. => PressureLevel::Critical,
+                    700.. => PressureLevel::Constrained,
+                    _ => PressureLevel::Normal,
+                };
+                assert_eq!(pressure_level(value, limit), expected, "{value} of {limit}");
+            }
+        }
+    }
+
+    /// A router's 16 MiB: past 4.29 MB, a value times 1000 no longer fits
+    /// 32 bits, and must not saturate to a lower level.
+    #[test]
+    fn a_router_sized_pool_reaches_every_level() {
+        let limit = 16 << 20;
+        assert_eq!(pressure_level(11 << 20, limit), PressureLevel::Normal);
+        assert_eq!(pressure_level(12 << 20, limit), PressureLevel::Constrained);
+        assert_eq!(pressure_level(14 << 20, limit), PressureLevel::Critical);
+        assert_eq!(pressure_level(16 << 20, limit), PressureLevel::Exhausted);
+        assert!(PressureLevel::Normal < PressureLevel::Constrained);
+        assert!(PressureLevel::Critical < PressureLevel::Exhausted);
+    }
+
+    /// On a 32-bit router, 7 of its 8 MiB of TCP payload was `Normal`.
+    #[test]
+    fn a_router_ledger_seven_eighths_full_is_critical() {
+        let ledger = ResourceLedger::new(BudgetProfile::Router.budget()).unwrap();
+        let _lease = ledger
+            .try_acquire(ResourceKind::TcpPayloadBytes, 7 << 20)
+            .unwrap();
+        assert_eq!(ledger.snapshot().pressure, PressureLevel::Critical);
     }
 }
