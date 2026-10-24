@@ -287,7 +287,7 @@ impl SharedIngress {
     }
 
     fn observe_pressure(&self) -> io::Result<()> {
-        let pressure = self.ledger.snapshot().pressure;
+        let pressure = self.ledger.pressure();
         if matches!(pressure, PressureLevel::Critical | PressureLevel::Exhausted) {
             if self
                 .cache_pressure_active

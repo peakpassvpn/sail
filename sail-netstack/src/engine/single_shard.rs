@@ -988,7 +988,7 @@ impl<I: PacketIo> SingleShardRunner<I> {
     /// Observes memory pressure and expires the state it shortens: idle UDP
     /// flows, incomplete fragments, and stale PMTU entries.
     fn expire_under_pressure(&mut self, now_ms: u64) -> Result<(), RunnerError> {
-        let pressure = self.ledger.snapshot().pressure;
+        let pressure = self.ledger.pressure();
         self.observe_pressure(now_ms, pressure);
         let timeout_divisor = match pressure {
             PressureLevel::Normal => 1,
@@ -1996,7 +1996,7 @@ impl<I: PacketIo> SingleShardRunner<I> {
         let cancel_start = outcome.tcp_cancelled_timers.len();
         let event_start = outcome.tcp_events.len();
         let pressure_blocks_new = matches!(
-            self.ledger.snapshot().admission,
+            self.ledger.admission(),
             PressureLevel::Critical | PressureLevel::Exhausted
         );
         let mut context = ScheduledContext {

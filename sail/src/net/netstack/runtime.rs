@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::io;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool as CleanupActive, AtomicUsize, Ordering as AtomicOrdering};
@@ -8,7 +7,7 @@ use std::time::{Duration, Instant};
 use futures::channel::{mpsc, oneshot};
 use futures::SinkExt;
 use sail_netstack::{
-    IpEndpoint, NetworkGeneration, PacketIo, ResourceKind, ResourceLedger, RunnerConfig,
+    FlowMap, IpEndpoint, NetworkGeneration, PacketIo, ResourceKind, ResourceLedger, RunnerConfig,
     RunnerError, ShardRouterStats, ShardedPacketIo, ShardedPacketIoControl, SingleShardRunner,
     SlabChain, StackStats, StepOutcome, TcpConnection, TcpError, TcpEvent, TcpFlowToken,
     TcpTableError, TransportProtocol, UdpError, UdpFlowToken,
@@ -333,8 +332,8 @@ pub(crate) struct NativeRuntime<I> {
     cleanup_overflow: Arc<Notify>,
     accepted_tx: tokio_mpsc::Sender<NativeConnection>,
     udp_tx: tokio_mpsc::Sender<NativeUdpDatagram>,
-    flows: HashMap<TcpFlowToken, FlowBridge>,
-    connecting: HashMap<TcpFlowToken, oneshot::Sender<io::Result<NativeConnection>>>,
+    flows: FlowMap<TcpFlowToken, FlowBridge>,
+    connecting: FlowMap<TcpFlowToken, oneshot::Sender<io::Result<NativeConnection>>>,
     pending_connects: Vec<PendingConnect>,
     /// Flows let go of or aborted while the stack had no room for the
     /// packet that goes with it, retried on each tick: given up, they would
@@ -422,8 +421,8 @@ impl<I: PacketIo> NativeRuntime<I> {
                 cleanup_overflow,
                 accepted_tx,
                 udp_tx,
-                flows: HashMap::new(),
-                connecting: HashMap::new(),
+                flows: FlowMap::default(),
+                connecting: FlowMap::default(),
                 pending_connects: Vec::new(),
                 pending_releases: Vec::new(),
                 retry_wanted: false,

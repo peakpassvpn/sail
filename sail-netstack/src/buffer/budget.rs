@@ -392,6 +392,26 @@ impl ResourceLedger {
         }
     }
 
+    /// [`BudgetSnapshot::pressure`] alone: what a step reads, without the
+    /// peaks and counters.
+    #[must_use]
+    pub fn pressure(&self) -> PressureLevel {
+        let (total_bytes, used) = self.used_now();
+        self.pressure_of(total_bytes, &used, None)
+    }
+
+    /// [`BudgetSnapshot::admission`] alone.
+    #[must_use]
+    pub fn admission(&self) -> PressureLevel {
+        let (total_bytes, used) = self.used_now();
+        self.pressure_of(total_bytes, &used, Some(ResourceKind::TcpPayloadBytes))
+    }
+
+    fn used_now(&self) -> (usize, [usize; RESOURCE_KIND_COUNT]) {
+        let used = array::from_fn(|index| self.used[index].load(Ordering::Acquire));
+        (self.total_bytes.load(Ordering::Acquire), used)
+    }
+
     #[must_use]
     pub fn snapshot(&self) -> BudgetSnapshot {
         let used = array::from_fn(|index| self.used[index].load(Ordering::Acquire));
@@ -402,14 +422,14 @@ impl ResourceLedger {
             used,
             peaks,
             denied: self.denied.load(Ordering::Relaxed) as u64,
-            pressure: self.pressure(total_bytes, &used, None),
-            admission: self.pressure(total_bytes, &used, Some(ResourceKind::TcpPayloadBytes)),
+            pressure: self.pressure_of(total_bytes, &used, None),
+            admission: self.pressure_of(total_bytes, &used, Some(ResourceKind::TcpPayloadBytes)),
         }
     }
 
     /// The pressure of the global byte ceiling and of each pool but
     /// `except`.
-    fn pressure(
+    fn pressure_of(
         &self,
         total_bytes: usize,
         used: &[usize; RESOURCE_KIND_COUNT],
