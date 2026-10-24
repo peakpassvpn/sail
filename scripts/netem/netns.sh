@@ -117,6 +117,10 @@ up)
   ip -n $S addr add $SA/24 dev $SV0
   for ns in $C $S; do
     ip -n $ns link set lo up
+    # A new connection starts cold: no ssthresh or RTT kept from an earlier
+    # one to the same address (tcp_metrics), so that a cell does not depend
+    # on the cells before it.
+    ip netns exec $ns sysctl -qw net.ipv4.tcp_no_metrics_save=1
   done
   ip -n $C link set $CV0 up
   ip -n $S link set $SV0 up

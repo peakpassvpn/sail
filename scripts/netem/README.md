@@ -33,6 +33,8 @@ python3 run.py --protocols direct --clients sail-server --only baseline --quick 
 
 吞吐格子要稳：共享主机上单次结果的波动可达 2 倍。`--rounds N` 让每个受限场景的负载重复 N 次，汇总给出中位数、最小与最大值；`--bulk-bytes` 加大每条流的字节数，让传输足够长（例如每条 30 秒以上）；再用 `--cpus`/`--server-cpus` 把两侧分开绑核。
 
+每次大块传输（上行、下行各一次），以及每组断网、rtt_step、并发与半关闭，都在新启动的客户端与服务端进程上开始：没有上一格留下的连接、QUIC 连接池或多路复用的承载连接，也没有它们的拥塞状态；netns.sh 还在两个 namespace 里设 `net.ipv4.tcp_no_metrics_save=1`，新 TCP 连接不沿用内核为同一地址缓存的 ssthresh。所以一格的结果与 `--only` 里排在它前面的格无关，记录里的 `cold` 为真。此前（2026-10-24 之前）同一运行内的各格共用进程，QUIC 与多路复用的格接着上一格的连接测，`--only` 的顺序会改变结果（rtt300 跟在 rtt150 之后约 280 Mbit/s，单独测约 90）。冷启动在长 RTT 上要几秒才爬出慢启动，rtt150 与 rtt300 因此每条流传 128 MiB（见 run.py 的 `BULK_BYTES`）。
+
 ## 场景
 
 | 场景 | 条件 |

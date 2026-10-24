@@ -184,9 +184,15 @@ RTT_STEP_BYTES = {"low": 2 << 20, "high": 8 << 20}
 RTT_STEP_MIN_MBPS = 15
 
 # Bytes each bulk stream moves: enough to reach steady state, small enough
-# for the slow links.
-BULK_BYTES = {"rate10m": 8 << 20, "rate2m": 2 << 20, "rtt300": 16 << 20,
-              "loss5": 8 << 20, "burst2": 16 << 20}
+# for the slow links. Each transfer starts cold (Run.fresh), and at a long
+# RTT the climb out of slow start takes seconds: measured 2026-10-24, 4
+# streams, cold, the rate reached 80 % of its later level after about 2 s at
+# rtt150 (Trojan and Hysteria2) and 4 s (Hysteria2) to 11 s (Trojan) at
+# rtt300, so 16 MiB at rtt300 (about 35 Mbit/s for both sail and sing-box,
+# 105-120 with 128 MiB) and 32 MiB at rtt150 measured mostly the climb. At
+# 128 MiB the climb is a quarter to a third of the transfer.
+BULK_BYTES = {"rate10m": 8 << 20, "rate2m": 2 << 20, "rtt150": 128 << 20,
+              "rtt300": 128 << 20, "loss5": 8 << 20, "burst2": 16 << 20}
 
 
 # ------------------------------------------------------------- processes
@@ -349,6 +355,7 @@ class Sampler:
     TCP states, once a second."""
 
     def __init__(self, proc, interval=1):
+        # The client's Proc as it is now: Run.fresh replaces it.
         self.proc = proc
         self.interval = interval
         self.samples = []
@@ -357,7 +364,7 @@ class Sampler:
         self.t.start()
 
     def one(self):
-        pid = self.proc.pid()
+        pid = self.proc().pid()
         s = {"t": time.time(), "pid": pid}
         if pid:
             try:
@@ -547,12 +554,32 @@ class Run:
             self.procs[key] = Proc("netgen", SERVER_NS,
                                    f"{self.args.netgen} serve -listen {LISTEN}", log, netgen=True)
 
+    def fresh(self):
+        """New client and server processes, unless nothing has run on these
+        yet: the next workload starts cold, with no connection, pooled QUIC
+        connection or multiplexed carrier (nor the congestion state on one)
+        left from the one before it, so that a result does not depend on
+        which cells --only ran before it. netns.sh keeps the kernel from
+        caching TCP metrics for the same reason."""
+        if self.cold:
+            return
+        self.procs["client"].stop()
+        if "server" in self.procs:
+            self.restart_server()
+            time.sleep(1)
+        self.start_client()
+        self.cold = True
+
     def record(self, scenario, workload, res, samples, idle_before, idle_after):
         rec = {"scenario": scenario, "workload": workload, "result": res,
+               # The first workload on fresh processes (fresh), or one that
+               # followed another on the same.
+               "cold": self.cold,
                "rss_peak_kb": peak(samples, "rss_kb"),
                "fds_peak": peak(samples, "fds"),
                "idle_before": idle_before, "idle_after": idle_after,
                "client_alive": self.procs["client"].alive()}
+        self.cold = False
         self.records.append(rec)
         return rec
 
@@ -595,6 +622,10 @@ class Run:
         cell = {}
         for round_ in range(self.args.rounds):
             for workload, flags in plan:
+                # Each transfer from a cold start, as a user's first one:
+                # echo and setup follow bulk_up on the same processes.
+                if workload.startswith("bulk"):
+                    self.fresh()
                 idle_before = self.idle(sampler, settle=1)
                 m = sampler.mark()
                 before = sampler.one()
@@ -639,6 +670,7 @@ class Run:
         """A probe runs across an outage; recovery is the time from the
         link's return to the first new connection that works."""
         pre, post = 5, 20
+        self.fresh()
         m = sampler.mark()
         probe = threading.Thread(target=lambda: setattr(
             self, "_probe", self.netgen("probe", f"-duration {pre + outage + post}s",
@@ -823,6 +855,7 @@ class Run:
         then under RTT_STEP_HIGH, upload first, with nothing restarted. In
         the second phase every stream must arrive, and what a sail side
         sends must reach RTT_STEP_MIN_MBPS."""
+        self.fresh()
         for phase, spec in (("low", RTT_STEP_LOW), ("high", RTT_STEP_HIGH)):
             netns("shape", spec)
             plan = ("bulk_down", "bulk_up") if phase == "low" else ("bulk_up", "bulk_down")
@@ -846,6 +879,7 @@ class Run:
         netns("clear")
 
     def concurrency(self, sampler):
+        self.fresh()
         idle_before = self.idle(sampler, settle=2)
         m = sampler.mark()
         hold = 10 if self.args.quick else 20
@@ -868,6 +902,7 @@ class Run:
             print(f"  {self.name} churn {rate}/s: {brief(res)}", flush=True)
 
     def halfclose(self, sampler):
+        self.fresh()
         for scenario, spec in (("baseline", None), ("loss2", "delay 10ms loss 2%")):
             netns("shape", spec) if spec else netns("clear")
             m = sampler.mark()
@@ -918,8 +953,9 @@ class Run:
         print(f"== {self.name}", flush=True)
         self.start_server()
         self.start_client()
+        self.cold = True
         # Hours of samples a second would be the run's own load.
-        sampler = Sampler(self.procs["client"], interval=10 if self.args.soak else 1)
+        sampler = Sampler(lambda: self.procs["client"], interval=10 if self.args.soak else 1)
         start_idle = self.idle(sampler, settle=2)
         threads = {"start": self.threads()}
         try:
