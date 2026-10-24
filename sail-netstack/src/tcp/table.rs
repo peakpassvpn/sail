@@ -120,11 +120,37 @@ impl Default for TcpTableConfig {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+/// A flow's addresses and generation, with their hash: a segment looks its
+/// flow up a dozen times, and hashing two socket addresses each time was
+/// the most of each lookup.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct TcpFlowKey {
     source: SocketAddr,
     destination: SocketAddr,
     generation: NetworkGeneration,
+    hash: u64,
+}
+
+impl TcpFlowKey {
+    fn new(source: SocketAddr, destination: SocketAddr, generation: NetworkGeneration) -> Self {
+        // Seeded once a process, as the maps' own hashers are.
+        static SEED: std::sync::OnceLock<foldhash::fast::RandomState> = std::sync::OnceLock::new();
+        let hash = SEED
+            .get_or_init(Default::default)
+            .hash_one((source, destination, generation));
+        Self {
+            source,
+            destination,
+            generation,
+            hash,
+        }
+    }
+}
+
+impl Hash for TcpFlowKey {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write_u64(self.hash);
+    }
 }
 
 #[derive(Debug)]
@@ -719,11 +745,7 @@ impl TcpTable {
             increment_counter(&mut self.stats.invalid_address_drops);
             return Ok(TcpIngress::default());
         }
-        let key = TcpFlowKey {
-            source: segment.source,
-            destination: segment.destination,
-            generation: self.generation,
-        };
+        let key = TcpFlowKey::new(segment.source, segment.destination, self.generation);
         if self
             .by_key
             .get(&key)
@@ -861,11 +883,7 @@ impl TcpTable {
         } else {
             local
         };
-        let key = TcpFlowKey {
-            source: remote,
-            destination: local,
-            generation: self.generation,
-        };
+        let key = TcpFlowKey::new(remote, local, self.generation);
         if self.by_key.contains_key(&key) || self.time_wait.contains_key(&key) {
             return Err(TcpTableError::AddressInUse);
         }
@@ -966,11 +984,7 @@ impl TcpTable {
                 SocketAddr::new(local.ip(), port)
             })
             .find(|candidate| {
-                let key = TcpFlowKey {
-                    source: remote,
-                    destination: *candidate,
-                    generation: self.generation,
-                };
+                let key = TcpFlowKey::new(remote, *candidate, self.generation);
                 !self.by_key.contains_key(&key)
                     && !self.time_wait.contains_key(&key)
                     && usable(*candidate)
@@ -1893,11 +1907,11 @@ impl TcpTable {
         quoted_source: SocketAddr,
         quoted_destination: SocketAddr,
     ) -> bool {
-        self.by_key.contains_key(&TcpFlowKey {
-            source: quoted_destination,
-            destination: quoted_source,
-            generation: self.generation,
-        })
+        self.by_key.contains_key(&TcpFlowKey::new(
+            quoted_destination,
+            quoted_source,
+            self.generation,
+        ))
     }
 
     /// Lowers the send segment ceiling for the flow named by an outgoing
@@ -1909,11 +1923,7 @@ impl TcpTable {
         quoted_destination: SocketAddr,
         path_mtu: usize,
     ) -> bool {
-        let key = TcpFlowKey {
-            source: quoted_destination,
-            destination: quoted_source,
-            generation: self.generation,
-        };
+        let key = TcpFlowKey::new(quoted_destination, quoted_source, self.generation);
         let Some(flow) = self.by_key.get_mut(&key) else {
             return false;
         };
