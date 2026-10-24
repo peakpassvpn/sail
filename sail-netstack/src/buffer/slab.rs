@@ -274,7 +274,24 @@ impl PacketArena {
         self.allocate_from(ResourceKind::ControlPacketBytes, headroom, payload_capacity)
     }
 
-    fn allocate_from(
+    /// Charges `bytes` of packet storage held already, as an allocation of
+    /// that size from `kind`'s pool would be.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::allocate`].
+    pub(crate) fn charge(
+        &self,
+        kind: ResourceKind,
+        bytes: usize,
+    ) -> Result<BudgetLease, BudgetError> {
+        if bytes > self.max_packet_size {
+            return Err(BudgetError::Invalid("packet exceeds arena maximum"));
+        }
+        self.ledger.try_acquire(kind, bytes)
+    }
+
+    pub(crate) fn allocate_from(
         &self,
         kind: ResourceKind,
         headroom: usize,

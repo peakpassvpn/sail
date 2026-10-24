@@ -14,8 +14,8 @@ use crate::{
     parse_ip_packet, parse_tcp_segment, parse_udp_datagram, ArenaPacket, BudgetError, FlowId,
     FragmentError, FragmentReassembler, IcmpErrorKind, IcmpMessage, IpEndpoint, IpVersion,
     NetworkGeneration, Packet, PacketArena, PacketBatch, PacketCapabilities, PacketIo, PacketToken,
-    PmtuError, PmtuTable, PressureLevel, ResourceLedger, Scheduler, SchedulerConfig, ShardId,
-    StackStats, TcpConnection, TcpError, TcpEvent, TcpFlowToken, TcpIngress, TcpTable,
+    PmtuError, PmtuTable, PressureLevel, ResourceKind, ResourceLedger, Scheduler, SchedulerConfig,
+    ShardId, StackStats, TcpConnection, TcpError, TcpEvent, TcpFlowToken, TcpIngress, TcpTable,
     TcpTableConfig, TcpTableError, TcpTimerCancel, TcpTimerRequest, TimerError, TimerEvent,
     TimerId, TimerWheel, TraceKind, TraceSnapshot, TransportProtocol, UdpError, UdpFlowToken,
     UdpIngress, UdpTable, WireError, WorkClass, MAX_DEBUG_TRACE_EVENTS,
@@ -1217,7 +1217,7 @@ impl<I: PacketIo> SingleShardRunner<I> {
                 .counters
                 .rx_bytes
                 .saturating_add(u64::try_from(packet.payload().len()).unwrap_or(u64::MAX));
-            match self.budget_and_enqueue(&packet, now_ms) {
+            match self.budget_and_enqueue(packet, now_ms) {
                 Ok(EnqueueDisposition::Queued | EnqueueDisposition::Consumed) => {}
                 Ok(EnqueueDisposition::Dropped(reason)) => {
                     self.record_drop(outcome, now_ms, reason);
@@ -1852,7 +1852,7 @@ impl<I: PacketIo> SingleShardRunner<I> {
 
     fn budget_and_enqueue(
         &mut self,
-        packet: &Packet,
+        packet: Packet,
         now_ms: u64,
     ) -> Result<EnqueueDisposition, RunnerError> {
         let initial_ip = self.parse_initial_ip(packet.payload(), now_ms)?;
@@ -1883,6 +1883,7 @@ impl<I: PacketIo> SingleShardRunner<I> {
             return Err(RunnerError::PacketExceedsMtu);
         }
         let reassembled;
+        let mut whole = true;
         let payload = if initial_ip
             .fragment
             .is_some_and(|fragment| !fragment.is_atomic())
@@ -1898,6 +1899,7 @@ impl<I: PacketIo> SingleShardRunner<I> {
                 return Ok(EnqueueDisposition::Consumed);
             };
             reassembled = packet;
+            whole = false;
             reassembled.as_slice()
         } else {
             packet.payload()
@@ -1939,15 +1941,24 @@ impl<I: PacketIo> SingleShardRunner<I> {
             _ => WorkClass::Control,
         };
         let packet_len = payload.len();
-        let mut allocation = match work_class {
-            WorkClass::Control => self.arena.allocate_control(0, packet_len)?,
-            WorkClass::Data { .. } => self.arena.allocate(0, packet_len)?,
+        let kind = match work_class {
+            WorkClass::Control => ResourceKind::ControlPacketBytes,
+            WorkClass::Data { .. } => ResourceKind::PacketBytes,
         };
-        allocation.payload_capacity_mut().copy_from_slice(payload);
-        allocation.set_len(packet_len)?;
         let token = PacketToken::new(self.next_packet_token);
         self.next_packet_token = self.next_packet_token.wrapping_add(1);
-        let owned = Packet::from_arena(token, allocation);
+        // A whole packet the platform handed over unbudgeted is kept as it
+        // came, its storage charged: copied into storage of the arena's it
+        // cost an allocation, zeroing it and the copy, on every packet.
+        let owned = if whole && !packet.is_budgeted() {
+            let lease = self.arena.charge(kind, packet.storage_len())?;
+            packet.budgeted(token, lease)
+        } else {
+            let mut allocation = self.arena.allocate_from(kind, 0, packet_len)?;
+            allocation.payload_capacity_mut().copy_from_slice(payload);
+            allocation.set_len(packet_len)?;
+            Packet::from_arena(token, allocation)
+        };
         self.scheduler
             .enqueue(work_class, packet_len, owned)
             .map_err(|_| RunnerError::RxQueueFull)?;

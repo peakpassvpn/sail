@@ -115,6 +115,20 @@ impl Packet {
         }
     }
 
+    /// The packet under `token`, its storage charged by `lease`.
+    pub(crate) fn budgeted(self, token: PacketToken, lease: BudgetLease) -> Self {
+        Self {
+            token,
+            lease: Some(lease),
+            ..self
+        }
+    }
+
+    /// The bytes it holds, its headroom included.
+    pub(crate) fn storage_len(&self) -> usize {
+        self.storage.len()
+    }
+
     #[must_use]
     pub const fn token(&self) -> PacketToken {
         self.token
