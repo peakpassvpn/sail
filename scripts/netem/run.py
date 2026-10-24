@@ -64,7 +64,10 @@ REALITY_PRIVATE = "4KN8smrVWzyjgya4o2m-HXYFpB8hejWIldadEUV2iXE"
 REALITY_PUBLIC = "Wc6yEq9ozyhP_WaLMbd4ykhtrLcY-K69aF2exVhUAxA"
 REALITY_SHORT_ID = "0123456789abcdef"
 # REALITY borrows a real TLS server's handshake: one in the server's
-# namespace, as there is no internet in there.
+# namespace, as there is no internet in there. It is a sing-box TLS
+# inbound, not openssl s_server: s_server takes one connection at a time,
+# so under churn the handshakes queued behind it (up to ~1.45 s at 500/s),
+# longer for a larger ClientHello.
 REALITY_DEST = (SERVER_ADDR, 9443)
 
 # Recovery after the link returns: roadmap 2.12's acceptance ("3 秒内恢复新连接").
@@ -217,6 +220,15 @@ class Proc:
                 os.killpg(self.p.pid, signal.SIGKILL)
                 self.p.wait()
         self.log.close()
+
+
+def reality_dest_config(work):
+    """The TLS server REALITY borrows its handshake from (REALITY_DEST)."""
+    return {"log": {"level": "warn"},
+            "inbounds": [{"type": "http", "listen": REALITY_DEST[0],
+                          "listen_port": REALITY_DEST[1],
+                          "tls": {"enabled": True, "certificate_path": f"{work}/cert.pem",
+                                  "key_path": f"{work}/key.pem"}}]}
 
 
 def server_config(proto, work):
@@ -470,10 +482,10 @@ class Run:
         self.procs["netgen"] = Proc("netgen", SERVER_NS,
                                     f"{self.args.netgen} serve -listen {LISTEN}", log, netgen=True)
         if self.proto == "reality":
-            self.procs["reality-dest"] = Proc(
-                "reality-dest", SERVER_NS,
-                f"openssl s_server -quiet -accept {REALITY_DEST[0]}:{REALITY_DEST[1]} "
-                f"-cert {self.args.work}/cert.pem -key {self.args.work}/key.pem -www", log)
+            path = os.path.join(self.dir, "reality-dest.json")
+            json.dump(reality_dest_config(self.args.work), open(path, "w"))
+            self.procs["reality-dest"] = Proc("reality-dest", SERVER_NS,
+                                              f"{self.args.singbox} run -c {path}", log)
         cfg = server_config(self.proto, self.args.work)
         if cfg:
             path = os.path.join(self.dir, "server.json")
