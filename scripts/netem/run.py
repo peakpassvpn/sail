@@ -20,6 +20,7 @@ import argparse
 import gzip
 import json
 import os
+import re
 import shlex
 import shutil
 import signal
@@ -43,6 +44,7 @@ if not (NETEM_NET.isdigit() and not NETEM_NET.startswith("0") and int(NETEM_NET)
     sys.exit(f"NETEM_NET: 1 to 253, no leading zero, not {NETEM_NET!r}")
 CLIENT_NS, SERVER_NS = f"nc{NETEM_NS}", f"ns{NETEM_NS}"
 SERVER_ADDR = f"10.{NETEM_NET}.0.2"
+CLIENT_ADDR = f"10.{NETEM_NET}.0.1"
 TARGET = SERVER_ADDR + ":9000"
 # The same server off the link (netns.sh), for a TUN to take the traffic.
 FAR_ADDR = f"10.{int(NETEM_NET) + 1}.0.1"
@@ -53,7 +55,7 @@ FAR_TARGET = FAR_ADDR + ":9000"
 # among them takes milliseconds a connect(): with one worker thread, that,
 # not the proxy, was what the cell measured.
 CHURN_PORTS = 16
-LISTEN = ",".join(f"0.0.0.0:{9000 + i}" for i in range(CHURN_PORTS))
+LISTEN = ",".join(f"0.0.0.0:{9000 + i}" for i in range(CHURN_PORTS)) + ",0.0.0.0:9100/bbr"
 SOCKS = "127.0.0.1:1081"
 SS_METHOD = "2022-blake3-aes-128-gcm"
 SS_KEY = "a8C5QncIl9HvTmenrEb7aw=="
@@ -69,6 +71,14 @@ REALITY_SHORT_ID = "0123456789abcdef"
 # so under churn the handshakes queued behind it (up to ~1.45 s at 500/s),
 # longer for a larger ClientHello.
 REALITY_DEST = (SERVER_ADDR, 9443)
+
+# The ports the protocol servers listen on (server_config), whose
+# connections carry the proxied bytes over the shaped link.
+PROXY_PORTS = {8443, 8388}
+# The congestion controls ss names, to find one among a socket's details.
+CONGESTION = {"reno", "cubic", "bbr", "bbr2", "bbr3", "brutal", "bic", "dctcp", "highspeed",
+              "htcp", "hybla", "illinois", "lp", "scalable", "vegas", "veno", "westwood",
+              "yeah", "cdg", "nv"}
 
 # Recovery after the link returns: roadmap 2.12's acceptance ("3 秒内恢复新连接").
 RECOVERY_TARGET_S = 3.0
@@ -132,10 +142,15 @@ def netns(*args):
 # sends them in the order of those delays: jitter alone reorders, and the
 # cell would measure reordering, which reorder5/25 do. With a rate, netem
 # sends no packet before the one ahead of it (sch_netem.c, netem_enqueue),
-# as a path's queue does; 100gbit is far above any link here, a 1500-byte
-# packet's 120 ns. Measured at 100 ms RTT, hy2 bulk: 4-7 Mbit/s reordered,
-# 217 in order, 328 without jitter.
-ORDERED = "rate 100gbit"
+# as a path's queue does. Measured at 100 ms RTT, hy2 bulk: 4-7 Mbit/s
+# reordered, 217 in order, 328 without jitter. The rate paces what netem
+# lets go: at 100gbit a packet whose delay ends early leaves with those
+# held behind it at once, and a burst of thousands overran the receiving
+# CPU's backlog (netdev_max_backlog): at 25 +/- 10 ms each way, BBR's
+# upload lost 2058 packets there and retransmitted 2072, none at 1gbit,
+# at about the same rate (2026-10-25). The cells with a delay this long
+# stay well under 1gbit (rtt150, BBR: 250-280 Mbit/s).
+ORDERED = "rate 1gbit"
 
 
 def delay(rtt_ms, jitter=0.1):
@@ -182,6 +197,29 @@ RTT_STEP_BYTES = {"low": 2 << 20, "high": 8 << 20}
 # Between the measurements above (at most 2.8 before, at least 20 after); a
 # judgement.
 RTT_STEP_MIN_MBPS = 15
+
+# coexist: one flow through the proxy and one direct, the kernel's own
+# congestion control (cubic here), sharing a 100 Mbit/s link of 40 ms RTT
+# (BDP 500 kB), as a sail flow does a link it shares with others: a queue
+# of 0.5 x BDP (167 packets) is a shallow one, 4 x BDP (1333) a deep one.
+# Opt-in (--only coexist).
+COEXIST = [
+    ("coexist_shallow", "delay 20ms rate 100mbit limit 167"),
+    ("coexist_deep", "delay 20ms rate 100mbit limit 1333"),
+]
+# --coexist-refs: the same link shared by two direct flows, cubic beside
+# cubic and bbr beside cubic (a host with sysctl bbr, as servers often
+# run), each by the port it goes to; the traffic tool's server takes the
+# bbr one's on a port of its own.
+REF_PORTS = {"cubic": 9001, "bbr": 9100}
+# The traffic tool's server ports a direct flow goes to.
+DIRECT_PORTS = {9000, *REF_PORTS.values()}
+# Bytes of each of the two flows: 30 s or more at the whole link, as two
+# cubic flows of one RTT take seconds to even out in the deep queue.
+COEXIST_BYTES = 384 << 20
+# The start of the transfers left out of the shares: slow start, and the
+# proxied flow's later start (its handshakes).
+COEXIST_SKIP_S = 5
 
 # Bytes each bulk stream moves: enough to reach steady state, small enough
 # for the slow links. Each transfer starts cold (Run.fresh), and at a long
@@ -377,12 +415,36 @@ class Sampler:
             except OSError:
                 s["gone"] = True
         for ns in (CLIENT_NS, SERVER_NS):
-            states = {}
-            out = sh(in_ns(ns, "ss -tanH"), check=False).stdout
+            states, congestion = {}, {}
+            out = sh(in_ns(ns, "ss -taniH"), check=False).stdout
+            side = "client" if ns == CLIENT_NS else "server"
+            kind = None
             for line in out.splitlines():
-                st = line.split()[0]
-                states[st] = states.get(st, 0) + 1
+                if not line.strip():
+                    continue
+                if not line[0].isspace():
+                    fields = line.split()
+                    st = fields[0]
+                    states[st] = states.get(st, 0) + 1
+                    kind = link_socket(ns, fields) if st == "ESTAB" else None
+                    continue
+                # A socket's details: which congestion control the
+                # connections over the shaped link use, the client's to the
+                # server, the server's accepted ones, and where it stands.
+                if kind:
+                    cc = next((w for w in line.split() if w in CONGESTION), None)
+                    if cc and kind == "proxied":
+                        congestion[cc] = congestion.get(cc, 0) + 1
+                    s.setdefault("socks", []).append(
+                        dict(socket_state(line), side=side, kind=kind, cc=cc,
+                             key=f"{fields[3]}>{fields[4]}"))
+                    kind = None
             s[f"tcp_{ns}"] = states
+            s[f"retrans_{ns}"] = retransmitted(ns)
+            s[f"outsegs_{ns}"] = retransmitted(ns, "OutSegs")
+            if congestion:
+                s.setdefault("congestion", {})[
+                    "client" if ns == CLIENT_NS else "server"] = congestion
         return s
 
     def run(self):
@@ -398,6 +460,225 @@ class Sampler:
     def stop(self):
         self.stop_.set()
         self.t.join()
+
+
+def port(addr):
+    """The port of an ss address, `10.95.0.2:8443` or `[::1]:8443`."""
+    tail = addr.rsplit(":", 1)[-1]
+    return int(tail) if tail.isdigit() else None
+
+
+def link_socket(ns, fields):
+    """What an established socket of `ns` (an ss line's fields) carries over
+    the shaped link: "proxied", the client's to the protocol server or the
+    server's accepted one; "direct", the traffic tool's own to its server
+    with no proxy between (coexist), either end; or None."""
+    if len(fields) < 5:
+        return None
+    # A dual-stack listener's (the traffic tool's) shows IPv4 as [::ffff:a.b.c.d].
+    local, peer = (re.sub(r"^\[::ffff:([\d.]+)\]", r"\1", a) for a in fields[3:5])
+    if port(peer if ns == CLIENT_NS else local) in PROXY_PORTS:
+        return "proxied"
+    # The protocol server's own connections to the traffic tool's server
+    # stay inside its namespace; the direct flows' come from the client's.
+    if ns == CLIENT_NS and peer.startswith(SERVER_ADDR + ":") and port(peer) in DIRECT_PORTS:
+        return "direct"
+    if ns == SERVER_NS and port(local) in DIRECT_PORTS and peer.startswith(CLIENT_ADDR + ":"):
+        return "direct"
+    return None
+
+
+def rate_mbps(text):
+    """An ss rate, `480Mbps`, `1.2Gbps`, `800Kbps` or `95bps`, in Mbit/s."""
+    m = re.fullmatch(r"([\d.]+)([KMG]?)bps", text or "")
+    if not m:
+        return None
+    return float(m.group(1)) * {"": 1e-6, "K": 1e-3, "M": 1, "G": 1e3}[m.group(2)]
+
+
+def socket_state(line):
+    """Where a socket's sender stands, from its ss -i details: bytes acked,
+    its pacing and delivery rates, window and RTT, and BBR's own estimate
+    (bw, min RTT, the gains that say its phase: 2.89 startup, 0.35 drain,
+    1.25/0.75/1 probing bandwidth, a window of 4 probing RTT)."""
+    out = {}
+    for key, pat, conv in (("bytes_acked", r"bytes_acked:(\d+)", int),
+                           ("cwnd", r"\bcwnd:(\d+)", int),
+                           ("rtt_ms", r"\brtt:([\d.]+)/", float),
+                           ("pacing_mbps", r"pacing_rate (\S+)", rate_mbps),
+                           ("delivery_mbps", r"delivery_rate (\S+)", rate_mbps),
+                           ("retrans", r"\bretrans:\d+/(\d+)", int)):
+        m = re.search(pat, line)
+        if m:
+            out[key] = conv(m.group(1))
+    m = re.search(r"bbr:\(bw:(\S+?),mrtt:([\d.]+)(?:,pacing_gain:([\d.]+))?"
+                  r"(?:,cwnd_gain:([\d.]+))?\)", line)
+    if m:
+        out.update(bbr_bw_mbps=rate_mbps(m.group(1)), bbr_mrtt_ms=float(m.group(2)))
+        if m.group(3):
+            out["bbr_pacing_gain"] = float(m.group(3))
+        if m.group(4):
+            out["bbr_cwnd_gain"] = float(m.group(4))
+    return out
+
+
+def retransmitted(ns, counter="RetransSegs"):
+    """The TCP segments `ns` has retransmitted so far (TcpRetransSegs), or
+    another counter of its Tcp: line (OutSegs, all it sent), each namespace
+    counting its own."""
+    out = sh(in_ns(ns, "cat /proc/net/snmp"), check=False).stdout.splitlines()
+    tcp = [line.split()[1:] for line in out if line.startswith("Tcp:")]
+    if len(tcp) == 2 and counter in tcp[0]:
+        return int(tcp[1][tcp[0].index(counter)])
+    return None
+
+
+def retransmits(before, after, what="retrans"):
+    """Each side's retransmitted segments between two samples, or (what
+    "outsegs") all it sent."""
+    out = {}
+    for side, ns in (("client", CLIENT_NS), ("server", SERVER_NS)):
+        b, a = before.get(f"{what}_{ns}"), after.get(f"{what}_{ns}")
+        if b is not None and a is not None:
+            out[side] = a - b
+    return out
+
+
+def tcp_ext(ns):
+    """`ns`'s TcpExt counters (/proc/net/netstat): what its retransmits
+    were, a timeout, a loss probe, a reordering, a spurious one."""
+    out = sh(in_ns(ns, "cat /proc/net/netstat"), check=False).stdout.splitlines()
+    ext = [line.split()[1:] for line in out if line.startswith("TcpExt:")]
+    if len(ext) == 2:
+        return {k: int(v) for k, v in zip(*ext)}
+    return {}
+
+
+def qdisc_dropped(ns):
+    """The packets the shaping qdiscs of `ns` have dropped so far: a full
+    netem queue's."""
+    out = sh(in_ns(ns, "tc -s qdisc show"), check=False).stdout
+    return sum(int(n) for n in re.findall(r"\(dropped (\d+),", out))
+
+
+def backlog_dropped():
+    """The packets the host's CPUs have dropped from a full input backlog
+    so far (/proc/net/softnet_stat, the second column; the host's, not a
+    namespace's): where a veth's burst goes past netdev_max_backlog."""
+    try:
+        return sum(int(line.split()[1], 16) for line in open("/proc/net/softnet_stat"))
+    except (OSError, IndexError, ValueError):
+        return None
+
+
+def link_counters():
+    """Both namespaces' TcpExt counters and qdisc drops, and the host's
+    backlog drops, at one moment."""
+    out = {side: {"ext": tcp_ext(ns), "dropped": qdisc_dropped(ns)}
+           for side, ns in (("client", CLIENT_NS), ("server", SERVER_NS))}
+    out["host"] = {"ext": {}, "dropped": backlog_dropped()}
+    return out
+
+
+def link_delta(before, after):
+    """What happened on each side between two link_counters(): the TcpExt
+    counters that moved, and the qdisc's drops."""
+    out = {}
+    for side in before:
+        b, a = before[side], after[side]
+        ext = {k: v - b["ext"].get(k, 0) for k, v in a["ext"].items()
+               if v != b["ext"].get(k, 0)}
+        dropped = (a["dropped"] - b["dropped"]
+                   if a["dropped"] is not None and b["dropped"] is not None else None)
+        out[side] = ({"backlog_dropped": dropped} if side == "host" else
+                     {"tcpext": ext, "qdisc_dropped": dropped})
+    return out
+
+
+def sender_state(samples, side, kind="proxied"):
+    """How the sending side's sockets of `kind` stood over `samples`, a
+    second at a time: their summed pacing and delivery rates, BBR's summed
+    bandwidth estimate and its gains, the median RTT, minimum RTT and
+    window. The low and the high rounds of one cell, set side by side."""
+    series = []
+    t0 = samples[0]["t"] if samples else 0
+    for s in samples:
+        socks = [x for x in s.get("socks", []) if x["side"] == side and x["kind"] == kind]
+        if not socks:
+            continue
+
+        def total(key):
+            vals = [x[key] for x in socks if x.get(key) is not None]
+            return round(sum(vals), 1) if vals else None
+
+        def middle(key):
+            vals = [x[key] for x in socks if x.get(key) is not None]
+            return round(statistics.median(vals), 2) if vals else None
+        series.append({"t": round(s["t"] - t0, 1), "n": len(socks),
+                       "pacing": total("pacing_mbps"), "delivery": total("delivery_mbps"),
+                       "bw": total("bbr_bw_mbps"), "rtt": middle("rtt_ms"),
+                       "mrtt": middle("bbr_mrtt_ms"), "cwnd": middle("cwnd"),
+                       "gains": sorted({x["bbr_pacing_gain"] for x in socks
+                                        if "bbr_pacing_gain" in x})})
+    return series
+
+
+def flow_port(x):
+    """The traffic tool's server port a sampled direct socket goes to."""
+    local, peer = x["key"].split(">")
+    return port(peer if x["side"] == "client" else local)
+
+
+def shares(samples, side, label):
+    """The bytes two flows, A and B, had acked between COEXIST_SKIP_S into
+    the transfers and the first of them to end, the sending side's: the
+    link's share each took while both ran. `label` names a sampled socket's
+    flow, "a", "b" or None."""
+    both = []
+    for s in samples:
+        acked = {}
+        for x in s.get("socks", []):
+            f = label(x) if x["side"] == side and "bytes_acked" in x else None
+            if f:
+                acked[f] = acked.get(f, 0) + x["bytes_acked"]
+        if "a" in acked and "b" in acked:
+            both.append((s["t"], acked))
+        elif both:
+            break
+    if len(both) < 2:
+        return None
+    start = next((b for b in both if b[0] >= both[0][0] + COEXIST_SKIP_S), both[0])
+    end = both[-1]
+    secs = end[0] - start[0]
+    a = end[1]["a"] - start[1]["a"]
+    b = end[1]["b"] - start[1]["b"]
+    if secs <= 0 or a + b <= 0:
+        return None
+    return {"a": round(a / (a + b), 3), "a_mbps": round(a * 8 / secs / 1e6, 1),
+            "b_mbps": round(b * 8 / secs / 1e6, 1), "seconds": round(secs, 1)}
+
+
+def congestion(samples):
+    """The congestion controls the proxied connections were seen with, each
+    side's, over `samples`: the most connections at once with each."""
+    seen = {}
+    for sample in samples:
+        for side, counts in sample.get("congestion", {}).items():
+            for cc, n in counts.items():
+                seen.setdefault(side, {})[cc] = max(n, seen.get(side, {}).get(cc, 0))
+    return seen
+
+
+def host_congestion():
+    """The system's congestion control, as each namespace has it: what a
+    side that does not choose its own per socket runs."""
+    out = {}
+    for where, cmd in (("host", ""), ("client_ns", CLIENT_NS), ("server_ns", SERVER_NS)):
+        for key in ("tcp_congestion_control", "tcp_available_congestion_control"):
+            read = f"sysctl -n net.ipv4.{key}"
+            res = sh(in_ns(cmd, read) if cmd else read, check=False)
+            out.setdefault(where, {})[key] = res.stdout.strip()
+    return out
 
 
 def proc_ticks(proc):
@@ -447,10 +728,14 @@ class Run:
         self.failures = []
         self.procs = {}
 
-    def netgen(self, mode, *flags, timeout=600, spread=False):
-        proxy = f"-proxy {SOCKS} " if self.args.inbound == "socks" else ""
+    def netgen(self, mode, *flags, timeout=600, spread=False, direct=None):
+        """`direct`, the port of the traffic tool's server to dial with no
+        proxy between."""
+        proxy = f"-proxy {SOCKS} " if self.args.inbound == "socks" and not direct else ""
         target = (TARGET if self.args.inbound == "socks" and self.args.only != "route_switch"
                   else FAR_TARGET)
+        if direct:
+            target = f"{SERVER_ADDR}:{direct}"
         to = f"-target {target}"
         if spread:
             host = target.rsplit(":", 1)[0]
@@ -577,6 +862,8 @@ class Run:
                "cold": self.cold,
                "rss_peak_kb": peak(samples, "rss_kb"),
                "fds_peak": peak(samples, "fds"),
+               "congestion": congestion(samples),
+               "retrans": retransmits(samples[0], samples[-1]) if samples else {},
                "idle_before": idle_before, "idle_after": idle_after,
                "client_alive": self.procs["client"].alive()}
         self.cold = False
@@ -630,7 +917,9 @@ class Run:
                 m = sampler.mark()
                 before = sampler.one()
                 srv0 = proc_ticks(self.procs.get("server"))
+                link0 = link_counters()
                 res = self.netgen(workload.split("_")[0], *flags)
+                link1 = link_counters()
                 srv1 = proc_ticks(self.procs.get("server"))
                 after = sampler.one()
                 rec = self.record(scenario, workload, res, sampler.since(m), idle_before,
@@ -653,6 +942,13 @@ class Run:
                         if key in rec:
                             res[f"{'client_' if key == 'cpu_s' else ''}{key}_per_gib"] = \
                                 round(rec[key] / gib, 3)
+                rec["retrans"] = retransmits(before, after)
+                rec["outsegs"] = retransmits(before, after, "outsegs")
+                rec["link"] = link_delta(link0, link1)
+                if workload.startswith("bulk"):
+                    rec["sender"] = sender_state(
+                        [before] + sampler.since(m) + [after],
+                        "client" if workload == "bulk_up" else "server")
                 rec["round"] = round_ + 1
                 self.check(scenario, workload, res)
                 print(f"  {self.name} {scenario} {workload}: {brief(res)}", flush=True)
@@ -676,6 +972,56 @@ class Run:
             for name, v in spread.items():
                 print(f"  {self.name} {scenario} {name}: median {v['median']:.2f} "
                       f"(min {v['min']:.2f}, max {v['max']:.2f}, n {v['n']})", flush=True)
+
+    def coexist(self, sampler, scenario):
+        """Two flows started together, each way: A through the proxy beside
+        B direct (the kernel's congestion control), and with --coexist-refs
+        in the sing-box pair's run two direct ones, cubic or bbr beside
+        cubic. The share of the link A takes while both run (shares), and
+        how each sender stood."""
+        port_b = port(TARGET)
+        pairs = [("", None, lambda x: {"proxied": "a", "direct": "b"}.get(x["kind"]))]
+        if self.args.coexist_refs and getattr(self, "pair", "sb>sb") == "sb>sb":
+            for cc, port_a in REF_PORTS.items():
+                pairs.append((f"_ref_{cc}", port_a,
+                              lambda x, p=port_a: x["kind"] == "direct" and (
+                                  "a" if flow_port(x) == p else "b" if flow_port(x) == port_b
+                                  else None)))
+        for round_ in range(self.args.rounds):
+            for tag, port_a, label in pairs:
+                for way in ("up", "down"):
+                    workload = f"coexist{tag}_{way}"
+                    idle_before = self.idle(sampler, settle=1)
+                    flags = ["-streams 1", f"-bytes {COEXIST_BYTES}", f"-dir {way}"]
+                    flags_a = flags + (["-cc bbr"] if port_a == REF_PORTS["bbr"] else [])
+                    m = sampler.mark()
+                    before = sampler.one()
+                    link0 = link_counters()
+                    got = {}
+                    t = threading.Thread(
+                        target=lambda: got.update(b=self.netgen("bulk", *flags, direct=port_b)))
+                    t.start()
+                    got["a"] = self.netgen("bulk", *flags_a, direct=port_a)
+                    t.join()
+                    after = sampler.one()
+                    side = "client" if way == "up" else "server"
+                    samples = [before] + sampler.since(m) + [after]
+                    res = {"ok": sum(r.get("ok", 0) for r in got.values()),
+                           "failed": sum(r.get("failed", 0) for r in got.values()),
+                           "corrupt": sum(r.get("corrupt", 0) for r in got.values()),
+                           "a": got["a"], "b": got["b"], "shares": shares(samples, side, label)}
+                    rec = self.record(scenario, workload, res, sampler.since(m), idle_before,
+                                      self.idle(sampler, settle=2))
+                    rec["retrans"] = retransmits(before, after)
+                    rec["outsegs"] = retransmits(before, after, "outsegs")
+                    rec["link"] = link_delta(link0, link_counters())
+                    flows = [dict(s, socks=[dict(x, kind=label(x)) for x in s.get("socks", [])])
+                             for s in samples]
+                    rec["sender"] = {f: sender_state(flows, side, f) for f in ("a", "b")}
+                    rec["round"] = round_ + 1
+                    self.check(scenario, workload, res)
+                    print(f"  {self.name} {scenario} {workload}: shares {res['shares']}",
+                          flush=True)
 
     def disconnect(self, sampler, scenario, outage, how):
         """A probe runs across an outage; recovery is the time from the
@@ -894,9 +1240,18 @@ class Run:
         idle_before = self.idle(sampler, settle=2)
         m = sampler.mark()
         hold = 10 if self.args.quick else 20
+        before, srv0 = sampler.one(), proc_ticks(self.procs.get("server"))
         res = self.netgen("concurrent", f"-conns {CONCURRENT}", f"-hold {hold}s")
+        after, srv1 = sampler.one(), proc_ticks(self.procs.get("server"))
         rec = self.record("concurrency", "concurrent", res, sampler.since(m), idle_before,
                           self.idle(sampler, settle=10))
+        # The cost of holding them, each side's, and what the link resent.
+        rec["retrans"] = retransmits(before, after)
+        if before.get("pid") == after.get("pid") and "cpu_ticks" in before \
+                and "cpu_ticks" in after:
+            rec["cpu_s"] = (after["cpu_ticks"] - before["cpu_ticks"]) / os.sysconf("SC_CLK_TCK")
+        if srv0 and srv1 and srv0[0] == srv1[0]:
+            rec["server_cpu_s"] = (srv1[1] - srv0[1]) / os.sysconf("SC_CLK_TCK")
         if res.get("established") != CONCURRENT or res.get("survived") != CONCURRENT:
             self.fail(f"concurrency: {res.get('established')} established, "
                       f"{res.get('survived')} survived of {CONCURRENT}")
@@ -944,6 +1299,11 @@ class Run:
             netns("shape", spec) if spec else netns("clear")
             self.workloads(sampler, scenario)
         netns("clear")
+        for scenario, spec in COEXIST:
+            if any(o in scenario for o in self.args.only_list):
+                netns("shape", spec)
+                self.coexist(sampler, scenario)
+                netns("clear")
         if not self.args.only or any("disconnect" in o for o in self.args.only_list):
             self.disconnect(sampler, "blackhole5", 5, "blackhole")
             self.disconnect(sampler, "blackhole30", 30, "blackhole")
@@ -1041,11 +1401,16 @@ def parse_network_changed(line):
     return fields
 
 
+# The system's congestion control, read once the namespaces are up.
+HOST_CONGESTION = {}
+
+
 def write_summary(out, summaries):
     """The runs, under a schema version that a reader (tools/perf) checks."""
     path = os.path.join(out, "summary.json")
     with open(path + ".tmp", "w") as f:
-        json.dump({"schema": 1, "runs": summaries}, f, indent=1)
+        json.dump({"schema": 1, "congestion": HOST_CONGESTION, "runs": summaries}, f,
+                  indent=1)
     os.replace(path + ".tmp", path)
 
 
@@ -1120,9 +1485,10 @@ def main():
     ap.add_argument("--shape", action="append", default=[], metavar="NAME=SPEC",
                     help="a shaped scenario of one's own, after the fixed ones: NAME, and "
                          "what `tc qdisc ... netem` takes, e.g. rtt100='delay 50ms 5ms "
-                         "distribution normal'; a rate needs its own limit (about 100 ms of "
-                         "queue, as the fixed rate10m's 'limit 420'), or netns.sh gives it "
-                         "100000 packets; with --only NAME, the only one run")
+                         "distribution normal'; a rate with a limit is a bottleneck whose queue "
+                         "holds that many 1500-byte packets (the fixed rate10m's 'limit 420', "
+                         "about half a second), a rate alone only keeps the packets in order; "
+                         "with --only NAME, the only one run")
     ap.add_argument("--churn-rates", default="200,500", metavar="LIST",
                     help="the new connections a second of the concurrency scenario's churn "
                          "phases, 30 s each (10 with --quick), comma-separated")
@@ -1134,6 +1500,9 @@ def main():
     ap.add_argument("--quick", action="store_true")
     ap.add_argument("--bulk-only", action="store_true",
                     help="of the workloads, bulk down and up only")
+    ap.add_argument("--coexist-refs", action="store_true",
+                    help="coexist: also two direct flows, cubic and bbr each beside cubic, "
+                         "in the sing-box pair's run")
     ap.add_argument("--netgen-cpus", default=None, metavar="LIST",
                     help="CPUs for the traffic tool at both ends, apart from the client's "
                          "and the server's; at least 4 for multi-Gbit cells (with 2, every "
@@ -1257,6 +1626,8 @@ def main():
            f"-keyout {args.work}/key.pem -out {args.work}/cert.pem")
 
     netns("up")
+    HOST_CONGESTION.update(host_congestion())
+    print(f"== congestion control: {json.dumps(HOST_CONGESTION)}", flush=True)
     summaries = []
     if args.matrix:
         try:

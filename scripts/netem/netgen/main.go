@@ -4,7 +4,7 @@
 // checks it: a corrupted, short or reordered transfer is counted, not
 // missed.
 //
-//	netgen serve -listen 10.95.0.2:9000[,10.95.0.2:9001,...]
+//	netgen serve -listen 10.95.0.2:9000[,10.95.0.2:9001,...][,10.95.0.2:9100/bbr]
 //	netgen bulk       -proxy P -target T -streams 8 -bytes 67108864 -dir down|up
 //	netgen echo       -proxy P -target T -conns 16 -rounds 200 -size 4096
 //	netgen setup      -proxy P -target T -n 500
@@ -14,11 +14,14 @@
 //	netgen halfclose  -proxy P -target T -n 50 -bytes 1048576
 //	netgen probe      -proxy P -target T -duration 60s -interval 100ms
 //
-// Without -proxy it dials the target directly. Every client mode prints one
-// JSON object on stdout.
+// Without -proxy it dials the target directly. -cc gives the connections a
+// client mode dials a congestion control of their own, and a listen address
+// ending in /NAME its accepted connections (Linux). Every client mode prints
+// one JSON object on stdout.
 package main
 
 import (
+	"context"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -33,6 +36,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 )
 
@@ -48,6 +52,20 @@ const (
 
 // timeout bounds every single operation of a client mode.
 var timeout = 10 * time.Second
+
+// congestion, if set, is what the connections a client mode dials use.
+var congestion string
+
+// withCongestion sets `name` on a socket about to connect or listen; none
+// if empty.
+func withCongestion(name string) func(string, string, syscall.RawConn) error {
+	return func(_, _ string, c syscall.RawConn) error {
+		if name == "" {
+			return nil
+		}
+		return setCongestion(c, name)
+	}
+}
 
 // ackTimeout bounds the wait for an upload's verdict once all of it is
 // written: the buffers on the way may hold seconds of it on a slow link.
@@ -76,6 +94,7 @@ func main() {
 	duration := fs.Duration("duration", 30*time.Second, "churn/probe: how long")
 	interval := fs.Duration("interval", 100*time.Millisecond, "probe: between attempts")
 	fs.DurationVar(&timeout, "timeout", 10*time.Second, "per-operation timeout")
+	fs.StringVar(&congestion, "cc", "", "client modes: the congestion control of the connections dialed (Linux); empty, the system's")
 	fs.Parse(os.Args[2:])
 
 	d := dialer{proxy: *proxy, target: *target}
@@ -243,7 +262,9 @@ func closeWrite(c net.Conn) error {
 func serve(addrs []string) error {
 	errs := make(chan error, len(addrs))
 	for _, addr := range addrs {
-		ln, err := net.Listen("tcp", addr)
+		addr, cc, _ := strings.Cut(addr, "/")
+		lc := net.ListenConfig{Control: withCongestion(cc)}
+		ln, err := lc.Listen(context.Background(), "tcp", addr)
 		if err != nil {
 			return err
 		}
@@ -327,8 +348,9 @@ func verdict(err error) byte {
 type dialer struct{ proxy, target string }
 
 func (d dialer) dial() (net.Conn, error) {
+	nd := net.Dialer{Timeout: timeout, Control: withCongestion(congestion)}
 	if d.proxy == "" {
-		return net.DialTimeout("tcp", d.target, timeout)
+		return nd.Dial("tcp", d.target)
 	}
 	host, portStr, err := net.SplitHostPort(d.target)
 	if err != nil {
@@ -342,7 +364,7 @@ func (d dialer) dial() (net.Conn, error) {
 	if ip == nil {
 		return nil, errors.New("target must be an IPv4 address")
 	}
-	c, err := net.DialTimeout("tcp", d.proxy, timeout)
+	c, err := nd.Dial("tcp", d.proxy)
 	if err != nil {
 		return nil, err
 	}

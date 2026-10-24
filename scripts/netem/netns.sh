@@ -11,7 +11,12 @@
 #                                 loss 2%
 #                                 loss gemodel 1% 30% 70% 0.1%
 #                                 delay 10ms reorder 25% 50%
-#                               with "rate 10mbit" it limits the rate too
+#                               with "rate 10mbit" it limits the rate too, and
+#                               "rate 10mbit limit 420" gives that rate a queue
+#                               of 420 full-size packets (bottleneck)
+#   netns.sh bottleneck RATE BYTES SPEC...
+#                               SPEC as for shape (a delay), then a queue of
+#                               BYTES draining at RATE, each direction
 #   netns.sh clear              no shaping
 #   netns.sh blackhole          drop everything, both ways (the link stays up)
 #   netns.sh linkdown|linkup    the veth pair down or up
@@ -93,6 +98,29 @@ release() {
   done
 }
 
+# bottleneck RATE BYTES SPEC...: netem's SPEC (a delay), then a queue of
+# BYTES draining at RATE. netem's own limit counts the packets TCP hands it,
+# GSO ones of several segments whatever the device's offloads (3.6 MB at
+# "limit 330", 2026-10-25), so the queue is tbf's, whose limit is bytes; it
+# segments a GSO packet larger than its burst, a millisecond at the rate
+# (two packets at least).
+bottleneck() {
+  b_rate=$1
+  b_bytes=$2
+  shift 2
+  b_bps=$(echo "$b_rate" | awk '{ n = $0 + 0; u = tolower($0); sub(/^[0-9.]+/, "", u)
+    m = u == "gbit" ? 1e9 : u == "mbit" ? 1e6 : u == "kbit" ? 1e3 : 1; printf "%d", n * m }')
+  b_burst=$((b_bps / 8000))
+  [ "$b_burst" -ge 3000 ] || b_burst=3000
+  for end in "$C $CV0" "$S $SV0"; do
+    ns=${end% *}
+    dev=${end#* }
+    ip netns exec $ns tc qdisc del dev $dev root 2>/dev/null || true
+    ip netns exec $ns tc qdisc add dev $dev root handle 1: netem "$@" limit 100000
+    ip netns exec $ns tc qdisc add dev $dev parent 1:1 handle 10: tbf rate "$b_rate" burst $b_burst limit "$b_bytes"
+  done
+}
+
 case "$1" in
 up)
   claim
@@ -133,23 +161,47 @@ up)
   ip -n $S addr add $SA2/24 dev $SV1
   ip -n $C link set $CV1 up
   ip -n $S link set $SV1 up
-  # netem shapes packets as the stack hands them over: no segmentation
-  # offload, so a "packet" is one on the wire.
+  # No segmentation offload on the link. TCP still hands the qdisc GSO
+  # packets of several segments (it segments them after the qdisc, as the
+  # device cannot): netem's limit counts those, so a queue that must hold
+  # so many bytes takes bottleneck's.
   ip netns exec $C ethtool -K $CV0 tso off gso off gro off >/dev/null 2>&1 || true
   ip netns exec $S ethtool -K $SV0 tso off gso off gro off >/dev/null 2>&1 || true
   trap - EXIT
   ;;
 shape)
   shift
-  # Without a limit of its own, the queue holds whatever the delay keeps
-  # in flight; a rate-limited link names its own, or it would buffer
-  # minutes of traffic.
-  case " $* " in
-    *" limit "*) limit= ;;
-    *) limit="limit 100000" ;;
-  esac
-  ip netns exec $C tc qdisc replace dev $CV0 root netem "$@" $limit
-  ip netns exec $S tc qdisc replace dev $SV0 root netem "$@" $limit
+  # A rate with a limit is a bottleneck's queue, in packets of 1500 bytes.
+  rate=
+  limit=
+  spec=
+  while [ $# -gt 0 ]; do
+    case $1 in
+      rate) rate=$2; shift 2 ;;
+      limit) limit=$2; shift 2 ;;
+      *) spec="$spec $1"; shift ;;
+    esac
+  done
+  # Words with no spaces of their own (netem's), split again.
+  # shellcheck disable=SC2086
+  set -- $spec
+  if [ -n "$rate" ] && [ -n "$limit" ]; then
+    bottleneck "$rate" $((limit * 1500)) "$@"
+  else
+    # Without a limit of its own, the queue holds whatever the delay keeps
+    # in flight. A rate alone keeps netem's packets in order (a jitter's).
+    ip netns exec $C tc qdisc del dev $CV0 root 2>/dev/null || true
+    ip netns exec $S tc qdisc del dev $SV0 root 2>/dev/null || true
+    ip netns exec $C tc qdisc add dev $CV0 root netem "$@" ${rate:+rate $rate} limit ${limit:-100000}
+    ip netns exec $S tc qdisc add dev $SV0 root netem "$@" ${rate:+rate $rate} limit ${limit:-100000}
+  fi
+  ;;
+bottleneck)
+  shift
+  rate=$1
+  bytes=$2
+  shift 2
+  bottleneck "$rate" "$bytes" "$@"
   ;;
 clear)
   ip netns exec $C tc qdisc del dev $CV0 root 2>/dev/null || true
