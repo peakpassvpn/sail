@@ -302,7 +302,7 @@ pub struct SingleShardRunner<I> {
     closing_until_ms: Option<u64>,
     tx_pending_limit: usize,
     tcp_timers: TimerWheel<ScheduledTcpTimer>,
-    tcp_timer_ids: crate::FlowMap<(TcpFlowToken, TimerEvent), (TimerId, u64)>,
+    tcp_timer_ids: crate::FlowMap<(TcpFlowToken, TimerEvent), ArmedTcpTimer>,
     next_timer_serial: u64,
     timer_tick_ms: u64,
     packets_per_step: usize,
@@ -411,6 +411,21 @@ async fn await_io<F: Future>(future: F, wakeups: &mut u64) -> F::Output {
         future.as_mut().poll(context)
     })
     .await
+}
+
+/// A TCP timer as the flow last set it, and the wheel entry standing for
+/// it. A flow re-arms its retransmission, delayed-ACK and keepalive timers
+/// on most segments it takes; one re-armed later keeps its entry, which
+/// moves on to `due_ms` when it fires, and one disarmed keeps it too, to be
+/// dropped then: a segment costs a lookup, not a cancel and a schedule.
+#[derive(Clone, Copy, Debug)]
+struct ArmedTcpTimer {
+    id: TimerId,
+    serial: u64,
+    /// When the wheel entry fires.
+    wheel_ms: u64,
+    /// When the timer is due, or `None` once disarmed.
+    due_ms: Option<u64>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -897,7 +912,10 @@ impl<I: PacketIo> SingleShardRunner<I> {
 
     #[must_use]
     pub fn pending_tcp_timers(&self) -> usize {
-        self.tcp_timers.len()
+        self.tcp_timer_ids
+            .values()
+            .filter(|armed| armed.due_ms.is_some())
+            .count()
     }
 
     /// Copies the current bounded diagnostic history. Tracing is disabled
@@ -2232,7 +2250,7 @@ impl<I: PacketIo> SingleShardRunner<I> {
         now_ms: u64,
     ) -> Result<(), RunnerError> {
         for cancellation in cancellations {
-            self.cancel_tcp_timer(cancellation.token, cancellation.event);
+            self.disarm_tcp_timer(cancellation.token, cancellation.event);
         }
         for event in events {
             if let TcpEvent::Closed(token) = *event {
@@ -2255,23 +2273,46 @@ impl<I: PacketIo> SingleShardRunner<I> {
         request: TcpTimerRequest,
         now_ms: u64,
     ) -> Result<(), RunnerError> {
-        self.cancel_tcp_timer(request.token, request.event);
-        let serial = self.next_timer_serial;
-        self.next_timer_serial = self.next_timer_serial.wrapping_add(1);
         let deadline_ms = now_ms
             .checked_add(request.after_ms)
             .ok_or(TimerError::DeadlineOutOfRange)?;
+        let key = (request.token, request.event);
+        if let Some(armed) = self.tcp_timer_ids.get_mut(&key) {
+            if armed.wheel_ms <= deadline_ms {
+                armed.due_ms = Some(deadline_ms);
+                return Ok(());
+            }
+            self.tcp_timers.cancel(armed.id);
+        }
+        let serial = self.next_timer_serial;
+        self.next_timer_serial = self.next_timer_serial.wrapping_add(1);
         let id = self
             .tcp_timers
             .schedule(deadline_ms, ScheduledTcpTimer { request, serial })?;
-        self.tcp_timer_ids
-            .insert((request.token, request.event), (id, serial));
+        self.tcp_timer_ids.insert(
+            key,
+            ArmedTcpTimer {
+                id,
+                serial,
+                wheel_ms: deadline_ms,
+                due_ms: Some(deadline_ms),
+            },
+        );
         Ok(())
     }
 
+    /// Disarms a timer the flow no longer wants; its wheel entry goes when
+    /// it fires, unless the flow re-arms it first.
+    fn disarm_tcp_timer(&mut self, token: TcpFlowToken, event: TimerEvent) {
+        if let Some(armed) = self.tcp_timer_ids.get_mut(&(token, event)) {
+            armed.due_ms = None;
+        }
+    }
+
+    /// Removes a timer and its wheel entry, for a flow that is gone.
     fn cancel_tcp_timer(&mut self, token: TcpFlowToken, event: TimerEvent) {
-        if let Some((id, _)) = self.tcp_timer_ids.remove(&(token, event)) {
-            self.tcp_timers.cancel(id);
+        if let Some(armed) = self.tcp_timer_ids.remove(&(token, event)) {
+            self.tcp_timers.cancel(armed.id);
         }
     }
 
@@ -2289,12 +2330,24 @@ impl<I: PacketIo> SingleShardRunner<I> {
         let expired = self.tcp_timers.advance_to(now_ms)?;
         for scheduled in expired {
             let key = (scheduled.request.token, scheduled.request.event);
-            let is_current = self
-                .tcp_timer_ids
-                .get(&key)
-                .is_some_and(|(_, serial)| *serial == scheduled.serial);
-            if !is_current {
+            let Some(armed) = self.tcp_timer_ids.get_mut(&key) else {
                 continue;
+            };
+            if armed.serial != scheduled.serial {
+                continue;
+            }
+            match armed.due_ms {
+                None => {
+                    self.tcp_timer_ids.remove(&key);
+                    continue;
+                }
+                // Re-armed later since: on to then.
+                Some(due_ms) if due_ms > now_ms => {
+                    armed.id = self.tcp_timers.schedule(due_ms, scheduled)?;
+                    armed.wheel_ms = due_ms;
+                    continue;
+                }
+                Some(_) => {}
             }
             self.tcp_timer_ids.remove(&key);
             // A retransmitted segment fits the link, whatever the ceiling.
