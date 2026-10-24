@@ -7,10 +7,23 @@
 //! lets one transfer take a large window while many connections share it,
 //! and bounds what windows can hold at once, which is what QUIC's memory
 //! goes to (sail#9).
+//!
+//! The budget follows the memory too: once a second at most, when a
+//! window asks to grow, it reads what is free (and, where it has a bound,
+//! what the process holds), and lets windows grow by no more than leaves
+//! `quic.free_memory_floor` free. It is read when asked, not on a timer:
+//! the limit only matters to a growth, and an idle process never wakes for
+//! it.
 
 use std::sync::{Arc, OnceLock};
+use std::time::{Duration, Instant};
 
 use portable_atomic::{AtomicU64, Ordering};
+
+use crate::runtime::system_memory;
+
+/// How often the memory is read, at most.
+const READ_EVERY: Duration = Duration::from_secs(1);
 
 /// The process's window budget.
 #[derive(Debug, Default)]
@@ -19,6 +32,52 @@ pub struct WindowBudget {
     held: AtomicU64,
     peak: AtomicU64,
     refused: AtomicU64,
+    memory: OnceLock<Memory>,
+}
+
+/// What the budget reads the memory with, and what it read last.
+#[derive(Debug)]
+struct Memory {
+    free: system_memory::Free,
+    floor: u64,
+    anon_max: u64,
+    start: Instant,
+    /// When to read again, in milliseconds from `start`.
+    next: AtomicU64,
+    /// What windows may hold, all together, for the memory read last.
+    limit: AtomicU64,
+    refused: AtomicU64,
+}
+
+impl Memory {
+    /// What windows may hold for the memory, read again if it was read
+    /// more than a second ago, given that they hold `held` now.
+    fn limit(&self, held: u64) -> u64 {
+        let now = self.start.elapsed().as_millis() as u64;
+        let next = self.next.load(Ordering::Relaxed);
+        if now >= next
+            && self
+                .next
+                .compare_exchange(
+                    next,
+                    now + READ_EVERY.as_millis() as u64,
+                    Ordering::Relaxed,
+                    Ordering::Relaxed,
+                )
+                .is_ok()
+        {
+            let free = (self.floor > 0).then(|| self.free.bytes()).flatten();
+            let anon = (self.anon_max > 0)
+                .then(system_memory::process_anon)
+                .flatten();
+            let room = room(free, self.floor, anon, self.anon_max);
+            self.limit.store(
+                room.map_or(u64::MAX, |room| held.saturating_add(room)),
+                Ordering::Relaxed,
+            );
+        }
+        self.limit.load(Ordering::Relaxed)
+    }
 }
 
 impl WindowBudget {
@@ -36,23 +95,40 @@ impl WindowBudget {
     pub fn refused(&self) -> u64 {
         self.refused.load(Ordering::Relaxed)
     }
+
+    /// Of those, the ones refused for want of memory.
+    pub fn refused_for_memory(&self) -> u64 {
+        self.memory
+            .get()
+            .map_or(0, |memory| memory.refused.load(Ordering::Relaxed))
+    }
 }
 
 impl quinn::WindowBudget for WindowBudget {
     fn try_grow(&self, bytes: u64) -> bool {
         let limit = self.limit.load(Ordering::Relaxed);
+        let for_memory = self
+            .memory
+            .get()
+            .map_or(u64::MAX, |memory| memory.limit(self.held()));
         let grown = self
             .held
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |held| {
-                held.checked_add(bytes).filter(|&held| held <= limit)
+                held.checked_add(bytes)
+                    .filter(|&held| held <= limit.min(for_memory))
             });
         match grown {
             Ok(held) => {
                 self.peak.fetch_max(held + bytes, Ordering::Relaxed);
                 true
             }
-            Err(_) => {
+            Err(held) => {
                 self.refused.fetch_add(1, Ordering::Relaxed);
+                if let Some(memory) = self.memory.get() {
+                    if held + bytes <= limit {
+                        memory.refused.fetch_add(1, Ordering::Relaxed);
+                    }
+                }
                 false
             }
         }
@@ -68,12 +144,43 @@ impl quinn::WindowBudget for WindowBudget {
 }
 
 /// The process's budget, at `limit` bytes from now on: what connections
-/// already hold stays theirs, and new growth is judged against it.
-pub fn window_budget(limit: u64) -> Arc<WindowBudget> {
+/// already hold stays theirs, and new growth is judged against it. It
+/// also leaves `floor` bytes of memory free and keeps the process's
+/// anonymous memory under `anon_max` (zero for neither), as the first
+/// call has them.
+pub fn window_budget(limit: u64, floor: u64, anon_max: u64) -> Arc<WindowBudget> {
     static BUDGET: OnceLock<Arc<WindowBudget>> = OnceLock::new();
     let budget = BUDGET.get_or_init(Default::default);
     budget.limit.store(limit, Ordering::Relaxed);
+    if floor > 0 || anon_max > 0 {
+        budget
+            .memory
+            .get_or_init(|| Memory::new(system_memory::Free::new(), floor, anon_max));
+    }
     budget.clone()
+}
+
+/// What windows may grow by for the memory: what is `free` beyond the
+/// `floor`, and what the process's `anon` memory is short of `anon_max`;
+/// none when neither is known.
+fn room(free: Option<u64>, floor: u64, anon: Option<u64>, anon_max: u64) -> Option<u64> {
+    let free = free.map(|free| free.saturating_sub(floor));
+    let anon = anon.map(|anon| anon_max.saturating_sub(anon));
+    free.into_iter().chain(anon).min()
+}
+
+impl Memory {
+    fn new(free: system_memory::Free, floor: u64, anon_max: u64) -> Self {
+        Self {
+            free,
+            floor,
+            anon_max,
+            start: Instant::now(),
+            next: AtomicU64::new(0),
+            limit: AtomicU64::new(u64::MAX),
+            refused: AtomicU64::new(0),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -95,5 +202,40 @@ mod tests {
         budget.release(70);
         assert!(budget.try_grow(41));
         assert_eq!((budget.held(), budget.peak()), (71, 100));
+    }
+
+    #[test]
+    fn the_room_is_the_least_of_the_free_memory_s_and_the_process_s() {
+        assert_eq!(room(Some(100), 30, None, 0), Some(70));
+        assert_eq!(room(Some(20), 30, None, 0), Some(0));
+        assert_eq!(room(None, 0, Some(35), 40), Some(5));
+        assert_eq!(room(Some(100), 30, Some(45), 40), Some(0));
+        assert_eq!(room(None, 30, None, 40), None);
+    }
+
+    /// Below the floor, windows that grew keep what they have, and no
+    /// more growth is given until a read finds the memory again.
+    #[test]
+    fn below_the_floor_windows_stop_growing() {
+        let budget = WindowBudget::default();
+        budget.limit.store(1000, Ordering::Relaxed);
+        assert!(budget.try_grow(100));
+        let memory = budget.memory.get_or_init(|| {
+            let mut memory = Memory::new(system_memory::Free::default(), 0, 0);
+            // As read: the floor reached, with 100 held.
+            memory.next = AtomicU64::new(u64::MAX);
+            memory.limit = AtomicU64::new(100);
+            memory
+        });
+        assert!(!budget.try_grow(1));
+        assert_eq!(
+            (budget.held(), budget.refused(), budget.refused_for_memory()),
+            (100, 1, 1)
+        );
+        // What the budget alone refuses is not the memory's.
+        memory.limit.store(u64::MAX, Ordering::Relaxed);
+        assert!(!budget.try_grow(901));
+        assert_eq!((budget.refused(), budget.refused_for_memory()), (2, 1));
+        assert!(budget.try_grow(900));
     }
 }

@@ -392,7 +392,11 @@ pub fn proxy_windows(config: &mut quinn::TransportConfig, tuning: &Tuning) {
                 kib(tuning.receive_window_max),
                 tuning.send_window_max as u64 * 1024,
             )
-            .budget(super::window_budget(tuning.window_budget as u64 * 1024)),
+            .budget(super::window_budget(
+                tuning.window_budget as u64 * 1024,
+                tuning.free_memory_floor as u64 * 1024,
+                tuning.anon_memory_max as u64 * 1024,
+            )),
         ));
 }
 

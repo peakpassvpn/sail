@@ -343,6 +343,17 @@ pub struct Quic {
     /// so that one transfer can take a large window and many share it. A
     /// window the budget cannot grow stays as it is.
     pub window_budget: usize,
+    /// The memory windows leave free, in KiB: while less than this is free
+    /// (the least of MemAvailable and the process's cgroups' limits less
+    /// their use, read at most once a second), windows grow by no more
+    /// than is free beyond it, and not at all below it. Windows that grew
+    /// keep what they have. Zero, or memory that cannot be read (outside
+    /// Linux and Android), leaves only `window_budget`.
+    pub free_memory_floor: usize,
+    /// The anonymous memory (RssAnon) past which the process's windows
+    /// stop growing, in KiB, read as `free_memory_floor`'s memory is; zero
+    /// for none.
+    pub anon_memory_max: usize,
     /// The receive buffer (`SO_RCVBUF`) asked for the UDP socket of a QUIC
     /// endpoint (Hysteria2, TUIC, the quic transport, DNS over QUIC), in
     /// KiB: the datagrams the system holds while sail is busy, and drops
@@ -570,6 +581,10 @@ impl RuntimeOptions {
                 receive_window_max: 64 << 10,
                 send_window_max: 32 << 10,
                 window_budget: 256 << 10,
+                // Judgments: what a desktop's other programs may want
+                // next, and no bound of its own.
+                free_memory_floor: 128 << 10,
+                anon_memory_max: 0,
                 // 7 MiB to receive, quic-go's. In Linux's 208 KiB a sender
                 // at some hundred Mbit/s on a path of 50 or 150 ms lost
                 // every fourth batch of datagrams, and a Hysteria2
@@ -661,6 +676,13 @@ impl RuntimeOptions {
                     receive_window_max: 32 << 10,
                     send_window_max: 16 << 10,
                     window_budget: 24 << 10,
+                    // A judgment: Android kills background apps before
+                    // MemAvailable runs out.
+                    free_memory_floor: 64 << 10,
+                    // Clear of the 50 MB: four streams cold peaked at
+                    // 41.4 MB with it, 42.1 without, as fast (measured,
+                    // glibc, sail#9).
+                    anon_memory_max: 40 << 10,
                     // A judgment: a phone's links are not those the
                     // 7 MiB was measured for, and its memory is short.
                     udp_receive_buffer: 1024,
@@ -766,7 +788,15 @@ impl RuntimeOptions {
                     stream_window_max: 4 << 10,
                     receive_window_max: 16 << 10,
                     send_window_max: 8 << 10,
-                    window_budget: 12 << 10,
+                    // At most; `window_budget_for` the memory, 16 MiB at
+                    // 64 MiB.
+                    window_budget: 64 << 10,
+                    // The 16 MiB a router keeps to spare. With 16 MiB
+                    // taken by another process first, no budget was
+                    // killed in 64 MiB, and uploads at 150 and 300 ms were
+                    // held to 0.7 to 0.9 of what a 12 MiB budget without
+                    // it carried (measured, sail#9).
+                    free_memory_floor: 16 << 10,
                     // As mobile's.
                     udp_receive_buffer: 1024,
                     ..desktop.quic
@@ -884,22 +914,40 @@ impl RuntimeOptions {
         Ok(())
     }
 
-    /// The router profile's sessions, `inbound.max_connections`, lowered
-    /// to `router_sessions` of `memory`, the system's in bytes, where that
-    /// is fewer; nothing on other profiles, or when the memory is unknown.
+    /// What `memory`, in bytes, the system's or its cgroup's, carries:
+    /// the QUIC window budget lowered to `window_budget_for` it, and the
+    /// router profile's sessions, `inbound.max_connections`, to
+    /// `router_sessions` of it, where those are less; nothing when the
+    /// memory is unknown.
     pub fn fit_to_memory(&mut self, memory: Option<u64>) {
-        let Some(mib) = memory
-            .filter(|_| self.profile == Profile::Router)
-            .map(|bytes| bytes >> 20)
-        else {
+        let Some(mib) = memory.map(|bytes| bytes >> 20) else {
             return;
         };
+        self.quic.window_budget = self.quic.window_budget.min(window_budget_for(mib));
+        if self.profile != Profile::Router {
+            return;
+        }
         let sessions = router_sessions(mib);
         if sessions < self.inbound.max_connections {
             self.inbound.max_connections = sessions;
             self.sessions_for_memory = Some((sessions, mib));
         }
     }
+}
+
+/// The QUIC window budget, in KiB, for `mib` MiB of memory: a quarter of
+/// it.
+///
+/// Four streams cold at 150 and 300 ms or 2% loss, the router profile in a
+/// cgroup of 64 MiB, with `quic.free_memory_floor` at 16 MiB: a 16 MiB
+/// budget peaked at 44.0 to 46.6 MiB (12 MiB: 43.2) and came down at 0.99
+/// to 1.43 times a sing-box client's, Hysteria2 at 300 ms at 1.02 and 1.11
+/// (12 MiB: 0.91 to 1.27); 24 MiB with
+/// 8 and 32 MiB windows came down faster but peaked at 56.2. In 128 MiB,
+/// 32 MiB peaked at 47.2, as fast as 16 for four streams (measured,
+/// sail#9). Between and beyond them, a judgment.
+pub fn window_budget_for(mib: u64) -> usize {
+    (mib << 8) as usize
 }
 
 /// The sessions a router of `mib` MiB of memory (MemTotal) carries at
@@ -917,33 +965,6 @@ impl RuntimeOptions {
 /// line through them (a judgment between them and beyond).
 pub fn router_sessions(mib: u64) -> usize {
     (mib.saturating_sub(20) * 2).clamp(64, 512) as usize
-}
-
-/// The memory the system has, in bytes: Linux's MemTotal; none elsewhere,
-/// or when it cannot be read.
-pub fn system_memory() -> Option<u64> {
-    #[cfg(target_os = "linux")]
-    {
-        mem_total(&std::fs::read_to_string("/proc/meminfo").ok()?)
-    }
-    #[cfg(not(target_os = "linux"))]
-    {
-        None
-    }
-}
-
-/// MemTotal of `/proc/meminfo`'s text, in bytes.
-#[cfg(any(target_os = "linux", test))]
-fn mem_total(meminfo: &str) -> Option<u64> {
-    let kib = meminfo
-        .lines()
-        .find_map(|line| line.strip_prefix("MemTotal:"))?
-        .trim()
-        .strip_suffix("kB")?
-        .trim()
-        .parse::<u64>()
-        .ok()?;
-    Some(kib << 10)
 }
 
 /// Durations as text, `10s`, both ways.
@@ -1118,6 +1139,29 @@ mod tests {
         assert_eq!(fitted(Profile::Server, mib(84)), (0, None));
     }
 
+    /// Every profile's window budget is held to a quarter of the memory;
+    /// a router's is the quarter, up to 64 MiB.
+    #[test]
+    fn the_window_budget_follows_the_memory() {
+        let budget = |profile, memory| {
+            let mut options = RuntimeOptions::profile(profile);
+            options.fit_to_memory(memory);
+            options.quic.window_budget >> 10
+        };
+        assert_eq!(budget(Profile::Router, Some(64 << 20)), 16);
+        assert_eq!(budget(Profile::Router, Some(128 << 20)), 32);
+        assert_eq!(budget(Profile::Router, Some(1 << 30)), 64);
+        assert_eq!(budget(Profile::Router, None), 64);
+        assert_eq!(budget(Profile::Mobile, Some(4 << 30)), 24);
+        assert_eq!(budget(Profile::Server, Some(2 << 30)), 512);
+        assert_eq!(budget(Profile::Desktop, Some(16 << 30)), 256);
+        // A setting wins.
+        let mut options = RuntimeOptions::profile(Profile::Router);
+        options.fit_to_memory(Some(64 << 20));
+        options.set("quic.window_budget", "12288").unwrap();
+        assert_eq!(options.quic.window_budget, 12288);
+    }
+
     /// What the user sets wins over the memory, and only that setting
     /// does.
     #[test]
@@ -1130,14 +1174,6 @@ mod tests {
         options.set("inbound.max_connections", "512").unwrap();
         assert_eq!(options.inbound.max_connections, 512);
         assert_eq!(options.sessions_for_memory, None);
-    }
-
-    #[test]
-    fn mem_total_is_read_from_meminfo() {
-        let meminfo = "MemTotal:          86464 kB\nMemFree:           46412 kB\n";
-        assert_eq!(mem_total(meminfo), Some(86464 << 10));
-        assert_eq!(mem_total("MemFree: 1 kB\n"), None);
-        assert_eq!(mem_total("MemTotal: many kB\n"), None);
     }
 
     #[test]

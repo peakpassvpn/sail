@@ -13,6 +13,7 @@ pub(crate) mod resource;
 pub(crate) mod running;
 pub mod scope;
 pub(crate) mod stamp;
+pub mod system_memory;
 pub mod teardown;
 #[cfg(feature = "auto-reload")]
 pub(crate) mod watch;
@@ -359,7 +360,7 @@ impl StartSettings {
         };
         let mut options = RuntimeOptions::profile(profile);
         // Before the settings, which win.
-        options.fit_to_memory(options::system_memory());
+        options.fit_to_memory(system_memory::total());
         options.set_all(self.set.iter().map(String::as_str))?;
         let socket_protect = self.socket_protect.map(socket_protect).transpose()?;
         Ok((
