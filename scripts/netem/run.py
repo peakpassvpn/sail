@@ -148,9 +148,13 @@ def netns(*args):
 # held behind it at once, and a burst of thousands overran the receiving
 # CPU's backlog (netdev_max_backlog): at 25 +/- 10 ms each way, BBR's
 # upload lost 2058 packets there and retransmitted 2072, none at 1gbit,
-# at about the same rate (2026-10-25). The cells with a delay this long
-# stay well under 1gbit (rtt150, BBR: 250-280 Mbit/s).
-ORDERED = "rate 1gbit"
+# at about the same rate (2026-10-25). A rate this close to the cells' own
+# caps them, as netem spaces each packet after the one ahead of it, its
+# delay included: at 1gbit, hy2 and tuic at rtt50 reached 550-600 Mbit/s,
+# 750-960 at 2gbit and 830-1010 at 4gbit, sail's downloads 10% more than
+# at 2gbit. At 4gbit, no backlog drops in rtt50 nor at 25 +/- 10 ms
+# (2026-10-25).
+ORDERED = "rate 4gbit"
 
 
 def delay(rtt_ms, jitter=0.1):
