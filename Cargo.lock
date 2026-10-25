@@ -2385,7 +2385,7 @@ checksum = "33cb294fe86a74cbcf50d4445b37da762029549ebeea341421c7c70370f86cac"
 [[package]]
 name = "quinn"
 version = "0.11.12"
-source = "git+https://github.com/peakpassvpn/quinn.git?rev=635ad5a1b20bc9152ddf219b709ff7ac10c343d8#635ad5a1b20bc9152ddf219b709ff7ac10c343d8"
+source = "git+https://github.com/peakpassvpn/quinn.git?rev=eeec8f71731a5670b364f3e8fccfd9fee73ed05f#eeec8f71731a5670b364f3e8fccfd9fee73ed05f"
 dependencies = [
  "bytes",
  "cfg_aliases",
@@ -2421,7 +2421,7 @@ dependencies = [
 [[package]]
 name = "quinn-proto"
 version = "0.11.19"
-source = "git+https://github.com/peakpassvpn/quinn.git?rev=635ad5a1b20bc9152ddf219b709ff7ac10c343d8#635ad5a1b20bc9152ddf219b709ff7ac10c343d8"
+source = "git+https://github.com/peakpassvpn/quinn.git?rev=eeec8f71731a5670b364f3e8fccfd9fee73ed05f#eeec8f71731a5670b364f3e8fccfd9fee73ed05f"
 dependencies = [
  "bytes",
  "getrandom 0.4.3",
@@ -2441,7 +2441,7 @@ dependencies = [
 [[package]]
 name = "quinn-udp"
 version = "0.5.16"
-source = "git+https://github.com/peakpassvpn/quinn.git?rev=635ad5a1b20bc9152ddf219b709ff7ac10c343d8#635ad5a1b20bc9152ddf219b709ff7ac10c343d8"
+source = "git+https://github.com/peakpassvpn/quinn.git?rev=eeec8f71731a5670b364f3e8fccfd9fee73ed05f#eeec8f71731a5670b364f3e8fccfd9fee73ed05f"
 dependencies = [
  "cfg_aliases",
  "libc",

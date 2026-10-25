@@ -12,7 +12,7 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use quinn::congestion::{BbrConfig, Controller, ControllerFactory, ControllerMetrics};
+use quinn::congestion::{BbrConfig, Controller, ControllerFactory, ControllerMetrics, SpaceId};
 use quinn_proto::RttEstimator;
 
 /// Selects the controller of one connection: BBR, or Brutal at a rate.
@@ -73,15 +73,22 @@ impl Controller for Switch {
         self.bbr.on_sent(now, bytes, last_packet_number);
     }
 
+    fn on_packet_sent(&mut self, now: Instant, bytes: u16, packet_number: u64, space: SpaceId) {
+        self.bbr.on_packet_sent(now, bytes, packet_number, space);
+    }
+
     fn on_ack(
         &mut self,
         now: Instant,
         sent: Instant,
         bytes: u64,
+        pn: u64,
+        space: SpaceId,
         app_limited: bool,
         rtt: &RttEstimator,
     ) {
-        self.bbr.on_ack(now, sent, bytes, app_limited, rtt);
+        self.bbr
+            .on_ack(now, sent, bytes, pn, space, app_limited, rtt);
         self.brutal.on_ack(now, rtt);
     }
 
@@ -91,9 +98,10 @@ impl Controller for Switch {
         in_flight: u64,
         app_limited: bool,
         largest_packet_num_acked: Option<u64>,
+        space: SpaceId,
     ) {
         self.bbr
-            .on_end_acks(now, in_flight, app_limited, largest_packet_num_acked);
+            .on_end_acks(now, in_flight, app_limited, largest_packet_num_acked, space);
     }
 
     fn on_congestion_event(
@@ -106,6 +114,17 @@ impl Controller for Switch {
         self.bbr
             .on_congestion_event(now, sent, is_persistent_congestion, lost_bytes);
         self.brutal.on_loss(now, lost_bytes);
+    }
+
+    fn on_packet_lost(
+        &mut self,
+        lost_bytes: u16,
+        packet_number: u64,
+        space: SpaceId,
+        now: Instant,
+    ) {
+        self.bbr
+            .on_packet_lost(lost_bytes, packet_number, space, now);
     }
 
     fn on_mtu_update(&mut self, new_mtu: u16) {

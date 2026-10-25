@@ -787,7 +787,13 @@ impl RuntimeOptions {
                     send_window: 256,
                     stream_window_max: 4 << 10,
                     receive_window_max: 16 << 10,
-                    send_window_max: 8 << 10,
+                    // In a 64 MiB cgroup, uploads to a sing-box server at
+                    // 150 and 300 ms or 2% loss went at 0.94-1.17 times
+                    // sing-box's with 12 MiB and a 16 MiB budget, peak
+                    // 47.3 MiB, against 0.76-1.01 with 8; 16 or 24 MiB fit
+                    // only under a 12 MiB budget, which took 0.1-0.2 off
+                    // downloads (measured, sail#11).
+                    send_window_max: 12 << 10,
                     // At most; `window_budget_for` the memory, 16 MiB at
                     // 64 MiB.
                     window_budget: 64 << 10,
