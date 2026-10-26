@@ -1839,11 +1839,15 @@ jobs:
           toolchain: 1.98.1
           components: llvm-tools
 
+      # The cross job's entry, restored only: a second copy of each toolchain
+      # filled the 10 GB the repository gets and pushed the cross job's out
+      # (2026-10-26), and an entry saved here would lack the cross job's
+      # --run packages (wine).
       - name: cache cross toolchain
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: ~/.sail-cross
-          key: sail-cross-perf-${{ matrix.target }}-${{ hashFiles('scripts/install_cross_toolchain.sh') }}
+          key: sail-cross-${{ contains(matrix.target, 'android') && 'android' || matrix.target }}-${{ hashFiles('scripts/install_cross_toolchain.sh') }}
 
       - name: install cross toolchain
         run: scripts/install_cross_toolchain.sh ${{ matrix.target }}
