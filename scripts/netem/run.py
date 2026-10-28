@@ -415,6 +415,7 @@ class Sampler:
                         s["rss_kb"] = int(line.split()[1])
                 stat = open(f"/proc/{pid}/stat").read().rsplit(")", 1)[1].split()
                 s["cpu_ticks"] = int(stat[11]) + int(stat[12])
+                s["cpu_ns"] = sched_ns(pid)
                 s["fds"] = len(os.listdir(f"/proc/{pid}/fd"))
             except OSError:
                 s["gone"] = True
@@ -685,6 +686,28 @@ def host_congestion():
     return out
 
 
+def sched_ns(pid):
+    """The nanoseconds the threads of `pid` have run (schedstat): finer than
+    the ticks of utime+stime, which a short transfer has a few of."""
+    total = 0
+    for tid in os.listdir(f"/proc/{pid}/task"):
+        try:
+            total += int(open(f"/proc/{pid}/task/{tid}/schedstat").read().split()[0])
+        except OSError:
+            pass
+    return total
+
+
+def softirq_ticks():
+    """Each CPU's softirq time from /proc/stat, in ticks."""
+    out = {}
+    for line in open("/proc/stat"):
+        f = line.split()
+        if f[0].startswith("cpu") and f[0] != "cpu":
+            out[int(f[0][3:])] = int(f[7])
+    return out
+
+
 def proc_ticks(proc):
     """(pid, utime+stime) of a Proc, or None."""
     if proc is None:
@@ -922,7 +945,9 @@ class Run:
                 before = sampler.one()
                 srv0 = proc_ticks(self.procs.get("server"))
                 link0 = link_counters()
+                irq0 = softirq_ticks()
                 res = self.netgen(workload.split("_")[0], *flags)
+                irq1 = softirq_ticks()
                 link1 = link_counters()
                 srv1 = proc_ticks(self.procs.get("server"))
                 after = sampler.one()
@@ -934,6 +959,17 @@ class Run:
                 if (ticks0 is not None and ticks1 is not None and ticks1 >= ticks0
                         and before["pid"] == after["pid"]):
                     rec["cpu_s"] = (ticks1 - ticks0) / os.sysconf("SC_CLK_TCK")
+                if (before.get("cpu_ns") is not None and after.get("cpu_ns") is not None
+                        and before["pid"] == after["pid"]):
+                    rec["cpu_sched_s"] = (after["cpu_ns"] - before["cpu_ns"]) / 1e9
+                # Softirq time is not the process's (IRQ time accounting): a
+                # socket's paced sends, as BBR's without fq, run there, on the
+                # CPU of its timer. The client's CPUs and the whole host's.
+                hz = os.sysconf("SC_CLK_TCK")
+                rec["host_softirq_s"] = sum(irq1[c] - irq0[c] for c in irq1) / hz
+                if CPUS.get(CLIENT_NS):
+                    rec["client_softirq_s"] = sum(
+                        irq1[c] - irq0[c] for c in cpu_list(CPUS[CLIENT_NS])) / hz
                 # The protocol server's CPU over the same span.
                 if srv0 and srv1 and srv0[0] == srv1[0] and srv1[1] >= srv0[1]:
                     rec["server_cpu_s"] = (srv1[1] - srv0[1]) / os.sysconf("SC_CLK_TCK")
@@ -946,6 +982,10 @@ class Run:
                         if key in rec:
                             res[f"{'client_' if key == 'cpu_s' else ''}{key}_per_gib"] = \
                                 round(rec[key] / gib, 3)
+                    for key in ("cpu_sched_s", "host_softirq_s", "client_softirq_s"):
+                        if key in rec:
+                            name = key if key.endswith("softirq_s") else "client_" + key
+                            res[f"{name}_per_gib"] = round(rec[key] / gib, 3)
                 rec["retrans"] = retransmits(before, after)
                 rec["outsegs"] = retransmits(before, after, "outsegs")
                 rec["link"] = link_delta(link0, link1)
@@ -965,6 +1005,9 @@ class Run:
                 for key, pick in (("mbps", lambda r: r.get("mbps")),
                                   ("client_cpu_s_per_gib", lambda r: r.get("client_cpu_s_per_gib")),
                                   ("server_cpu_s_per_gib", lambda r: r.get("server_cpu_s_per_gib")),
+                                  ("client_cpu_sched_s_per_gib",
+                                   lambda r: r.get("client_cpu_sched_s_per_gib")),
+                                  ("host_softirq_s_per_gib", lambda r: r.get("host_softirq_s_per_gib")),
                                   ("p50_ms", lambda r: (r.get("rtt") or {}).get("p50_ms")),
                                   ("p99_ms", lambda r: (r.get("rtt") or {}).get("p99_ms"))):
                     vals = sorted(v for v in map(pick, results) if v is not None)
