@@ -80,7 +80,7 @@ impl Congestion {
             if outcome == REFUSED {
                 return;
             }
-            let set = socket.set_tcp_congestion(choice.name.as_bytes());
+            let set = set_tcp_congestion(&socket, &choice.name);
             if outcome == APPLIED {
                 if let Err(e) = set {
                     debug!("relay.tcp_congestion {}: {}", choice.name, e);
@@ -111,16 +111,51 @@ impl Congestion {
     }
 }
 
+/// Sets `TCP_CONGESTION` itself: socket2 offers it on Linux and FreeBSD,
+/// not on Android.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn set_tcp_congestion(socket: &SockRef<'_>, name: &str) -> std::io::Result<()> {
+    use std::os::fd::AsRawFd;
+    // SAFETY: the name's bytes are valid for their length, which is passed.
+    let r = unsafe {
+        libc::setsockopt(
+            socket.as_raw_fd(),
+            libc::IPPROTO_TCP,
+            libc::TCP_CONGESTION,
+            name.as_ptr().cast(),
+            name.len() as libc::socklen_t,
+        )
+    };
+    if r == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
 /// The congestion control `socket` has, as the kernel names it.
 #[cfg(any(target_os = "linux", target_os = "android"))]
 fn in_use(socket: &SockRef<'_>) -> String {
-    match socket.tcp_congestion() {
-        Ok(name) => {
-            let end = name.iter().position(|b| *b == 0).unwrap_or(name.len());
-            String::from_utf8_lossy(&name[..end]).into_owned()
-        }
-        Err(e) => format!("the system's ({})", e),
+    use std::os::fd::AsRawFd;
+    // TCP_CA_NAME_MAX
+    let mut name = [0u8; 16];
+    let mut len = name.len() as libc::socklen_t;
+    // SAFETY: `len` is the buffer's size, which the kernel writes within.
+    let r = unsafe {
+        libc::getsockopt(
+            socket.as_raw_fd(),
+            libc::IPPROTO_TCP,
+            libc::TCP_CONGESTION,
+            name.as_mut_ptr().cast(),
+            &mut len,
+        )
+    };
+    if r != 0 {
+        return format!("the system's ({})", std::io::Error::last_os_error());
     }
+    let name = &name[..(len as usize).min(name.len())];
+    let end = name.iter().position(|b| *b == 0).unwrap_or(name.len());
+    String::from_utf8_lossy(&name[..end]).into_owned()
 }
 
 #[cfg(all(test, any(target_os = "linux", target_os = "android")))]
