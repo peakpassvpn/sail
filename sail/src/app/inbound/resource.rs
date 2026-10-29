@@ -11,6 +11,8 @@ use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use std::sync::Arc;
 
+use crate::embed::kinds::HostKinds;
+
 pub(super) struct StreamGeneration {
     handler: AnyInboundHandler,
 }
@@ -50,8 +52,13 @@ pub(super) fn files(
     files
 }
 
-pub(super) fn supported(inbound: &Inbound) -> bool {
+pub(super) fn supported(inbound: &Inbound, kinds: &HostKinds) -> bool {
     if stateful(inbound) {
+        return true;
+    }
+    // A host's kind: its users replaced, it is built again, its listener
+    // and connections kept.
+    if kinds.inbound_name(&inbound.protocol).is_some() {
         return true;
     }
     matches!(
@@ -81,10 +88,10 @@ pub(super) fn stateful(inbound: &Inbound) -> bool {
 }
 
 /// Reject unsupported edits rather than reporting a successful no-op.
-pub(super) fn check_change(old: &Inbound, new: &Inbound) -> Result<()> {
+pub(super) fn check_change(old: &Inbound, new: &Inbound, kinds: &HostKinds) -> Result<()> {
     let static_part = |inbound: &Inbound| {
         let mut value = inbound.clone();
-        if supported(inbound) {
+        if supported(inbound, kinds) {
             // None vs Some is the SS2022 wire framing (identity headers).
             // Keep that structural distinction; Some([]) is deny-all.
             if inbound.protocol == "shadowsocks" {
@@ -344,7 +351,7 @@ mod tests {
         let mut new = old.clone();
         new.options.insert("users".into(), json!([]));
         new.options["tls"]["certificate"] = json!("new");
-        assert!(check_change(&old, &new).is_ok());
+        assert!(check_change(&old, &new, &HostKinds::default()).is_ok());
         for (field, value) in [
             ("client_authentication", json!("require-and-verify")),
             ("client_certificate", json!("a CA")),
@@ -355,25 +362,29 @@ mod tests {
         ] {
             let mut new = new.clone();
             new.options["tls"][field] = value;
-            assert!(check_change(&old, &new).is_ok(), "{}", field);
+            assert!(
+                check_change(&old, &new, &HostKinds::default()).is_ok(),
+                "{}",
+                field
+            );
         }
         new.listen_port = Some(4321);
-        assert!(check_change(&old, &new).is_err());
+        assert!(check_change(&old, &new, &HostKinds::default()).is_err());
         for protocol in ["tun", "nf"] {
             let mut old = old.clone();
             old.protocol = protocol.into();
             let mut new = old.clone();
             new.options.insert("users".into(), json!([]));
-            assert!(!supported(&old));
-            assert!(check_change(&old, &new).is_err());
+            assert!(!supported(&old, &HostKinds::default()));
+            assert!(check_change(&old, &new, &HostKinds::default()).is_err());
         }
         let mut reality = old.clone();
         reality.options["tls"]["reality"] = json!({"enabled":true});
-        assert!(supported(&reality));
+        assert!(supported(&reality, &HostKinds::default()));
         let mut quic = old;
         quic.options
             .insert("transport".into(), json!({"type":"quic"}));
-        assert!(supported(&quic));
+        assert!(supported(&quic, &HostKinds::default()));
     }
 
     /// A self-signed certificate is the inbound's state: a rebuild with the

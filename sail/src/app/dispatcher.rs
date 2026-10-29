@@ -588,7 +588,11 @@ impl Dispatcher {
             .inbound_types
             .write()
             .unwrap_or_else(|e| e.into_inner());
-        match protocol.and_then(crate::include::inbound_protocol) {
+        let protocol = protocol.and_then(|protocol| {
+            crate::include::inbound_protocol(protocol)
+                .or_else(|| self.env.host.kinds.inbound_name(protocol))
+        });
+        match protocol {
             Some(protocol) => types.insert(tag.to_string(), protocol),
             None => types.remove(tag),
         };

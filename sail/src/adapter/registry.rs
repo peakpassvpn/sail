@@ -175,6 +175,8 @@ impl OutboundFactory {
 /// What an outbound factory is given to build with.
 pub struct OutboundContext<'a> {
     pub tag: &'a str,
+    /// Its `type`.
+    pub protocol: &'a str,
     pub options: &'a Options,
     pub dns_client: &'a SyncDnsClient,
     /// How this outbound opens its sockets: what it asks to have dialled
@@ -204,6 +206,9 @@ pub struct OutboundContext<'a> {
     ))]
     pub(crate) checkers: &'a mut crate::app::outbound::Checkers,
     handlers: &'a Handlers<AnyOutboundHandler>,
+    /// The instance's outbounds, by tag, once they are built: what a
+    /// host's outbound dials through (`embed::Via`).
+    pub(crate) outbounds: crate::net::dial::Outbounds,
     /// Its blocks, which make its connections when it is built
     /// `over_connector`.
     blocks: &'a OutboundBlocks,
@@ -396,8 +401,9 @@ pub fn build_outbounds_as(
     endpoints: &[crate::config::model::Endpoint],
     state: OutboundBuildState<'_>,
 ) -> Result<BuiltOutbounds> {
+    let env = state.env;
     let outbound_nodes = outbounds.iter().map(|o| {
-        let factory = registry.require(&o.tag, &o.protocol)?;
+        let factory = crate::embed::kinds::outbound_factory(registry, env, &o.tag, &o.protocol)?;
         // `network` and `disable_udp` are the registry's, not the protocol's.
         one_network(o)?;
         let mut own = o.options.clone();
@@ -461,6 +467,7 @@ pub fn build_outbounds_as(
                     };
                     let mut ctx = OutboundContext {
                         tag: &endpoint.tag,
+                        protocol: &endpoint.protocol,
                         options: &options,
                         dns_client: state.dns_client,
                         dialer: blocks.dialer(
@@ -485,6 +492,7 @@ pub fn build_outbounds_as(
                         ))]
                         checkers: state.checkers,
                         handlers: state.handlers,
+                        outbounds: state.dial_defaults.env.outbounds.clone(),
                         blocks: &blocks,
                     };
                     let endpoint_built = (factory.build)(&mut ctx)?;
@@ -536,6 +544,7 @@ pub fn build_outbounds_as(
             let over_connector = (factory.over_connector)(&options, &blocks);
             let mut ctx = OutboundContext {
                 tag: &outbound.tag,
+                protocol: &outbound.protocol,
                 options: &options,
                 dns_client: state.dns_client,
                 dialer: dialer.clone(),
@@ -555,6 +564,7 @@ pub fn build_outbounds_as(
                 ))]
                 checkers: state.checkers,
                 handlers: state.handlers,
+                outbounds: state.dial_defaults.env.outbounds.clone(),
                 blocks: &blocks,
             };
             let core = (factory.build)(&mut ctx)?;
@@ -783,6 +793,8 @@ impl InboundFactory {
 /// What an inbound factory is given to build with.
 pub struct InboundContext<'a> {
     pub tag: &'a str,
+    /// Its `type`.
+    pub protocol: &'a str,
     pub options: &'a Options,
     /// The instance's tuning and host.
     pub env: &'a RuntimeEnv,
@@ -897,7 +909,7 @@ pub(crate) fn build_inbounds(
         .iter()
         .filter(|i| !listeners.contains(&i.protocol.as_str()))
         .map(|i| {
-            let factory = registry.require(&i.tag, &i.protocol)?;
+            let factory = crate::embed::kinds::inbound_factory(registry, env, &i.tag, &i.protocol)?;
             let (options, blocks) = factory.blocks.split(&i.options);
             let mut blocks = InboundBlocks::parse(&i.tag, &blocks)?;
             blocks.protocol_alpn((factory.alpn)(&options));
@@ -920,6 +932,7 @@ pub(crate) fn build_inbounds(
             dependencies.insert(inbound.tag.clone(), deps);
             let ctx = InboundContext {
                 tag: &inbound.tag,
+                protocol: &inbound.protocol,
                 options: &options,
                 env,
                 dial,

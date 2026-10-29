@@ -46,6 +46,7 @@ mod test_group_urltest;
 mod test_grpc_mux;
 mod test_grpc_pool;
 mod test_harness;
+mod test_host_kinds;
 mod test_http_proxy;
 mod test_hysteria2;
 mod test_in_chain_1;

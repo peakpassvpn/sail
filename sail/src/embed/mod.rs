@@ -21,6 +21,7 @@ use std::time::{Duration, SystemTime};
 mod dial;
 mod error;
 mod instance;
+pub(crate) mod kinds;
 mod logs;
 mod network;
 mod streams;
@@ -40,6 +41,11 @@ pub use crate::session::{Network, SocksAddr as Address};
 pub use dial::{DialDatagram, DialStream};
 pub use error::{Error, ErrorKind};
 pub use instance::{ids_held, Instance};
+pub use kinds::{
+    Accepted, DatagramRecv, DatagramSend, Datagrams, Extensions, HostInbound, HostOutbound,
+    HostStream, InboundKindFactory, KindContext, NewSession, OutboundKindFactory, Refused,
+    SessionInfo, Sessions, User, Via,
+};
 pub use logs::{LogBatch, LogFilter, LogLine};
 pub use network::{
     ClosedBy, ConnectionRecord, DialFailure, DialStage, DnsExchange, DnsOutcome, DnsSource,
@@ -120,6 +126,7 @@ pub struct Options {
     stop_within: Option<Duration>,
     connection_records: Option<usize>,
     record_interval: Option<Duration>,
+    kinds: kinds::HostKinds,
 }
 
 impl Options {
@@ -236,6 +243,28 @@ impl Options {
         self
     }
 
+    /// Registers the host's inbound kind `name`: an inbound whose `type`
+    /// it is is built by `factory`, on start and on every reload that
+    /// builds it again, and its listener is sail's (docs/embed.md, Host
+    /// kinds). A name of sail's own, or one registered already, is
+    /// `InvalidArgument`.
+    pub fn inbound_kind<F>(mut self, name: &'static str, factory: F) -> Result<Self, Error>
+    where
+        F: Fn(&KindContext<'_>) -> Result<Arc<dyn HostInbound>, String> + Send + Sync + 'static,
+    {
+        self.kinds = self.kinds.with_inbound(name, Arc::new(factory))?;
+        Ok(self)
+    }
+
+    /// Registers the host's outbound kind `name`, as `inbound_kind` does.
+    pub fn outbound_kind<F>(mut self, name: &'static str, factory: F) -> Result<Self, Error>
+    where
+        F: Fn(&KindContext<'_>) -> Result<Arc<dyn HostOutbound>, String> + Send + Sync + 'static,
+    {
+        self.kinds = self.kinds.with_outbound(name, Arc::new(factory))?;
+        Ok(self)
+    }
+
     /// Whether the modes the rules name are there without a Clash API, as
     /// libbox's apps have them.
     pub fn clash_modes(mut self, on: bool) -> Self {
@@ -312,6 +341,7 @@ pub fn check(config: &Config, options: &Options) -> Result<Vec<String>, Error> {
     let config = config.clone();
     let settings = options.settings.clone();
     let platform = options.platform.clone();
+    let kinds = options.kinds.clone();
     std::thread::Builder::new()
         .name("sail-check".into())
         .spawn(move || {
@@ -319,6 +349,7 @@ pub fn check(config: &Config, options: &Options) -> Result<Vec<String>, Error> {
                 .resolve()
                 .map_err(|e| Error::new(ErrorKind::Config, format!("{:#}", e)))?;
             host.platform = platform.map(crate::runtime::PlatformRef);
+            host.kinds = kinds;
             let env = crate::runtime::RuntimeEnv {
                 options: runtime,
                 host,
@@ -356,6 +387,22 @@ pub const PANICS_ARE_CAUGHT: bool = cfg!(panic = "unwind");
 
 pub use crate::control::events::Fault;
 pub use crate::runtime::scope::{StopReport, TaskClass};
+#[doc(hidden)]
+pub use kinds::HostKinds;
+
+/// Spawns `fut` as a task of the instance whose task calls it: from a host
+/// kind's `serve`, `stream` or `datagrams`, or a task spawned from them. A
+/// stop ends it with the instance's others, and a panic in it ends it
+/// alone, told as a `Fault`. Called anywhere else, it is spawned on the
+/// current runtime, unscoped and warned of. A task of a host kind's made
+/// with `tokio::spawn` is not the instance's: it outlives a stop.
+pub fn spawn<F>(name: &'static str, fut: F) -> tokio::task::JoinHandle<F::Output>
+where
+    F: std::future::Future + Send + 'static,
+    F::Output: Send + 'static,
+{
+    crate::runtime::scope::spawn(name, fut)
+}
 pub use crate::runtime::teardown::{Left, LeftKind};
 
 /// What this sail is: its release.
@@ -618,6 +665,14 @@ impl Instance {
     pub fn sleep(&self) -> Result<(), Error> {
         self.manager()?;
         Ok(crate::host_sleep(self.id(), true)?)
+    }
+
+    /// The user `name` of the running instance, for a host kind's table
+    /// (`KindContext::user` while it builds): made if there is none, as an
+    /// inbound's credential makes one. A user of one run is refused by the
+    /// next.
+    pub fn user(&self, name: &str) -> Result<User, Error> {
+        Ok(User::of(&self.manager()?.env.users, name))
     }
 
     /// Tells it the system woke, as libbox's `Wake`. A sleep of 2 minutes

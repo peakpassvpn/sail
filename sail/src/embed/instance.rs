@@ -141,6 +141,7 @@ impl Instance {
             stop_within,
             connection_records,
             record_interval,
+            kinds,
         } = options;
         let profile: crate::runtime::Profile = match &settings.profile {
             Some(p) => p
@@ -152,6 +153,7 @@ impl Instance {
             .resolve()
             .map_err(|e| Error::new(ErrorKind::Config, format!("{:#}", e)))?;
         host.stop_within = stop_within;
+        host.kinds = kinds;
         // As sail-cli runs each profile.
         let threads = threads.unwrap_or(match profile.threads() {
             crate::runtime::ProfileThreads::One => Threads::One,

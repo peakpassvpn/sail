@@ -30,6 +30,11 @@ impl Outbounds {
         let _ = self.0.set(Arc::downgrade(manager));
     }
 
+    /// The outbound `tag` of the outbounds running, if there is one.
+    pub(crate) fn find(&self, tag: &str) -> Option<AnyOutboundHandler> {
+        self.0.get().and_then(Weak::upgrade)?.load().get(tag)
+    }
+
     fn get(&self, tag: &str) -> io::Result<AnyOutboundHandler> {
         let manager = self
             .0

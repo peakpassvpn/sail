@@ -76,6 +76,8 @@ pub struct Host {
     /// Where the instance tells its events: the embedding instance's,
     /// which outlive its runs; one of the run's own when unset.
     pub events: Option<crate::control::events::EventHub>,
+    /// The inbound and outbound kinds the embedding host registered.
+    pub kinds: crate::embed::kinds::HostKinds,
 }
 
 /// The base URL of a Sub-Store backend. It may carry a secret path, so it
@@ -378,6 +380,7 @@ impl StartSettings {
                 clash_modes: false,
                 stop_within: None,
                 events: None,
+                kinds: Default::default(),
                 run_dir: match self.run_dir {
                     None => crate::platform::sweep::RunDir::Default,
                     Some(RunDirSetting::Dir(dir)) => crate::platform::sweep::RunDir::Dir(dir),

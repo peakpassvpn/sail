@@ -589,6 +589,11 @@ impl UserRegistry {
         self.0.lock().unwrap_or_else(|e| e.into_inner())
     }
 
+    /// Whether `other` is this registry, not another instance's or run's.
+    pub fn same(&self, other: &UserRegistry) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+
     /// The user named `name`, made if there is none. Used when inbounds
     /// build, not on the data path.
     pub fn bind(&self, name: &str) -> UserRef {

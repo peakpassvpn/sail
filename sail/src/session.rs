@@ -294,6 +294,59 @@ impl ConnectionState {
     }
 }
 
+/// What a host's own inbound kind tells its own outbound kind of a
+/// session, by type (`embed::Extensions`): carried from the inbound to the
+/// outbound, through groups and `Via`, and never read by sail. Set once,
+/// so a clone of the session shares it; a change makes a copy.
+#[derive(Clone, Default)]
+pub struct Extensions(
+    Option<
+        std::sync::Arc<
+            std::collections::HashMap<
+                std::any::TypeId,
+                std::sync::Arc<dyn std::any::Any + Send + Sync>,
+            >,
+        >,
+    >,
+);
+
+impl Extensions {
+    /// Puts `value` in, in place of one of its type.
+    pub fn insert<T: Send + Sync + 'static>(&mut self, value: T) {
+        std::sync::Arc::make_mut(self.0.get_or_insert_with(Default::default))
+            .insert(std::any::TypeId::of::<T>(), std::sync::Arc::new(value));
+    }
+
+    /// The value of type `T`, if one was put in.
+    pub fn get<T: Send + Sync + 'static>(&self) -> Option<&T> {
+        self.0
+            .as_ref()?
+            .get(&std::any::TypeId::of::<T>())?
+            .downcast_ref::<T>()
+    }
+
+    /// Takes the value of type `T` out.
+    pub fn remove<T: Send + Sync + 'static>(&mut self) {
+        if let Some(map) = &mut self.0 {
+            std::sync::Arc::make_mut(map).remove(&std::any::TypeId::of::<T>());
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.as_ref().is_none_or(|map| map.is_empty())
+    }
+}
+
+impl fmt::Debug for Extensions {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Extensions({})",
+            self.0.as_ref().map_or(0, |map| map.len())
+        )
+    }
+}
+
 impl fmt::Debug for ConnectionState {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("ConnectionState")
@@ -377,6 +430,9 @@ pub struct Session {
     /// nothing outside can make a place, so there it is always `None`.
     #[doc(hidden)]
     pub handshake: Option<crate::app::inbound::HandshakePlace>,
+    /// What a host's inbound kind put in for its outbound kind: see
+    /// `Extensions`. Empty for sail's own inbounds.
+    pub extensions: Extensions,
 }
 
 /// The members groups handed a connection to, the outermost first: each
@@ -654,6 +710,7 @@ impl Clone for Session {
             owner: self.owner.clone(),
             reply: self.reply.clone(),
             handshake: None,
+            extensions: self.extensions.clone(),
         }
     }
 }
@@ -692,6 +749,7 @@ impl Default for Session {
             owner: None,
             reply: None,
             handshake: None,
+            extensions: Extensions::default(),
         }
     }
 }

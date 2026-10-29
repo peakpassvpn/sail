@@ -698,6 +698,86 @@ the process's, as the network is: found through the system's resolver, or
 pushed by the host, the last discovery or push wins for every instance in
 the process, and an instance that stops leaves it as it was.
 
+## Host kinds
+
+A host registers inbound and outbound kinds of its own on `Options`, each
+under a `type` name, and a configuration uses them as it uses sail's:
+
+```rust
+let options = Options::new()
+    .inbound_kind("link", |cx| Ok(Arc::new(LinkInbound::new(cx.options)?)))?
+    .outbound_kind("table", |cx| Ok(Arc::new(TableOutbound::new(cx.options)?)))?;
+```
+
+```json
+{ "type": "link", "tag": "link-in", "listen": "::", "listen_port": 443, "psks": ["..."] }
+```
+
+- **Names.** A name of sail's own, or one registered already, is
+  `InvalidArgument`. The kinds are the instance's, for all its runs and
+  reloads, and `check()` knows those of the options it is given.
+- **Building.** The factory gets the object without `type`, `tag` and the
+  listen fields, on start and on every reload that builds that tag again.
+  Its error, or its panic, is the start's or reload's `Config` error,
+  naming the tag.
+- **Host inbounds.** The listener is sail's. `listen`, `listen_port`, the
+  socket options, `inbound.max_handshakes`, `max_handshakes_per_source`
+  and `handshake_timeout` apply as to sail's inbounds.
+  - **Accepting.** `HostInbound::serve` is handed each connection
+    accepted. It runs as a task of the instance's, and a panic ends that
+    connection alone.
+  - **The handshake.** The connection holds its place among the
+    handshakes until `Sessions::established()`, or until the first session
+    submitted. A connection that never gets there is closed at the
+    timeout.
+  - **Sessions.** `Sessions::tcp` and `Sessions::udp` submit sessions, any
+    number on one connection. Each is routed, takes its place among
+    `inbound.max_connections`, is counted and listed, and is told in the
+    events as a session of sail's own inbounds is. The connection itself
+    is not one, as a multiplexed connection is not.
+  - **Refusals.** A session whose user may not connect through the inbound
+    is `Refused::User`, saying why: shut out, taken out of the inbound, at
+    its `max_connections`, or a user of another instance or run.
+    `Refused::Closed` means the inbound is gone or the instance is
+    stopping.
+- **Users.** `Instance::user(name)`, or `KindContext::user` while a kind
+  builds, gives a user of sail's one namespace, which `user_limits`, the
+  management API and the traffic counts use.
+  - **Holding.** The host keeps the users in its own table, which holds
+    them as an inbound's credentials do.
+  - **The inbound's `users`.** A host inbound whose object lists `users`
+    (`[{"name": ...}]`) has them taken out and put back by a reload, as
+    any inbound's are. A reload that changes nothing else of the object
+    builds it again with its listener and connections kept; one that
+    takes a user out closes that user's sessions through it and refuses
+    its new ones. A `User` survives a reload that keeps it.
+- **Extensions.** `NewSession::extension` puts typed values of the host's
+  in the session's `Extensions`, which sail carries to the outbound,
+  through groups and `Via`, and never reads.
+- **Host outbounds.** A rule or a group routes to a host outbound as to
+  any outbound. `HostOutbound::stream` and `datagrams` get the session's
+  `SessionInfo`: user, destination, inbound and extensions.
+  - **Via.** They may dial through any outbound of sail's by tag with
+    `Via`, a `direct` bound to a source address among them. The tag is
+    looked up when it dials, so the outbounds a reload builds are the ones
+    used, and it is added to the session's chain.
+  - **Counting.** The session is counted once, by sail's relay of what the
+    host outbound returns, and has one connection record
+    (`Kinds::CONNECTION`) with its user and bytes, as a session of sail's
+    own inbounds has: none for the connection that carries it, and none
+    for its `Via` dials. A carrier the host pools and shares between
+    sessions is not charged to any user; each session over it is.
+  - **Routing on a table** of the host's is a host outbound that looks the
+    table up and dials the next hop through `Via`. Swapping the table
+    needs no reload.
+- **Tasks.** What a host kind spawns goes through `sail::embed::spawn`, so
+  a stop ends it with the instance's other tasks and a panic in it is a
+  `Fault`. A task spawned with `tokio::spawn` is the host's own and
+  outlives the stop.
+- **Not yet.** The C ABI has no host kinds. A host inbound listens on TCP
+  only and takes none of sail's shared blocks: no `tls`, `transport` or
+  `multiplex`. A host that needs TLS wraps it itself, inside `serve`.
+
 ## The system's DNS
 
 A TUN with `auto_route` points the system's DNS at the address after the

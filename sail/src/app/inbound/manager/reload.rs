@@ -163,7 +163,12 @@ impl InboundManager {
                 Some(old) if old == inbound => InboundChange::Untouched,
                 Some(old)
                     if self.reloadable(&inbound.tag)
-                        && resource::check_change(old, inbound).is_ok() =>
+                        && resource::check_change(
+                            old,
+                            inbound,
+                            &self.dispatcher.env().host.kinds,
+                        )
+                        .is_ok() =>
                 {
                     InboundChange::Reloaded
                 }
@@ -250,7 +255,9 @@ impl InboundManager {
                 .collect();
         let mut new = Vec::new();
         for inbound in fresh {
-            let resource = if resource::supported(&inbound) && !resource::stateful(&inbound) {
+            let resource = if resource::supported(&inbound, &self.dispatcher.env().host.kinds)
+                && !resource::stateful(&inbound)
+            {
                 let handler = handlers
                     .get_mut(&inbound.tag)
                     .ok_or_else(|| anyhow!("[{}] inbound: was not built", inbound.tag))?;

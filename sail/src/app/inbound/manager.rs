@@ -117,7 +117,7 @@ impl InboundManager {
         for inbound in inbounds {
             // An initially built dependent holds the original handler.
             // Such graphs need resource-aware factories before reloading.
-            if resource::supported(inbound)
+            if resource::supported(inbound, &env.host.kinds)
                 && !dependencies
                     .values()
                     .any(|deps| deps.contains(&inbound.tag))
@@ -270,7 +270,7 @@ impl InboundManager {
                     inbound.tag
                 )
             })?;
-            resource::check_change(old, inbound)?;
+            resource::check_change(old, inbound, &self.dispatcher.env().host.kinds)?;
             if !self.reloadable(&inbound.tag) && old != inbound {
                 return Err(anyhow!(
                     "[{}] inbound: resource reload is not supported for this pipeline",
@@ -432,7 +432,9 @@ impl InboundManager {
             &mut dependencies,
             &mut states,
         )?;
-        let resource = if resource::supported(inbound) && !resource::stateful(inbound) {
+        let resource = if resource::supported(inbound, &self.dispatcher.env().host.kinds)
+            && !resource::stateful(inbound)
+        {
             Some(resource::wrap(handlers.get_mut(&inbound.tag).unwrap())?)
         } else {
             None
