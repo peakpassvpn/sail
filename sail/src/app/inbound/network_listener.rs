@@ -247,8 +247,9 @@ async fn handle_inbound_tcp_stream(
         // handshake: the place is given back here, and what it carries
         // takes places among the sessions, each its own. The protocol's
         // handler never held it, so none can keep it.
-        if let InboundTransport::Stream(_, sess) = &mut transport {
-            sess.handshake = Some(place);
+        match &mut transport {
+            InboundTransport::Stream(_, sess) => sess.handshake = Some(place),
+            _ => drop(place),
         }
         handle_inbound_transport(
             transport,
