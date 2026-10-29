@@ -1631,3 +1631,50 @@ async fn a_udp_association_gives_its_handshake_place_back() {
     drop(association);
     instance.stop().await.unwrap();
 }
+
+/// With admission on, an inbound whose handshake places are all taken
+/// closes its stalled handshakes, whatever the memory: a slow-loris holds
+/// its one place for the stall at most, and a prompt client gets it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_full_inbound_makes_room_for_a_prompt_client() {
+    let (echo, serve) = common::run_tcp_echo_server("127.0.0.1:0").await.unwrap();
+    tokio::spawn(serve);
+    let settings = serde_json::json!({
+        "set": [
+            "inbound.max_handshakes=1",
+            "inbound.handshake_stall=100ms",
+            "inbound.memory_reserve=1",
+        ],
+    })
+    .to_string();
+    let socks = common::free_port();
+    let instance = Instance::new(options().settings_json(&settings).unwrap()).unwrap();
+    instance
+        .start(Config::Json(config(socks, 53)))
+        .await
+        .unwrap();
+
+    // It says nothing, and holds the inbound's one place.
+    let mut stalled = tokio::net::TcpStream::connect(("127.0.0.1", socks))
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    // Turned away, it closes the stalled one.
+    let _turned_away = tokio::net::TcpStream::connect(("127.0.0.1", socks))
+        .await
+        .unwrap();
+    let mut buf = [0u8; 1];
+    let read = tokio::time::timeout(Duration::from_secs(5), stalled.read(&mut buf))
+        .await
+        .expect("the stalled one closed in time");
+    assert!(matches!(read, Ok(0) | Err(_)), "{:?}", read);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    // The next prompt client has the place.
+    let mut s = socks_asked(socks, echo.port()).await;
+    assert_eq!(socks_reply(&mut s).await, 0);
+    round_trip(&mut s, b"x").await;
+    let info = instance.admission().unwrap().unwrap();
+    assert_eq!(info.evicted_full, 1, "{:?}", info);
+    instance.stop().await.unwrap();
+}

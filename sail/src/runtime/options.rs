@@ -324,9 +324,9 @@ pub struct Inbound {
     /// 0, they are not looked at.
     #[serde(default)]
     pub handshake_descriptor_share: u32,
-    /// Under memory pressure, a source address whose handshakes of the
-    /// last minute mostly failed (four at least, more failed than not) is
-    /// refused at accept.
+    /// Under memory pressure, a source address four of whose handshakes
+    /// failed in the last minute, none succeeding since, is refused at
+    /// accept; a handshake that succeeds clears its failures.
     #[serde(default)]
     pub score_sources: bool,
 }
@@ -837,10 +837,13 @@ impl RuntimeOptions {
                     // budget carries, at up to 37 KiB each in a musl build
                     // (measured), 9 MiB.
                     max_handshakes: 256,
-                    // As the server's (sail#15).
+                    // As the server's (sail#15), but for the sources: a LAN
+                    // client that mistyped its password three times and
+                    // then got in was refused 9 times of 10 under pressure
+                    // when they were scored as on a server (measured).
                     memory_reserve: 20,
                     handshake_descriptor_share: 8,
-                    score_sources: true,
+                    score_sources: false,
                     ..desktop.inbound
                 },
                 quic: Quic {

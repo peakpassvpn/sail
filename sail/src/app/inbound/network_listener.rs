@@ -295,6 +295,7 @@ async fn handle_tcp_listen(
     ));
     let handshakes =
         super::handshakes::Handshakes::new(handler.tag(), &dispatcher.env().options.inbound);
+    let tag: Arc<str> = handler.tag().as_str().into();
     loop {
         let (stream, source) = match listener.accept().await {
             Ok(accepted) => {
@@ -318,10 +319,14 @@ async fn handle_tcp_listen(
         // One more than the inbound may have in their handshake is closed
         // at once: kept waiting, it would take what the limit spares.
         let Some(mut place) = handshakes.enter(source.ip()) else {
+            // Its stalled handshakes make room for the next ones.
+            if let Some(admission) = admission {
+                admission.full(&tag);
+            }
             continue;
         };
         if let Some(admission) = admission {
-            place.admitted(admission.enter(source.ip()));
+            place.admitted(admission.enter(source.ip(), &tag));
         }
         let eviction = place.eviction();
         let handler_cloned = handler.clone();

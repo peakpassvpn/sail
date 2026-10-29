@@ -22,6 +22,10 @@ fn admission(
     ))
 }
 
+fn tag(name: &str) -> Arc<str> {
+    name.into()
+}
+
 fn ip(last: u8) -> IpAddr {
     IpAddr::V4(Ipv4Addr::new(192, 0, 2, last))
 }
@@ -74,11 +78,11 @@ fn pressure_follows_the_memory_with_a_margin() {
 async fn stalled_handshakes_are_evicted_under_pressure() {
     let (free, events) = (Arc::new(AtomicU64::new(200)), EventHub::default());
     let a = admission(&free, 0, Duration::from_millis(50), false, &events);
-    let old = a.enter(ip(1));
-    let mut authenticated = a.enter(ip(2));
+    let old = a.enter(ip(1), &tag("in"));
+    let mut authenticated = a.enter(ip(2), &tag("in"));
     authenticated.succeeded();
     tokio::time::sleep(Duration::from_millis(60)).await;
-    let young = a.enter(ip(3));
+    let young = a.enter(ip(3), &tag("in"));
 
     // Not under pressure: nothing is closed.
     a.check(ip(4)).unwrap();
@@ -107,7 +111,7 @@ async fn stalled_handshakes_are_evicted_under_pressure() {
 async fn an_eviction_wakes_its_connection() {
     let (free, events) = (Arc::new(AtomicU64::new(200)), EventHub::default());
     let a = admission(&free, 0, Duration::ZERO, false, &events);
-    let ticket = a.enter(ip(1));
+    let ticket = a.enter(ip(1), &tag("in"));
     let waiting = tokio::spawn(ticket.eviction().evicted());
     tokio::task::yield_now().await;
     free.store(90, Ordering::Relaxed);
@@ -118,39 +122,60 @@ async fn an_eviction_wakes_its_connection() {
         .unwrap();
 }
 
-/// Under pressure, a source whose handshakes mostly failed is refused; one
-/// with as many successes, or too few to judge, is not; and without
-/// pressure no source is.
+/// Under pressure, a source four of whose handshakes failed, none
+/// succeeding since, is refused; one that got in after it failed is not,
+/// nor one with fewer failures; and without pressure no source is.
 #[test]
 fn failing_sources_are_refused_under_pressure() {
     let (free, events) = (Arc::new(AtomicU64::new(200)), EventHub::default());
     let a = admission(&free, 0, Duration::from_secs(3), true, &events);
     for _ in 0..4 {
-        drop(a.enter(ip(1)));
+        drop(a.enter(ip(1), &tag("in")));
     }
-    for ok in [true, false, true, false] {
-        let mut ticket = a.enter(ip(2));
-        if ok {
-            ticket.succeeded();
-        }
+    // Three that failed, one that got in: its failures are cleared.
+    for _ in 0..3 {
+        drop(a.enter(ip(2), &tag("in")));
+    }
+    a.enter(ip(2), &tag("in")).succeeded();
+    for _ in 0..3 {
+        drop(a.enter(ip(2), &tag("in")));
     }
     for _ in 0..3 {
-        drop(a.enter(ip(3)));
+        drop(a.enter(ip(3), &tag("in")));
     }
     assert!(a.check(ip(1)).is_ok(), "no pressure");
     free.store(90, Ordering::Relaxed);
     assert_eq!(a.check(ip(1)), Err(Refusal::Source));
-    assert!(a.check(ip(2)).is_ok(), "as many successes as failures");
-    assert!(a.check(ip(3)).is_ok(), "too few to judge");
+    assert!(a.check(ip(2)).is_ok(), "it got in since");
+    assert!(a.check(ip(3)).is_ok(), "too few");
     assert!(a.check(ip(4)).is_ok(), "unknown");
     assert_eq!(a.info().refused_sources, 1);
 
     // Without scoring, none is.
     let b = admission(&free, 0, Duration::from_secs(3), false, &events);
     for _ in 0..4 {
-        drop(b.enter(ip(1)));
+        drop(b.enter(ip(1), &tag("in")));
     }
     assert!(b.check(ip(1)).is_ok());
+}
+
+/// When an inbound's places are all taken, its stalled handshakes are
+/// closed, whatever the memory; another inbound's are not.
+#[tokio::test]
+async fn a_full_inbound_closes_its_stalled_handshakes() {
+    let (free, events) = (Arc::new(AtomicU64::new(200)), EventHub::default());
+    let a = admission(&free, 0, Duration::from_millis(50), false, &events);
+    let mine = a.enter(ip(1), &tag("full"));
+    let other = a.enter(ip(2), &tag("other"));
+    tokio::time::sleep(Duration::from_millis(60)).await;
+    let young = a.enter(ip(3), &tag("full"));
+    a.full("full");
+    assert!(futures::FutureExt::now_or_never(mine.eviction().evicted()).is_some());
+    assert!(futures::FutureExt::now_or_never(other.eviction().evicted()).is_none());
+    assert!(futures::FutureExt::now_or_never(young.eviction().evicted()).is_none());
+    let info = a.info();
+    assert_eq!((info.evicted_full, info.evicted), (1, 0));
+    assert_eq!(info.level, AdmissionLevel::Normal);
 }
 
 /// Handshakes past the descriptors' share are pressure, memory or not.
@@ -166,7 +191,7 @@ fn too_many_handshakes_for_the_descriptors_are_pressure() {
         Duration::ZERO,
         events,
     ));
-    let held: Vec<_> = (0..3).map(|n| a.enter(ip(n))).collect();
+    let held: Vec<_> = (0..3).map(|n| a.enter(ip(n), &tag("in"))).collect();
     a.check(ip(9)).unwrap();
     assert_eq!(a.info().level, AdmissionLevel::Pressure);
     drop(held);

@@ -945,8 +945,10 @@ pub struct Admission {
     pub refused_sources: u64,
     /// QUIC connections refused before their handshake.
     pub refused_quic: u64,
-    /// Closed in their handshake, stalled under pressure.
+    /// Closed in their handshake, stalled under pressure, and stalled
+    /// while their inbound's places were all taken.
     pub evicted: u64,
+    pub evicted_full: u64,
     /// How long it was under pressure.
     pub pressure_ms: u64,
 }
@@ -963,6 +965,7 @@ impl Admission {
                 refused_sources: 0,
                 refused_quic: 0,
                 evicted: 0,
+                evicted_full: 0,
                 pressure_ms: 0,
             },
             Some(info) => Self {
@@ -974,6 +977,7 @@ impl Admission {
                 refused_sources: info.refused_sources,
                 refused_quic: info.refused_quic,
                 evicted: info.evicted,
+                evicted_full: info.evicted_full,
                 pressure_ms: info.pressure.as_millis() as u64,
             },
         }

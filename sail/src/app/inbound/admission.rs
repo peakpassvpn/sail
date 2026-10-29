@@ -12,18 +12,27 @@
 //!   closed, oldest first: what a slow client holds goes to those that
 //!   handshake promptly, where refusing new ones alone would leave the
 //!   flood holding everything;
-//! - with `inbound.score_sources`, a source whose recent handshakes mostly
-//!   failed is refused;
+//! - with `inbound.score_sources`, a source whose last four handshakes or
+//!   more in a minute failed, none succeeding since, is refused;
 //! - under hard pressure, less than half the reserve free, every new one
 //!   is refused.
+//!
+//! Whatever the memory, when an inbound's handshake places are all taken
+//! (`inbound.max_handshakes`) its handshakes stalled past the stall are
+//! closed too, oldest first: a slow-loris would otherwise hold every place,
+//! and a client that handshakes promptly gets one within the stall.
 //!
 //! Sessions, the connections that authenticated, are never touched.
 //!
 //! Pressure is read when a connection is accepted, at most every
 //! `READ_EVERY`, as the QUIC window budget reads it: an idle instance never
-//! wakes for it. A sing-box based server in production, whose admission this follows, holds
-//! a 20% reserve, evicts handshakes stalled 3 s and refuses sources with
-//! more failures than successes; sing-box itself has none of this.
+//! wakes for it. A sing-box based server in production, whose admission
+//! this follows, holds a 20% reserve, evicts handshakes stalled 3 s, and
+//! refuses failing sources; sing-box itself has none of this. Measured
+//! (sail#15): under a slow-loris at 2000 new connections a second an
+//! inbound, a prompt client got in 19 or 20 times of 146 with the places
+//! full and nothing evicted, and under memory pressure on a router 145 of
+//! 145 with eviction against 62 without.
 
 use portable_atomic::AtomicU64;
 use std::collections::HashMap;
@@ -48,9 +57,10 @@ const HYSTERESIS: u64 = 5;
 /// A source is judged on its handshakes of this long (a judgment).
 const SCORE_WINDOW: Duration = Duration::from_secs(60);
 
-/// A source is judged once it made this many handshakes in the window
-/// (a judgment: a client that mistyped its password a few times is not
-/// refused for it).
+/// A source is refused once this many of its handshakes in the window
+/// failed, none succeeding since (a judgment: a client that mistyped its
+/// password a few times is not refused for it, and one that then got in
+/// is not refused at all).
 const SCORE_MIN: u32 = 4;
 
 /// The sources judged at once, at most (a judgment): a flood from spread
@@ -65,7 +75,7 @@ const WARN_EVERY: Duration = Duration::from_secs(10);
 pub(crate) enum Refusal {
     /// Hard pressure: every new one is.
     Hard,
-    /// Its source's handshakes mostly failed.
+    /// Its source's handshakes failed, none succeeding since.
     Source,
 }
 
@@ -87,6 +97,9 @@ pub struct AdmissionInfo {
     pub refused_quic: u64,
     /// Closed in their handshake, stalled under pressure.
     pub evicted: u64,
+    /// Closed in their handshake, stalled while their inbound's places
+    /// were all taken.
+    pub evicted_full: u64,
     /// How long the instance was under pressure, hard pressure included.
     pub pressure: Duration,
 }
@@ -115,6 +128,10 @@ pub struct Admission {
     refused_sources: AtomicU64,
     refused_quic: AtomicU64,
     evicted: AtomicU64,
+    evicted_full: AtomicU64,
+    /// When to look for stalled handshakes again for an inbound whose
+    /// places are all taken, in milliseconds from `start`.
+    next_full: AtomicU64,
     /// When pressure began, and what earlier pressure lasted.
     pressure: Mutex<(Option<Instant>, Duration)>,
     unwarned: AtomicU64,
@@ -131,22 +148,25 @@ struct InFlight {
 /// One handshake in flight.
 struct Entry {
     started: Instant,
+    /// Its inbound's tag.
+    inbound: Arc<str>,
     /// It authenticated: it is no longer evicted.
     done: AtomicBool,
     evicted: AtomicBool,
     notify: tokio::sync::Notify,
 }
 
-/// A source's handshakes in the window.
+/// A source's handshakes that failed in the window, none succeeding
+/// since.
 struct Score {
+    /// When the first of them failed.
     since: Instant,
-    ok: u32,
     failed: u32,
 }
 
 impl Score {
     fn failing(&self) -> bool {
-        self.ok + self.failed >= SCORE_MIN && self.failed > self.ok
+        self.failed >= SCORE_MIN
     }
 }
 
@@ -217,6 +237,8 @@ impl Admission {
             refused_sources: AtomicU64::new(0),
             refused_quic: AtomicU64::new(0),
             evicted: AtomicU64::new(0),
+            evicted_full: AtomicU64::new(0),
+            next_full: AtomicU64::new(0),
             pressure: Mutex::default(),
             unwarned: AtomicU64::new(0),
             warned: Mutex::default(),
@@ -238,7 +260,7 @@ impl Admission {
         }
         if self.score && self.failing(source) {
             self.refused_sources.fetch_add(1, Ordering::Relaxed);
-            self.warn("its source's handshakes mostly failed, under memory pressure");
+            self.warn("its source's handshakes failed, under memory pressure");
             return Err(Refusal::Source);
         }
         Ok(())
@@ -261,9 +283,10 @@ impl Admission {
 
     /// A handshake of a connection from `source` that was taken in, in
     /// flight until the ticket is told it authenticated or is dropped.
-    pub(crate) fn enter(self: &Arc<Self>, source: IpAddr) -> Ticket {
+    pub(crate) fn enter(self: &Arc<Self>, source: IpAddr, inbound: &Arc<str>) -> Ticket {
         let entry = Arc::new(Entry {
             started: Instant::now(),
+            inbound: inbound.clone(),
             done: AtomicBool::new(false),
             evicted: AtomicBool::new(false),
             notify: tokio::sync::Notify::new(),
@@ -324,9 +347,34 @@ impl Admission {
             self.changed(was, level, free);
         }
         if level != NORMAL {
-            self.evict();
+            let evicted = self.evict(None);
+            self.evicted.fetch_add(evicted, Ordering::Relaxed);
         }
         level
+    }
+
+    /// The inbound `inbound` has no handshake place left for a connection
+    /// it accepted: its handshakes stalled past the stall are closed,
+    /// oldest first, at most every `READ_EVERY`, so that the next prompt
+    /// client finds a place.
+    pub(crate) fn full(&self, inbound: &str) {
+        let now = self.start.elapsed().as_millis() as u64;
+        let next = self.next_full.load(Ordering::Relaxed);
+        if now < next
+            || self
+                .next_full
+                .compare_exchange(
+                    next,
+                    now + self.read_every.as_millis() as u64,
+                    Ordering::Relaxed,
+                    Ordering::Relaxed,
+                )
+                .is_err()
+        {
+            return;
+        }
+        let evicted = self.evict(Some(inbound));
+        self.evicted_full.fetch_add(evicted, Ordering::Relaxed);
     }
 
     /// Tells and logs a change of level, and keeps how long pressure
@@ -379,27 +427,35 @@ impl Admission {
         });
     }
 
-    /// Closes the handshakes in flight longer than the stall, oldest first.
-    fn evict(&self) {
+    /// Closes the handshakes in flight longer than the stall, of `inbound`
+    /// or of every inbound, oldest first; how many.
+    fn evict(&self, inbound: Option<&str>) -> u64 {
         let mut stalled: Vec<Arc<Entry>> = self
             .handshakes
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .entries
             .values()
-            .filter(|e| e.started.elapsed() >= self.stall && !e.done.load(Ordering::Relaxed))
+            .filter(|e| {
+                e.started.elapsed() >= self.stall
+                    && !e.done.load(Ordering::Relaxed)
+                    && inbound.is_none_or(|inbound| *e.inbound == *inbound)
+            })
             .cloned()
             .collect();
         stalled.sort_by_key(|e| e.started);
+        let mut evicted = 0;
         for entry in stalled {
             if !entry.evicted.swap(true, Ordering::Relaxed) {
-                self.evicted.fetch_add(1, Ordering::Relaxed);
+                evicted += 1;
                 entry.notify.notify_waiters();
             }
         }
+        evicted
     }
 
-    /// Whether `source`'s handshakes in the window mostly failed.
+    /// Whether `source`'s handshakes in the window failed, enough of them
+    /// and none succeeding since.
     fn failing(&self, source: IpAddr) -> bool {
         let sources = self.sources.lock().unwrap_or_else(|e| e.into_inner());
         sources
@@ -407,12 +463,17 @@ impl Admission {
             .is_some_and(|s| s.since.elapsed() < SCORE_WINDOW && s.failing())
     }
 
-    /// Counts a handshake of `source` that authenticated, or failed.
+    /// Counts a handshake of `source` that failed; one that authenticated
+    /// clears its failures.
     fn scored(&self, source: IpAddr, ok: bool) {
         if !self.score {
             return;
         }
         let mut sources = self.sources.lock().unwrap_or_else(|e| e.into_inner());
+        if ok {
+            sources.remove(&source);
+            return;
+        }
         if sources.len() >= SCORE_SOURCES && !sources.contains_key(&source) {
             sources.retain(|_, s| s.since.elapsed() < SCORE_WINDOW);
             if sources.len() >= SCORE_SOURCES {
@@ -421,20 +482,15 @@ impl Admission {
         }
         let score = sources.entry(source).or_insert_with(|| Score {
             since: Instant::now(),
-            ok: 0,
             failed: 0,
         });
         if score.since.elapsed() >= SCORE_WINDOW {
             *score = Score {
                 since: Instant::now(),
-                ok: 0,
                 failed: 0,
             };
         }
-        match ok {
-            true => score.ok += 1,
-            false => score.failed += 1,
-        }
+        score.failed += 1;
     }
 
     fn warn(&self, why: &str) {
@@ -466,6 +522,7 @@ impl Admission {
             refused_sources: self.refused_sources.load(Ordering::Relaxed),
             refused_quic: self.refused_quic.load(Ordering::Relaxed),
             evicted: self.evicted.load(Ordering::Relaxed),
+            evicted_full: self.evicted_full.load(Ordering::Relaxed),
             pressure,
         }
     }
