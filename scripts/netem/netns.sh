@@ -35,6 +35,7 @@ set -eu
 # Which pair: NETEM_NS names the namespaces nc$NS and ns$NS (default 5),
 # NETEM_NET the three /24s 10.$NET-10.$((NET+2)) they use (default 95), so
 # that two runs side by side take pairs of their own. run.py reads the same.
+# NETEM_CC names the namespaces' system congestion control (`up`).
 NS=${NETEM_NS:-5}
 NET=${NETEM_NET:-95}
 # Digits without a leading zero: sh reads 095 as octal, and nc05 is not nc5.
@@ -149,6 +150,10 @@ up)
     # one to the same address (tcp_metrics), so that a cell does not depend
     # on the cells before it.
     ip netns exec $ns sysctl -qw net.ipv4.tcp_no_metrics_save=1
+    # NETEM_CC: the congestion control of the namespace's sockets that do
+    # not choose their own, as a host's net.ipv4.tcp_congestion_control
+    # (a new namespace takes the host's).
+    [ -z "${NETEM_CC:-}" ] || ip netns exec $ns sysctl -qw net.ipv4.tcp_congestion_control="$NETEM_CC"
   done
   ip -n $C link set $CV0 up
   ip -n $S link set $SV0 up

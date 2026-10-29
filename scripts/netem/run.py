@@ -1478,7 +1478,8 @@ def matrix(args, summaries):
             quic = proto == "hy2" or proto.startswith("tuic")
             args.bulk_bytes = (args.bulk_bytes_quic or tcp_bytes) if quic else tcp_bytes
             for c, s in order:
-                client = "sing-box" if c == "sb" else f"sail-{args.client_profile}"
+                client = ("sing-box" if c == "sb"
+                          else f"sail-{args.sail_profiles.get(c, args.client_profile)}")
                 server = "sing-box" if s == "sb" else "sail"
                 tag = f"--{c}-{s}-r{r + 1}"
                 run = Run(args, proto, client, server, client_bin=bins.get(c),
@@ -1575,6 +1576,15 @@ def main():
                          "st=--single-thread; repeatable")
     ap.add_argument("--client-profile", default="server",
                     help="the runtime profile of a sail client of --matrix (default server)")
+    ap.add_argument("--sail-profile", action="append", default=[], metavar="NAME=PROFILE",
+                    help="the runtime profile of the --matrix client NAME (a --sail-bin "
+                         "name) in place of --client-profile, so that profiles of one "
+                         "binary share a run and its reference pair, e.g. "
+                         "--sail-bin mob=PATH --sail-profile mob=mobile; repeatable")
+    ap.add_argument("--host-cc", default="", metavar="NAME",
+                    help="the system congestion control of both namespaces, what sockets "
+                         "that set none run, e.g. bbr for a host with "
+                         "net.ipv4.tcp_congestion_control = bbr (default: the host's)")
     ap.add_argument("--matrix", default="",
                     help="client>server pairs, each sb, sail or a --sail-bin name, e.g. "
                          "sb>sb,sail>sb,sb>sail,sail>sail; rounds go outside, the order of "
@@ -1606,6 +1616,14 @@ def main():
         if not sep or not name or not path or name in ("sb", "sail"):
             ap.error(f"--sail-bin {item!r}: NAME=PATH, NAME other than sb and sail")
         args.sail_bins[name] = path
+    args.sail_profiles = {}
+    for item in args.sail_profile:
+        name, sep, profile = item.partition("=")
+        if not sep or not profile or name not in args.sail_bins:
+            ap.error(f"--sail-profile {item!r}: NAME=PROFILE, NAME a --sail-bin name")
+        args.sail_profiles[name] = profile
+    if args.host_cc:
+        os.environ["NETEM_CC"] = args.host_cc
     # Each side's (before, after) its command: `env K=V ` and ` ARG`.
     extra = {}
     for opt, items in (("--sail-env", args.sail_env), ("--sail-arg", args.sail_arg)):
