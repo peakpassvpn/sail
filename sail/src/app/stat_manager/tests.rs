@@ -553,3 +553,127 @@ fn a_closer_tells_the_first_reason() {
         assert_eq!(closer.closed_by(), Some(by));
     }
 }
+
+/// Interim records tell the bytes since the connection's record before,
+/// skip a connection with nothing new, and its closed record the rest:
+/// its records add up to its totals.
+#[tokio::test]
+async fn interim_records_and_the_closed_one_add_up_to_the_totals() {
+    let (events, users) = (EventHub::default(), UserRegistry::default());
+    let sm = recording(&events, &users);
+    let mut records = events.records();
+    let mut s = sm.stat_stream(mock(b"12345"), session("in", "out", None, Network::Tcp));
+    let _idle = sm.stat_stream(mock(b""), session("in", "out", None, Network::Tcp));
+
+    s.write_all(b"abc").await.unwrap();
+    assert_eq!(sm.report(), 1, "the idle one is skipped");
+    let first = next(&mut records);
+    assert_eq!(first.kind, RecordKind::Interim);
+    assert_eq!((first.seq, first.up, first.down), (0, 3, 0));
+    assert_eq!(first.since, first.start);
+    assert_eq!(sm.report(), 0, "nothing new");
+
+    s.write_all(b"de").await.unwrap();
+    let mut buf = [0u8; 1];
+    s.read_exact(&mut buf).await.unwrap();
+    assert_eq!(sm.report(), 1);
+    let second = next(&mut records);
+    assert_eq!((second.seq, second.up, second.down), (1, 2, 1));
+    assert_eq!((second.up_total, second.down_total), (5, 1));
+    assert_eq!(second.since, first.at);
+
+    let mut rest = Vec::new();
+    s.read_to_end(&mut rest).await.unwrap();
+    drop(s);
+    let closed = next(&mut records);
+    assert!(matches!(closed.kind, RecordKind::Closed(_)));
+    assert_eq!((closed.seq, closed.up, closed.down), (2, 0, 4));
+    assert_eq!(closed.since, second.at);
+    let all = [&first, &second, &closed];
+    assert_eq!(all.iter().map(|r| r.up).sum::<u64>(), closed.up_total);
+    assert_eq!(all.iter().map(|r| r.down).sum::<u64>(), closed.down_total);
+}
+
+/// Passes running while the connection relays and closes count each byte
+/// once: its records come in order, the closed one last, and add up.
+#[test]
+fn passes_racing_the_close_count_no_byte_twice() {
+    let (events, users) = (
+        EventHub::with_record_capacity(1 << 16),
+        UserRegistry::default(),
+    );
+    let sm = Arc::new(recording(&events, &users));
+    let mut records = events.records();
+    let mut s = sm.stat_stream(mock(b""), session("in", "out", None, Network::Tcp));
+    let done = Arc::new(AtomicBool::new(false));
+    let passes: Vec<_> = (0..4)
+        .map(|_| {
+            let (sm, done) = (sm.clone(), done.clone());
+            std::thread::spawn(move || {
+                while !done.load(Ordering::Relaxed) {
+                    sm.report();
+                }
+            })
+        })
+        .collect();
+    for _ in 0..2000 {
+        futures::executor::block_on(s.write_all(b"x")).unwrap();
+    }
+    drop(s);
+    // Passes after the close tell nothing more of it.
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    done.store(true, Ordering::Relaxed);
+    for pass in passes {
+        pass.join().unwrap();
+    }
+    let mut told = Vec::new();
+    while let Some(record) = futures::FutureExt::now_or_never(records.recv()) {
+        told.push(record.expect("not lagged"));
+    }
+    assert!(told.windows(2).all(|w| w[1].seq == w[0].seq + 1));
+    let last = told.last().unwrap();
+    assert!(matches!(last.kind, RecordKind::Closed(_)));
+    assert!(told[..told.len() - 1]
+        .iter()
+        .all(|r| r.kind == RecordKind::Interim));
+    assert_eq!(told.iter().map(|r| r.up).sum::<u64>(), 2000);
+    assert_eq!(last.up_total, 2000);
+}
+
+/// The interim passes come as often as the host sets, and stop when it
+/// unsets them.
+#[tokio::test(start_paused = true)]
+async fn interim_passes_come_as_often_as_set() {
+    let (events, users) = (EventHub::default(), UserRegistry::default());
+    let sm = Arc::new(recording(&events, &users));
+    let mut records = events.records();
+    let passes = tokio::spawn(StatManager::report_task(sm.clone()));
+    let mut s = sm.stat_stream(mock(b""), session("in", "out", None, Network::Tcp));
+    s.write_all(b"ab").await.unwrap();
+
+    tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+    assert!(
+        futures::FutureExt::now_or_never(records.recv()).is_none(),
+        "none set"
+    );
+
+    // Under the least, the least.
+    events.set_record_interval(Some(std::time::Duration::from_millis(10)));
+    tokio::time::sleep(
+        crate::control::events::RECORD_INTERVAL_MIN + std::time::Duration::from_millis(10),
+    )
+    .await;
+    assert_eq!(next(&mut records).up, 2);
+    s.write_all(b"c").await.unwrap();
+    tokio::time::sleep(crate::control::events::RECORD_INTERVAL_MIN).await;
+    assert_eq!(next(&mut records).up, 1);
+
+    events.set_record_interval(None);
+    s.write_all(b"d").await.unwrap();
+    tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+    assert!(
+        futures::FutureExt::now_or_never(records.recv()).is_none(),
+        "unset"
+    );
+    passes.abort();
+}

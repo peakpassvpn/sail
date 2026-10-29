@@ -738,6 +738,13 @@ impl RuntimeManager {
         self.stat_manager.close(id)
     }
 
+    /// An interim pass: a record of each connection open that sent or
+    /// received since its record before (control::events'
+    /// `ConnectionRecord`); how many were told, none while no one listens.
+    pub async fn report_connections(&self) -> usize {
+        self.stat_manager.report()
+    }
+
     /// Closes every connection open, returning how many.
     pub async fn close_all_connections(&self) -> usize {
         self.stat_manager.close_all()

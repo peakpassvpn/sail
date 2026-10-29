@@ -589,6 +589,19 @@ read included. Its fields:
   `down` count from) and `at` (when it was counted; a closed record's
   end).
 
+Interim records come from passes over the connections open: every
+`Options::record_interval(every)` (none unless set; 1 s at least;
+`instance.set_record_interval(Some(every))` or `None` changes it while
+the instance runs), and whenever the host asks with
+`instance.report_connections()`, which returns how many it told. A
+connection with nothing new since its record before is skipped. A pass
+racing a connection's close counts no byte twice: a connection's records
+leave in order (`seq`), its closed record last. For a graceful stop, ask
+for a pass and then stop: the connections still open are cut by the stop,
+and their closed records (`Closed(Stopped)`) carry what moved after the
+pass, told before the subscription ends. A crash loses what moved since
+the last pass.
+
 A connection is a TCP connection, a UDP session or a stream of a
 multiplexed connection, as for `Kinds::ROUTE`; the sessions a host's own
 inbound submits are recorded as sail's own are. Records are built only

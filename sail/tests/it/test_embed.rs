@@ -1462,3 +1462,62 @@ async fn a_connection_s_record_tells_its_user_bytes_and_end() {
 
     instance.stop().await.unwrap();
 }
+
+/// An interim pass asked for records what each open connection moved so
+/// far; a stop cuts what is left open, and its closed record tells the
+/// rest, and that the stop ended it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_interim_pass_before_a_stop_records_what_is_open() {
+    use futures::StreamExt;
+    use sail::embed::{ClosedBy, ConnectionRecord, End, Event, Kinds, RecordKind};
+    use std::sync::Arc;
+
+    let (echo, serve) = common::run_tcp_echo_server("127.0.0.1:0").await.unwrap();
+    tokio::spawn(serve);
+    let socks = common::free_port();
+    let instance = Instance::new(options()).unwrap();
+    instance
+        .start(Config::Json(config(socks, 53)))
+        .await
+        .unwrap();
+    let mut events = Box::pin(instance.events(Kinds::CONNECTION));
+    async fn record(
+        events: &mut (impl futures::Stream<Item = Event> + Unpin),
+    ) -> Arc<ConnectionRecord> {
+        match tokio::time::timeout(Duration::from_secs(5), events.next())
+            .await
+            .expect("a record in time")
+            .unwrap()
+        {
+            Event::ConnectionRecord(record) => record,
+            other => panic!("unexpected {:?}", other),
+        }
+    }
+
+    let mut s = socks_asked(socks, echo.port()).await;
+    assert_eq!(socks_reply(&mut s).await, 0);
+    round_trip(&mut s, b"hello").await;
+    assert_eq!(instance.report_connections().await.unwrap(), 1);
+    let interim = record(&mut events).await;
+    assert_eq!(interim.kind, RecordKind::Interim);
+    assert_eq!((interim.up, interim.down, interim.seq), (5, 5, 0));
+    assert_eq!(
+        instance.report_connections().await.unwrap(),
+        0,
+        "nothing new"
+    );
+
+    round_trip(&mut s, b"ab").await;
+    instance.stop().await.unwrap();
+    let closed = record(&mut events).await;
+    assert_eq!(
+        closed.kind,
+        RecordKind::Closed(End::Closed(ClosedBy::Stopped)),
+        "{:?}",
+        closed
+    );
+    assert_eq!((closed.up, closed.down, closed.seq), (2, 2, 1));
+    assert_eq!((closed.up_total, closed.down_total), (7, 7));
+    assert_eq!(closed.id, interim.id);
+    assert_eq!(closed.run, interim.run);
+}

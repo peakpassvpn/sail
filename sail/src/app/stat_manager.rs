@@ -929,6 +929,47 @@ impl StatManager {
         self
     }
 
+    /// An interim pass: a record of each connection open that sent or
+    /// received since its record before, the bytes since. How many were
+    /// told; none while no one listens.
+    pub fn report(&self) -> usize {
+        let recorder = &self.recorder;
+        if !recorder.events.records_wanted() {
+            return 0;
+        }
+        self.connections()
+            .iter()
+            .filter(|counter| counter.report(&recorder.events, recorder.run, None))
+            .count()
+    }
+
+    /// Interim passes, as often as the host sets them (`EventHub::
+    /// set_record_interval`), for as long as the run lasts.
+    pub fn report_task(sm: SyncStatManager) -> crate::Runner {
+        Box::pin(async move {
+            let mut every = sm.recorder.events.record_interval();
+            loop {
+                let Some(interval) = *every.borrow_and_update() else {
+                    if every.changed().await.is_err() {
+                        return std::future::pending().await;
+                    }
+                    continue;
+                };
+                tokio::select! {
+                    () = tokio::time::sleep(interval) => {
+                        let told = sm.report();
+                        debug!("interim pass: {} connection records", told);
+                    }
+                    changed = every.changed() => {
+                        if changed.is_err() {
+                            return std::future::pending().await;
+                        }
+                    }
+                }
+            }
+        })
+    }
+
     /// The instance is stopping: the connections still open are cut, and
     /// their records say so, unless something else ended them.
     pub(crate) fn stopping(&self) {

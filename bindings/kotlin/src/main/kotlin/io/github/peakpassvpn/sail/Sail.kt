@@ -62,7 +62,7 @@ enum class RecheckOpen(internal val json: String) {
 enum class EventKind(val code: Int) {
     STATE(1), LOG(2), STATUS(3), CONNECTIONS(4), OUTBOUNDS(5), NETWORK(6), DISCONNECTED(7),
     FAULT(8), ROUTED(9), DNS(10), GROUP(11), DIAL(12), USER(13),
-    SYSTEM(14),
+    SYSTEM(14), CONNECTION_RECORD(15),
 }
 
 /**
@@ -234,6 +234,13 @@ class Sail private constructor(private val handle: Long) : AutoCloseable {
 
     /** What someone else changed of a TUN's setup, once a break; in the tunnel process only. */
     fun systemChanges(): Flow<Told<SystemChange>> = told(EventKind.SYSTEM)
+
+    /**
+     * What each connection sent and received: a record when it closes, and
+     * at each interim pass that finds bytes new; a connection's records add
+     * up to what its user was counted. In the tunnel process only.
+     */
+    fun connectionRecords(): Flow<Told<ConnectionRecord>> = told(EventKind.CONNECTION_RECORD)
 
     private inline fun <reified T> told(kind: EventKind): Flow<Told<T>> = events(kind).map { text ->
         val lagged = json.parseToJsonElement(text).jsonObject["lagged"]

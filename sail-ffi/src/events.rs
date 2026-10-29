@@ -103,6 +103,19 @@ pub const SAIL_EVENT_USER: u32 = 13;
 /// rebuilding the instance is the host's. Through stops and starts;
 /// `{"lagged": missed}` as for faults. In the tunnel process only.
 pub const SAIL_EVENT_SYSTEM: u32 = 14;
+/// What each connection sent and received, for a host that counts traffic
+/// by connection: one record when it closes, and one at each interim pass
+/// that finds bytes new since its record before: `{"id", "run_ms", "seq",
+/// "kind": "interim" | "closed", "end": "finished" | "error" |
+/// "idle_timeout" | "write_stall" | "closed" | "aborted", "error",
+/// "closed_by": "api" | "user" | "inbound" | "rules" | "network" |
+/// "stopped", "network", "user", "inbound", "source", "destination",
+/// "request_destination", "domain", "domain_source", "chain", "up", "down",
+/// "up_total", "down_total", "start_ms", "since_ms", "at_ms"}`; a
+/// connection's records add up to what its user was counted. Built only
+/// while someone follows them. Through stops and starts; `{"lagged":
+/// missed}` as for faults. In the tunnel process only.
+pub const SAIL_EVENT_CONNECTION_RECORD: u32 = 15;
 
 /// Intervals shorter are taken as this: a host cannot ask for a busy loop.
 const INTERVAL_MIN: Duration = Duration::from_millis(100);
@@ -504,6 +517,16 @@ fn produce(kind: u32, options: &Options, instance: &Arc<Instance>) -> Result<Pro
                 _ => None,
             })
         }
+        SAIL_EVENT_CONNECTION_RECORD => embed_events(
+            instance,
+            sail::embed::Kinds::CONNECTION,
+            |event| match event {
+                sail::embed::Event::ConnectionRecord(record) => {
+                    serde_json::to_value(json::ConnectionRecord::of(&record)).ok()
+                }
+                _ => None,
+            },
+        ),
         other => return Err(Failure::invalid(format!("no event kind {}", other))),
     })
 }

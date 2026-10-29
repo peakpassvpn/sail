@@ -140,6 +140,7 @@ impl Instance {
             log,
             stop_within,
             connection_records,
+            record_interval,
         } = options;
         let profile: crate::runtime::Profile = match &settings.profile {
             Some(p) => p
@@ -189,6 +190,7 @@ impl Instance {
             ),
             me: me.clone(),
         });
+        inner.events.set_record_interval(record_interval);
         Ok(Instance(Arc::new(Handle(inner))))
     }
 

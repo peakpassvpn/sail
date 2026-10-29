@@ -439,6 +439,15 @@ mod handlers {
         }
     }
 
+    /// An interim pass, now: a record of each connection open that sent or
+    /// received since its record before, to the subscribers of
+    /// `connection` events; how many.
+    pub async fn connections_report(
+        State(rm): State<Arc<RuntimeManager>>,
+    ) -> Json<serde_json::Value> {
+        Json(serde_json::json!({ "recorded": rm.report_connections().await }))
+    }
+
     pub async fn connections_close(
         State(rm): State<Arc<RuntimeManager>>,
     ) -> Json<serde_json::Value> {
@@ -988,6 +997,10 @@ impl ApiServer {
             .route(
                 "/api/v1/runtime/connections",
                 get(handlers::connections).delete(handlers::connections_close),
+            )
+            .route(
+                "/api/v1/runtime/connections/report",
+                post(handlers::connections_report),
             )
             .route(
                 "/api/v1/runtime/connections/:id",

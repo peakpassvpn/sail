@@ -21,6 +21,7 @@ public enum EventKind: UInt32, Sendable {
     case dial = 12
     case user = 13
     case system = 14
+    case connectionRecord = 15
 }
 
 final class EventBox {
@@ -141,6 +142,14 @@ extension Sail {
     /// tunnel process only.
     public func systemChanges() -> AsyncThrowingStream<Told<SystemChange>, Error> {
         typed(.system, Told<SystemChange>.self, options: nil)
+    }
+
+    /// What each connection sent and received: a record when it closes,
+    /// and at each interim pass that finds bytes new; a connection's
+    /// records add up to what its user was counted. In the tunnel process
+    /// only.
+    public func connectionRecords() -> AsyncThrowingStream<Told<ConnectionRecord>, Error> {
+        typed(.connectionRecord, Told<ConnectionRecord>.self, options: nil)
     }
 
     public func statuses(intervalMs: UInt64 = 1000) -> AsyncThrowingStream<Status, Error> {

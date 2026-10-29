@@ -948,6 +948,21 @@ fn the_api_streams_connection_records() -> anyhow::Result<()> {
             status,
             body
         );
+        // An interim pass with no one listening tells nothing.
+        let (status, _, body) = call(
+            &rt,
+            &at,
+            Some(SECRET),
+            "POST",
+            "/api/v1/runtime/connections/report",
+            "",
+        )?;
+        anyhow::ensure!(
+            status == 200 && body == serde_json::json!({ "recorded": 0 }),
+            "{} {}",
+            status,
+            body
+        );
         let (opened, open) = std::sync::mpsc::channel();
         let reader = std::thread::spawn(move || -> anyhow::Result<String> {
             let rt = tokio::runtime::Builder::new_current_thread()

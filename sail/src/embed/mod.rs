@@ -119,6 +119,7 @@ pub struct Options {
     log: Option<Arc<crate::app::logger::InstanceLog>>,
     stop_within: Option<Duration>,
     connection_records: Option<usize>,
+    record_interval: Option<Duration>,
 }
 
 impl Options {
@@ -217,6 +218,15 @@ impl Options {
     /// costs a pointer while someone subscribes.
     pub fn connection_records(mut self, capacity: usize) -> Self {
         self.connection_records = Some(capacity);
+        self
+    }
+
+    /// How often an interim pass records the connections open, each that
+    /// sent or received since its record before (`Kinds::CONNECTION`):
+    /// never unless set; 1 s at least. `Instance::set_record_interval`
+    /// changes it while it runs.
+    pub fn record_interval(mut self, every: Duration) -> Self {
+        self.record_interval = Some(every);
         self
     }
 
@@ -387,6 +397,22 @@ impl Instance {
     pub async fn close_connection(&self, id: u64) -> Result<bool, Error> {
         self.with_manager(move |m| Box::pin(async move { m.close_connection(id).await }))
             .await
+    }
+
+    /// An interim pass, now: a record (`Kinds::CONNECTION`) of each
+    /// connection open that sent or received since its record before, as
+    /// a host asks right before a graceful stop. How many were told; none
+    /// while no one subscribes.
+    pub async fn report_connections(&self) -> Result<usize, Error> {
+        self.with_manager(move |m| Box::pin(async move { m.report_connections().await }))
+            .await
+    }
+
+    /// How often an interim pass records the connections open, from now
+    /// on and in the runs after; none stops them. As
+    /// `Options::record_interval`.
+    pub fn set_record_interval(&self, every: Option<Duration>) {
+        self.inner().events().set_record_interval(every);
     }
 
     /// Closes every connection: how many.

@@ -739,6 +739,14 @@ fn what_happens_is_told_as_it_happens() {
         let instance = new_instance(None, None);
         let routed = Recorder::new();
         subscribe(instance, SAIL_EVENT_ROUTED, None, &routed, record);
+        let records = Recorder::new();
+        subscribe(
+            instance,
+            SAIL_EVENT_CONNECTION_RECORD,
+            None,
+            &records,
+            record,
+        );
         let quiet = Recorder::new();
         for kind in [
             SAIL_EVENT_DNS,
@@ -753,6 +761,9 @@ fn what_happens_is_told_as_it_happens() {
         echo_through(port);
         routed.wait(SAIL_EVENT_ROUTED, |e| {
             e["inbound"] == "socks-in" && e["action"] == "outbound"
+        });
+        records.wait(SAIL_EVENT_CONNECTION_RECORD, |e| {
+            e["inbound"] == "socks-in" && e["kind"] == "closed" && e["up_total"].as_u64() > Some(0)
         });
         stop(instance);
         sail_instance_free(instance);

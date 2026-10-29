@@ -226,6 +226,7 @@ impl Instance {
     pub fn start(&mut self) -> Result<Vec<Runner>> {
         let mut runners = vec![
             StatManager::store_task(self.stat_manager.clone(), self.env.cache_file.clone()),
+            StatManager::report_task(self.stat_manager.clone()),
             self.env.cache_file.kept_task(),
             self.env.users.expiry_task(),
         ];

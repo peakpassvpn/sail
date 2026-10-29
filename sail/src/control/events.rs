@@ -139,6 +139,10 @@ pub struct RoutedConnection {
 /// carries cover what it missed of that connection.
 pub const RECORD_CAPACITY: usize = 4096;
 
+/// Interim passes come this often at most: a host cannot ask for a busy
+/// loop over every connection (a judgment value).
+pub const RECORD_INTERVAL_MIN: Duration = Duration::from_secs(1);
+
 /// How a connection ended, as its closed record tells it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
@@ -487,6 +491,9 @@ pub struct EventHub {
     route: Channel<Arc<RoutedConnection>>,
     dns: Channel<Arc<DnsExchange>>,
     record: Channel<Arc<ConnectionRecord>>,
+    /// How often an interim pass records the connections open, as the host
+    /// set it; none, never.
+    record_interval: tokio::sync::watch::Sender<Option<Duration>>,
     /// The network's changes, which the run's `Network` tells.
     network: broadcast::Sender<Arc<crate::net::network::NetworkChange>>,
 }
@@ -591,6 +598,7 @@ impl EventHub {
             route: Channel::new(ROUTE_CAPACITY),
             dns: Channel::new(DNS_CAPACITY),
             record: Channel::new(capacity.max(1)),
+            record_interval: tokio::sync::watch::channel(None).0,
             network: broadcast::channel(crate::net::network::EVENTS).0,
         }
     }
@@ -683,6 +691,21 @@ impl EventHub {
     /// someone listens.
     pub fn recorded(&self, build: impl FnOnce() -> ConnectionRecord) {
         self.record.emit(|| Arc::new(build()));
+    }
+
+    /// Has an interim pass record the connections open every `every`
+    /// (`RECORD_INTERVAL_MIN` at least), in each run from now on; none
+    /// stops them.
+    pub fn set_record_interval(&self, every: Option<Duration>) {
+        let every = every
+            .filter(|every| !every.is_zero())
+            .map(|every| every.max(RECORD_INTERVAL_MIN));
+        self.record_interval.send_replace(every);
+    }
+
+    /// How often an interim pass comes, as it changes.
+    pub fn record_interval(&self) -> tokio::sync::watch::Receiver<Option<Duration>> {
+        self.record_interval.subscribe()
     }
 
     /// Whether anyone listens for connection records.
