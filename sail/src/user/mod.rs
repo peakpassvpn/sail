@@ -216,7 +216,9 @@ impl UserState {
             .values()
             .filter(|c| inbound(&c.sess.inbound_tag))
         {
-            counter.closer.close();
+            counter
+                .closer
+                .close_by(crate::control::events::ClosedBy::User);
             closed += 1;
         }
         for (_, close) in self

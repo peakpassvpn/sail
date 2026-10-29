@@ -124,6 +124,7 @@ public struct Routed: Decodable, Equatable, Sendable {
     public let id: UInt64?
     public let network: String
     public let inbound: String
+    public let user: String?
     public let source: String
     public let destination: String
     public let requestDestination: String?
@@ -139,6 +140,40 @@ public struct Routed: Decodable, Equatable, Sendable {
     public let target: String?
     public let connectMs: UInt64?
     public let connectError: String?
+}
+
+/// What a connection sent and received since its record before, as it
+/// closed or at an interim pass: the `up` and `down` of one connection's
+/// records add up to its totals.
+public struct ConnectionRecord: Decodable, Equatable, Sendable {
+    public let id: UInt64
+    /// When the instance's run started, Unix ms: with `id`, it names the
+    /// connection.
+    public let runMs: UInt64
+    public let seq: UInt32
+    /// interim, or closed.
+    public let kind: String
+    /// finished, error, idle_timeout, write_stall, closed or aborted.
+    public let end: String?
+    public let error: String?
+    /// api, user, inbound, rules, network or stopped.
+    public let closedBy: String?
+    public let network: String
+    public let user: String?
+    public let inbound: String
+    public let source: String
+    public let destination: String
+    public let requestDestination: String?
+    public let domain: String?
+    public let domainSource: String?
+    public let chain: [String]
+    public let up: UInt64
+    public let down: UInt64
+    public let upTotal: UInt64
+    public let downTotal: UInt64
+    public let startMs: UInt64
+    public let sinceMs: UInt64
+    public let atMs: UInt64
 }
 
 /// A DNS query answered or failed.

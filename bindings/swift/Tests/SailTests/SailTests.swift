@@ -171,6 +171,7 @@ final class SailTests: XCTestCase {
             "fault": { try check(Fault.self, "fault") },
             "reload_report": { try check(ReloadReport.self, "reload_report") },
             "routed": { try check(Routed.self, "routed") },
+            "connection_record": { try check(ConnectionRecord.self, "connection_record") },
             "dns_exchange": { try check(DnsExchange.self, "dns_exchange") },
             "group_switch": { try check(GroupSwitch.self, "group_switch") },
             "dial_failed": { try check(DialFailed.self, "dial_failed") },

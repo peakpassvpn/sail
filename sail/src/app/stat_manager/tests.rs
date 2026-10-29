@@ -330,3 +330,226 @@ fn striped_counts_sum_across_threads() {
     assert_eq!(traffic.counts().up, 5 + 8 * 1000 * 2);
     assert_eq!(traffic.since_start().0, 8 * 1000 * 2);
 }
+
+/// A stream whose reads fail with `.0`.
+struct FailingStream(io::ErrorKind);
+
+impl AsyncRead for FailingStream {
+    fn poll_read(self: Pin<&mut Self>, _cx: &mut Context, _: &mut ReadBuf) -> Poll<io::Result<()>> {
+        Poll::Ready(Err(io::Error::from(self.0)))
+    }
+}
+
+impl AsyncWrite for FailingStream {
+    fn poll_write(self: Pin<&mut Self>, _cx: &mut Context, buf: &[u8]) -> Poll<io::Result<usize>> {
+        Poll::Ready(Ok(buf.len()))
+    }
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context) -> Poll<io::Result<()>> {
+        Poll::Ready(Ok(()))
+    }
+    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context) -> Poll<io::Result<()>> {
+        Poll::Ready(Ok(()))
+    }
+}
+
+/// A stat manager telling its records to `events`.
+fn recording(events: &EventHub, users: &UserRegistry) -> StatManager {
+    StatManager::new(0, users.clone()).recording(events.clone())
+}
+
+/// The next record told, without waiting.
+fn next(
+    records: &mut crate::control::events::Subscription<Arc<ConnectionRecord>>,
+) -> ConnectionRecord {
+    let record = futures::FutureExt::now_or_never(records.recv())
+        .expect("a record was told")
+        .expect("not lagged");
+    (*record).clone()
+}
+
+/// A connection's closed record tells what it sent and received, which is
+/// what its user, inbound and outbound were counted, its user, and how it
+/// ended; a UDP session's too.
+#[tokio::test]
+async fn a_closed_record_tells_what_its_user_was_counted() {
+    let (events, users) = (EventHub::default(), UserRegistry::default());
+    let alice = users.bind("alice");
+    let sm = recording(&events, &users);
+    let mut records = events.records();
+
+    let mut s = sm.stat_stream(
+        mock(b"12345"),
+        session("in", "out", Some(&alice), Network::Tcp),
+    );
+    s.write_all(b"abc").await.unwrap();
+    let mut buf = Vec::new();
+    s.read_to_end(&mut buf).await.unwrap();
+    s.shutdown().await.unwrap();
+    drop(s);
+    let record = next(&mut records);
+    assert_eq!(record.kind, RecordKind::Closed(End::Finished));
+    assert_eq!((record.up, record.down), (3, 5));
+    assert_eq!((record.up_total, record.down_total), (3, 5));
+    assert_eq!(record.seq, 0);
+    assert_eq!(record.user.as_deref(), Some("alice"));
+    assert_eq!(record.inbound, "in");
+    assert_eq!(record.chain, vec!["out".to_string()]);
+    assert_eq!(record.network, Network::Tcp);
+    assert!(record.start <= record.since && record.since <= record.at);
+
+    let dgram = sm.stat_outbound_datagram(
+        Box::new(MockDatagram(11)),
+        session("in", "out", Some(&alice), Network::Udp),
+    );
+    let (mut recv, mut send) = dgram.split();
+    send.send_to(b"xyzw", &SocksAddr::any()).await.unwrap();
+    let mut dbuf = [0u8; 64];
+    recv.recv_from(&mut dbuf).await.unwrap();
+    drop((recv, send));
+    let udp = next(&mut records);
+    assert_eq!(udp.kind, RecordKind::Closed(End::Finished));
+    assert_eq!((udp.up, udp.down), (4, 11));
+
+    let counted = alice.traffic().counts();
+    assert_eq!(
+        (counted.up, counted.down),
+        (record.up + udp.up, record.down + udp.down)
+    );
+    assert_ne!(record.id, udp.id);
+}
+
+/// What a connection writes after its last read is in its closed record.
+#[tokio::test]
+async fn a_write_after_the_last_read_is_in_the_closed_record() {
+    let (events, users) = (EventHub::default(), UserRegistry::default());
+    let sm = recording(&events, &users);
+    let mut records = events.records();
+    let mut s = sm.stat_stream(mock(b"12"), session("in", "out", None, Network::Tcp));
+    let mut buf = Vec::new();
+    s.read_to_end(&mut buf).await.unwrap();
+    s.write_all(b"written last").await.unwrap();
+    drop(s);
+    let record = next(&mut records);
+    assert_eq!((record.up, record.down), (12, 2));
+}
+
+/// Nothing is built while no one listens; bytes counted before someone
+/// does are in the connection's next record.
+#[tokio::test]
+async fn records_are_built_only_while_someone_listens() {
+    let (events, users) = (EventHub::default(), UserRegistry::default());
+    let sm = recording(&events, &users);
+    let mut s = sm.stat_stream(mock(b""), session("in", "out", None, Network::Tcp));
+    s.write_all(b"abc").await.unwrap();
+    drop(sm.stat_stream(mock(b""), session("in", "out", None, Network::Tcp)));
+    assert_eq!(events.records_built(), 0);
+
+    let mut records = events.records();
+    s.write_all(b"de").await.unwrap();
+    drop(s);
+    let record = next(&mut records);
+    assert_eq!((record.up, record.up_total), (5, 5));
+    assert_eq!(events.records_built(), 1);
+}
+
+/// A closed record tells how the connection ended: why sail closed it,
+/// a failure, what its relay told, the stop, or nothing telling.
+#[tokio::test]
+async fn a_closed_record_tells_how_it_ended() {
+    let (events, users) = (EventHub::default(), UserRegistry::default());
+    let sm = recording(&events, &users);
+    let mut records = events.records();
+    let tcp = || session("in", "out", None, Network::Tcp);
+
+    let (s, counter) = sm.stat_stream_id(mock(b"x"), tcp());
+    sm.close_by(counter.id, ClosedBy::User);
+    // A failure its closing made does not tell over why.
+    counter.failed(&closed_by_api());
+    drop(s);
+    assert_eq!(
+        next(&mut records).kind,
+        RecordKind::Closed(End::Closed(ClosedBy::User))
+    );
+
+    let mut s = sm.stat_stream(
+        Box::new(FailingStream(io::ErrorKind::ConnectionReset)),
+        tcp(),
+    );
+    let mut buf = [0u8; 8];
+    assert!(s.read(&mut buf).await.is_err());
+    drop(s);
+    assert_eq!(
+        next(&mut records).kind,
+        RecordKind::Closed(End::Error(io::ErrorKind::ConnectionReset))
+    );
+
+    let (s, counter) = sm.stat_stream_id(mock(b"x"), tcp());
+    counter.ended(End::WriteStall);
+    counter.ended(End::Error(io::ErrorKind::TimedOut));
+    drop(s);
+    assert_eq!(next(&mut records).kind, RecordKind::Closed(End::WriteStall));
+
+    // Open both ways, and nothing told: its task ended under it.
+    drop(sm.stat_stream(mock(b"x"), tcp()));
+    assert_eq!(next(&mut records).kind, RecordKind::Closed(End::Aborted));
+
+    let (s, counter) = sm.stat_outbound_datagram_id(
+        Box::new(MockDatagram(0)),
+        session("in", "out", None, Network::Udp),
+    );
+    counter.ended(End::IdleTimeout);
+    drop(s);
+    assert_eq!(
+        next(&mut records).kind,
+        RecordKind::Closed(End::IdleTimeout)
+    );
+
+    sm.stopping();
+    drop(sm.stat_stream(mock(b"x"), tcp()));
+    assert_eq!(
+        next(&mut records).kind,
+        RecordKind::Closed(End::Closed(ClosedBy::Stopped))
+    );
+    drop(sm.stat_outbound_datagram(
+        Box::new(MockDatagram(0)),
+        session("in", "out", None, Network::Udp),
+    ));
+    assert_eq!(
+        next(&mut records).kind,
+        RecordKind::Closed(End::Closed(ClosedBy::Stopped))
+    );
+}
+
+/// A subscriber that falls behind is told how many records it missed, and
+/// the connections do not wait for it.
+#[tokio::test]
+async fn a_slow_subscriber_lags_and_no_connection_waits() {
+    let (events, users) = (EventHub::with_record_capacity(2), UserRegistry::default());
+    let sm = recording(&events, &users);
+    let mut records = events.records();
+    for _ in 0..5 {
+        drop(sm.stat_stream(mock(b""), session("in", "out", None, Network::Tcp)));
+    }
+    match futures::FutureExt::now_or_never(records.recv()) {
+        Some(Err(tokio::sync::broadcast::error::RecvError::Lagged(3))) => {}
+        other => panic!("not lagged by 3: {:?}", other.map(|r| r.map(|r| r.id))),
+    }
+    assert_eq!(next(&mut records).id, 4);
+    assert_eq!(next(&mut records).id, 5);
+}
+
+/// Each way of closing tells its reason, the first told standing.
+#[test]
+fn a_closer_tells_the_first_reason() {
+    let closer = Closer::default();
+    assert_eq!(closer.closed_by(), None);
+    closer.close_by(ClosedBy::Network);
+    closer.close();
+    assert!(closer.is_closed());
+    assert_eq!(closer.closed_by(), Some(ClosedBy::Network));
+    for by in CLOSED_BY {
+        let closer = Closer::default();
+        closer.close_by(by);
+        assert_eq!(closer.closed_by(), Some(by));
+    }
+}

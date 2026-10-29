@@ -277,6 +277,15 @@ impl OutboundDatagram for HealthcheckUdpDatagram {
     }
 }
 
+/// A UDP session dispatched: its datagrams, how long it may stand idle
+/// where a rule says, and the session as it is listed, where it is (the
+/// datagrams of hijacked DNS and health checks are not).
+pub type DispatchedDatagram = (
+    Box<dyn OutboundDatagram>,
+    Option<std::time::Duration>,
+    Option<std::sync::Arc<super::stat_manager::Counter>>,
+);
+
 /// A connection handed over to its outbound: what its relay keeps.
 struct Established {
     lhs: AnyStream,
@@ -286,6 +295,8 @@ struct Established {
     /// What its relay's failure is told with.
     destination: SocksAddr,
     path: Box<str>,
+    /// As it is listed: told how its relay ended.
+    listed: Option<std::sync::Arc<super::stat_manager::Counter>>,
 }
 
 #[inline]
@@ -301,7 +312,7 @@ fn outbound_path(sess: &Session, tag: &str) -> String {
 
 /// The outbounds a connection went through, outermost first, as
 /// `outbound_path` joins them.
-fn outbound_chain(sess: &Session, tag: &str) -> Vec<String> {
+pub(crate) fn outbound_chain(sess: &Session, tag: &str) -> Vec<String> {
     std::iter::once(tag.to_string())
         .chain(sess.chain.get())
         .collect()
@@ -331,7 +342,7 @@ struct Told<'a> {
 }
 
 /// The domain known for `sess`, and where it came from.
-fn domain_of(
+pub(crate) fn domain_of(
     sess: &Session,
     fake_ip: bool,
 ) -> Option<(String, crate::control::events::DomainSource)> {
@@ -442,6 +453,7 @@ impl Dispatcher {
                 id: told.id,
                 network: sess.network,
                 inbound: sess.inbound_tag.clone(),
+                user: crate::user::name(&sess.user).map(str::to_owned),
                 source: sess.source,
                 destination: sess.destination.clone(),
                 request_destination: told.asked.cloned(),
@@ -632,6 +644,7 @@ impl Dispatcher {
             place: _place,
             destination,
             path,
+            listed,
         } = established;
         let relay = &self.env.options.relay;
         match net::relay::copy_buf_bidirectional_with_timeout(
@@ -652,6 +665,12 @@ impl Dispatcher {
             }
             Err(e) => {
                 debug!("transfer dst={} out={} err={}", destination, path, e);
+                if let Some(listed) = &listed {
+                    listed.ended(match net::relay::is_write_stall(&e) {
+                        true => crate::control::events::End::WriteStall,
+                        false => crate::control::events::End::Error(e.kind()),
+                    });
+                }
             }
         }
     }
@@ -744,8 +763,10 @@ impl Dispatcher {
         let mut lhs_counted = false;
         // What is told of it once the dial ends: the id it is listed by,
         // and what the outbound was asked to reach, kept only while someone
-        // listens for routed connections.
+        // listens for routed connections or their records; and the
+        // connection as it is listed, told how its relay ends.
         let mut id = None;
+        let mut listed = None;
         let mut asked: Option<SocksAddr> = None;
         let connect = th.connect_addr();
         let destinations = net::destinations(&sess, &connect);
@@ -767,7 +788,7 @@ impl Dispatcher {
             };
             // Where it is dialled as a name, `override_destination`.
             let at = &*net::dial_domain::session(at, &h, &connect);
-            if self.env.events.routes_wanted() {
+            if self.env.events.routes_wanted() || self.env.events.records_wanted() {
                 asked = Some(at.destination.clone());
             }
             let stream =
@@ -797,23 +818,25 @@ impl Dispatcher {
                 };
             let stream = match stream {
                 Some(s) => {
-                    let (s, listed) = self.stat_manager.stat_stream_id(s, sess.clone());
-                    id = Some(listed);
+                    let (s, counter) = self.stat_manager.stat_stream_id(s, sess.clone());
+                    id = Some(counter.id);
                     if self.stat_manager.recheck_due(sess.routed_by) {
-                        self.recheck_late(&sess, listed).await;
+                        self.recheck_late(&sess, counter.id).await;
                     }
+                    listed = Some(counter);
                     Some(s)
                 }
                 None => {
                     if !lhs_counted {
-                        let (counted, listed) =
+                        let (counted, counter) =
                             self.stat_manager.stat_inbound_stream_id(lhs, sess.clone());
                         lhs = counted;
-                        id = Some(listed);
+                        id = Some(counter.id);
                         lhs_counted = true;
                         if self.stat_manager.recheck_due(sess.routed_by) {
-                            self.recheck_late(&sess, listed).await;
+                            self.recheck_late(&sess, counter.id).await;
                         }
+                        listed = Some(counter);
                     }
                     None
                 }
@@ -847,6 +870,11 @@ impl Dispatcher {
                 }
                 let elapsed = tokio::time::Instant::now().duration_since(handshake_start);
 
+                if let (Some(listed), Some(asked)) = (&listed, &asked) {
+                    if self.env.events.records_wanted() {
+                        listed.dialled(asked, matched.fake_ip);
+                    }
+                }
                 let told = Told {
                     matched,
                     id,
@@ -859,6 +887,7 @@ impl Dispatcher {
                     place,
                     destination: sess.destination.clone(),
                     path: outbound_path(&sess, h.tag()).into(),
+                    listed,
                 })
             }
             Err(e) => {
@@ -997,8 +1026,8 @@ impl Dispatcher {
             // connection is.
             let (stream, id) = match stream {
                 Some(s) => {
-                    let (s, id) = self.stat_manager.stat_stream_id(s, sess.clone());
-                    (Some(s), Some(id))
+                    let (s, counter) = self.stat_manager.stat_stream_id(s, sess.clone());
+                    (Some(s), Some(counter.id))
                 }
                 None => (None, None),
             };
@@ -1030,7 +1059,8 @@ impl Dispatcher {
                 Ok(rhs)
             }
             None => Ok(self.handled_listing(sess, h.tag(), elapsed, |sess| {
-                self.stat_manager.stat_stream_id(rhs, sess)
+                let (s, counter) = self.stat_manager.stat_stream_id(rhs, sess);
+                (s, counter.id)
             })),
         }
     }
@@ -1071,7 +1101,8 @@ impl Dispatcher {
         };
         let elapsed = handshake_start.elapsed();
         Ok(self.handled_listing(sess, h.tag(), elapsed, |sess| {
-            self.stat_manager.stat_outbound_datagram_id(d, sess)
+            let (d, counter) = self.stat_manager.stat_outbound_datagram_id(d, sess);
+            (d, counter.id)
         }))
     }
 
@@ -1082,7 +1113,7 @@ impl Dispatcher {
         &self,
         mut sess: Session,
         sniffer: &mut dyn Sniffer,
-    ) -> io::Result<(Box<dyn OutboundDatagram>, Option<std::time::Duration>)> {
+    ) -> io::Result<DispatchedDatagram> {
         // As a stream's: held until the session has its place, or none.
         let handshake = sess.handshake.take();
         // Its place, held by the datagram as long as the session lives.
@@ -1090,19 +1121,19 @@ impl Dispatcher {
         drop(handshake);
         let place = entered
             .map_err(|()| io::Error::other("refused: inbound.max_connections sessions live"))?;
-        let (datagram, idle) = self.dispatch_datagram_inner(sess, sniffer).await?;
+        let (datagram, idle, listed) = self.dispatch_datagram_inner(sess, sniffer).await?;
         let datagram = match place {
             Some(place) => super::sessions::Held::wrap(datagram, place),
             None => datagram,
         };
-        Ok((datagram, idle))
+        Ok((datagram, idle, listed))
     }
 
     async fn dispatch_datagram_inner(
         &self,
         mut sess: Session,
         sniffer: &mut dyn Sniffer,
-    ) -> io::Result<(Box<dyn OutboundDatagram>, Option<std::time::Duration>)> {
+    ) -> io::Result<DispatchedDatagram> {
         debug!(
             "dispatch proto={} in={} src={} dst={}",
             &sess.network, &sess.inbound_tag, &sess.source, &sess.destination
@@ -1125,7 +1156,7 @@ impl Dispatcher {
                     send: HealthcheckUdpSendHalf,
                 };
                 let d: Box<dyn OutboundDatagram> = Box::new(d);
-                return Ok((d, None));
+                return Ok((d, None, None));
             }
         }
 
@@ -1149,7 +1180,7 @@ impl Dispatcher {
                 self.unrouted(&sess, matched, RouteAction::HijackDns);
                 let udp_timeout = sess.route.udp_timeout;
                 let d = super::router::hijack_dns::Datagram::new(self.dns_client.clone(), sess);
-                return Ok((Box::new(d), udp_timeout));
+                return Ok((Box::new(d), udp_timeout, None));
             }
             Routed::Drop => {
                 self.unrouted(&sess, matched, RouteAction::Drop);
@@ -1218,14 +1249,18 @@ impl Dispatcher {
             Ok(mut d) => {
                 let elapsed = tokio::time::Instant::now().duration_since(handshake_start);
 
-                let (counted, id) = self.stat_manager.stat_outbound_datagram_id(d, sess.clone());
+                let (counted, listed) =
+                    self.stat_manager.stat_outbound_datagram_id(d, sess.clone());
                 d = counted;
                 if self.stat_manager.recheck_due(sess.routed_by) {
-                    self.recheck_late(&sess, id).await;
+                    self.recheck_late(&sess, listed.id).await;
+                }
+                if self.env.events.records_wanted() {
+                    listed.dialled(&dialed, matched.fake_ip);
                 }
                 let told = Told {
                     matched,
-                    id: Some(id),
+                    id: Some(listed.id),
                     asked: Some(&dialed),
                 };
                 self.handled(&sess, h.tag(), told, Ok(elapsed));
@@ -1249,7 +1284,7 @@ impl Dispatcher {
                     );
                 }
 
-                Ok((d, sess.route.udp_timeout))
+                Ok((d, sess.route.udp_timeout, Some(listed)))
             }
             Err(e) => {
                 debug!(

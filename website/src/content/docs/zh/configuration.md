@@ -151,7 +151,7 @@ sing-box 的 `ntp` 段会被读取：测得的时间用于各协议的时间校�
 | `POST /users/{name}/disconnect` | 断开该用户的连接，返回 `{"closed": n}`；之后它仍可重新连接 |
 | `GET /stats` | 按用户、入站、出站给出流量；`?clear=true` 表示自上次这样读取以来的增量，不影响配额 |
 | `GET /status` | 总流量、连接数和内存 |
-| `GET /events` | 以 Server-Sent Events 推送用户的变化：`shut`（超额或到期，已断开）与 `removed`（被移出入站），数据为该事件的 JSON；订阅方落后太多时收到 `lagged`，带漏掉的条数 |
+| `GET /events` | 以 Server-Sent Events 推送用户的变化：`shut`（超额或到期，已断开）与 `removed`（被移出入站），数据为该事件的 JSON；订阅方落后太多时收到 `lagged`，带事件类别 `kind` 和漏掉的条数 `missed`。`?kinds=connection`（或 `user,connection`；不给时只有 `user`）另推送 `connection` 事件：每个连接关闭时的记录，含自上一条记录起和自连接开始起的上下行字节、用户、入站、目的地、出站链、时间和结束方式（见 `docs/embed.md` 的 `Kinds::CONNECTION`）；同一连接的各条记录相加等于其用户被计的流量 |
 | `GET /connections`、`DELETE /connections`、`DELETE /connections/{id}` | 列出进行中的连接，关闭全部或其中一条 |
 | `POST /reload`、`POST /shutdown` | 重载配置文件，或停止。重载的响应给出每个入站的结果：`{"inbounds": [{"tag", "change"}]}`，`change` 为 `untouched`、`reloaded`（换了用户或证书）、`added`、`removed`、`replaced` 之一；只有被移除和被替换的入站的连接会断开。配置文件增加、移除或修改了 TUN 时返回 409（`needs_restart`），此时什么都没有变 |
 | `GET /inbounds` | 列出入站：tag、类型、监听地址，以及运行中能否修改用户（`reloadable`） |

@@ -1357,3 +1357,108 @@ fn a_host_runtime_without_timers_is_refused() {
     assert_eq!(err.kind(), ErrorKind::InvalidArgument, "{}", err);
     assert!(err.to_string().contains("enable_all()"), "{}", err);
 }
+
+/// A connection through an inbound with users: its routed event names the
+/// user, and its closed record tells the user, what it sent and received
+/// (the same the user's counts went up by), and how it ended: finished
+/// both ways, or closed by the host.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_connection_s_record_tells_its_user_bytes_and_end() {
+    use futures::StreamExt;
+    use sail::embed::{ClosedBy, ConnectionRecord, End, Event, Kinds, RecordKind};
+    use std::sync::Arc;
+
+    let (echo, serve) = common::run_tcp_echo_server("127.0.0.1:0").await.unwrap();
+    tokio::spawn(serve);
+    let socks = common::free_port();
+    let config = serde_json::json!({
+        "log": { "level": "info" },
+        "inbounds": [{
+            "type": "socks", "tag": "socks-in",
+            "listen": "127.0.0.1", "listen_port": socks,
+            "users": [{ "username": "alice", "password": "secret" }],
+        }],
+        "outbounds": [{ "type": "direct", "tag": "direct" }],
+        "route": { "final": "direct" },
+    })
+    .to_string();
+    let instance = Instance::new(options()).unwrap();
+    instance.start(Config::Json(config)).await.unwrap();
+    let mut events = Box::pin(instance.events(Kinds::CONNECTION | Kinds::ROUTE));
+
+    // SOCKS5 as alice, to the echo server.
+    async fn as_alice(socks: u16, port: u16) -> tokio::net::TcpStream {
+        let mut s = tokio::net::TcpStream::connect(("127.0.0.1", socks))
+            .await
+            .unwrap();
+        s.write_all(&[5, 1, 2]).await.unwrap();
+        let mut chosen = [0u8; 2];
+        s.read_exact(&mut chosen).await.unwrap();
+        assert_eq!(chosen, [5, 2]);
+        let mut auth = vec![1, 5];
+        auth.extend(b"alice");
+        auth.push(6);
+        auth.extend(b"secret");
+        s.write_all(&auth).await.unwrap();
+        let mut authed = [0u8; 2];
+        s.read_exact(&mut authed).await.unwrap();
+        assert_eq!(authed, [1, 0]);
+        let mut request = vec![5, 1, 0, 1, 127, 0, 0, 1];
+        request.extend(port.to_be_bytes());
+        s.write_all(&request).await.unwrap();
+        assert_eq!(socks_reply(&mut s).await, 0);
+        s
+    }
+    async fn record(
+        events: &mut (impl futures::Stream<Item = Event> + Unpin),
+    ) -> Arc<ConnectionRecord> {
+        loop {
+            match tokio::time::timeout(Duration::from_secs(5), events.next())
+                .await
+                .expect("a record in time")
+                .unwrap()
+            {
+                Event::ConnectionRecord(record) => return record,
+                Event::Routed(routed) => {
+                    assert_eq!(routed.user.as_deref(), Some("alice"), "{:?}", routed)
+                }
+                other => panic!("unexpected {:?}", other),
+            }
+        }
+    }
+
+    // Finished both ways: the client's end first, then the echo's.
+    let mut s = as_alice(socks, echo.port()).await;
+    round_trip(&mut s, b"hello").await;
+    s.shutdown().await.unwrap();
+    let mut rest = Vec::new();
+    s.read_to_end(&mut rest).await.unwrap();
+    let told = record(&mut events).await;
+    assert_eq!(told.kind, RecordKind::Closed(End::Finished), "{:?}", told);
+    assert_eq!(told.user.as_deref(), Some("alice"));
+    assert_eq!(told.inbound, "socks-in");
+    assert_eq!(told.chain, ["direct"]);
+    assert_eq!((told.up, told.down), (5, 5));
+    assert_eq!((told.up_total, told.down_total), (5, 5));
+    assert_eq!(told.seq, 0);
+    assert!(told.request_destination.is_some());
+
+    // Closed by the host while open.
+    let mut s = as_alice(socks, echo.port()).await;
+    round_trip(&mut s, b"abc").await;
+    let open = instance.connections().await.unwrap();
+    assert_eq!(open.len(), 1);
+    assert!(instance.close_connection(open[0].id).await.unwrap());
+    let told = record(&mut events).await;
+    assert_eq!(
+        told.kind,
+        RecordKind::Closed(End::Closed(ClosedBy::Api)),
+        "{:?}",
+        told
+    );
+    assert_eq!((told.up, told.down), (3, 3));
+    assert_eq!(told.id, open[0].id);
+    drop(s);
+
+    instance.stop().await.unwrap();
+}

@@ -221,6 +221,137 @@ impl ReloadReport {
     }
 }
 
+/// As the events name where a domain came from.
+fn domain_source(s: crate::control::events::DomainSource) -> String {
+    use crate::control::events::DomainSource;
+    match s {
+        DomainSource::Request => "request",
+        DomainSource::FakeIp => "fake_ip",
+        DomainSource::Sniffed => "sniffed",
+        DomainSource::ReverseMapping => "reverse_mapping",
+    }
+    .to_string()
+}
+
+/// Milliseconds since the Unix epoch.
+fn unix_ms(at: std::time::SystemTime) -> u64 {
+    at.duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as u64)
+}
+
+/// What a connection sent and received since its record before: the
+/// connection record event. The `up` and `down` of one connection's
+/// records add up to its totals.
+#[derive(Serialize, Clone, PartialEq, Eq, Debug)]
+pub struct ConnectionRecord {
+    pub id: u64,
+    /// When the instance's run started, Unix milliseconds: with `id`, it
+    /// names the connection across restarts.
+    pub run_ms: u64,
+    /// Its records in order, from 0.
+    pub seq: u32,
+    /// `interim`, or `closed`, its last.
+    pub kind: String,
+    /// How it ended, for a closed record: `finished`, `error`,
+    /// `idle_timeout`, `write_stall`, `closed` or `aborted`.
+    pub end: Option<String>,
+    /// For `error`: what failed, as the dial errors are told.
+    pub error: Option<String>,
+    /// For `closed`: `api`, `user`, `inbound`, `rules`, `network` or
+    /// `stopped`.
+    pub closed_by: Option<String>,
+    /// `tcp` or `udp`.
+    pub network: String,
+    pub user: Option<String>,
+    pub inbound: String,
+    pub source: String,
+    /// Where it went, as the rules saw it.
+    pub destination: String,
+    /// What the outbound was asked to reach, where it was kept.
+    pub request_destination: Option<String>,
+    pub domain: Option<String>,
+    /// `request`, `fake_ip`, `sniffed` or `reverse_mapping`.
+    pub domain_source: Option<String>,
+    /// The outbounds it went through, the group first.
+    pub chain: Vec<String>,
+    /// Bytes since the record before: up to where it goes, down from it.
+    pub up: u64,
+    pub down: u64,
+    /// Bytes since it started.
+    pub up_total: u64,
+    pub down_total: u64,
+    /// Unix milliseconds: when it started, where `up` and `down` count
+    /// from, and when it was counted (for a closed record, its end).
+    pub start_ms: u64,
+    pub since_ms: u64,
+    pub at_ms: u64,
+}
+
+impl ConnectionRecord {
+    pub fn of(r: &crate::control::events::ConnectionRecord) -> Self {
+        use crate::control::events::{ClosedBy, End, RecordKind};
+        let end = match r.kind {
+            RecordKind::Closed(end) => Some(end),
+            _ => None,
+        };
+        Self {
+            id: r.id,
+            run_ms: unix_ms(r.run),
+            seq: r.seq,
+            kind: match r.kind {
+                RecordKind::Closed(_) => "closed",
+                _ => "interim",
+            }
+            .into(),
+            end: end.map(|end| {
+                match end {
+                    End::Finished => "finished",
+                    End::Error(_) => "error",
+                    End::IdleTimeout => "idle_timeout",
+                    End::WriteStall => "write_stall",
+                    End::Closed(_) => "closed",
+                    _ => "aborted",
+                }
+                .into()
+            }),
+            error: match end {
+                Some(End::Error(kind)) => Some(kind.to_string()),
+                _ => None,
+            },
+            closed_by: match end {
+                Some(End::Closed(by)) => Some(
+                    match by {
+                        ClosedBy::Api => "api",
+                        ClosedBy::User => "user",
+                        ClosedBy::Inbound => "inbound",
+                        ClosedBy::Rules => "rules",
+                        ClosedBy::Network => "network",
+                        _ => "stopped",
+                    }
+                    .into(),
+                ),
+                _ => None,
+            },
+            network: r.network.to_string(),
+            user: r.user.clone(),
+            inbound: r.inbound.clone(),
+            source: r.source.to_string(),
+            destination: r.destination.to_string(),
+            request_destination: r.request_destination.as_ref().map(|d| d.to_string()),
+            domain: r.domain.clone(),
+            domain_source: r.domain_source.map(domain_source),
+            chain: r.chain.clone(),
+            up: r.up,
+            down: r.down,
+            up_total: r.up_total,
+            down_total: r.down_total,
+            start_ms: unix_ms(r.start),
+            since_ms: unix_ms(r.since),
+            at_ms: unix_ms(r.at),
+        }
+    }
+}
+
 /// A connection routed, and dialled where the rules sent it to an outbound:
 /// the routed event.
 #[derive(Serialize, Clone, PartialEq, Eq, Debug)]
@@ -231,6 +362,8 @@ pub struct Routed {
     /// `tcp` or `udp`.
     pub network: String,
     pub inbound: String,
+    /// The user the inbound authenticated it as.
+    pub user: Option<String>,
     pub source: String,
     /// Where it went, as the rules saw it.
     pub destination: String,
@@ -258,24 +391,17 @@ pub struct Routed {
 
 impl Routed {
     pub fn of(r: &crate::control::events::RoutedConnection) -> Self {
-        use crate::control::events::{DomainSource, RouteAction};
+        use crate::control::events::RouteAction;
         Self {
             id: r.id,
             network: r.network.to_string(),
             inbound: r.inbound.clone(),
+            user: r.user.clone(),
             source: r.source.to_string(),
             destination: r.destination.to_string(),
             request_destination: r.request_destination.as_ref().map(|d| d.to_string()),
             domain: r.domain.clone(),
-            domain_source: r.domain_source.map(|s| {
-                match s {
-                    DomainSource::Request => "request",
-                    DomainSource::FakeIp => "fake_ip",
-                    DomainSource::Sniffed => "sniffed",
-                    DomainSource::ReverseMapping => "reverse_mapping",
-                }
-                .to_string()
-            }),
+            domain_source: r.domain_source.map(domain_source),
             sniffed_protocol: r.sniffed_protocol.map(str::to_string),
             rule: r.rule,
             rule_text: r.rule_text.clone(),
@@ -1134,12 +1260,22 @@ mod tests {
             },
             "routed": Routed {
                 id: Some(7), network: "tcp".into(), inbound: "tun-in".into(),
-                source: "172.19.0.1:50000".into(), destination: "example.com:443".into(),
+                user: Some("alice".into()), source: "172.19.0.1:50000".into(), destination: "example.com:443".into(),
                 request_destination: Some("198.18.0.3:443".into()), domain: Some("example.com".into()),
                 domain_source: Some("fake_ip".into()), sniffed_protocol: Some("tls".into()),
                 rule: Some(2), rule_text: Some("domain_suffix=example.com => proxy".into()),
                 action: "outbound".into(), chain: vec!["proxy".into(), "a".into()],
                 target: Some("203.0.113.5:443".into()), connect_ms: Some(31), connect_error: None,
+            },
+            "connection_record": ConnectionRecord {
+                id: 7, run_ms: 1_759_300_000_000, seq: 2, kind: "closed".into(),
+                end: Some("error".into()), error: Some("connection reset".into()), closed_by: None,
+                network: "tcp".into(), user: Some("alice".into()), inbound: "in".into(),
+                source: "172.19.0.1:50000".into(), destination: "example.com:443".into(),
+                request_destination: Some("example.com:443".into()), domain: Some("example.com".into()),
+                domain_source: Some("request".into()), chain: vec!["proxy".into(), "a".into()],
+                up: 100, down: 2000, up_total: 300, down_total: 9000,
+                start_ms: 1_759_300_000_123, since_ms: 1_759_300_060_123, at_ms: 1_759_300_075_000,
             },
             "dns_exchange": DnsExchange {
                 name: "example.com".into(), qtype: "A".into(), qtype_code: 1,

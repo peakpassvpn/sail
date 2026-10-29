@@ -65,8 +65,9 @@ impl std::fmt::Display for NatKey {
     }
 }
 
-/// Per session: the uplink, the downlink's abort signal, the last activity,
-/// and how long the session may be idle.
+/// Per session: the uplink, the downlink's abort signal (true when the
+/// session stood idle too long, false when its client ended it), the last
+/// activity, and how long the session may be idle.
 type SessionMap = HashMap<NatKey, (Sender<UdpPacket>, oneshot::Sender<bool>, Instant, Duration)>;
 
 /// Ends the sessions whose keys `ends` picks, returning how many.
@@ -77,7 +78,7 @@ async fn end_sessions(sessions: &Mutex<SessionMap>, ends: impl Fn(&NatKey) -> bo
         if let Some(sess) = sessions.remove(key) {
             // The uplink ends with its channel, dropped with the entry; the
             // downlink is told to.
-            let _ = sess.1.send(true);
+            let _ = sess.1.send(false);
             debug!("udp session {} ended", key);
         }
     }
@@ -344,15 +345,15 @@ impl NatManager {
                     .instrument(tracing::Span::current())
                     .await;
                 let sniffed = sniffer.into_read();
-                let socket = match socket {
-                    Ok((s, udp_timeout)) => {
+                let (socket, listed) = match socket {
+                    Ok((s, udp_timeout, listed)) => {
                         // A rule's udp_timeout, over the inbound's.
                         if let Some(udp_timeout) = udp_timeout {
                             if let Some(entry) = sessions.lock().await.get_mut(&key) {
                                 entry.3 = udp_timeout;
                             }
                         }
-                        s
+                        (s, listed)
                     }
                     Err(e) => {
                         debug!("dispatch {} failed: {}", &raddr_cloned, e);
@@ -418,9 +419,17 @@ impl NatManager {
                 let (downlink_task, downlink_task_handle) = abortable(downlink_task);
                 crate::runtime::scope::spawn("nat downlink", downlink_task);
 
-                // Runs a task to receive the abort signal.
+                // Runs a task to receive the abort signal: the session ended,
+                // standing idle, or by its client.
                 crate::runtime::scope::spawn("nat downlink abort", async move {
-                    let _ = downlink_abort_rx.await;
+                    if let Ok(idle) = downlink_abort_rx.await {
+                        if let Some(listed) = &listed {
+                            listed.ended(match idle {
+                                true => crate::control::events::End::IdleTimeout,
+                                false => crate::control::events::End::Finished,
+                            });
+                        }
+                    }
                     downlink_task_handle.abort();
                 });
 

@@ -42,9 +42,10 @@ pub use error::{Error, ErrorKind};
 pub use instance::{ids_held, Instance};
 pub use logs::{LogBatch, LogFilter, LogLine};
 pub use network::{
-    DialFailure, DialStage, DnsExchange, DnsOutcome, DnsSource, DomainSource, Event, GroupSwitch,
-    Interface, Kinds, NetworkChangeKind, NetworkChangeReason, NetworkEvent, NetworkKind,
-    NetworkState, RouteAction, RoutedConnection, SwitchReason, TunName, UserEvent,
+    ClosedBy, ConnectionRecord, DialFailure, DialStage, DnsExchange, DnsOutcome, DnsSource,
+    DomainSource, End, Event, GroupSwitch, Interface, Kinds, NetworkChangeKind,
+    NetworkChangeReason, NetworkEvent, NetworkKind, NetworkState, RecordKind, RouteAction,
+    RoutedConnection, SwitchReason, TunName, UserEvent,
 };
 pub use streams::Status;
 
@@ -117,6 +118,7 @@ pub struct Options {
     clash_modes: bool,
     log: Option<Arc<crate::app::logger::InstanceLog>>,
     stop_within: Option<Duration>,
+    connection_records: Option<usize>,
 }
 
 impl Options {
@@ -207,6 +209,14 @@ impl Options {
     /// Ignored under `Runtime::Host`.
     pub fn threads(mut self, threads: Threads) -> Self {
         self.threads = Some(threads);
+        self
+    }
+
+    /// How many connection records (`Kinds::CONNECTION`) a subscriber may
+    /// fall behind by before it is told it lagged: 4096 unless set. Each
+    /// costs a pointer while someone subscribes.
+    pub fn connection_records(mut self, capacity: usize) -> Self {
+        self.connection_records = Some(capacity);
         self
     }
 

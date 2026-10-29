@@ -901,3 +901,137 @@ fn removing_an_inbound_disconnects_its_connections_only() -> anyhow::Result<()> 
     common::shutdown_instances(&rt, ids);
     result
 }
+
+/// `?kinds=connection` streams each connection's record as it closes: its
+/// bytes each way, how it ended; a kind there is not is refused.
+#[cfg(feature = "inbound-socks")]
+#[test]
+fn the_api_streams_connection_records() -> anyhow::Result<()> {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    let (echo, serve) = rt.block_on(common::run_tcp_echo_server("127.0.0.1:0"))?;
+    let echo_thread = std::thread::spawn(move || {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(serve)
+    });
+    let (ids, api_port, socks_port) = common::retry_port_clash(|| {
+        let [api_port, socks_port] = common::free_ports();
+        let config = serde_json::json!({
+            "api": { "listen": format!("127.0.0.1:{}", api_port), "secret": SECRET },
+            "inbounds": [{ "type": "socks", "tag": "s", "listen": "127.0.0.1",
+                           "listen_port": socks_port }],
+            "outbounds": [{ "type": "direct" }],
+        });
+        Ok((
+            common::run_sail_instances(&rt, vec![config.to_string()])?,
+            api_port,
+            socks_port,
+        ))
+    })?;
+    let result = (|| {
+        let at = At::Port(api_port);
+        let (status, _, body) = call(
+            &rt,
+            &at,
+            Some(SECRET),
+            "GET",
+            "/api/v1/runtime/events?kinds=user,dns",
+            "",
+        )?;
+        anyhow::ensure!(
+            status == 400 && body.to_string().contains("dns"),
+            "{} {}",
+            status,
+            body
+        );
+        let (opened, open) = std::sync::mpsc::channel();
+        let reader = std::thread::spawn(move || -> anyhow::Result<String> {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()?;
+            rt.block_on(async {
+                let mut s = tokio::net::TcpStream::connect(("127.0.0.1", api_port)).await?;
+                let request = format!(
+                    "GET /api/v1/runtime/events?kinds=connection HTTP/1.1\r\nHost: sail\r\n\
+                     Authorization: Bearer {}\r\n\r\n",
+                    SECRET
+                );
+                s.write_all(request.as_bytes()).await?;
+                let mut got = String::new();
+                let mut buf = [0u8; 4096];
+                let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+                let mut told = false;
+                while !(got.contains("event: connection") && got.contains("data: {")) {
+                    let n = tokio::time::timeout_at(deadline, s.read(&mut buf))
+                        .await
+                        .map_err(|_| anyhow::anyhow!("no more within 10s: {:?}", got))??;
+                    anyhow::ensure!(n > 0, "the stream ended: {}", got);
+                    got.push_str(&String::from_utf8_lossy(&buf[..n]));
+                    if !told && got.contains("\r\n\r\n") {
+                        told = true;
+                        let _ = opened.send(());
+                    }
+                }
+                // The rest of the event's line.
+                while !got[got.find("event: connection").unwrap()..].contains("}\n") {
+                    let n = tokio::time::timeout_at(deadline, s.read(&mut buf)).await??;
+                    anyhow::ensure!(n > 0, "the stream ended: {}", got);
+                    got.push_str(&String::from_utf8_lossy(&buf[..n]));
+                }
+                Ok(got)
+            })
+        });
+        open.recv_timeout(Duration::from_secs(10))?;
+        // A connection through SOCKS to the echo server, a round trip, and
+        // both ends closed.
+        rt.block_on(async {
+            let mut s = tokio::net::TcpStream::connect(("127.0.0.1", socks_port)).await?;
+            s.write_all(&[5, 1, 0]).await?;
+            let mut greeted = [0u8; 2];
+            s.read_exact(&mut greeted).await?;
+            let mut request = vec![5, 1, 0, 1, 127, 0, 0, 1];
+            request.extend(echo.port().to_be_bytes());
+            s.write_all(&request).await?;
+            let mut reply = [0u8; 10];
+            s.read_exact(&mut reply).await?;
+            anyhow::ensure!(reply[1] == 0, "{:?}", reply);
+            s.write_all(b"hello").await?;
+            let mut back = [0u8; 5];
+            s.read_exact(&mut back).await?;
+            s.shutdown().await?;
+            let mut rest = Vec::new();
+            s.read_to_end(&mut rest).await?;
+            anyhow::Ok(())
+        })?;
+        let got = reader
+            .join()
+            .map_err(|_| anyhow::anyhow!("the reader panicked"))??;
+        let at = got.find("event: connection").unwrap();
+        let line = got[at..]
+            .lines()
+            .find_map(|l| l.strip_prefix("data: "))
+            .ok_or_else(|| anyhow::anyhow!("no data: {}", got))?;
+        let record: serde_json::Value = serde_json::from_str(line)?;
+        anyhow::ensure!(
+            record["kind"] == "closed"
+                && record["end"] == "finished"
+                && record["inbound"] == "s"
+                && record["up"] == 5
+                && record["down"] == 5
+                && record["up_total"] == 5
+                && record["seq"] == 0,
+            "{}",
+            record
+        );
+        Ok(())
+    })();
+    for id in ids {
+        sail::shutdown(id);
+    }
+    drop(echo_thread);
+    result
+}

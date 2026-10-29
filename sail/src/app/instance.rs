@@ -120,10 +120,10 @@ impl Instance {
             &rule_sets,
             &dial_defaults,
         )?));
-        let stat_manager = Arc::new(StatManager::new(
-            env.options.stats.max_recent_connections,
-            env.users.clone(),
-        ));
+        let stat_manager = Arc::new(
+            StatManager::new(env.options.stats.max_recent_connections, env.users.clone())
+                .recording(env.events.clone()),
+        );
         // Before the inbounds bind their users.
         if let Some(cache) = env.cache_file.get() {
             match cache.load_traffic() {

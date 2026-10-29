@@ -550,35 +550,83 @@ mod handlers {
         }
     }
 
-    /// What happens to users from now on, as Server-Sent Events: each
-    /// event named as its `event` field, its data the JSON. One that falls
-    /// behind by more than the events kept gets `lagged`, with how many it
-    /// missed, and goes on from the oldest kept.
-    pub async fn events(
-        State(rm): State<Arc<RuntimeManager>>,
-    ) -> axum::response::sse::Sse<
-        impl futures::Stream<Item = Result<axum::response::sse::Event, Infallible>>,
-    > {
+    /// What happens from now on, as Server-Sent Events, of the kinds
+    /// `?kinds=` names: `user` (the default), what happens to users, each
+    /// event named as its `event` field; `connection`, the connections'
+    /// records, each named `connection`. The data is the JSON. One that
+    /// falls behind by more than the events kept gets `lagged`, with
+    /// `kind` and how many it `missed`, and goes on from the oldest kept.
+    pub async fn events(State(rm): State<Arc<RuntimeManager>>, uri: axum::http::Uri) -> Response {
         use axum::response::sse::{Event, KeepAlive, Sse};
+        use futures::stream::BoxStream;
         use tokio::sync::broadcast::error::RecvError;
-        let events = futures::stream::unfold(rm.user_events(), |mut events| async move {
-            let event = match events.recv().await {
-                Ok(e) => {
-                    let e = json::UserEvent::of(&e);
-                    Event::default()
-                        .event(e.event)
-                        .json_data(&e)
-                        .unwrap_or_else(|_| Event::default().event("error"))
+        let (mut users, mut connections) = (false, false);
+        // `?kinds=user,connection`, read here: the API's build has no
+        // query extractor of axum's.
+        let kinds = uri
+            .query()
+            .unwrap_or("")
+            .split('&')
+            .find_map(|pair| pair.strip_prefix("kinds="))
+            .map(|kinds| kinds.replace("%2C", ",").replace("%2c", ","));
+        for kind in kinds.as_deref().unwrap_or("user").split(',') {
+            match kind.trim() {
+                "user" => users = true,
+                "connection" => connections = true,
+                other => {
+                    return error(
+                        StatusCode::BAD_REQUEST,
+                        "invalid",
+                        format!("no kind of event [{}]: user, connection", other),
+                    )
                 }
-                Err(RecvError::Lagged(missed)) => Event::default()
-                    .event("lagged")
-                    .data(serde_json::json!({ "missed": missed }).to_string()),
-                // The instance stopped.
-                Err(RecvError::Closed) => return None,
-            };
-            Some((Ok(event), events))
-        });
-        Sse::new(events).keep_alive(KeepAlive::default())
+            }
+        }
+        fn lagged(kind: &str, missed: u64) -> Event {
+            Event::default()
+                .event("lagged")
+                .data(serde_json::json!({ "kind": kind, "missed": missed }).to_string())
+        }
+        let mut streams: Vec<BoxStream<'static, Result<Event, Infallible>>> = Vec::new();
+        if users {
+            streams.push(Box::pin(futures::stream::unfold(
+                rm.user_events(),
+                |mut events| async move {
+                    let event = match events.recv().await {
+                        Ok(e) => {
+                            let e = json::UserEvent::of(&e);
+                            Event::default()
+                                .event(e.event)
+                                .json_data(&e)
+                                .unwrap_or_else(|_| Event::default().event("error"))
+                        }
+                        Err(RecvError::Lagged(missed)) => lagged("user", missed),
+                        // The instance stopped.
+                        Err(RecvError::Closed) => return None,
+                    };
+                    Some((Ok(event), events))
+                },
+            )));
+        }
+        if connections {
+            streams.push(Box::pin(futures::stream::unfold(
+                rm.connection_records(),
+                |mut records| async move {
+                    let event = match records.recv().await {
+                        Ok(r) => Event::default()
+                            .event("connection")
+                            .json_data(json::ConnectionRecord::of(&r))
+                            .unwrap_or_else(|_| Event::default().event("error")),
+                        Err(RecvError::Lagged(missed)) => lagged("connection", missed),
+                        Err(RecvError::Closed) => return None,
+                    };
+                    Some((Ok(event), records))
+                },
+            )));
+        }
+        Sse::new(futures::stream::select_all(streams))
+            .keep_alive(KeepAlive::default())
+            .into_response()
     }
 
     /// The network the host is on, as it told or sail detected it.

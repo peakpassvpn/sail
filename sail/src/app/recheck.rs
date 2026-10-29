@@ -99,7 +99,7 @@ pub(crate) async fn late(
             id,
             rule
         );
-        stats.close(id);
+        stats.close_by(id, crate::control::events::ClosedBy::Rules);
     }
 }
 

@@ -159,6 +159,7 @@ data class Routed(
     val id: Long? = null,
     val network: String,
     val inbound: String,
+    val user: String? = null,
     val source: String,
     val destination: String,
     @SerialName("request_destination") val requestDestination: String? = null,
@@ -174,6 +175,42 @@ data class Routed(
     val target: String? = null,
     @SerialName("connect_ms") val connectMs: Long? = null,
     @SerialName("connect_error") val connectError: String? = null,
+)
+
+/**
+ * What a connection sent and received since its record before, as it
+ * closed or at an interim pass: the `up` and `down` of one connection's
+ * records add up to its totals.
+ */
+@Serializable
+data class ConnectionRecord(
+    val id: Long,
+    /** When the instance's run started, Unix ms: with [id], it names the connection. */
+    @SerialName("run_ms") val runMs: Long,
+    val seq: Int,
+    /** interim, or closed. */
+    val kind: String,
+    /** finished, error, idle_timeout, write_stall, closed or aborted. */
+    val end: String? = null,
+    val error: String? = null,
+    /** api, user, inbound, rules, network or stopped. */
+    @SerialName("closed_by") val closedBy: String? = null,
+    val network: String,
+    val user: String? = null,
+    val inbound: String,
+    val source: String,
+    val destination: String,
+    @SerialName("request_destination") val requestDestination: String? = null,
+    val domain: String? = null,
+    @SerialName("domain_source") val domainSource: String? = null,
+    val chain: List<String> = emptyList(),
+    val up: Long,
+    val down: Long,
+    @SerialName("up_total") val upTotal: Long,
+    @SerialName("down_total") val downTotal: Long,
+    @SerialName("start_ms") val startMs: Long,
+    @SerialName("since_ms") val sinceMs: Long,
+    @SerialName("at_ms") val atMs: Long,
 )
 
 /** A DNS query answered or failed. */

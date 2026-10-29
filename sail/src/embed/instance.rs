@@ -139,6 +139,7 @@ impl Instance {
             clash_modes,
             log,
             stop_within,
+            connection_records,
         } = options;
         let profile: crate::runtime::Profile = match &settings.profile {
             Some(p) => p
@@ -183,7 +184,9 @@ impl Instance {
             state,
             dialer: tokio::sync::watch::channel(None).0,
             transitions: tokio::sync::broadcast::channel(16).0,
-            events: Default::default(),
+            events: crate::control::events::EventHub::with_record_capacity(
+                connection_records.unwrap_or(crate::control::events::RECORD_CAPACITY),
+            ),
             me: me.clone(),
         });
         Ok(Instance(Arc::new(Handle(inner))))

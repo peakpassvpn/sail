@@ -107,6 +107,7 @@ class SailTest {
             "fault" to Fault.serializer(),
             "reload_report" to ReloadReport.serializer(),
             "routed" to Routed.serializer(),
+            "connection_record" to ConnectionRecord.serializer(),
             "dns_exchange" to DnsExchange.serializer(),
             "group_switch" to GroupSwitch.serializer(),
             "dial_failed" to DialFailed.serializer(),

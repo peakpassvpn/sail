@@ -490,6 +490,8 @@ failed, a reject, a drop, a hijacked DNS query. Its fields:
 
 - `id`: as `connections()` lists it; none where it never opened.
 - `network`, `inbound` (the tag), `source`, `destination`.
+- `user`: the user the inbound authenticated it as; none for an inbound
+  without users.
 - `request_destination`: what the outbound was asked to reach, after the
   rules' overrides and the name `override_destination` has it dialled as.
 - `domain` and `domain_source`: the destination's own name (`Request`),
@@ -556,6 +558,47 @@ its host, which redacts what it passes on itself.
 Built only while a subscription to `Kinds::DNS` is held; a subscriber may
 fall 1024 events behind, then gets
 `Event::Lagged { kind: Kinds::DNS, missed }`.
+
+`Kinds::CONNECTION` gives what each connection sent and received, as
+`Event::ConnectionRecord`, for a host that counts traffic by connection
+(billing): one record when the connection closes, and, as interim passes
+find bytes new since its record before, one while it is open. Each
+record carries the bytes since the connection's record before (`up`,
+`down`) and since it started (`up_total`, `down_total`); the `up` and
+`down` of one connection's records add up to its totals, which are what
+its user, inbound and outbound were counted (`/stats`, quotas). Each
+byte is in exactly one record, the bytes a side wrote after the last
+read included. Its fields:
+
+- `id`, as `Kinds::ROUTE` and `connections()` number it, and `run`, when
+  the instance's run started: numbers start again with each run, so
+  `(run, id)` names a connection across restarts. `seq` numbers its
+  records from 0.
+- `kind`: `Interim`, or `Closed(end)`, its last, with how it ended:
+  `Finished` (both ways closed; a UDP session its client ended),
+  `Error(kind)`, `IdleTimeout` (a UDP session), `WriteStall` (a side took
+  nothing for `relay.write_stall_timeout`), `Closed(by)` (sail closed it:
+  `Api`, `User` — removed, over quota, shut out —, `Inbound` removed,
+  `Rules` of a reload, `Network` changed, `Stopped` instance) or
+  `Aborted` (nothing told how, a handshake that failed after its first
+  bytes, say).
+- `network`, `user`, `inbound`, `source`, `destination`,
+  `request_destination`, `domain`, `domain_source` and `chain`, as
+  `Kinds::ROUTE` tells them.
+- `start`, `since` (its start, or its record before: where `up` and
+  `down` count from) and `at` (when it was counted; a closed record's
+  end).
+
+A connection is a TCP connection, a UDP session or a stream of a
+multiplexed connection, as for `Kinds::ROUTE`; the sessions a host's own
+inbound submits are recorded as sail's own are. Records are built only
+while a subscription to `Kinds::CONNECTION` is held; bytes counted before
+one was are in the connection's next record. A subscriber may fall
+4096 records behind (`Options::connection_records(capacity)` sets
+another), then gets `Event::Lagged { kind: Kinds::CONNECTION, missed }`
+and goes on from the oldest kept: no connection waits for it. A missed
+record's bytes show in the totals of that connection's next record, and
+the user's counts hold them all.
 
 `Kinds::SYSTEM` gives `Event::SystemChanged { kind, resource }` when
 someone else changed what sail set up on the system for a TUN with

@@ -14,8 +14,9 @@
 use portable_atomic::AtomicU64;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::future::Future;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::SystemTime;
 use std::{io, pin::Pin};
 
 use arc_swap::ArcSwap;
@@ -27,6 +28,7 @@ use futures::{
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tracing::{debug, warn};
 
+use crate::control::events::{ClosedBy, ConnectionRecord, End, EventHub, RecordKind};
 use crate::user::{UserRef, UserRegistry};
 use crate::{adapter::*, session::*};
 
@@ -53,15 +55,45 @@ pub const STORE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(6
 #[derive(Default)]
 pub struct Closer {
     closed: AtomicBool,
+    /// Why, the first told (`ClosedBy`, from 1); 0 before.
+    by: AtomicU8,
     read: futures::task::AtomicWaker,
     write: futures::task::AtomicWaker,
 }
 
+const CLOSED_BY: [ClosedBy; 6] = [
+    ClosedBy::Api,
+    ClosedBy::User,
+    ClosedBy::Inbound,
+    ClosedBy::Rules,
+    ClosedBy::Network,
+    ClosedBy::Stopped,
+];
+
 impl Closer {
+    /// Closes it as the host asked, through an API.
     pub fn close(&self) {
+        self.close_by(ClosedBy::Api);
+    }
+
+    /// Closes it, `by` telling why: what its closed record tells, unless
+    /// it was closed for another reason before.
+    pub fn close_by(&self, by: ClosedBy) {
+        let code = CLOSED_BY.iter().position(|b| *b == by).unwrap_or(0) as u8 + 1;
+        let _ = self
+            .by
+            .compare_exchange(0, code, Ordering::SeqCst, Ordering::SeqCst);
         self.closed.store(true, Ordering::SeqCst);
         self.read.wake();
         self.write.wake();
+    }
+
+    /// Why it was closed; none while it is not.
+    pub fn closed_by(&self) -> Option<ClosedBy> {
+        match self.by.load(Ordering::SeqCst) {
+            0 => None,
+            code => CLOSED_BY.get(code as usize - 1).copied(),
+        }
     }
 
     pub fn is_closed(&self) -> bool {
@@ -248,6 +280,8 @@ pub struct Counter {
     pub id: u64,
     pub sess: Session,
     start_time: u32,
+    /// When it started, as its records tell it.
+    started: SystemTime,
     bytes_recvd: AtomicU64,
     bytes_sent: AtomicU64,
     recv_completed: AtomicBool,
@@ -256,15 +290,40 @@ pub struct Counter {
     logged: AtomicBool,
     /// Closes the connection, as the Clash API does.
     pub closer: Closer,
+    /// How it ended, the first told: by its streams' failures, its relay,
+    /// the NAT. Read as it is retired, its closed record told.
+    end: OnceLock<End>,
+    /// What its records told so far. Taken only to tell one, never on the
+    /// data path; held while it is sent, so a connection's records go out
+    /// in order and no byte is in two.
+    reported: Mutex<Reported>,
+    /// What the outbound was asked to reach, and whether its destination
+    /// was a fake IP: kept for its records while someone listens for them.
+    asked: OnceLock<SocksAddr>,
+    fake_ip: AtomicBool,
+}
+
+/// What a connection's records told so far.
+struct Reported {
+    up: u64,
+    down: u64,
+    /// When the last was counted, or the connection started.
+    at: SystemTime,
+    /// The next record's number.
+    seq: u32,
+    /// Its closed record was told: nothing more is.
+    closed: bool,
 }
 
 impl Counter {
     fn new(id: u64, sess: Session) -> Self {
         let now = get_unix_timestamp();
+        let started = SystemTime::now();
         Counter {
             id,
             sess,
             start_time: now,
+            started,
             bytes_recvd: Default::default(),
             bytes_sent: Default::default(),
             recv_completed: Default::default(),
@@ -272,7 +331,116 @@ impl Counter {
             last_peer_active: now.into(),
             logged: Default::default(),
             closer: Default::default(),
+            end: OnceLock::new(),
+            reported: Mutex::new(Reported {
+                up: 0,
+                down: 0,
+                at: started,
+                seq: 0,
+                closed: false,
+            }),
+            asked: OnceLock::new(),
+            fake_ip: AtomicBool::new(false),
         }
+    }
+
+    /// Tells how it ended, unless something told before: the first is
+    /// what its closed record tells.
+    pub(crate) fn ended(&self, end: End) {
+        let _ = self.end.set(end);
+    }
+
+    /// Tells a failure of reading or writing it: how it ended, unless
+    /// something told before. One that its closing made says nothing.
+    fn failed(&self, e: &io::Error) {
+        if !self.closer.is_closed() {
+            self.ended(End::Error(e.kind()));
+        }
+    }
+
+    /// Keeps what the outbound was asked to reach, and whether the
+    /// destination was a fake IP, for its records.
+    pub(crate) fn dialled(&self, asked: &SocksAddr, fake_ip: bool) {
+        let _ = self.asked.set(asked.clone());
+        self.fake_ip.store(fake_ip, Ordering::Relaxed);
+    }
+
+    /// How it ended, as it is retired: why sail closed it; else what its
+    /// streams, relay or NAT told; else a TCP connection finished both
+    /// ways; else the instance stopping; else a UDP session the host or
+    /// the inbound let go of.
+    fn end(&self, stopping: bool) -> End {
+        if let Some(by) = self.closer.closed_by() {
+            return End::Closed(by);
+        }
+        if let Some(end) = self.end.get() {
+            return *end;
+        }
+        match self.sess.network {
+            Network::Tcp if self.recv_completed() && self.send_completed() => End::Finished,
+            _ if stopping => End::Closed(ClosedBy::Stopped),
+            Network::Udp => End::Finished,
+            Network::Tcp => End::Aborted,
+        }
+    }
+
+    /// Tells its record: what it sent and received since the one before,
+    /// closed with `end`, or interim. Nothing when no one listens, nor an
+    /// interim one with nothing new, nor anything once its closed record
+    /// went: what is not told is in the next. Whether one was told.
+    fn report(&self, events: &EventHub, run: SystemTime, end: Option<End>) -> bool {
+        if !events.records_wanted() {
+            return false;
+        }
+        let mut reported = self.reported.lock().unwrap_or_else(|e| e.into_inner());
+        let (up_total, down_total) = (self.bytes_sent(), self.bytes_recvd());
+        if reported.closed
+            || end.is_none() && up_total == reported.up && down_total == reported.down
+        {
+            return false;
+        }
+        let at = SystemTime::now();
+        let sess = &self.sess;
+        let (domain, domain_source) =
+            match crate::app::dispatcher::domain_of(sess, self.fake_ip.load(Ordering::Relaxed)) {
+                Some((domain, source)) => (Some(domain), Some(source)),
+                None => (None, None),
+            };
+        let record = ConnectionRecord {
+            id: self.id,
+            run,
+            seq: reported.seq,
+            kind: match end {
+                Some(end) => RecordKind::Closed(end),
+                None => RecordKind::Interim,
+            },
+            network: sess.network,
+            user: crate::user::name(&sess.user).map(str::to_owned),
+            inbound: sess.inbound_tag.clone(),
+            source: sess.source,
+            destination: sess.destination.clone(),
+            request_destination: self.asked.get().cloned(),
+            domain,
+            domain_source,
+            chain: crate::app::dispatcher::outbound_chain(sess, &sess.outbound_tag),
+            up: up_total.saturating_sub(reported.up),
+            down: down_total.saturating_sub(reported.down),
+            up_total,
+            down_total,
+            start: self.started,
+            since: reported.at,
+            at,
+        };
+        *reported = Reported {
+            up: up_total,
+            down: down_total,
+            at,
+            seq: reported.seq.saturating_add(1),
+            closed: end.is_some(),
+        };
+        // Under the lock: the next of this connection goes after it.
+        events.recorded(|| record);
+        true
     }
 
     pub fn bytes_recvd(&self) -> u64 {
@@ -372,6 +540,26 @@ struct Accounts {
     inbound: Arc<Traffic>,
     outbound: Arc<Traffic>,
     table: Arc<Table>,
+    recorder: Arc<Recorder>,
+}
+
+/// Where the records of a run's connections go.
+struct Recorder {
+    events: EventHub,
+    /// When the run started.
+    run: SystemTime,
+    /// The instance is stopping: what is still open is cut.
+    stopping: AtomicBool,
+}
+
+impl Recorder {
+    fn new(events: EventHub) -> Self {
+        Recorder {
+            events,
+            run: SystemTime::now(),
+            stopping: AtomicBool::new(false),
+        }
+    }
 }
 
 impl Accounts {
@@ -403,6 +591,14 @@ impl Accounts {
 
 impl Drop for Accounts {
     fn drop(&mut self) {
+        // Its last record, before it is marked done both ways, which its
+        // end reads; every byte it relayed is counted by now.
+        let recorder = &self.recorder;
+        if recorder.events.records_wanted() {
+            let end = self.counter.end(recorder.stopping.load(Ordering::Relaxed));
+            self.counter
+                .report(&recorder.events, recorder.run, Some(end));
+        }
         self.counter.recv_completed.store(true, Ordering::Relaxed);
         self.counter.send_completed.store(true, Ordering::Relaxed);
         if let Some(user) = &self.user {
@@ -495,12 +691,14 @@ impl AsyncRead for Stream {
         let n = match self.chunk(up) {
             None => {
                 let len = buf.filled().len();
-                ready!(Pin::new(&mut self.inner).poll_read(cx, buf))?;
+                ready!(Pin::new(&mut self.inner).poll_read(cx, buf))
+                    .inspect_err(|e| self.accounts.counter.failed(e))?;
                 buf.filled().len() - len
             }
             Some(chunk) => {
                 let mut part = buf.take(chunk);
-                ready!(Pin::new(&mut self.inner).poll_read(cx, &mut part))?;
+                ready!(Pin::new(&mut self.inner).poll_read(cx, &mut part))
+                    .inspect_err(|e| self.accounts.counter.failed(e))?;
                 let n = part.filled().len();
                 // What `part` filled is `buf`'s unfilled room.
                 unsafe { buf.assume_init(n) };
@@ -533,7 +731,8 @@ impl AsyncWrite for Stream {
             Some(chunk) => &buf[..buf.len().min(chunk)],
             None => buf,
         };
-        let n = ready!(Pin::new(&mut self.inner).poll_write(cx, buf))?;
+        let n = ready!(Pin::new(&mut self.inner).poll_write(cx, buf))
+            .inspect_err(|e| self.accounts.counter.failed(e))?;
         let wait = self.count(up, n as u64);
         self.write_wait = sleep(wait);
         Poll::Ready(Ok(n))
@@ -557,7 +756,8 @@ impl AsyncWrite for Stream {
         if self.accounts.counter.closer.poll_write_closed(cx) {
             return Poll::Ready(Err(closed_by_api()));
         }
-        let n = ready!(Pin::new(&mut self.inner).poll_write_vectored(cx, bufs))?;
+        let n = ready!(Pin::new(&mut self.inner).poll_write_vectored(cx, bufs))
+            .inspect_err(|e| self.accounts.counter.failed(e))?;
         self.count(up, n as u64);
         Poll::Ready(Ok(n))
     }
@@ -571,7 +771,8 @@ impl AsyncWrite for Stream {
     }
 
     fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<io::Result<()>> {
-        ready!(Pin::new(&mut self.inner).poll_shutdown(cx))?;
+        ready!(Pin::new(&mut self.inner).poll_shutdown(cx))
+            .inspect_err(|e| self.accounts.counter.failed(e))?;
         self.completed(false);
         Poll::Ready(Ok(()))
     }
@@ -615,7 +816,8 @@ impl OutboundDatagramRecvHalf for DatagramRecvHalf {
             let received = tokio::select! {
                 received = self.0.recv_from(buf) => received,
                 () = accounts.counter.closer.closed() => Err(closed_by_api()),
-            }?;
+            }
+            .inspect_err(|e| accounts.counter.failed(e))?;
             // Over its user's rate: dropped, and not counted.
             if accounts
                 .user
@@ -657,6 +859,7 @@ impl OutboundDatagramSendHalf for DatagramSendHalf {
             .send_to(buf, target)
             .await
             .inspect(|&n| self.1.sent(n as u64))
+            .inspect_err(|e| self.1.counter.failed(e))
     }
 
     async fn close(&mut self) -> io::Result<()> {
@@ -688,6 +891,8 @@ pub struct StatManager {
     /// did not. A connection an older router routed may be listed after
     /// the recheck went by: it is rechecked as it is listed.
     recheck_since: AtomicU64,
+    /// Where its connections' records go.
+    recorder: Arc<Recorder>,
 }
 
 impl Default for StatManager {
@@ -713,7 +918,21 @@ impl StatManager {
             read: Mutex::default(),
             stores: Mutex::default(),
             recheck_since: AtomicU64::new(0),
+            recorder: Arc::new(Recorder::new(EventHub::default())),
         }
+    }
+
+    /// Tells its connections' records to the subscribers of `events`.
+    /// Called before anything is counted.
+    pub fn recording(mut self, events: EventHub) -> Self {
+        self.recorder = Arc::new(Recorder::new(events));
+        self
+    }
+
+    /// The instance is stopping: the connections still open are cut, and
+    /// their records say so, unless something else ended them.
+    pub(crate) fn stopping(&self) {
+        self.recorder.stopping.store(true, Ordering::Relaxed);
     }
 
     /// Has the connections an older router than the one numbered
@@ -748,9 +967,14 @@ impl StatManager {
     /// Closes the connection `id`, as the Clash API does; false when there
     /// is none so numbered.
     pub fn close(&self, id: u64) -> bool {
+        self.close_by(id, ClosedBy::Api)
+    }
+
+    /// `close`, `by` telling why.
+    pub fn close_by(&self, id: u64, by: ClosedBy) -> bool {
         match self.table.shard(id).live.get(&id) {
             Some(counter) => {
-                counter.closer.close();
+                counter.closer.close_by(by);
                 true
             }
             None => false,
@@ -907,7 +1131,7 @@ impl StatManager {
                     user,
                     user.live()
                 );
-                counter.closer.close();
+                counter.closer.close_by(ClosedBy::User);
             }
         }
         Accounts {
@@ -916,6 +1140,7 @@ impl StatManager {
             inbound,
             outbound,
             table: self.table.clone(),
+            recorder: self.recorder.clone(),
         }
     }
 
@@ -924,11 +1149,11 @@ impl StatManager {
         self.stat_stream_id(stream, sess).0
     }
 
-    /// `stat_stream`, and the id the connection is listed by.
-    pub fn stat_stream_id(&self, stream: AnyStream, sess: Session) -> (AnyStream, u64) {
+    /// `stat_stream`, and the connection as it is listed.
+    pub fn stat_stream_id(&self, stream: AnyStream, sess: Session) -> (AnyStream, Arc<Counter>) {
         let accounts = self.register(sess);
-        let id = accounts.counter.id;
-        (Box::new(Stream::new(stream, accounts, false)), id)
+        let counter = accounts.counter.clone();
+        (Box::new(Stream::new(stream, accounts, false)), counter)
     }
 
     /// Counts `stream`, the client's side of a TCP connection, for an
@@ -937,11 +1162,15 @@ impl StatManager {
         self.stat_inbound_stream_id(stream, sess).0
     }
 
-    /// `stat_inbound_stream`, and the id the connection is listed by.
-    pub fn stat_inbound_stream_id(&self, stream: AnyStream, sess: Session) -> (AnyStream, u64) {
+    /// `stat_inbound_stream`, and the connection as it is listed.
+    pub fn stat_inbound_stream_id(
+        &self,
+        stream: AnyStream,
+        sess: Session,
+    ) -> (AnyStream, Arc<Counter>) {
         let accounts = self.register(sess);
-        let id = accounts.counter.id;
-        (Box::new(Stream::new(stream, accounts, true)), id)
+        let counter = accounts.counter.clone();
+        (Box::new(Stream::new(stream, accounts, true)), counter)
     }
 
     /// Counts `dgram`, the outbound's side of a UDP session.
@@ -953,20 +1182,20 @@ impl StatManager {
         self.stat_outbound_datagram_id(dgram, sess).0
     }
 
-    /// `stat_outbound_datagram`, and the id the session is listed by.
+    /// `stat_outbound_datagram`, and the session as it is listed.
     pub fn stat_outbound_datagram_id(
         &self,
         dgram: AnyOutboundDatagram,
         sess: Session,
-    ) -> (AnyOutboundDatagram, u64) {
+    ) -> (AnyOutboundDatagram, Arc<Counter>) {
         let accounts = self.register(sess);
-        let id = accounts.counter.id;
+        let counter = accounts.counter.clone();
         (
             Box::new(Datagram {
                 inner: dgram,
                 accounts: Arc::new(accounts),
             }),
-            id,
+            counter,
         )
     }
 

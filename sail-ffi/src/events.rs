@@ -66,7 +66,7 @@ pub const SAIL_EVENT_DISCONNECTED: u32 = 7;
 /// behind and that many are gone. In the tunnel process only.
 pub const SAIL_EVENT_FAULT: u32 = 8;
 /// Each connection once it is routed, and dialled where the rules sent it
-/// to an outbound: `{"id", "network", "inbound", "source", "destination",
+/// to an outbound: `{"id", "network", "inbound", "user", "source", "destination",
 /// "request_destination", "domain", "domain_source", "sniffed_protocol",
 /// "rule", "rule_text", "action": "outbound" | "reject" | "drop" |
 /// "hijack_dns", "chain", "target", "connect_ms", "connect_error"}`; the

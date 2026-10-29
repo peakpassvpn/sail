@@ -194,6 +194,11 @@ impl Kinds {
     /// again only once a check found it right in between. Sail leaves it
     /// as it is; restoring it or rebuilding the instance is the host's.
     pub const SYSTEM: Kinds = Kinds(1 << 8);
+    /// What each connection sent and received: a record when it closes,
+    /// and one at each interim pass that finds bytes new since its record
+    /// before (`ConnectionRecord`). Built only while someone subscribes;
+    /// a connection's bytes not yet told when one does are in its next.
+    pub const CONNECTION: Kinds = Kinds(1 << 9);
     /// Every kind there is, and those added later.
     pub const ALL: Kinds = Kinds(u32::MAX);
 
@@ -236,6 +241,9 @@ pub enum Event {
     /// A DNS query was answered or failed: a client's, or the instance's
     /// own.
     DnsExchange(Arc<DnsExchange>),
+    /// What a connection sent and received since its record before, as it
+    /// closed or at an interim pass.
+    ConnectionRecord(Arc<ConnectionRecord>),
     /// Someone else changed what sail set up on the system for a TUN;
     /// see `Kinds::SYSTEM`. `resource` names the TUN first, e.g. "route
     /// 0.0.0.0/0 into tun0: gone".
@@ -326,6 +334,13 @@ impl Instance {
                 Event::DnsExchange,
             )));
         }
+        if kinds.contains(Kinds::CONNECTION) {
+            streams.push(Box::pin(told_counted(
+                hub.records(),
+                Kinds::CONNECTION,
+                Event::ConnectionRecord,
+            )));
+        }
         futures::stream::select_all(streams)
     }
 
@@ -400,8 +415,8 @@ impl Instance {
 }
 
 pub use crate::control::events::{
-    DialFailure, DialStage, DnsExchange, DnsOutcome, DnsSource, DomainSource, GroupSwitch,
-    RouteAction, RoutedConnection, SwitchReason,
+    ClosedBy, ConnectionRecord, DialFailure, DialStage, DnsExchange, DnsOutcome, DnsSource,
+    DomainSource, End, GroupSwitch, RecordKind, RouteAction, RoutedConnection, SwitchReason,
 };
 pub use crate::runtime::TunName;
 

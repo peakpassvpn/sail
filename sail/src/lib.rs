@@ -429,7 +429,9 @@ impl RuntimeManager {
             let bound = counter.sess.state.get::<net::dial::BoundInterface>();
             let local = bound.local().map(|a| a.ip());
             if every || change.closes(bound.get().as_ref(), local) {
-                counter.closer.close();
+                counter
+                    .closer
+                    .close_by(crate::control::events::ClosedBy::Network);
                 closed += 1;
             }
         }
@@ -621,6 +623,15 @@ impl RuntimeManager {
             return Ok(selector.read().await.get_available_tags());
         }
         Err(Error::Config(anyhow!("selector {} not found", outbound)))
+    }
+
+    /// The records of the connections from now on: one as each closes,
+    /// and one at each interim pass that finds bytes new since its record
+    /// before (control::events' `ConnectionRecord`).
+    pub fn connection_records(
+        &self,
+    ) -> control::events::Subscription<Arc<control::events::ConnectionRecord>> {
+        self.env.events.records()
     }
 
     /// Get the last peer active time (in seconds) for an outbound
@@ -1178,7 +1189,11 @@ impl RuntimeManager {
     async fn close_connections_of(&self, tag: &str) -> usize {
         let mut closed = 0;
         for connection in self.connections().await {
-            if connection.inbound_tag == tag && self.close_connection(connection.id).await {
+            if connection.inbound_tag == tag
+                && self
+                    .stat_manager
+                    .close_by(connection.id, crate::control::events::ClosedBy::Inbound)
+            {
                 closed += 1;
             }
         }
@@ -2698,6 +2713,9 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
         (_, _, spawned) = rt.block_on(futures::future::select_all(tasks));
     }
 
+    // The connections still open from here on are cut by the stop, and
+    // their records say so.
+    runtime_manager.stat_manager.stopping();
     // In this order (design-notes, E2 teardown): what the instance changed
     // in the system (routes, rules, filters, DNS); then the root tasks
     // left, the TUN's among them, which closes the device; the instance;

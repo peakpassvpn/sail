@@ -32,6 +32,34 @@
     "upload": 4,
     "user": "alice"
   },
+  "connection_record": {
+    "at_ms": 1759300075000,
+    "chain": [
+      "proxy",
+      "a"
+    ],
+    "closed_by": null,
+    "destination": "example.com:443",
+    "domain": "example.com",
+    "domain_source": "request",
+    "down": 2000,
+    "down_total": 9000,
+    "end": "error",
+    "error": "connection reset",
+    "id": 7,
+    "inbound": "in",
+    "kind": "closed",
+    "network": "tcp",
+    "request_destination": "example.com:443",
+    "run_ms": 1759300000000,
+    "seq": 2,
+    "since_ms": 1759300060123,
+    "source": "172.19.0.1:50000",
+    "start_ms": 1759300000123,
+    "up": 100,
+    "up_total": 300,
+    "user": "alice"
+  },
   "dial_failed": {
     "chain": "proxy/a",
     "count": 3,
@@ -213,7 +241,8 @@
     "rule_text": "domain_suffix=example.com => proxy",
     "sniffed_protocol": "tls",
     "source": "172.19.0.1:50000",
-    "target": "203.0.113.5:443"
+    "target": "203.0.113.5:443",
+    "user": "alice"
   },
   "rule_sets": {
     "rule_sets": [

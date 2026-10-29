@@ -6,7 +6,7 @@
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use tokio::sync::broadcast;
 
@@ -84,6 +84,9 @@ pub struct RoutedConnection {
     pub network: Network,
     /// The inbound's tag.
     pub inbound: String,
+    /// The user the inbound authenticated it as; none for an inbound
+    /// without users.
+    pub user: Option<String>,
     pub source: SocketAddr,
     /// Where it was to go, as the rules saw it: a fake IP is its domain.
     pub destination: SocksAddr,
@@ -124,6 +127,119 @@ pub struct RoutedConnection {
     /// How long the dial and the outbound's handshake took, or how they
     /// failed. None where no outbound was asked.
     pub connect: Option<Result<Duration, std::io::ErrorKind>>,
+}
+
+/// Records of connections a subscriber may fall behind by, unless the host
+/// sets another (`embed::Options::connection_records`). A judgment value,
+/// not a measured one: four seconds of a thousand connections closing a
+/// second, or one interim pass over 4,000 live connections; it costs 4096
+/// pointers while someone subscribes. One that falls further behind is
+/// told `Lagged { kind: CONNECTION, missed }` and goes on from the oldest
+/// record still kept; the totals a later record of the same connection
+/// carries cover what it missed of that connection.
+pub const RECORD_CAPACITY: usize = 4096;
+
+/// How a connection ended, as its closed record tells it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum End {
+    /// Both ways finished: each side closed its writing, and what it had
+    /// sent was relayed. A UDP session whose client ended it (a SOCKS
+    /// association closed) too.
+    Finished,
+    /// Reading or writing failed, on either side.
+    Error(std::io::ErrorKind),
+    /// A UDP session stood idle for its `udp_timeout`.
+    IdleTimeout,
+    /// A side took nothing it was written for longer than
+    /// `relay.write_stall_timeout`.
+    WriteStall,
+    /// Closed by sail, for the reason told.
+    Closed(ClosedBy),
+    /// Its task ended without anything telling how: a handshake that
+    /// failed after its first bytes were counted, say.
+    Aborted,
+}
+
+/// Why sail closed a connection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ClosedBy {
+    /// The host, through the management API, the Clash API or embed.
+    Api,
+    /// Its user: removed, taken out of its inbound, over quota, shut out,
+    /// or at its most connections.
+    User,
+    /// Its inbound was removed.
+    Inbound,
+    /// A reload's rules no longer route it as they did.
+    Rules,
+    /// The network changed, and connections made on the one before do not
+    /// survive it.
+    Network,
+    /// The instance stopped while it was open.
+    Stopped,
+}
+
+/// Which record of a connection it is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum RecordKind {
+    /// It is still open: the bytes since its record before.
+    Interim,
+    /// It closed: the bytes since its record before, its last record.
+    Closed(End),
+}
+
+/// What a connection sent and received since its record before: one when
+/// it closes, and one at each interim pass that finds bytes new since.
+/// The `up` and `down` of one connection's records add up to its totals,
+/// the bytes its user, inbound and outbound were counted (`/stats`,
+/// quotas): each byte of a connection is in exactly one of its records.
+///
+/// One a TCP connection, a UDP session, or a stream of a multiplexed
+/// connection, as `RoutedConnection` tells them, its addresses whole as
+/// that tells them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct ConnectionRecord {
+    /// As `RoutedConnection::id` and the instance's connections number it.
+    pub id: u64,
+    /// When the instance's run started: numbers start again with a run,
+    /// so `(run, id)` names a connection across restarts.
+    pub run: SystemTime,
+    /// Its records in order, from 0.
+    pub seq: u32,
+    pub kind: RecordKind,
+    pub network: Network,
+    pub user: Option<String>,
+    pub inbound: String,
+    pub source: SocketAddr,
+    /// Where it was to go, as the rules saw it: a fake IP is its domain.
+    pub destination: SocksAddr,
+    /// What the outbound was asked to reach, as `RoutedConnection` tells
+    /// it; none where that was not kept (no one subscribed to records as
+    /// it was dialled).
+    pub request_destination: Option<SocksAddr>,
+    /// The domain known for it, and where from.
+    pub domain: Option<String>,
+    pub domain_source: Option<DomainSource>,
+    /// The outbounds it went through, outermost first, as
+    /// `RoutedConnection::chain`.
+    pub chain: Vec<String>,
+    /// Bytes sent on to where it goes, since the record before.
+    pub up: u64,
+    /// Bytes received from where it goes, since the record before.
+    pub down: u64,
+    /// Up since it started.
+    pub up_total: u64,
+    /// Down since it started.
+    pub down_total: u64,
+    pub start: SystemTime,
+    /// Where `up` and `down` count from: its start, or its record before.
+    pub since: SystemTime,
+    /// When it was counted: for a closed record, when it ended.
+    pub at: SystemTime,
 }
 
 /// Where the answer told of a DNS query came from.
@@ -370,6 +486,7 @@ pub struct EventHub {
     system: broadcast::Sender<SystemChange>,
     route: Channel<Arc<RoutedConnection>>,
     dns: Channel<Arc<DnsExchange>>,
+    record: Channel<Arc<ConnectionRecord>>,
     /// The network's changes, which the run's `Network` tells.
     network: broadcast::Sender<Arc<crate::net::network::NetworkChange>>,
 }
@@ -458,6 +575,14 @@ impl<T> Drop for Subscription<T> {
 
 impl Default for EventHub {
     fn default() -> Self {
+        Self::with_record_capacity(RECORD_CAPACITY)
+    }
+}
+
+impl EventHub {
+    /// A hub whose subscribers to connection records may fall `capacity`
+    /// behind.
+    pub fn with_record_capacity(capacity: usize) -> Self {
         Self {
             group: broadcast::channel(CAPACITY).0,
             dial: broadcast::channel(CAPACITY).0,
@@ -465,6 +590,7 @@ impl Default for EventHub {
             system: broadcast::channel(SYSTEM_CAPACITY).0,
             route: Channel::new(ROUTE_CAPACITY),
             dns: Channel::new(DNS_CAPACITY),
+            record: Channel::new(capacity.max(1)),
             network: broadcast::channel(crate::net::network::EVENTS).0,
         }
     }
@@ -551,6 +677,28 @@ impl EventHub {
     #[doc(hidden)]
     pub fn dns_built(&self) -> usize {
         self.dns.built()
+    }
+
+    /// Tells of a connection's record, which `build` makes only when
+    /// someone listens.
+    pub fn recorded(&self, build: impl FnOnce() -> ConnectionRecord) {
+        self.record.emit(|| Arc::new(build()));
+    }
+
+    /// Whether anyone listens for connection records.
+    pub fn records_wanted(&self) -> bool {
+        self.record.wanted()
+    }
+
+    pub fn records(&self) -> Subscription<Arc<ConnectionRecord>> {
+        self.record.subscribe()
+    }
+
+    /// How many connection records were built to be told, since the hub
+    /// was made.
+    #[doc(hidden)]
+    pub fn records_built(&self) -> usize {
+        self.record.built()
     }
 
     pub fn group_switches(&self) -> broadcast::Receiver<GroupSwitch> {

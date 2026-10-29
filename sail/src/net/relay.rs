@@ -429,8 +429,26 @@ impl Direction {
     }
 }
 
+/// A side that took nothing it was written for too long.
+#[derive(Debug)]
+struct WriteStalled;
+
+impl std::fmt::Display for WriteStalled {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("relay write stalled")
+    }
+}
+
+impl std::error::Error for WriteStalled {}
+
 fn write_stalled() -> io::Error {
-    io::Error::new(io::ErrorKind::TimedOut, "relay write stalled")
+    io::Error::new(io::ErrorKind::TimedOut, WriteStalled)
+}
+
+/// Whether a relay ended with `e` because a side took nothing it was
+/// written for longer than its write-stall timeout.
+pub fn is_write_stall(e: &io::Error) -> bool {
+    e.get_ref().is_some_and(|inner| inner.is::<WriteStalled>())
 }
 
 struct CopyBidirectional<'a, A: ?Sized, B: ?Sized> {
@@ -700,6 +718,9 @@ mod tests {
         sleep(Duration::from_secs(2)).await;
         let err = relay.await.unwrap().unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::TimedOut);
+        // Told apart from a side's own timeout, for the connection's record.
+        assert!(is_write_stall(&err));
+        assert!(!is_write_stall(&io::Error::from(io::ErrorKind::TimedOut)));
         // The relay's ends are gone: both sides see the connection close.
         let mut client = writer.await.unwrap();
         let mut buf = [0u8; 64];
