@@ -677,3 +677,54 @@ async fn interim_passes_come_as_often_as_set() {
     );
     passes.abort();
 }
+
+/// A session is numbered before it is counted, and listed by that number:
+/// a number the host was told and never listed has a closed record of its
+/// own once the session's last copy goes, telling how its dial failed; one
+/// listed has only its connection's; a second copy counted, as another
+/// attempt of a dial, is listed by a number of its own.
+#[tokio::test]
+async fn a_number_told_has_one_closed_record() {
+    let (events, users) = (EventHub::default(), UserRegistry::default());
+    let sm = recording(&events, &users);
+    let mut records = events.records();
+
+    let mut sess = session("in", "out", None, Network::Tcp);
+    sm.numbering().number(&mut sess);
+    let id = sess.number.as_ref().unwrap().id();
+    sess.number.as_ref().unwrap().told(&sess);
+    let s = sm.stat_stream(mock(b""), sess.clone());
+    let again = sm.stat_stream(mock(b""), sess.clone());
+    drop(sess);
+    drop(s);
+    let record = next(&mut records);
+    assert_eq!(record.id, id);
+    drop(again);
+    assert_ne!(next(&mut records).id, id);
+    assert!(futures::FutureExt::now_or_never(records.recv()).is_none());
+
+    let mut refused = session("in", "out", None, Network::Udp);
+    sm.numbering().number(&mut refused);
+    let number = refused.number.clone().unwrap();
+    number.told(&refused);
+    number.failed(&refused, io::ErrorKind::ConnectionRefused);
+    let copy = refused.clone();
+    drop((refused, number));
+    assert!(futures::FutureExt::now_or_never(records.recv()).is_none());
+    let id = copy.number.as_ref().unwrap().id();
+    drop(copy);
+    let record = next(&mut records);
+    assert_eq!(record.id, id);
+    assert_eq!(
+        record.kind,
+        RecordKind::Closed(End::Error(io::ErrorKind::ConnectionRefused))
+    );
+    assert_eq!((record.up_total, record.down_total), (0, 0));
+    assert_eq!(record.network, Network::Udp);
+
+    // Not told the host: nothing, as before.
+    let mut untold = session("in", "out", None, Network::Tcp);
+    sm.numbering().number(&mut untold);
+    drop(untold);
+    assert!(futures::FutureExt::now_or_never(records.recv()).is_none());
+}

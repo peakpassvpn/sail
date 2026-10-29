@@ -746,6 +746,13 @@ let options = Options::new()
     `inbound.max_connections`, is counted and listed, and is told in the
     events as a session of sail's own inbounds is. The connection itself
     is not one, as a multiplexed connection is not.
+  - **Numbers.** `tcp` and `udp` return the number the session is known
+    by: its connection records' `id`, and the `SessionInfo::id` a host
+    outbound gets for it. Each number submitted has one closed record,
+    however the session ends: one the rules or an outbound refuse, or
+    whose dial fails, has one with nothing sent or received. A UDP
+    session that sends to more than one destination is a NAT session,
+    and a record, for each: the first has its number.
   - **Refusals.** A session whose user may not connect through the inbound
     is `Refused::User`, saying why: shut out, taken out of the inbound, at
     its `max_connections`, or a user of another instance or run.
@@ -767,7 +774,12 @@ let options = Options::new()
   through groups and `Via`, and never reads.
 - **Host outbounds.** A rule or a group routes to a host outbound as to
   any outbound. `HostOutbound::stream` and `datagrams` get the session's
-  `SessionInfo`: user, destination, inbound and extensions.
+  `SessionInfo`: its number, user, destination, inbound and extensions,
+  and the domain known for it with its `DomainSource`, as its records tell
+  them: the destination's own, the name it is dialled as, or what a
+  `sniff` rule read of its first bytes. The number is told before the
+  session is counted, so that a session the outbound refuses is known by
+  its record too.
   - **Via.** They may dial through any outbound of sail's by tag with
     `Via`, a `direct` bound to a source address among them. The tag is
     looked up when it dials, so the outbounds a reload builds are the ones

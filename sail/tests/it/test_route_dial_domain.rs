@@ -20,31 +20,6 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use crate::common;
 use crate::test_route_resolve_proxy::recording_socks_server;
 
-/// A TLS ClientHello naming `name`, as much of one as sniffing reads.
-fn client_hello(name: &str) -> Vec<u8> {
-    let name = name.as_bytes();
-    let mut list = ((3 + name.len()) as u16).to_be_bytes().to_vec();
-    list.push(0);
-    list.extend_from_slice(&(name.len() as u16).to_be_bytes());
-    list.extend_from_slice(name);
-    let mut extensions = vec![0, 0];
-    extensions.extend_from_slice(&(list.len() as u16).to_be_bytes());
-    extensions.extend_from_slice(&list);
-    let mut body = vec![3, 3];
-    body.extend_from_slice(&[7; 32]);
-    body.push(0);
-    body.extend_from_slice(&[0, 2, 0x13, 0x01, 1, 0]);
-    body.extend_from_slice(&(extensions.len() as u16).to_be_bytes());
-    body.extend_from_slice(&extensions);
-    let mut handshake = vec![1];
-    handshake.extend_from_slice(&(body.len() as u32).to_be_bytes()[1..]);
-    handshake.extend_from_slice(&body);
-    let mut record = vec![0x16, 3, 1];
-    record.extend_from_slice(&(handshake.len() as u16).to_be_bytes());
-    record.extend_from_slice(&handshake);
-    record
-}
-
 fn to(ip: &str, port: u16) -> Session {
     Session {
         destination: SocksAddr::from(SocketAddr::new(ip.parse().unwrap(), port)),
@@ -146,13 +121,13 @@ fn a_sniffed_name_goes_to_a_proxy_and_a_lan_address_goes_direct() -> anyhow::Res
         tokio::time::sleep(Duration::from_millis(200)).await;
         let lan = to("127.0.0.1", echo.port());
         anyhow::ensure!(
-            echoed(port, &lan, &client_hello("lan.invalid")).await,
+            echoed(port, &lan, &common::client_hello("lan.invalid")).await,
             "the LAN address goes direct, by the address: {:?}",
             asked.lock().unwrap()
         );
         anyhow::ensure!(asked.lock().unwrap().is_empty(), "nothing to the proxy");
         let public = to("192.0.2.10", 443);
-        let host = asked_for(port, &public, &client_hello("sni.test"), &asked).await?;
+        let host = asked_for(port, &public, &common::client_hello("sni.test"), &asked).await?;
         anyhow::ensure!(host == "sni.test", "the proxy is asked for {}", host);
         anyhow::Ok(())
     });
@@ -439,7 +414,7 @@ fn proxy_and_direct_dials_a_direct_ipv6_destination_by_its_ipv4_name() -> anyhow
         );
         // 2. A TLS server name.
         anyhow::ensure!(
-            echoed(port, &v6, &client_hello("dual.lab.test")).await,
+            echoed(port, &v6, &common::client_hello("dual.lab.test")).await,
             "a TLS server name"
         );
         // 3. No Host: the name sail's DNS answered with.
@@ -511,7 +486,7 @@ fn the_clash_sniffer_overrides_the_destination_as_mihomo_does() -> anyhow::Resul
         tokio::time::sleep(Duration::from_millis(200)).await;
         let sess = to("192.0.2.40", echo.port());
         anyhow::ensure!(
-            echoed(port, &sess, &client_hello("sni.test")).await,
+            echoed(port, &sess, &common::client_hello("sni.test")).await,
             "the name, resolved by the rule on addresses, goes direct"
         );
         anyhow::Ok(())

@@ -327,8 +327,6 @@ struct Matched {
     rule: Option<u32>,
     /// A rule rejected it.
     rejected: bool,
-    /// Its destination was a fake IP, now the domain it stands for.
-    fake_ip: bool,
 }
 
 /// What is told of a connection besides its session.
@@ -342,14 +340,11 @@ struct Told<'a> {
 }
 
 /// The domain known for `sess`, and where it came from.
-pub(crate) fn domain_of(
-    sess: &Session,
-    fake_ip: bool,
-) -> Option<(String, crate::control::events::DomainSource)> {
+pub(crate) fn domain_of(sess: &Session) -> Option<(String, crate::control::events::DomainSource)> {
     use crate::control::events::DomainSource;
     use crate::session::{DialDomainSource, Dialled, SniffedFrom};
     if let Some(domain) = sess.destination.domain() {
-        let source = match fake_ip {
+        let source = match sess.fake_ip {
             true => DomainSource::FakeIp,
             false => DomainSource::Request,
         };
@@ -382,6 +377,9 @@ impl Dispatcher {
         told: Told<'_>,
         connect: Result<std::time::Duration, io::ErrorKind>,
     ) {
+        if let (Err(kind), Some(number)) = (connect, &sess.number) {
+            number.failed(sess, kind);
+        }
         log_request(
             sess,
             outbound_tag,
@@ -445,7 +443,7 @@ impl Dispatcher {
         connect: Option<Result<std::time::Duration, io::ErrorKind>>,
     ) {
         self.env.events.routed(|| {
-            let (domain, domain_source) = match domain_of(sess, told.matched.fake_ip) {
+            let (domain, domain_source) = match domain_of(sess) {
                 Some((domain, source)) => (Some(domain), Some(source)),
                 None => (None, None),
             };
@@ -883,7 +881,7 @@ impl Dispatcher {
 
                 if let (Some(listed), Some(asked)) = (&listed, &asked) {
                     if self.env.events.records_wanted() {
-                        listed.dialled(asked, matched.fake_ip);
+                        listed.dialled(asked);
                     }
                 }
                 let told = Told {
@@ -1029,6 +1027,7 @@ impl Dispatcher {
         })?;
         sess.outbound_tag = h.tag().clone();
         sess.chain = crate::session::Chain::telling();
+        self.stat_manager.numbering().number(&mut sess);
         let handshake_start = tokio::time::Instant::now();
         let connected = async {
             let stream =
@@ -1092,6 +1091,7 @@ impl Dispatcher {
         })?;
         sess.outbound_tag = h.tag().clone();
         sess.chain = crate::session::Chain::telling();
+        self.stat_manager.numbering().number(&mut sess);
         let handshake_start = tokio::time::Instant::now();
         let connected = async {
             let transport =
@@ -1267,7 +1267,7 @@ impl Dispatcher {
                     self.recheck_late(&sess, listed.id).await;
                 }
                 if self.env.events.records_wanted() {
-                    listed.dialled(&dialed, matched.fake_ip);
+                    listed.dialled(&dialed);
                 }
                 let told = Told {
                     matched,
@@ -1346,10 +1346,8 @@ impl Dispatcher {
             debug!("src={}: {}", &sess.source, e);
             return None;
         }
-        let mut matched = Matched {
-            fake_ip: was_address && sess.destination.domain().is_some(),
-            ..Default::default()
-        };
+        sess.fake_ip = was_address && sess.destination.domain().is_some();
+        let mut matched = Matched::default();
         self.reverse_map(&mut sess).await;
         let mut sniffer = StreamSniffer::new(lhs);
         match self.route_told(&mut sess, &mut sniffer, &mut matched).await {
@@ -1577,6 +1575,7 @@ impl Dispatcher {
         sniffer: &mut dyn Sniffer,
         matched: &mut Matched,
     ) -> io::Result<Routed> {
+        self.stat_manager.numbering().number(sess);
         self.find_neighbor(sess);
         self.find_owner(sess).await;
         let outbounds = self.outbound_manager.load_full();
@@ -1804,11 +1803,15 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(
-            super::domain_of(&named, false),
+            super::domain_of(&named),
             Some(("example.com".to_string(), DomainSource::Request))
         );
+        let faked = Session {
+            fake_ip: true,
+            ..named.clone()
+        };
         assert_eq!(
-            super::domain_of(&named, true),
+            super::domain_of(&faked),
             Some(("example.com".to_string(), DomainSource::FakeIp))
         );
         let address = || SocksAddr::from(("1.2.3.4".parse::<std::net::IpAddr>().unwrap(), 443));
@@ -1818,7 +1821,7 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(
-            super::domain_of(&sniffed, false),
+            super::domain_of(&sniffed),
             Some(("sni.example".to_string(), DomainSource::Sniffed))
         );
         let mapped = Session {
@@ -1827,7 +1830,7 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(
-            super::domain_of(&mapped, false),
+            super::domain_of(&mapped),
             Some(("dns.example".to_string(), DomainSource::ReverseMapping))
         );
         // The name a dial took comes before what was sniffed.
@@ -1836,14 +1839,14 @@ mod tests {
             .get::<Dialled>()
             .set("dialled.example", DialDomainSource::Sniff);
         assert_eq!(
-            super::domain_of(&mapped, false),
+            super::domain_of(&mapped),
             Some(("dialled.example".to_string(), DomainSource::Sniffed))
         );
         let bare = Session {
             destination: address(),
             ..Default::default()
         };
-        assert_eq!(super::domain_of(&bare, false), None);
+        assert_eq!(super::domain_of(&bare), None);
     }
 
     use std::net::IpAddr;

@@ -364,6 +364,9 @@ pub struct Session {
     pub local_addr: SocketAddr,
     /// The proxy target address of a proxy connection.
     pub destination: SocksAddr,
+    /// The destination was a fake IP, which the dispatcher made the domain
+    /// it stands for (TCP; a UDP session's domain is as asked).
+    pub fake_ip: bool,
     /// The tag of the inbound handler this session initiated.
     pub inbound_tag: String,
     /// The tag of the first outbound handler this session goes.
@@ -433,6 +436,10 @@ pub struct Session {
     /// What a host's inbound kind put in for its outbound kind: see
     /// `Extensions`. Empty for sail's own inbounds.
     pub extensions: Extensions,
+    /// The number it is listed by, from when it is routed or submitted:
+    /// shared by its copies. Public only as `handshake` is.
+    #[doc(hidden)]
+    pub number: Option<std::sync::Arc<crate::app::stat_manager::Number>>,
 }
 
 /// The members groups handed a connection to, the outermost first: each
@@ -687,6 +694,7 @@ impl Clone for Session {
             source: self.source,
             local_addr: self.local_addr,
             destination: self.destination.clone(),
+            fake_ip: self.fake_ip,
             inbound_tag: self.inbound_tag.clone(),
             outbound_tag: self.outbound_tag.clone(),
             stream_id: self.stream_id,
@@ -711,6 +719,7 @@ impl Clone for Session {
             reply: self.reply.clone(),
             handshake: None,
             extensions: self.extensions.clone(),
+            number: self.number.clone(),
         }
     }
 }
@@ -726,6 +735,7 @@ impl Default for Session {
             source: UNSPECIFIED,
             local_addr: UNSPECIFIED,
             destination: SocksAddr::any(),
+            fake_ip: false,
             inbound_tag: "".to_string(),
             outbound_tag: "".to_string(),
             stream_id: None,
@@ -750,6 +760,7 @@ impl Default for Session {
             reply: None,
             handshake: None,
             extensions: Extensions::default(),
+            number: None,
         }
     }
 }

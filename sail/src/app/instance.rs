@@ -122,6 +122,7 @@ impl Instance {
         )?));
         let stat_manager = Arc::new(
             StatManager::new(env.options.stats.max_recent_connections, env.users.clone())
+                .numbered(env.numbering.clone())
                 .recording(env.events.clone()),
         );
         // Before the inbounds bind their users.

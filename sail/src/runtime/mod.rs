@@ -197,6 +197,9 @@ pub struct RuntimeEnv {
     pub listen_mark: Option<u32>,
     /// The users inbounds authenticate, by name; kept across reloads.
     pub users: crate::user::UserRegistry,
+    /// The numbers the run's connections are listed by, which a host's
+    /// kinds are told before sail counts them; kept across reloads.
+    pub numbering: crate::app::stat_manager::Numbering,
     /// The LAN devices, by address, when a rule or DNS server needs them;
     /// kept across reloads.
     pub neighbors: crate::net::neighbor::Neighbors,

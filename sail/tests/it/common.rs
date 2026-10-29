@@ -1715,3 +1715,28 @@ pub async fn wait_for_shutdown(id: sail::RuntimeId) {
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
     }
 }
+
+/// A TLS ClientHello naming `name`, as much of one as sniffing reads.
+pub fn client_hello(name: &str) -> Vec<u8> {
+    let name = name.as_bytes();
+    let mut list = ((3 + name.len()) as u16).to_be_bytes().to_vec();
+    list.push(0);
+    list.extend_from_slice(&(name.len() as u16).to_be_bytes());
+    list.extend_from_slice(name);
+    let mut extensions = vec![0, 0];
+    extensions.extend_from_slice(&(list.len() as u16).to_be_bytes());
+    extensions.extend_from_slice(&list);
+    let mut body = vec![3, 3];
+    body.extend_from_slice(&[7; 32]);
+    body.push(0);
+    body.extend_from_slice(&[0, 2, 0x13, 0x01, 1, 0]);
+    body.extend_from_slice(&(extensions.len() as u16).to_be_bytes());
+    body.extend_from_slice(&extensions);
+    let mut handshake = vec![1];
+    handshake.extend_from_slice(&(body.len() as u32).to_be_bytes()[1..]);
+    handshake.extend_from_slice(&body);
+    let mut record = vec![0x16, 3, 1];
+    record.extend_from_slice(&(handshake.len() as u16).to_be_bytes());
+    record.extend_from_slice(&handshake);
+    record
+}

@@ -297,10 +297,9 @@ pub struct Counter {
     /// data path; held while it is sent, so a connection's records go out
     /// in order and no byte is in two.
     reported: Mutex<Reported>,
-    /// What the outbound was asked to reach, and whether its destination
-    /// was a fake IP: kept for its records while someone listens for them.
+    /// What the outbound was asked to reach: kept for its records while
+    /// someone listens for them.
     asked: OnceLock<SocksAddr>,
-    fake_ip: AtomicBool,
 }
 
 /// What a connection's records told so far.
@@ -340,7 +339,6 @@ impl Counter {
                 closed: false,
             }),
             asked: OnceLock::new(),
-            fake_ip: AtomicBool::new(false),
         }
     }
 
@@ -358,11 +356,9 @@ impl Counter {
         }
     }
 
-    /// Keeps what the outbound was asked to reach, and whether the
-    /// destination was a fake IP, for its records.
-    pub(crate) fn dialled(&self, asked: &SocksAddr, fake_ip: bool) {
+    /// Keeps what the outbound was asked to reach, for its records.
+    pub(crate) fn dialled(&self, asked: &SocksAddr) {
         let _ = self.asked.set(asked.clone());
-        self.fake_ip.store(fake_ip, Ordering::Relaxed);
     }
 
     /// How it ended, as it is retired: why sail closed it; else what its
@@ -401,11 +397,10 @@ impl Counter {
         }
         let at = SystemTime::now();
         let sess = &self.sess;
-        let (domain, domain_source) =
-            match crate::app::dispatcher::domain_of(sess, self.fake_ip.load(Ordering::Relaxed)) {
-                Some((domain, source)) => (Some(domain), Some(source)),
-                None => (None, None),
-            };
+        let (domain, domain_source) = match crate::app::dispatcher::domain_of(sess) {
+            Some((domain, source)) => (Some(domain), Some(source)),
+            None => (None, None),
+        };
         let record = ConnectionRecord {
             id: self.id,
             run,
@@ -541,6 +536,175 @@ struct Accounts {
     outbound: Arc<Traffic>,
     table: Arc<Table>,
     recorder: Arc<Recorder>,
+}
+
+/// The numbers a run's connections are listed by, from 1, as their records
+/// (`ConnectionRecord::id`) and the connections list tell them: the stat
+/// manager's, and the dispatcher's, which numbers a session as it routes
+/// it. Cheap to clone; its clones are one.
+#[derive(Clone)]
+pub struct Numbering(Arc<Numbers>);
+
+struct Numbers {
+    next: AtomicU64,
+    /// Where the records of numbers told and never listed go, once the
+    /// stat manager records.
+    recorder: Mutex<Option<Arc<Recorder>>>,
+}
+
+impl Default for Numbering {
+    fn default() -> Self {
+        Numbering(Arc::new(Numbers {
+            next: AtomicU64::new(1),
+            recorder: Mutex::default(),
+        }))
+    }
+}
+
+impl std::fmt::Debug for Numbering {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Numbering")
+    }
+}
+
+impl Numbering {
+    fn next(&self) -> u64 {
+        self.0.next.fetch_add(1, Ordering::Relaxed)
+    }
+
+    fn record_to(&self, recorder: &Arc<Recorder>) {
+        *self.0.recorder.lock().unwrap_or_else(|e| e.into_inner()) = Some(recorder.clone());
+    }
+
+    /// The number of a session about to be routed or dialled, unless it
+    /// has one not listed yet: the one it is listed by once it is counted.
+    /// A UDP session of an inbound is a template, each destination's NAT
+    /// session dispatched from a copy: the first listed takes its number,
+    /// and each after a number of its own.
+    pub fn number(&self, sess: &mut Session) {
+        let listed = |number: &Arc<Number>| number.listed.load(Ordering::Relaxed);
+        if sess.number.as_ref().is_none_or(listed) {
+            sess.number = Some(Arc::new(Number {
+                id: self.next(),
+                listed: AtomicBool::new(false),
+                recorder: self
+                    .0
+                    .recorder
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .clone(),
+                told: Mutex::default(),
+            }));
+        }
+    }
+}
+
+/// A session's number, from before it is routed: the one it is listed by
+/// the first time it is counted. Shared by the session's copies. Once the
+/// host was told it (`Number::told`), a number never listed, the session
+/// refused or failing before it was counted, is told in a closed record of
+/// its own, with nothing sent or received, as the last copy of the session
+/// goes: each number the host knows has one closed record.
+pub struct Number {
+    id: u64,
+    listed: AtomicBool,
+    recorder: Option<Arc<Recorder>>,
+    /// The session as it was when the host was told its number, or as its
+    /// dial failed after, and how it ended: none until the host is told.
+    told: Mutex<Option<Unlisted>>,
+}
+
+struct Unlisted {
+    /// Of its own, the number and the state of the connection left out.
+    sess: Session,
+    at: SystemTime,
+    end: Option<End>,
+}
+
+impl std::fmt::Debug for Number {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Number({})", self.id)
+    }
+}
+
+impl Number {
+    pub fn id(&self) -> u64 {
+        self.id
+    }
+
+    /// Takes the number for the session `sess` is the copy counted of;
+    /// `None` when a copy of it was counted before, as one attempt of its
+    /// dial after another: each counted is listed by a number of its own.
+    fn list(&self) -> Option<u64> {
+        (!self.listed.swap(true, Ordering::Relaxed)).then_some(self.id)
+    }
+
+    /// The host was told the number of `sess`, a copy of the session: so
+    /// that it has a closed record, should it never be listed.
+    pub fn told(&self, sess: &Session) {
+        if self.recorder.is_none() || self.listed.load(Ordering::Relaxed) {
+            return;
+        }
+        let mut told = self.told.lock().unwrap_or_else(|e| e.into_inner());
+        if told.is_none() {
+            *told = Some(Unlisted {
+                sess: Self::unlisted(sess),
+                at: SystemTime::now(),
+                end: None,
+            });
+        }
+    }
+
+    /// The host was not told it after all.
+    pub(crate) fn forget(&self) {
+        self.told.lock().unwrap_or_else(|e| e.into_inner()).take();
+    }
+
+    /// Its dial failed, `sess` as it was dialled, before it was counted:
+    /// what the closed record of a number the host knows tells.
+    pub fn failed(&self, sess: &Session, kind: io::ErrorKind) {
+        let mut told = self.told.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(unlisted) = told.as_mut() {
+            unlisted.sess = Self::unlisted(sess);
+            unlisted.end = Some(End::Error(kind));
+        }
+    }
+
+    /// `sess` without what would hold its number, nor the state the copies
+    /// of the connection share.
+    fn unlisted(sess: &Session) -> Session {
+        Session {
+            number: None,
+            state: Default::default(),
+            ..sess.clone()
+        }
+    }
+}
+
+impl Drop for Number {
+    fn drop(&mut self) {
+        let (Some(recorder), Some(unlisted)) = (
+            &self.recorder,
+            self.told
+                .get_mut()
+                .unwrap_or_else(|e| e.into_inner())
+                .take(),
+        ) else {
+            return;
+        };
+        if self.listed.load(Ordering::Relaxed) || !recorder.events.records_wanted() {
+            return;
+        }
+        let mut counter = Counter::new(self.id, unlisted.sess);
+        counter.started = unlisted.at;
+        counter
+            .reported
+            .get_mut()
+            .unwrap_or_else(|e| e.into_inner())
+            .at = unlisted.at;
+        let end = unlisted.end.unwrap_or(End::Aborted);
+        counter.report(&recorder.events, recorder.run, Some(end));
+    }
 }
 
 /// Where the records of a run's connections go.
@@ -878,7 +1042,7 @@ pub struct TrafficReport {
 pub struct StatManager {
     table: Arc<Table>,
     max_recent_connections: usize,
-    next_id: AtomicU64,
+    numbering: Numbering,
     inbounds: Tags,
     outbounds: Tags,
     users: UserRegistry,
@@ -911,7 +1075,7 @@ impl StatManager {
                 recent_per_shard: max_recent_connections.div_ceil(SHARDS),
             }),
             max_recent_connections,
-            next_id: AtomicU64::new(1),
+            numbering: Numbering::default(),
             inbounds: Tags::default(),
             outbounds: Tags::default(),
             users,
@@ -926,7 +1090,22 @@ impl StatManager {
     /// Called before anything is counted.
     pub fn recording(mut self, events: EventHub) -> Self {
         self.recorder = Arc::new(Recorder::new(events));
+        self.numbering.record_to(&self.recorder);
         self
+    }
+
+    /// Lists its connections by `numbering`'s numbers, which the inbounds
+    /// and outbounds of the host's kinds are told before they are counted.
+    /// Called before anything is counted.
+    pub fn numbered(mut self, numbering: Numbering) -> Self {
+        numbering.record_to(&self.recorder);
+        self.numbering = numbering;
+        self
+    }
+
+    /// The numbers its connections are listed by.
+    pub fn numbering(&self) -> &Numbering {
+        &self.numbering
     }
 
     /// An interim pass: a record of each connection open that sent or
@@ -1146,7 +1325,10 @@ impl StatManager {
     }
 
     fn register(&self, sess: Session) -> Accounts {
-        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let id = match sess.number.as_deref().and_then(Number::list) {
+            Some(id) => id,
+            None => self.numbering.next(),
+        };
         let udp = sess.network == Network::Udp;
         let user = sess.user.clone();
         let inbound = self.inbounds.get(&sess.inbound_tag);

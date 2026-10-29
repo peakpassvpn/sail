@@ -40,7 +40,9 @@ use crate::adapter::{
     OutboundDatagramHandler, OutboundDatagramRecvHalf, OutboundDatagramSendHalf,
     OutboundStreamHandler, ProxyError, ProxyResult,
 };
+use crate::app::stat_manager::{Number, Numbering};
 use crate::app::SyncDnsClient;
+use crate::control::events::DomainSource;
 pub use crate::session::Extensions;
 use crate::session::{DatagramSource, Network, Session, SocksAddr, StreamId};
 use crate::user::{UserRef, UserRegistry};
@@ -246,6 +248,7 @@ fn build_inbound(ctx: &InboundContext<'_>) -> anyhow::Result<AnyInboundHandler> 
         kind,
         host,
         users: ctx.env.users.clone(),
+        numbering: ctx.env.numbering.clone(),
     });
     Ok(Arc::new(crate::adapter::inbound::Handler::new(
         ctx.tag.to_string(),
@@ -590,6 +593,7 @@ struct SessionsInner {
     base: Session,
     kind: &'static str,
     users: UserRegistry,
+    numbering: Numbering,
     to: mpsc::Sender<AnyBaseInboundTransport>,
     established: watch::Sender<bool>,
 }
@@ -611,28 +615,31 @@ impl Sessions {
     }
 
     /// Submits a TCP session, whose bytes are `stream`'s: sail routes it,
-    /// and relays the stream to the outbound. Returned once sail has it;
-    /// its place among the connections, and its user's, are decided as a
-    /// built-in inbound's session's are, and a session refused there has
-    /// its stream closed.
-    pub async fn tcp<S>(&self, session: NewSession, stream: S) -> Result<(), Refused>
+    /// and relays the stream to the outbound. Returned once sail has it,
+    /// with the number it is known by: its records' `ConnectionRecord::id`,
+    /// and `SessionInfo::id` as an outbound of the host's is asked for it.
+    /// It has one closed record, however it ends: refused by the rules or
+    /// an outbound, or failing to connect, it is one with nothing sent or
+    /// received. Its place among the connections, and its user's, are
+    /// decided as a built-in inbound's session's are, and a session
+    /// refused there has its stream closed.
+    pub async fn tcp<S>(&self, session: NewSession, stream: S) -> Result<u64, Refused>
     where
         S: AsyncRead + AsyncWrite + Send + Unpin + 'static,
     {
         self.established();
         let sess = self.session(session, Network::Tcp)?;
-        self.0
-            .to
-            .send(BaseInboundTransport::Stream(
-                HostStream::new(stream).0,
-                sess,
-            ))
-            .await
-            .map_err(|_| Refused::Closed)
+        let number = told(&sess);
+        self.submit(
+            BaseInboundTransport::Stream(HostStream::new(stream).0, sess),
+            number,
+        )
+        .await
     }
 
-    /// Submits a UDP session: its datagrams are `datagrams`'.
-    pub async fn udp(&self, session: NewSession, datagrams: Datagrams) -> Result<(), Refused> {
+    /// Submits a UDP session: its datagrams are `datagrams`'. Returned, and
+    /// recorded, as `tcp`.
+    pub async fn udp(&self, session: NewSession, datagrams: Datagrams) -> Result<u64, Refused> {
         self.established();
         let mut sess = self.session(session, Network::Udp)?;
         // Its own among the sessions of the connection, which share its
@@ -643,14 +650,28 @@ impl Sessions {
             datagrams: Owned::new(datagrams),
             source,
         };
-        self.0
-            .to
-            .send(BaseInboundTransport::Datagram(
-                Box::new(datagram),
-                Some(sess),
-            ))
-            .await
-            .map_err(|_| Refused::Closed)
+        let number = told(&sess);
+        self.submit(
+            BaseInboundTransport::Datagram(Box::new(datagram), Some(sess)),
+            number,
+        )
+        .await
+    }
+
+    /// Hands a session on to the dispatcher, its number told the host.
+    async fn submit(
+        &self,
+        transport: AnyBaseInboundTransport,
+        number: Arc<Number>,
+    ) -> Result<u64, Refused> {
+        match self.0.to.send(transport).await {
+            Ok(()) => Ok(number.id()),
+            Err(_) => {
+                // Never sail's: its number was not told.
+                number.forget();
+                Err(Refused::Closed)
+            }
+        }
     }
 
     fn session(&self, new: NewSession, network: Network) -> Result<Session, Refused> {
@@ -683,8 +704,18 @@ impl Sessions {
         sess.user = new.user.map(|user| user.user);
         sess.extensions = new.extensions;
         sess.inbound_type = inner.kind;
+        sess.number = None;
+        inner.numbering.number(&mut sess);
         Ok(sess)
     }
+}
+
+/// The number of `sess`, a session of a host's inbound, as the host is
+/// told it.
+fn told(sess: &Session) -> Arc<Number> {
+    let number = sess.number.clone().expect("a host's session is numbered");
+    number.told(sess);
+    number
 }
 
 /// A host inbound kind, as sail's inbounds are handlers: each accepted
@@ -694,6 +725,7 @@ struct HostStreamHandler {
     kind: &'static str,
     host: Arc<dyn HostInbound>,
     users: UserRegistry,
+    numbering: Numbering,
 }
 
 /// Aborts the task of a connection's `serve` when what it feeds is gone.
@@ -741,6 +773,7 @@ impl InboundStreamHandler for HostStreamHandler {
                 base: sess,
                 kind: self.kind,
                 users: self.users.clone(),
+                numbering: self.numbering.clone(),
                 to,
                 established,
             })),
@@ -881,6 +914,12 @@ pub trait HostOutbound: Send + Sync + 'static {
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct SessionInfo {
+    /// The number the session is known by, from before it is dialled: its
+    /// records' `ConnectionRecord::id`, and what `Sessions::tcp` and `udp`
+    /// returned for a session of the host's inbound. A session the
+    /// outbound refuses has a closed record still, with nothing sent or
+    /// received.
+    pub id: u64,
     pub network: Network,
     /// The client.
     pub source: SocketAddr,
@@ -889,6 +928,11 @@ pub struct SessionInfo {
     /// The type of the inbound it came in through.
     pub inbound_type: &'static str,
     pub user: Option<String>,
+    /// The domain known for it, and where from, as its records tell them:
+    /// the destination's own, the name it is dialled as, or what a `sniff`
+    /// rule read of its first bytes.
+    pub domain: Option<String>,
+    pub domain_source: Option<DomainSource>,
     pub extensions: Extensions,
     /// The session itself, which `Via` carries on.
     sess: Session,
@@ -896,20 +940,40 @@ pub struct SessionInfo {
 
 impl SessionInfo {
     fn of(sess: &Session) -> Self {
+        // Every session sail dispatches is numbered before it is dialled.
+        let id = match &sess.number {
+            Some(number) => {
+                number.told(sess);
+                number.id()
+            }
+            None => 0,
+        };
+        let (domain, domain_source) = match crate::app::dispatcher::domain_of(sess) {
+            Some((domain, source)) => (Some(domain), Some(source)),
+            None => (None, None),
+        };
         SessionInfo {
+            id,
             network: sess.network,
             source: sess.source,
             destination: sess.destination.clone(),
             inbound_tag: sess.inbound_tag.clone(),
             inbound_type: sess.inbound_type,
             user: crate::user::name(&sess.user).map(str::to_string),
+            domain,
+            domain_source,
             extensions: sess.extensions.clone(),
             sess: sess.clone(),
         }
     }
 
-    /// The session as it is to go on to `destination`, for the next hop.
+    /// The session as it is to go on to `destination`, for the next hop:
+    /// the domain known is of the destination replaced, and is dropped.
     pub fn with_destination(mut self, destination: Address) -> Self {
+        if destination != self.destination {
+            self.domain = None;
+            self.domain_source = None;
+        }
         self.destination = destination;
         self
     }
@@ -930,6 +994,7 @@ impl SessionInfo {
             // What was sniffed is of the destination just replaced.
             sess.forget_sniffed();
             sess.route.dial_domain = None;
+            sess.fake_ip = false;
         }
         sess.extensions = self.extensions.clone();
         sess

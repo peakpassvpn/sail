@@ -18,9 +18,9 @@ use std::time::Duration;
 
 use futures::future::BoxFuture;
 use sail::embed::{
-    Accepted, Address, Config, DatagramRecv, DatagramSend, Datagrams, ErrorKind, Extensions,
-    HostInbound, HostOutbound, HostStream, Instance, KindContext, NewSession, Options, Refused,
-    SessionInfo, Threads, User, Via,
+    Accepted, Address, Config, DatagramRecv, DatagramSend, Datagrams, DomainSource, ErrorKind,
+    Extensions, HostInbound, HostOutbound, HostStream, Instance, KindContext, NewSession, Options,
+    Refused, SessionInfo, Threads, User, Via,
 };
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, DuplexStream};
 use tokio::net::TcpStream;
@@ -185,7 +185,15 @@ struct HostState {
     refused: Mutex<Vec<Refused>>,
     tenants: Mutex<Vec<u32>>,
     hops: Mutex<Vec<u32>>,
+    /// The numbers its sessions were submitted as.
+    submitted: Mutex<Vec<u64>>,
+    /// What `table-test` was told of each session: its number, and the
+    /// domain known for it and where from.
+    seen: Mutex<Vec<Seen>>,
 }
+
+/// A session's number, and its domain and where from.
+type Seen = (u64, Option<String>, Option<DomainSource>);
 
 /// The state of each test's host, by the `host` field of its objects: the
 /// tests run in parallel.
@@ -247,8 +255,9 @@ impl HostInbound for MuxInbound {
                     // Refused, the stream is dropped, and the client reads its end.
                     false => conn.sessions.tcp(new, stream).await,
                 };
-                if let Err(refused) = submitted {
-                    state.refused.lock().unwrap().push(refused);
+                match submitted {
+                    Ok(id) => state.submitted.lock().unwrap().push(id),
+                    Err(refused) => state.refused.lock().unwrap().push(refused),
                 }
             }
             Ok(())
@@ -256,9 +265,16 @@ impl HostInbound for MuxInbound {
     }
 }
 
+/// The header's `dest`: an address, or a name and a port.
 fn destination_of(header: &serde_json::Value) -> Address {
-    let to: std::net::SocketAddr = header["dest"].as_str().unwrap().parse().unwrap();
-    Address::from(to)
+    let dest = header["dest"].as_str().unwrap();
+    match dest.parse::<std::net::SocketAddr>() {
+        Ok(to) => Address::from(to),
+        Err(_) => {
+            let (name, port) = dest.rsplit_once(':').unwrap();
+            Address::Domain(name.to_string(), port.parse().unwrap())
+        }
+    }
 }
 
 /// A UDP stream of the mux as datagrams: each with its 2-byte length, all
@@ -311,6 +327,11 @@ impl TableOutbound {
             .get::<Tenant>()
             .expect("the inbound's tenant");
         self.0.tenants.lock().unwrap().push(tenant);
+        self.0.seen.lock().unwrap().push((
+            session.id,
+            session.domain.clone(),
+            session.domain_source,
+        ));
         if tenant == 99 {
             panic!("a dial that panics");
         }
@@ -884,6 +905,133 @@ async fn each_host_session_is_one_connection_record() {
     let bob = of("bob");
     assert_eq!((bob.up, bob.down), (777, 777));
     assert!(bob.chain.contains(&"hop".to_string()), "{:?}", bob);
+    drop(mux);
+    instance.stop().await.unwrap();
+}
+
+/// A host is told the number of each session, as its inbound submits it
+/// and as its outbound is asked for it, and the domain known for it: the
+/// destination's own, or one a `sniff` rule read. Each number is one closed
+/// record's, the sessions the outbound refuses included, TCP and UDP.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_host_knows_its_sessions_by_their_numbers_and_domains() {
+    use futures::StreamExt;
+    use sail::embed::{Event, Kinds, RecordKind};
+
+    let (echo, serve) = common::run_tcp_echo_server("127.0.0.1:0").await.unwrap();
+    tokio::spawn(serve);
+    let (udp_echo, serve) = common::run_udp_echo_server("127.0.0.1:0").await.unwrap();
+    tokio::spawn(serve);
+    let name = "numbers";
+    let state = host(name);
+    state.table.lock().unwrap().insert(1, "direct".to_string());
+    let instance = Instance::new(options(&[])).unwrap();
+    let port = common::free_port();
+    let mut config: serde_json::Value =
+        serde_json::from_str(&config(name, port, &["alice"], serde_json::json!({}))).unwrap();
+    config["route"]["rules"] = serde_json::json!([{ "action": "sniff", "timeout": "1s" }]);
+    instance
+        .start(Config::Json(config.to_string()))
+        .await
+        .unwrap();
+    state
+        .users
+        .lock()
+        .unwrap()
+        .insert("alice".into(), instance.user("alice").unwrap());
+    let mut events = Box::pin(instance.events(Kinds::CONNECTION));
+
+    let mux = connect(port).await;
+    // By address, nothing sniffed: no domain.
+    let mut plain = mux.open(1, header("alice", echo, 1, false)).await;
+    round_trip(&mut plain, b"plain").await;
+    // By name: the destination's own.
+    let named = serde_json::json!({
+        "user": "alice", "dest": format!("localhost:{}", echo.port()), "tenant": 1,
+    });
+    let mut named = mux.open(2, named).await;
+    round_trip(&mut named, b"named").await;
+    // By address, a ClientHello first: what the sniff read.
+    let mut sniffed = mux.open(3, header("alice", echo, 1, false)).await;
+    round_trip(&mut sniffed, &common::client_hello("sni.test")).await;
+    // Refused by the outbound, TCP and UDP: the tenant has no route.
+    let mut refused = mux.open(4, header("alice", echo, 7, false)).await;
+    assert!(closed(&mut refused).await);
+    let mut udp = mux.open(5, header("alice", udp_echo, 7, true)).await;
+    // Dispatched at its first datagram.
+    udp.write_u16(4).await.unwrap();
+    udp.write_all(b"ping").await.unwrap();
+    for s in [&mut plain, &mut named, &mut sniffed] {
+        s.shutdown().await.unwrap();
+        assert!(closed(s).await);
+    }
+    wait_until("five submitted and seen", || {
+        state.submitted.lock().unwrap().len() == 5 && state.seen.lock().unwrap().len() == 5
+    })
+    .await;
+
+    // In the order the mux opened them, which submits them in turn.
+    let submitted = state.submitted.lock().unwrap().clone();
+    let seen: HashMap<_, _> = state
+        .seen
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(id, domain, source)| (*id, (domain.clone(), *source)))
+        .collect();
+    let mut distinct = submitted.clone();
+    distinct.sort();
+    distinct.dedup();
+    assert_eq!(distinct.len(), 5, "{:?}", submitted);
+    let domains: Vec<_> = submitted
+        .iter()
+        .map(|id| {
+            let (domain, source) = seen
+                .get(id)
+                .unwrap_or_else(|| panic!("{} in {:?}", id, seen));
+            (domain.as_deref(), *source)
+        })
+        .collect();
+    assert_eq!(
+        domains,
+        [
+            (None, None),
+            (Some("localhost"), Some(DomainSource::Request)),
+            (Some("sni.test"), Some(DomainSource::Sniffed)),
+            (None, None),
+            (None, None),
+        ]
+    );
+
+    // The UDP session refused ends as its last copy goes: its stream.
+    drop(udp);
+    let mut closed_records = HashMap::new();
+    while closed_records.len() < 5 {
+        let record = match tokio::time::timeout(Duration::from_secs(5), events.next()).await {
+            Ok(Some(Event::ConnectionRecord(record))) => record,
+            Ok(Some(_)) => continue,
+            Ok(None) | Err(_) => break,
+        };
+        if matches!(record.kind, RecordKind::Closed(_)) {
+            assert!(
+                closed_records.insert(record.id, record.clone()).is_none(),
+                "two closed records of {}: {:?}",
+                record.id,
+                record
+            );
+        }
+    }
+    let mut recorded: Vec<_> = closed_records.keys().copied().collect();
+    recorded.sort();
+    assert_eq!(recorded, distinct, "{:?}", closed_records);
+    for id in &submitted[3..] {
+        let record = &closed_records[id];
+        assert_eq!((record.up_total, record.down_total), (0, 0), "{:?}", record);
+        assert_eq!(record.user.as_deref(), Some("alice"));
+    }
+    let sniffed = &closed_records[&submitted[2]];
+    assert_eq!(sniffed.domain.as_deref(), Some("sni.test"));
+    assert_eq!(sniffed.domain_source, Some(DomainSource::Sniffed));
     drop(mux);
     instance.stop().await.unwrap();
 }
