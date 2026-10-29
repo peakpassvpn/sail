@@ -948,6 +948,21 @@ fn the_api_streams_connection_records() -> anyhow::Result<()> {
             status,
             body
         );
+        // Admission under memory pressure is off on this profile.
+        let (status, _, body) = call(
+            &rt,
+            &at,
+            Some(SECRET),
+            "GET",
+            "/api/v1/runtime/admission",
+            "",
+        )?;
+        anyhow::ensure!(
+            status == 200 && body["level"] == "off" && body["evicted"] == 0,
+            "{} {}",
+            status,
+            body
+        );
         // An interim pass with no one listening tells nothing.
         let (status, _, body) = call(
             &rt,

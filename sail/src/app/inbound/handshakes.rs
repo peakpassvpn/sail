@@ -42,6 +42,27 @@ pub(crate) struct Handshakes {
 pub struct HandshakePlace {
     _place: Option<OwnedSemaphorePermit>,
     source: Option<(Sources, IpAddr)>,
+    /// Its handshake under the instance's admission, when there is one.
+    ticket: Option<super::admission::Ticket>,
+}
+
+impl HandshakePlace {
+    /// Its handshake is under the instance's admission (admission.rs).
+    pub(crate) fn admitted(&mut self, ticket: super::admission::Ticket) {
+        self.ticket = Some(ticket);
+    }
+
+    /// It authenticated: under pressure it is no longer closed as stalled.
+    pub(crate) fn succeeded(&mut self) {
+        if let Some(ticket) = &mut self.ticket {
+            ticket.succeeded();
+        }
+    }
+
+    /// Ready once admission closes it as stalled, before it authenticated.
+    pub(crate) fn eviction(&self) -> Option<super::admission::Eviction> {
+        self.ticket.as_ref().map(|ticket| ticket.eviction())
+    }
 }
 
 impl std::fmt::Debug for HandshakePlace {
@@ -101,6 +122,7 @@ impl Handshakes {
         Some(HandshakePlace {
             _place: place,
             source,
+            ticket: None,
         })
     }
 

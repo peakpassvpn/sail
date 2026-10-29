@@ -199,6 +199,9 @@ impl Kinds {
     /// before (`ConnectionRecord`). Built only while someone subscribes;
     /// a connection's bytes not yet told when one does are in its next.
     pub const CONNECTION: Kinds = Kinds(1 << 9);
+    /// Admission under memory pressure changing level
+    /// (`inbound.memory_reserve`): `Event::Admission`.
+    pub const ADMISSION: Kinds = Kinds(1 << 10);
     /// Every kind there is, and those added later.
     pub const ALL: Kinds = Kinds(u32::MAX);
 
@@ -244,6 +247,9 @@ pub enum Event {
     /// What a connection sent and received since its record before, as it
     /// closed or at an interim pass.
     ConnectionRecord(Arc<ConnectionRecord>),
+    /// Admission under memory pressure changed level: what has not
+    /// authenticated is held back, or no longer.
+    Admission(AdmissionChange),
     /// Someone else changed what sail set up on the system for a TUN;
     /// see `Kinds::SYSTEM`. `resource` names the TUN first, e.g. "route
     /// 0.0.0.0/0 into tun0: gone".
@@ -334,6 +340,13 @@ impl Instance {
                 Event::DnsExchange,
             )));
         }
+        if kinds.contains(Kinds::ADMISSION) {
+            streams.push(Box::pin(told(
+                hub.admission_changes(),
+                Kinds::ADMISSION,
+                |c: &AdmissionChange| Event::Admission(c.clone()),
+            )));
+        }
         if kinds.contains(Kinds::CONNECTION) {
             streams.push(Box::pin(told_counted(
                 hub.records(),
@@ -415,8 +428,9 @@ impl Instance {
 }
 
 pub use crate::control::events::{
-    ClosedBy, ConnectionRecord, DialFailure, DialStage, DnsExchange, DnsOutcome, DnsSource,
-    DomainSource, End, GroupSwitch, RecordKind, RouteAction, RoutedConnection, SwitchReason,
+    AdmissionChange, AdmissionLevel, ClosedBy, ConnectionRecord, DialFailure, DialStage,
+    DnsExchange, DnsOutcome, DnsSource, DomainSource, End, GroupSwitch, RecordKind, RouteAction,
+    RoutedConnection, SwitchReason,
 };
 pub use crate::runtime::TunName;
 

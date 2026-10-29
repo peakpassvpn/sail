@@ -683,6 +683,22 @@ impl RuntimeManager {
         }
     }
 
+    /// Admission under memory pressure changing level, from now on.
+    pub fn admission_changes(
+        &self,
+    ) -> tokio::sync::broadcast::Receiver<control::events::AdmissionChange> {
+        self.env.events.admission_changes()
+    }
+
+    /// What admission under memory pressure did since the instance
+    /// started (app/inbound/admission.rs); none when it is off.
+    pub fn admission(&self) -> Option<app::inbound::AdmissionInfo> {
+        self.dispatcher
+            .upgrade()?
+            .admission()
+            .map(|admission| admission.info())
+    }
+
     /// The TUNs' names by inbound tag, as the start settled them: the one
     /// configured, or, with none, the one chosen at start (macOS) or the
     /// default. A host reads the name a TUN got here.

@@ -212,7 +212,7 @@ async fn handle_inbound_tcp_stream(
     handler: AnyInboundHandler,
     dispatcher: Arc<Dispatcher>,
     nat_manager: Arc<NatManager>,
-    place: super::HandshakePlace,
+    mut place: super::HandshakePlace,
 ) -> io::Result<()> {
     // A connection without addresses has already gone away.
     let source = stream.peer_addr()?;
@@ -241,6 +241,8 @@ async fn handle_inbound_tcp_stream(
         )
         .instrument(tracing::Span::current())
         .await??;
+        // It authenticated: admission under memory pressure leaves it be.
+        place.succeeded();
         // A stream to be routed keeps its place until the dispatcher has
         // given it one among the sessions. Anything else, a UDP
         // association or a connection that carries many, is past its
@@ -304,11 +306,24 @@ async fn handle_tcp_listen(
                 continue;
             }
         };
+        // Under memory pressure, what has not authenticated is held back
+        // (admission.rs): the stalled handshakes are closed, and this one
+        // may be refused.
+        let admission = dispatcher.admission();
+        if let Some(admission) = admission {
+            if admission.check(source.ip()).is_err() {
+                continue;
+            }
+        }
         // One more than the inbound may have in their handshake is closed
         // at once: kept waiting, it would take what the limit spares.
-        let Some(place) = handshakes.enter(source.ip()) else {
+        let Some(mut place) = handshakes.enter(source.ip()) else {
             continue;
         };
+        if let Some(admission) = admission {
+            place.admitted(admission.enter(source.ip()));
+        }
+        let eviction = place.eviction();
         let handler_cloned = handler.clone();
         let dispatcher_cloned = dispatcher.clone();
         let nat_manager_cloned = nat_manager.clone();
@@ -330,6 +345,15 @@ async fn handle_tcp_listen(
                     }
                 }
                 _ = removed => {}
+                // Stalled in its handshake under memory pressure.
+                _ = async {
+                    match eviction {
+                        Some(eviction) => eviction.evicted().await,
+                        None => std::future::pending().await,
+                    }
+                } => {
+                    debug!("connection from {} closed in its handshake: stalled under memory pressure", source);
+                }
             }
         });
     }

@@ -613,6 +613,17 @@ and goes on from the oldest kept: no connection waits for it. A missed
 record's bytes show in the totals of that connection's next record, and
 the user's counts hold them all.
 
+`Kinds::ADMISSION` gives `Event::Admission(change)` when admission under
+memory pressure (`inbound.memory_reserve`, on the server and router
+profiles) changes level: `Normal`, `Pressure` (handshakes stalled past
+`inbound.handshake_stall` are closed, and sources whose handshakes
+mostly fail are refused) or `Hard` (every new connection is refused at
+accept as well), with the memory free, the reserve and the handshakes in
+flight. `instance.admission()` gives what it did since the instance
+started: its level, how many it refused and closed, and how long it was
+under pressure; none when it is off. Sessions that authenticated are
+never touched.
+
 `Kinds::SYSTEM` gives `Event::SystemChanged { kind, resource }` when
 someone else changed what sail set up on the system for a TUN with
 auto_route: on macOS, a route into the TUN gone, or another route that

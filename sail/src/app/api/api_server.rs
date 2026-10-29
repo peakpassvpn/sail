@@ -562,14 +562,16 @@ mod handlers {
     /// What happens from now on, as Server-Sent Events, of the kinds
     /// `?kinds=` names: `user` (the default), what happens to users, each
     /// event named as its `event` field; `connection`, the connections'
-    /// records, each named `connection`. The data is the JSON. One that
+    /// records, each named `connection`; `admission`, admission under
+    /// memory pressure changing level, named `admission`. The data is the
+    /// JSON. One that
     /// falls behind by more than the events kept gets `lagged`, with
     /// `kind` and how many it `missed`, and goes on from the oldest kept.
     pub async fn events(State(rm): State<Arc<RuntimeManager>>, uri: axum::http::Uri) -> Response {
         use axum::response::sse::{Event, KeepAlive, Sse};
         use futures::stream::BoxStream;
         use tokio::sync::broadcast::error::RecvError;
-        let (mut users, mut connections) = (false, false);
+        let (mut users, mut connections, mut admission) = (false, false, false);
         // `?kinds=user,connection`, read here: the API's build has no
         // query extractor of axum's.
         let kinds = uri
@@ -582,11 +584,12 @@ mod handlers {
             match kind.trim() {
                 "user" => users = true,
                 "connection" => connections = true,
+                "admission" => admission = true,
                 other => {
                     return error(
                         StatusCode::BAD_REQUEST,
                         "invalid",
-                        format!("no kind of event [{}]: user, connection", other),
+                        format!("no kind of event [{}]: user, connection, admission", other),
                     )
                 }
             }
@@ -633,9 +636,31 @@ mod handlers {
                 },
             )));
         }
+        if admission {
+            streams.push(Box::pin(futures::stream::unfold(
+                rm.admission_changes(),
+                |mut changes| async move {
+                    let event = match changes.recv().await {
+                        Ok(c) => Event::default()
+                            .event("admission")
+                            .json_data(json::AdmissionChange::of(&c))
+                            .unwrap_or_else(|_| Event::default().event("error")),
+                        Err(RecvError::Lagged(missed)) => lagged("admission", missed),
+                        Err(RecvError::Closed) => return None,
+                    };
+                    Some((Ok(event), changes))
+                },
+            )));
+        }
         Sse::new(futures::stream::select_all(streams))
             .keep_alive(KeepAlive::default())
             .into_response()
+    }
+
+    /// What admission under memory pressure did since the instance
+    /// started; `level` is `off` when it is.
+    pub async fn admission(State(rm): State<Arc<RuntimeManager>>) -> Json<json::Admission> {
+        Json(json::Admission::of(rm.admission().as_ref()))
     }
 
     /// The network the host is on, as it told or sail detected it.
@@ -992,6 +1017,7 @@ impl ApiServer {
                 post(handlers::user_disconnect),
             )
             .route("/api/v1/runtime/events", get(handlers::events))
+            .route("/api/v1/runtime/admission", get(handlers::admission))
             .route("/api/v1/runtime/stats", get(handlers::stats))
             .route("/api/v1/runtime/status", get(handlers::status))
             .route(

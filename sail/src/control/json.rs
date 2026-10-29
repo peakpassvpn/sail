@@ -919,6 +919,84 @@ pub struct InboundUsers {
     pub users: Vec<String>,
 }
 
+/// As the API names an admission level.
+fn admission_level(level: crate::control::events::AdmissionLevel) -> &'static str {
+    use crate::control::events::AdmissionLevel;
+    match level {
+        AdmissionLevel::Normal => "normal",
+        AdmissionLevel::Pressure => "pressure",
+        _ => "hard",
+    }
+}
+
+/// What admission under memory pressure did since the instance started:
+/// the management API's `GET /admission`.
+#[derive(Serialize, Clone, PartialEq, Eq, Debug)]
+pub struct Admission {
+    /// `off`, `normal`, `pressure` or `hard`.
+    pub level: String,
+    /// Bytes free as last read, and kept free; none where not read.
+    pub free: Option<u64>,
+    pub reserve: u64,
+    /// Connections in their handshake now.
+    pub handshakes: usize,
+    /// Refused at accept under hard pressure, and for their source.
+    pub refused: u64,
+    pub refused_sources: u64,
+    /// Closed in their handshake, stalled under pressure.
+    pub evicted: u64,
+    /// How long it was under pressure.
+    pub pressure_ms: u64,
+}
+
+impl Admission {
+    pub fn of(info: Option<&crate::app::inbound::AdmissionInfo>) -> Self {
+        match info {
+            None => Self {
+                level: "off".into(),
+                free: None,
+                reserve: 0,
+                handshakes: 0,
+                refused: 0,
+                refused_sources: 0,
+                evicted: 0,
+                pressure_ms: 0,
+            },
+            Some(info) => Self {
+                level: admission_level(info.level).into(),
+                free: info.free,
+                reserve: info.reserve,
+                handshakes: info.handshakes,
+                refused: info.refused,
+                refused_sources: info.refused_sources,
+                evicted: info.evicted,
+                pressure_ms: info.pressure.as_millis() as u64,
+            },
+        }
+    }
+}
+
+/// Admission changed level: an event of the management API's stream.
+#[derive(Serialize, Clone, PartialEq, Eq, Debug)]
+pub struct AdmissionChange {
+    /// `normal`, `pressure` or `hard`.
+    pub level: String,
+    pub free: Option<u64>,
+    pub reserve: u64,
+    pub handshakes: usize,
+}
+
+impl AdmissionChange {
+    pub fn of(change: &crate::control::events::AdmissionChange) -> Self {
+        Self {
+            level: admission_level(change.level).into(),
+            free: change.free,
+            reserve: change.reserve,
+            handshakes: change.handshakes,
+        }
+    }
+}
+
 /// What happened to a user: an event of the management API's stream.
 #[derive(Serialize)]
 pub struct UserEvent {

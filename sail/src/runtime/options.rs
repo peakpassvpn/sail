@@ -309,6 +309,31 @@ pub struct Inbound {
     /// default: behind a carrier's NAT many clients share an address.
     #[serde(default)]
     pub max_handshakes_per_source: usize,
+    /// The memory kept free, in percent of what the system or the
+    /// process's cgroup gives: with less free, connections still in their
+    /// handshake are held back (app/inbound/admission.rs); 0, memory is
+    /// not looked at. A sail extension.
+    #[serde(default)]
+    pub memory_reserve: u32,
+    /// Under memory pressure, a connection in its handshake for longer is
+    /// closed, the oldest first.
+    #[serde(default = "handshake_stall", with = "duration")]
+    pub handshake_stall: Duration,
+    /// Handshakes in flight across the inbounds are pressure, as memory
+    /// short of the reserve is, past the open-file limit divided by this;
+    /// 0, they are not looked at.
+    #[serde(default)]
+    pub handshake_descriptor_share: u32,
+    /// Under memory pressure, a source address whose handshakes of the
+    /// last minute mostly failed (four at least, more failed than not) is
+    /// refused at accept.
+    #[serde(default)]
+    pub score_sources: bool,
+}
+
+/// A sing-box based server's in production, whose admission this follows.
+fn handshake_stall() -> Duration {
+    Duration::from_secs(3)
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -607,6 +632,10 @@ impl RuntimeOptions {
                 // A judgment: a client's local inbounds see few at once.
                 max_handshakes: 1024,
                 max_handshakes_per_source: 0,
+                memory_reserve: 0,
+                handshake_stall: handshake_stall(),
+                handshake_descriptor_share: 0,
+                score_sources: false,
             },
             quic: Quic {
                 max_concurrent_streams: 1024,
@@ -808,6 +837,10 @@ impl RuntimeOptions {
                     // budget carries, at up to 37 KiB each in a musl build
                     // (measured), 9 MiB.
                     max_handshakes: 256,
+                    // As the server's (sail#15).
+                    memory_reserve: 20,
+                    handshake_descriptor_share: 8,
+                    score_sources: true,
                     ..desktop.inbound
                 },
                 quic: Quic {
@@ -909,6 +942,12 @@ impl RuntimeOptions {
                     // when full; 1000 new connections a second over a
                     // 300 ms path keep about 900 in their handshake.
                     max_handshakes: 4096,
+                    // A sing-box based server's in production: a 20%
+                    // reserve, and handshakes past an eighth of the
+                    // open-file limit (sail#15).
+                    memory_reserve: 20,
+                    handshake_descriptor_share: 8,
+                    score_sources: true,
                     ..desktop.inbound
                 },
                 quic: Quic {

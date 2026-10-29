@@ -1,6 +1,8 @@
+pub(crate) mod admission;
 #[cfg(feature = "auto-reload")]
 pub(crate) mod follow;
 pub(crate) mod handshakes;
+pub use admission::AdmissionInfo;
 mod magic;
 pub use handshakes::HandshakePlace;
 pub mod network_listener;

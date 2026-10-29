@@ -481,6 +481,40 @@ pub struct SystemChange {
     pub resource: String,
 }
 
+/// How hard the instance holds back connections that have not
+/// authenticated yet, for the memory or descriptors left
+/// (`inbound.memory_reserve`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum AdmissionLevel {
+    /// Every connection is taken in.
+    Normal,
+    /// Less memory free than the reserve, or too many handshakes for the
+    /// descriptors: handshakes stalled past `inbound.handshake_stall`
+    /// are closed, and sources whose handshakes mostly fail are refused.
+    Pressure,
+    /// Less than half the reserve free: every new connection is refused at
+    /// accept, as well.
+    Hard,
+}
+
+/// The instance's admission changed level.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct AdmissionChange {
+    pub level: AdmissionLevel,
+    /// The memory free for the process as read, and the reserve, in
+    /// bytes; none where it cannot be read.
+    pub free: Option<u64>,
+    pub reserve: u64,
+    /// Connections in their handshake, across the inbounds.
+    pub handshakes: usize,
+}
+
+/// How many admission changes a subscriber may fall behind on (a
+/// judgment: they come seconds apart at the most).
+pub(crate) const ADMISSION_CAPACITY: usize = 16;
+
 /// The channels, one a kind; cheap to clone, every clone the same.
 #[derive(Clone)]
 pub struct EventHub {
@@ -491,6 +525,7 @@ pub struct EventHub {
     route: Channel<Arc<RoutedConnection>>,
     dns: Channel<Arc<DnsExchange>>,
     record: Channel<Arc<ConnectionRecord>>,
+    admission: broadcast::Sender<AdmissionChange>,
     /// How often an interim pass records the connections open, as the host
     /// set it; none, never.
     record_interval: tokio::sync::watch::Sender<Option<Duration>>,
@@ -598,6 +633,7 @@ impl EventHub {
             route: Channel::new(ROUTE_CAPACITY),
             dns: Channel::new(DNS_CAPACITY),
             record: Channel::new(capacity.max(1)),
+            admission: broadcast::channel(ADMISSION_CAPACITY).0,
             record_interval: tokio::sync::watch::channel(None).0,
             network: broadcast::channel(crate::net::network::EVENTS).0,
         }
@@ -722,6 +758,15 @@ impl EventHub {
     #[doc(hidden)]
     pub fn records_built(&self) -> usize {
         self.record.built()
+    }
+
+    /// Tells that the admission changed level.
+    pub fn admission_changed(&self, change: AdmissionChange) {
+        let _ = self.admission.send(change);
+    }
+
+    pub fn admission_changes(&self) -> broadcast::Receiver<AdmissionChange> {
+        self.admission.subscribe()
     }
 
     pub fn group_switches(&self) -> broadcast::Receiver<GroupSwitch> {

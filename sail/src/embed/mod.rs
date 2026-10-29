@@ -26,6 +26,7 @@ mod logs;
 mod network;
 mod streams;
 
+pub use crate::app::inbound::AdmissionInfo;
 pub use crate::control::{
     ConnectionInfo, Delay, Failure, GroupInfo, InboundInfo, Mode, OutboundInfo, ProviderInfo,
     RuleSetInfo, SourceKind, SubscriptionInfo, Traffic,
@@ -48,10 +49,10 @@ pub use kinds::{
 };
 pub use logs::{LogBatch, LogFilter, LogLine};
 pub use network::{
-    ClosedBy, ConnectionRecord, DialFailure, DialStage, DnsExchange, DnsOutcome, DnsSource,
-    DomainSource, End, Event, GroupSwitch, Interface, Kinds, NetworkChangeKind,
-    NetworkChangeReason, NetworkEvent, NetworkKind, NetworkState, RecordKind, RouteAction,
-    RoutedConnection, SwitchReason, TunName, UserEvent,
+    AdmissionChange, AdmissionLevel, ClosedBy, ConnectionRecord, DialFailure, DialStage,
+    DnsExchange, DnsOutcome, DnsSource, DomainSource, End, Event, GroupSwitch, Interface, Kinds,
+    NetworkChangeKind, NetworkChangeReason, NetworkEvent, NetworkKind, NetworkState, RecordKind,
+    RouteAction, RoutedConnection, SwitchReason, TunName, UserEvent,
 };
 pub use streams::Status;
 
@@ -702,6 +703,14 @@ impl Instance {
                 "this build has no tun inbound",
             ))
         }
+    }
+
+    /// What admission under memory pressure did since the instance
+    /// started: its level, the memory free and the reserve, the
+    /// handshakes in flight, and how many it refused or closed; none when
+    /// it is off (`inbound.memory_reserve`).
+    pub fn admission(&self) -> Result<Option<AdmissionInfo>, Error> {
+        Ok(self.manager()?.admission())
     }
 
     /// The panics of tasks the instance went on after, in this run.

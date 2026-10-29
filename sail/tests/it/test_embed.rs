@@ -1521,3 +1521,113 @@ async fn an_interim_pass_before_a_stop_records_what_is_open() {
     assert_eq!(closed.id, interim.id);
     assert_eq!(closed.run, interim.run);
 }
+
+/// Under pressure, connections stalled in their handshake are closed, the
+/// level change is told, and the instance counts what it did. Pressure is
+/// made of descriptors here, which a test can set: one handshake in flight
+/// at most, by a share of the open-file limit as large as the limit.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn stalled_handshakes_are_closed_under_pressure() {
+    use futures::StreamExt;
+    use sail::embed::{AdmissionLevel, Event, Kinds};
+
+    let mut limit = libc::rlimit {
+        rlim_cur: 0,
+        rlim_max: 0,
+    };
+    // SAFETY: getrlimit writes the struct it is given, nothing else.
+    assert_eq!(
+        unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) },
+        0
+    );
+    let share = u32::try_from(limit.rlim_cur).unwrap_or(u32::MAX);
+    let settings = serde_json::json!({
+        "set": [
+            format!("inbound.handshake_descriptor_share={}", share),
+            "inbound.handshake_stall=100ms".to_string(),
+        ],
+    })
+    .to_string();
+    let socks = common::free_port();
+    let instance = Instance::new(options().settings_json(&settings).unwrap()).unwrap();
+    instance
+        .start(Config::Json(config(socks, 53)))
+        .await
+        .unwrap();
+    let mut events = Box::pin(instance.events(Kinds::ADMISSION));
+    let info = instance.admission().unwrap().expect("admission is on");
+    assert_eq!(info.level, AdmissionLevel::Normal);
+
+    // Two that never say a word, in their handshake past the stall.
+    let mut stalled = Vec::new();
+    for _ in 0..2 {
+        stalled.push(
+            tokio::net::TcpStream::connect(("127.0.0.1", socks))
+                .await
+                .unwrap(),
+        );
+    }
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    // The next accept finds two in flight, one more than may be: pressure,
+    // and the stalled two are closed.
+    let mut s = socks_asked(socks, 9).await;
+    for mut s in stalled {
+        let mut buf = [0u8; 1];
+        let read = tokio::time::timeout(Duration::from_secs(5), s.read(&mut buf))
+            .await
+            .expect("closed in time");
+        assert!(matches!(read, Ok(0) | Err(_)), "{:?}", read);
+    }
+    match tokio::time::timeout(Duration::from_secs(5), events.next())
+        .await
+        .expect("a change in time")
+        .unwrap()
+    {
+        Event::Admission(change) => assert_eq!(change.level, AdmissionLevel::Pressure),
+        other => panic!("unexpected {:?}", other),
+    }
+    let info = instance.admission().unwrap().unwrap();
+    assert_eq!(info.evicted, 2, "{:?}", info);
+    assert!(info.pressure > Duration::ZERO || info.level == AdmissionLevel::Pressure);
+    // The one that came on is not refused: it gets its reply.
+    let _ = socks_reply(&mut s).await;
+    instance.stop().await.unwrap();
+}
+
+/// A UDP association has authenticated once it is set up: it gives its
+/// handshake place back then, and a connection after it takes it, with
+/// one place in all. It held the place for as long as it lived.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_udp_association_gives_its_handshake_place_back() {
+    let (echo, serve) = common::run_tcp_echo_server("127.0.0.1:0").await.unwrap();
+    tokio::spawn(serve);
+    let settings = serde_json::json!({ "set": ["inbound.max_handshakes=1"] }).to_string();
+    let socks = common::free_port();
+    let instance = Instance::new(options().settings_json(&settings).unwrap()).unwrap();
+    instance
+        .start(Config::Json(config(socks, 53)))
+        .await
+        .unwrap();
+
+    // UDP ASSOCIATE, kept open.
+    let mut association = tokio::net::TcpStream::connect(("127.0.0.1", socks))
+        .await
+        .unwrap();
+    association.write_all(&[5, 1, 0]).await.unwrap();
+    let mut greeted = [0u8; 2];
+    association.read_exact(&mut greeted).await.unwrap();
+    association
+        .write_all(&[5, 3, 0, 1, 0, 0, 0, 0, 0, 0])
+        .await
+        .unwrap();
+    assert_eq!(socks_reply(&mut association).await, 0);
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    // A connection after it has the one place.
+    let mut s = socks_asked(socks, echo.port()).await;
+    assert_eq!(socks_reply(&mut s).await, 0);
+    round_trip(&mut s, b"x").await;
+    drop(association);
+    instance.stop().await.unwrap();
+}
