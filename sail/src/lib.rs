@@ -2339,6 +2339,8 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
     let events = host.events.clone().unwrap_or_default();
     let scope = runtime::scope::TaskScope::new(events.clone());
     let stop_within = host.stop_within.unwrap_or(runtime::scope::STOP_WITHIN);
+    // The run's, across its reloads, which keep the runtime options.
+    let admission = app::inbound::admission::Admission::new(&opts.runtime.inbound, events.clone());
     let env = Arc::new(runtime::RuntimeEnv {
         options: opts.runtime,
         host,
@@ -2348,6 +2350,7 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
         #[cfg(feature = "inbound-tun")]
         tun_names: Arc::new(std::sync::Mutex::new(tun_names)),
         network: net::network::Network::telling_to(events.network_sender()),
+        admission,
         events,
         scope: scope.clone(),
         ..Default::default()

@@ -211,3 +211,16 @@ fn off_by_default_on_a_client_and_on_on_a_server() {
     assert_eq!(server.inbound.handshake_stall, Duration::from_secs(3));
     assert!(Admission::new(&server.inbound, EventHub::default()).is_some());
 }
+
+/// A QUIC connection is refused before its handshake under pressure, and
+/// let in otherwise.
+#[cfg(any(feature = "inbound-hysteria2", feature = "inbound-tuic"))]
+#[test]
+fn quic_is_refused_under_pressure() {
+    let (free, events) = (Arc::new(AtomicU64::new(200)), EventHub::default());
+    let a = admission(&free, 0, Duration::from_secs(3), false, &events);
+    assert!(!a.refuses_quic(ip(1)));
+    free.store(90, Ordering::Relaxed);
+    assert!(a.refuses_quic(ip(1)));
+    assert_eq!(a.info().refused_quic, 1);
+}

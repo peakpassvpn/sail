@@ -1,4 +1,5 @@
-pub(crate) mod admission;
+#[doc(hidden)]
+pub mod admission;
 #[cfg(feature = "auto-reload")]
 pub(crate) mod follow;
 pub(crate) mod handshakes;

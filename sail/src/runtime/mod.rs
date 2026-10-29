@@ -229,6 +229,10 @@ pub struct RuntimeEnv {
     /// The routes of others auto_route replaced with its own and puts back
     /// when it stops, in words (macOS).
     pub replaced_routes: Arc<std::sync::Mutex<Vec<String>>>,
+    /// What holds back connections that have not authenticated under
+    /// memory pressure (`inbound.memory_reserve`), when it is on: the
+    /// run's, across its reloads.
+    pub admission: Option<Arc<crate::app::inbound::admission::Admission>>,
 }
 
 pub type SyncRuntimeEnv = Arc<RuntimeEnv>;

@@ -943,6 +943,8 @@ pub struct Admission {
     /// Refused at accept under hard pressure, and for their source.
     pub refused: u64,
     pub refused_sources: u64,
+    /// QUIC connections refused before their handshake.
+    pub refused_quic: u64,
     /// Closed in their handshake, stalled under pressure.
     pub evicted: u64,
     /// How long it was under pressure.
@@ -959,6 +961,7 @@ impl Admission {
                 handshakes: 0,
                 refused: 0,
                 refused_sources: 0,
+                refused_quic: 0,
                 evicted: 0,
                 pressure_ms: 0,
             },
@@ -969,6 +972,7 @@ impl Admission {
                 handshakes: info.handshakes,
                 refused: info.refused,
                 refused_sources: info.refused_sources,
+                refused_quic: info.refused_quic,
                 evicted: info.evicted,
                 pressure_ms: info.pressure.as_millis() as u64,
             },

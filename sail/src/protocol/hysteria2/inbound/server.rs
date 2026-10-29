@@ -63,6 +63,8 @@ pub struct Server {
 pub struct DatagramHandler {
     resource: crate::runtime::resource::HotResource<Resources>,
     obfs: Option<Salamander>,
+    /// What refuses new connections under memory pressure, when it is on.
+    admission: Option<Arc<crate::app::inbound::admission::Admission>>,
 }
 
 pub(crate) struct Resources {
@@ -82,11 +84,13 @@ impl DatagramHandler {
                 server,
             }),
             obfs,
+            admission: None,
         }
     }
 
     pub(crate) fn reloadable(mut self, ctx: &crate::adapter::registry::InboundContext<'_>) -> Self {
         self.resource = ctx.resource(&ctx.state.hysteria2, self.resource.load());
+        self.admission = ctx.env.admission.clone();
         self
     }
 }
@@ -114,6 +118,7 @@ impl InboundDatagramHandler for DatagramHandler {
         };
         let (tx, rx) = mpsc::channel(ACCEPT_QUEUE);
         let resource = self.resource.clone();
+        let admission = self.admission.clone();
         crate::runtime::scope::spawn_essential("hysteria2 accept", async move {
             // The connections, stopped when the inbound stops.
             let mut connections = JoinSet::new();
@@ -127,6 +132,15 @@ impl InboundDatagramHandler for DatagramHandler {
                 let Some(incoming) = incoming else {
                     break;
                 };
+                // Under memory pressure, refused before its handshake,
+                // which cannot be closed once under way (admission.rs).
+                if admission
+                    .as_ref()
+                    .is_some_and(|a| a.refuses_quic(incoming.remote_address().ip()))
+                {
+                    incoming.refuse();
+                    continue;
+                }
                 let generation = resource.load();
                 let conn = Conn {
                     server: generation.server.clone(),
@@ -670,6 +684,13 @@ mod tests {
     }
 
     async fn serve(masquerade: Masquerade) -> Fixture {
+        serve_admitted(masquerade, None).await
+    }
+
+    async fn serve_admitted(
+        masquerade: Masquerade,
+        admission: Option<Arc<crate::app::inbound::admission::Admission>>,
+    ) -> Fixture {
         let rcgen::CertifiedKey { cert, key_pair } =
             rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
         let alpns = alpn_protocols(None, quic::DEFAULT_ALPN);
@@ -691,7 +712,8 @@ mod tests {
         });
         let socket = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
         let addr = socket.local_addr().unwrap();
-        let handler = DatagramHandler::new(config, None, server);
+        let mut handler = DatagramHandler::new(config, None, server);
+        handler.admission = admission;
         let transport = handler
             .handle(Box::new(crate::net::SimpleInboundDatagram(socket)))
             .await
@@ -756,6 +778,26 @@ mod tests {
         (":authority", "example.com"),
         (":path", "/"),
     ];
+
+    /// Under memory pressure a new connection is refused before its
+    /// handshake, and counted.
+    #[tokio::test]
+    async fn a_connection_under_memory_pressure_is_refused() {
+        let admission = crate::app::inbound::admission::Admission::under_pressure();
+        let f = serve_admitted(Masquerade::NotFound, Some(admission.clone())).await;
+        let refused = f
+            .endpoint
+            .connect(f.server, "localhost")
+            .unwrap()
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(refused, quinn::ConnectionError::ConnectionClosed(_)),
+            "{:?}",
+            refused
+        );
+        assert_eq!(admission.info().refused_quic, 1);
+    }
 
     #[tokio::test]
     async fn strangers_see_a_web_server_that_has_nothing() {

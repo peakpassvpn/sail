@@ -70,6 +70,8 @@ struct Settings {
 
 pub struct Server {
     resource: crate::runtime::resource::HotResource<Resources>,
+    /// What refuses new connections under memory pressure, when it is on.
+    admission: Option<Arc<crate::app::inbound::admission::Admission>>,
 }
 
 pub(crate) struct Resources {
@@ -110,11 +112,13 @@ impl Server {
                     buffers: tuning.udp_buffers(),
                 }),
             }),
+            admission: None,
         })
     }
 
     pub(crate) fn reloadable(mut self, ctx: &crate::adapter::registry::InboundContext<'_>) -> Self {
         self.resource = ctx.resource(&ctx.state.tuic, self.resource.load());
+        self.admission = ctx.env.admission.clone();
         self
     }
 }
@@ -134,6 +138,7 @@ impl InboundDatagramHandler for Server {
         };
         let (accepted, accepted_rx) = mpsc::channel(ACCEPT_CHANNEL_SIZE);
         let resource = self.resource.clone();
+        let admission = self.admission.clone();
         crate::runtime::scope::spawn_essential("tuic accept", async move {
             // The connections, stopped when the inbound stops.
             let mut connections = JoinSet::new();
@@ -147,6 +152,15 @@ impl InboundDatagramHandler for Server {
                 let Some(incoming) = incoming else {
                     break;
                 };
+                // Under memory pressure, refused before its handshake,
+                // which cannot be closed once under way (admission.rs).
+                if admission
+                    .as_ref()
+                    .is_some_and(|a| a.refuses_quic(incoming.remote_address().ip()))
+                {
+                    incoming.refuse();
+                    continue;
+                }
                 let generation = resource.load();
                 let accepted = accepted.clone();
                 crate::runtime::scope::spawn_child(

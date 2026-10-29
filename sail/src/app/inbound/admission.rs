@@ -83,6 +83,8 @@ pub struct AdmissionInfo {
     pub refused: u64,
     /// Refused at accept for their source's failures.
     pub refused_sources: u64,
+    /// QUIC connections refused before their handshake, under pressure.
+    pub refused_quic: u64,
     /// Closed in their handshake, stalled under pressure.
     pub evicted: u64,
     /// How long the instance was under pressure, hard pressure included.
@@ -90,7 +92,7 @@ pub struct AdmissionInfo {
 }
 
 /// The handshakes of an instance, and how hard it holds back new ones.
-pub(crate) struct Admission {
+pub struct Admission {
     /// Bytes kept free; 0, memory is not looked at.
     reserve: u64,
     /// More handshakes than this are pressure; 0, no such bound.
@@ -111,6 +113,7 @@ pub(crate) struct Admission {
     sources: Mutex<HashMap<IpAddr, Score>>,
     refused: AtomicU64,
     refused_sources: AtomicU64,
+    refused_quic: AtomicU64,
     evicted: AtomicU64,
     /// When pressure began, and what earlier pressure lasted.
     pressure: Mutex<(Option<Instant>, Duration)>,
@@ -212,6 +215,7 @@ impl Admission {
             sources: Mutex::default(),
             refused: AtomicU64::new(0),
             refused_sources: AtomicU64::new(0),
+            refused_quic: AtomicU64::new(0),
             evicted: AtomicU64::new(0),
             pressure: Mutex::default(),
             unwarned: AtomicU64::new(0),
@@ -238,6 +242,21 @@ impl Admission {
             return Err(Refusal::Source);
         }
         Ok(())
+    }
+
+    /// Whether a QUIC connection from `source` is refused before its
+    /// handshake, as an endpoint takes it: under pressure, it is. A QUIC
+    /// handshake in flight cannot be closed as a TCP one is, and it is
+    /// left to `quic.server_handshake_timeout`; so new ones are not let
+    /// in while memory is short.
+    #[cfg(any(feature = "inbound-hysteria2", feature = "inbound-tuic"))]
+    pub(crate) fn refuses_quic(&self, _source: IpAddr) -> bool {
+        if self.update() == NORMAL {
+            return false;
+        }
+        self.refused_quic.fetch_add(1, Ordering::Relaxed);
+        self.warn("QUIC, under memory pressure");
+        true
     }
 
     /// A handshake of a connection from `source` that was taken in, in
@@ -445,9 +464,35 @@ impl Admission {
             handshakes: self.in_flight.load(Ordering::Relaxed),
             refused: self.refused.load(Ordering::Relaxed),
             refused_sources: self.refused_sources.load(Ordering::Relaxed),
+            refused_quic: self.refused_quic.load(Ordering::Relaxed),
             evicted: self.evicted.load(Ordering::Relaxed),
             pressure,
         }
+    }
+}
+
+impl Admission {
+    /// One under pressure from the start: less free than its reserve.
+    #[cfg(all(test, feature = "inbound-hysteria2"))]
+    pub(crate) fn under_pressure() -> Arc<Self> {
+        Arc::new(Self::with(
+            100,
+            0,
+            Duration::from_secs(3),
+            false,
+            Box::new(|| Some(90)),
+            Duration::ZERO,
+            EventHub::default(),
+        ))
+    }
+}
+
+impl std::fmt::Debug for Admission {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Admission")
+            .field("reserve", &self.reserve)
+            .field("level", &self.level.load(Ordering::Relaxed))
+            .finish_non_exhaustive()
     }
 }
 

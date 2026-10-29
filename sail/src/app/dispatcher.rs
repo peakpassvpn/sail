@@ -547,8 +547,6 @@ pub struct Dispatcher {
     owners: super::owner::Owners,
     /// The places for sessions, under `inbound.max_connections`.
     sessions: Option<super::sessions::Sessions>,
-    /// What holds back handshakes under memory pressure, when it is on.
-    admission: Option<std::sync::Arc<super::inbound::admission::Admission>>,
 }
 
 impl Dispatcher {
@@ -566,10 +564,6 @@ impl Dispatcher {
             dns_client,
             stat_manager,
             sessions: super::sessions::Sessions::new(env.options.inbound.max_connections),
-            admission: super::inbound::admission::Admission::new(
-                &env.options.inbound,
-                env.events.clone(),
-            ),
             env,
             inbound_types: Default::default(),
             owners: Default::default(),
@@ -580,7 +574,7 @@ impl Dispatcher {
     pub(crate) fn admission(
         &self,
     ) -> Option<&std::sync::Arc<super::inbound::admission::Admission>> {
-        self.admission.as_ref()
+        self.env.admission.as_ref()
     }
 
     /// A place for one more session, or none: it is refused.
