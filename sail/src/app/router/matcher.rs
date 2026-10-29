@@ -108,6 +108,45 @@ impl Facts {
         }
     }
 
+    /// The facts a host gives of a session of its own (`embed::RuleSet`):
+    /// what headless rules match, and nothing else.
+    #[cfg(feature = "rule-set")]
+    pub(crate) fn of_host(
+        network: Network,
+        domain: Option<&str>,
+        ips: &[IpAddr],
+        port: u16,
+        source: std::net::SocketAddr,
+    ) -> Self {
+        let ips: Vec<IpAddr> = ips.iter().map(IpAddr::to_canonical).collect();
+        // As `new` has it of a destination that is an address.
+        let ip_version = match (domain, ips.first()) {
+            (None, Some(ip)) => Some(if ip.is_ipv4() { 4 } else { 6 }),
+            _ => None,
+        };
+        Facts {
+            domain: domain.map(str::to_ascii_lowercase),
+            ips,
+            port,
+            ip_version,
+            network,
+            inbound: String::new(),
+            user: None,
+            protocol: None,
+            http: None,
+            process_path: None,
+            source,
+            query_type: None,
+            preferred_by: None,
+            neighbor: None,
+            owner: None,
+            rcode: None,
+            response: None,
+            responses: None,
+            network_state: None,
+        }
+    }
+
     /// 4 or 6, when the destination of `sess` is an address.
     pub fn ip_version_of(sess: &Session) -> Option<u8> {
         sess.destination

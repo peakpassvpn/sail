@@ -793,6 +793,18 @@ let options = Options::new()
   - **Routing on a table** of the host's is a host outbound that looks the
     table up and dials the next hop through `Via`. Swapping the table
     needs no reload.
+  - **Rule-sets.** `RuleSet` reads a sing-box headless rule-set, binary
+    (`.srs`) or source (`.json`), from bytes (`from_bytes`) or a file
+    (`from_path`, the format by its extension, or `from_path_as`), with
+    the code sail's router reads and matches them with. `matches` takes a
+    `MatchInput`: network, domain, the addresses `ip_cidr` matches (sail
+    resolves nothing), port and source, or one made from a `SessionInfo`.
+    It matches `network`, the `domain` conditions, `ip_cidr`,
+    `source_ip_cidr`, the port conditions, `invert` and logical rules, as
+    a routing rule does. A rule with any other condition (`process_*`,
+    `package_*`, the network's, `query_type`, `ip_asn`, …) is refused as
+    the rule-set is read, naming the rule and the condition, rather than
+    never matching.
 - **Tasks.** What a host kind spawns goes through `sail::embed::spawn`, so
   a stop ends it with the instance's other tasks and a panic in it is a
   `Fault`. A task spawned with `tokio::spawn` is the host's own and

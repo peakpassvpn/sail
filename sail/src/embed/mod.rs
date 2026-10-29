@@ -24,6 +24,8 @@ mod instance;
 pub(crate) mod kinds;
 mod logs;
 mod network;
+#[cfg(feature = "rule-set")]
+mod rule_set;
 mod streams;
 
 pub use crate::app::inbound::AdmissionInfo;
@@ -54,6 +56,8 @@ pub use network::{
     NetworkChangeKind, NetworkChangeReason, NetworkEvent, NetworkKind, NetworkState, RecordKind,
     RouteAction, RoutedConnection, SwitchReason, TunName, UserEvent,
 };
+#[cfg(feature = "rule-set")]
+pub use rule_set::{MatchInput, RuleSet, RuleSetFormat};
 pub use streams::Status;
 
 /// Undoes what an instance killed with its process left in the system

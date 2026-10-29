@@ -23,7 +23,7 @@ mod mrs;
 mod reader;
 pub(crate) mod remote;
 pub(crate) mod rule;
-mod srs;
+pub(crate) mod srs;
 pub(crate) mod succinct;
 mod surge;
 

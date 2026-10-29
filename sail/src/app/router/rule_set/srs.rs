@@ -56,11 +56,29 @@ fn unsupported(item: u8) -> Option<&'static str> {
 }
 
 pub(crate) fn read(data: &[u8], env: &RuntimeEnv) -> Result<Vec<Condition>> {
-    read_within(data, env, MAX_INFLATED)
+    read_within(data, env, MAX_INFLATED, &|_| Ok(()))
+}
+
+/// What a reader checks of each plain rule before it is compiled: what is
+/// refused of it.
+pub(crate) type Check<'a> = &'a dyn Fn(&Parts) -> Result<()>;
+
+/// `read`, each plain rule refused that `check` refuses.
+pub(crate) fn read_checked(
+    data: &[u8],
+    env: &RuntimeEnv,
+    check: Check<'_>,
+) -> Result<Vec<Condition>> {
+    read_within(data, env, MAX_INFLATED, check)
 }
 
 /// `read`, inflating to `max` bytes at most.
-fn read_within(data: &[u8], env: &RuntimeEnv, max: usize) -> Result<Vec<Condition>> {
+fn read_within(
+    data: &[u8],
+    env: &RuntimeEnv,
+    max: usize,
+    check: Check<'_>,
+) -> Result<Vec<Condition>> {
     let rest = data
         .strip_prefix(MAGIC.as_slice())
         .ok_or_else(|| anyhow!("not a sing-box binary rule-set"))?;
@@ -90,20 +108,26 @@ fn read_within(data: &[u8], env: &RuntimeEnv, max: usize) -> Result<Vec<Conditio
     let mut reader = Reader::new(&inflated);
     let count = reader.count(1)?;
     (0..count)
-        .map(|i| read_rule(&mut reader, &format!("rules[{}]", i), 0, env))
+        .map(|i| read_rule(&mut reader, &format!("rules[{}]", i), 0, env, check))
         .collect()
 }
 
-fn read_rule(reader: &mut Reader, path: &str, depth: usize, env: &RuntimeEnv) -> Result<Condition> {
+fn read_rule(
+    reader: &mut Reader,
+    path: &str,
+    depth: usize,
+    env: &RuntimeEnv,
+    check: Check<'_>,
+) -> Result<Condition> {
     if depth > MAX_DEPTH {
         return Err(anyhow!("{}: logical rules nested too deep", path));
     }
     match reader.u8().with_context(|| path.to_string())? {
-        0 => super::rule::default(
-            read_plain(reader).with_context(|| path.to_string())?,
-            path,
-            env,
-        ),
+        0 => {
+            let parts = read_plain(reader).with_context(|| path.to_string())?;
+            check(&parts).with_context(|| path.to_string())?;
+            super::rule::default(parts, path, env)
+        }
         1 => {
             let all = match reader.u8()? {
                 0 => true,
@@ -112,7 +136,15 @@ fn read_rule(reader: &mut Reader, path: &str, depth: usize, env: &RuntimeEnv) ->
             };
             let count = reader.count(1)?;
             let rules = (0..count)
-                .map(|i| read_rule(reader, &format!("{}.rules[{}]", path, i), depth + 1, env))
+                .map(|i| {
+                    read_rule(
+                        reader,
+                        &format!("{}.rules[{}]", path, i),
+                        depth + 1,
+                        env,
+                        check,
+                    )
+                })
                 .collect::<Result<_>>()?;
             let invert = reader.bool()?;
             Ok(Condition::Logical(Box::new(Logical {
@@ -215,7 +247,7 @@ mod tests {
             &[0u8; 100_000],
             6,
         ));
-        let err = read_within(&data, &RuntimeEnv::default(), 10_000)
+        let err = read_within(&data, &RuntimeEnv::default(), 10_000, &|_| Ok(()))
             .err()
             .unwrap();
         assert_eq!(err.to_string(), "inflates to more than 10000 bytes");
@@ -229,7 +261,7 @@ mod tests {
             "/tests/fixtures/rule_set/two_rules.srs"
         ))
         .unwrap();
-        let err = read_within(&whole[..30], &RuntimeEnv::default(), 1 << 20)
+        let err = read_within(&whole[..30], &RuntimeEnv::default(), 1 << 20, &|_| Ok(()))
             .err()
             .unwrap();
         assert_eq!(
