@@ -693,8 +693,11 @@ impl Sessions {
             if !user.user.active() {
                 return Err(refused(user.user.status().to_string()));
             }
-            if !user.user.admits(tag) {
-                return Err(refused("at its max_connections".into()));
+            let tcp = inner.base.network == crate::session::Network::Tcp;
+            if !user.user.admits_on(tag, tcp) {
+                return Err(refused(
+                    "at its max_connections or max_tcp_connections".into(),
+                ));
             }
         }
         let mut sess = inner.base.clone();

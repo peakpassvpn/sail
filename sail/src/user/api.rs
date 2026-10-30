@@ -128,6 +128,25 @@ impl RuntimeManager {
         Ok(self.user_ref(name)?.disconnect())
     }
 
+    /// Limits each user named by its limits from now on, until a reload
+    /// sets those of the configuration: a user not made yet takes them
+    /// when it is (embed's `set_user_limits`).
+    pub fn set_users_limits(&self, limits: impl IntoIterator<Item = (String, Limits)>) {
+        self.env.users.set_limits_named(limits);
+    }
+
+    /// Limits the user `name` by what the configuration sets again, made
+    /// or not yet.
+    pub fn restore_user_limits_named(&self, name: &str) {
+        self.env.users.restore_limit_named(name);
+    }
+
+    /// Closes the connections of the user `name`, if there is one; how
+    /// many there were.
+    pub fn disconnect_user_named(&self, name: &str) -> usize {
+        self.env.users.get(name).map_or(0, |user| user.disconnect())
+    }
+
     /// Adds `user`, an entry of the inbound's `users` as its protocol has
     /// them, with a name, to the inbound `tag`, as `update_inbound_resources`
     /// would.

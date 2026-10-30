@@ -25787,6 +25787,10 @@
      "type": "number",
      "description": "How many connections it may have live at once."
     },
+    "max_tcp_connections": {
+     "type": "number",
+     "description": "How many of them may be TCP at once, its UDP sessions not counted; with `max_connections` too, both apply."
+    },
     "quota_bytes": {
      "type": "number",
      "description": "How many bytes, up and down together, it may send and receive; kept across restarts in the cache file, which it needs."

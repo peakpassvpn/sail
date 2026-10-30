@@ -782,6 +782,8 @@ impl Connection {
 #[derive(Serialize)]
 pub struct Limits {
     pub max_connections: Option<u32>,
+    /// Of them, TCP ones; its UDP sessions not counted.
+    pub max_tcp_connections: Option<u32>,
     pub quota_bytes: Option<u64>,
     /// When it may no longer connect, in milliseconds since the epoch.
     pub expire_at_ms: Option<u64>,
@@ -793,6 +795,7 @@ impl Limits {
     pub fn of(l: &crate::user::Limits) -> Self {
         Self {
             max_connections: l.max_connections,
+            max_tcp_connections: l.max_tcp_connections,
             quota_bytes: l.quota_bytes,
             expire_at_ms: l.expire_at.map(millis_since_epoch),
             up_mbps: l.up_mbps,
@@ -1431,7 +1434,7 @@ mod tests {
             "users": Users { users: vec![User {
                 name: "alice".into(), inbounds: vec!["t".into()], active: false, over_quota: true,
                 expired: false,
-                limits: Limits { max_connections: Some(2), quota_bytes: Some(10), expire_at_ms: Some(millis_since_epoch(at)),
+                limits: Limits { max_connections: Some(2), max_tcp_connections: Some(1), quota_bytes: Some(10), expire_at_ms: Some(millis_since_epoch(at)),
                                  up_mbps: None, down_mbps: Some(5) },
                 traffic: Counts { up: 1, down: 2, tcp: 3, udp: 4 }, live: 1, quota_used: 12,
             }] },

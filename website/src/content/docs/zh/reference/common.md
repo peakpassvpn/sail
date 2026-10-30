@@ -49,6 +49,7 @@ Rust 定义：[`UserLimits`](https://github.com/peakpassvpn/sail/blob/master/sai
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
 | `max_connections` | number | 未设置 | sail 扩展 | How many connections it may have live at once. |
+| `max_tcp_connections` | number | 未设置 | sail 扩展 | How many of them may be TCP at once, its UDP sessions not counted; with `max_connections` too, both apply. |
 | `quota_bytes` | number | 未设置 | sail 扩展 | How many bytes, up and down together, it may send and receive; kept across restarts in the cache file, which it needs. |
 | `expire_at` | string | 未设置 | sail 扩展 | When it may no longer connect, in RFC 3339. |
 | `up_mbps` | number | 未设置 | sail 扩展 | Its rate up, what its clients send, in Mbps: the unit of sing-box's Hysteria2 `up_mbps`, not its direction. |

@@ -65,6 +65,8 @@ mod models {
         #[serde(default)]
         pub max_connections: Option<u32>,
         #[serde(default)]
+        pub max_tcp_connections: Option<u32>,
+        #[serde(default)]
         pub quota_bytes: Option<u64>,
         /// Milliseconds since the epoch, as the API answers with it.
         #[serde(default)]
@@ -97,6 +99,7 @@ mod models {
             };
             Ok(crate::config::UserLimits {
                 max_connections: self.max_connections,
+                max_tcp_connections: self.max_tcp_connections,
                 quota_bytes: self.quota_bytes,
                 expire_at,
                 up_mbps: self.up_mbps,

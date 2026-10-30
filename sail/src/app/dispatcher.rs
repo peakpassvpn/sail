@@ -1661,7 +1661,7 @@ impl Dispatcher {
 /// dialing; the statistics decide once the connection is counted.
 fn admitted(sess: &Session) -> bool {
     match &sess.user {
-        Some(user) if !user.admits(&sess.inbound_tag) => {
+        Some(user) if !user.admits_on(&sess.inbound_tag, sess.network == Network::Tcp) => {
             debug!("user [{}]: connection refused: {}", user, user.status());
             false
         }

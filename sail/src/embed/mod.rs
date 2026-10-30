@@ -41,6 +41,7 @@ pub use crate::platform::sweep::RunDir;
 pub use crate::runtime::platform::{ConnectionOwner, ConnectionQuery};
 pub use crate::runtime::{Platform, TunRequest};
 pub use crate::session::{Network, SocksAddr as Address};
+pub use crate::user::Limits as UserLimits;
 pub use dial::{DialDatagram, DialStream};
 pub use error::{Error, ErrorKind};
 pub use instance::{ids_held, Instance};
@@ -670,6 +671,41 @@ impl Instance {
     pub fn sleep(&self) -> Result<(), Error> {
         self.manager()?;
         Ok(crate::host_sleep(self.id(), true)?)
+    }
+
+    /// Limits the user `name` by `limits` from now on, without a reload,
+    /// as the management API's `PUT /users/{name}/limits` does: a user
+    /// over a new quota or past a new expiry is shut out at once, one
+    /// with more connections than a new maximum keeps them but opens no
+    /// more. A user not made yet takes them when it is. A reload or
+    /// restart sets the configuration's `user_limits` again.
+    pub fn set_user_limits(&self, user: &str, limits: UserLimits) -> Result<(), Error> {
+        self.set_users_limits([(user.to_string(), limits)])
+    }
+
+    /// `set_user_limits` for many users at once, under one lock: for a
+    /// host that keeps thousands of users' limits up to date.
+    pub fn set_users_limits(
+        &self,
+        limits: impl IntoIterator<Item = (String, UserLimits)>,
+    ) -> Result<(), Error> {
+        self.manager()?.set_users_limits(limits);
+        Ok(())
+    }
+
+    /// Limits the user `user` by the configuration's `user_limits` again,
+    /// undoing `set_user_limits`.
+    pub fn restore_user_limits(&self, user: &str) -> Result<(), Error> {
+        self.manager()?.restore_user_limits_named(user);
+        Ok(())
+    }
+
+    /// Closes the connections of the user `user`, and what carries them,
+    /// as the management API's `POST /users/{name}/disconnect` does; how
+    /// many there were, 0 for a user there is none of. It may connect
+    /// again, unless its limits say otherwise.
+    pub fn disconnect_user(&self, user: &str) -> Result<usize, Error> {
+        Ok(self.manager()?.disconnect_user_named(user))
     }
 
     /// The user `name` of the running instance, for a host kind's table

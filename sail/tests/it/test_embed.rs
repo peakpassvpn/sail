@@ -1678,3 +1678,86 @@ async fn a_full_inbound_makes_room_for_a_prompt_client() {
     assert_eq!(info.evicted_full, 1, "{:?}", info);
     instance.stop().await.unwrap();
 }
+
+/// A host limits a user and disconnects it without a reload: a TCP
+/// connection past its `max_tcp_connections` is refused, its connections
+/// close when it is disconnected, and limits for a user not made yet wait
+/// for it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_host_limits_and_disconnects_a_user_without_a_reload() {
+    use sail::embed::UserLimits;
+    let (echo, serve) = common::run_tcp_echo_server("127.0.0.1:0").await.unwrap();
+    tokio::spawn(serve);
+    let socks = common::free_port();
+    let config = serde_json::json!({
+        "inbounds": [{
+            "type": "socks", "tag": "socks-in",
+            "listen": "127.0.0.1", "listen_port": socks,
+            "users": [{ "username": "alice", "password": "secret" }],
+        }],
+        "outbounds": [{ "type": "direct", "tag": "direct" }],
+    })
+    .to_string();
+    let instance = Instance::new(options()).unwrap();
+    instance.start(Config::Json(config)).await.unwrap();
+
+    async fn as_alice(socks: u16, port: u16) -> (tokio::net::TcpStream, u8) {
+        let mut s = tokio::net::TcpStream::connect(("127.0.0.1", socks))
+            .await
+            .unwrap();
+        s.write_all(&[5, 1, 2]).await.unwrap();
+        let mut chosen = [0u8; 2];
+        s.read_exact(&mut chosen).await.unwrap();
+        let mut auth = vec![1, 5];
+        auth.extend(b"alice");
+        auth.push(6);
+        auth.extend(b"secret");
+        s.write_all(&auth).await.unwrap();
+        let mut authed = [0u8; 2];
+        s.read_exact(&mut authed).await.unwrap();
+        let mut request = vec![5, 1, 0, 1, 127, 0, 0, 1];
+        request.extend(port.to_be_bytes());
+        s.write_all(&request).await.unwrap();
+        let mut reply = [0u8; 10];
+        let code = match tokio::time::timeout(Duration::from_secs(5), s.read_exact(&mut reply))
+            .await
+            .expect("a reply in time")
+        {
+            Ok(_) => reply[1],
+            Err(_) => 0xff,
+        };
+        (s, code)
+    }
+
+    let mut one_tcp = UserLimits::default();
+    one_tcp.max_tcp_connections = Some(1);
+    instance.set_user_limits("alice", one_tcp).unwrap();
+    // A user there is none of yet: kept for when there is.
+    instance
+        .set_user_limits("carol", UserLimits::default())
+        .unwrap();
+    assert_eq!(instance.disconnect_user("carol").unwrap(), 0);
+
+    let (mut first, code) = as_alice(socks, echo.port()).await;
+    assert_eq!(code, 0);
+    round_trip(&mut first, b"x").await;
+    let (_second, code) = as_alice(socks, echo.port()).await;
+    assert_ne!(code, 0, "past its max_tcp_connections");
+
+    assert_eq!(instance.disconnect_user("alice").unwrap(), 1);
+    let mut buf = [0u8; 1];
+    let read = tokio::time::timeout(Duration::from_secs(5), first.read(&mut buf))
+        .await
+        .expect("closed in time");
+    assert!(matches!(read, Ok(0) | Err(_)), "{:?}", read);
+
+    // Put back to the configuration's, none: two at once again.
+    instance.restore_user_limits("alice").unwrap();
+    let (mut a, code) = as_alice(socks, echo.port()).await;
+    assert_eq!(code, 0);
+    let (mut b, code) = as_alice(socks, echo.port()).await;
+    assert_eq!(code, 0);
+    round_trip(&mut a, b"a").await;
+    round_trip(&mut b, b"b").await;
+    instance.stop().await.unwrap();
+}

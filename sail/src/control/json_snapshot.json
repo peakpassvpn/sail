@@ -340,6 +340,7 @@
           "down_mbps": 5,
           "expire_at_ms": 1759300000123,
           "max_connections": 2,
+          "max_tcp_connections": 1,
           "quota_bytes": 10,
           "up_mbps": null
         },

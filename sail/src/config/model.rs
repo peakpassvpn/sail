@@ -495,6 +495,10 @@ pub struct UserLimits {
     /// How many connections it may have live at once.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_connections: Option<u32>,
+    /// How many of them may be TCP at once, its UDP sessions not counted;
+    /// with `max_connections` too, both apply.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_tcp_connections: Option<u32>,
     /// How many bytes, up and down together, it may send and receive; kept
     /// across restarts in the cache file, which it needs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -522,11 +526,16 @@ impl UserLimits {
 
     pub(crate) fn check(&self, name: &str) -> Result<()> {
         let field = |f: &str| format!("user_limits.{}.{}", name, f);
-        if self.max_connections == Some(0) {
-            return Err(anyhow!(
-                "{}: must be more than 0; leave it out for no limit",
-                field("max_connections")
-            ));
+        for (name, max) in [
+            ("max_connections", self.max_connections),
+            ("max_tcp_connections", self.max_tcp_connections),
+        ] {
+            if max == Some(0) {
+                return Err(anyhow!(
+                    "{}: must be more than 0; leave it out for no limit",
+                    field(name)
+                ));
+            }
         }
         for (name, mbps) in [("up_mbps", self.up_mbps), ("down_mbps", self.down_mbps)] {
             if mbps == Some(0) {

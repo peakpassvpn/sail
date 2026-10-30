@@ -49,6 +49,7 @@ Rust: [`UserLimits`](https://github.com/peakpassvpn/sail/blob/master/sail/src/co
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
 | `max_connections` | number | unset | sail extension | How many connections it may have live at once. |
+| `max_tcp_connections` | number | unset | sail extension | How many of them may be TCP at once, its UDP sessions not counted; with `max_connections` too, both apply. |
 | `quota_bytes` | number | unset | sail extension | How many bytes, up and down together, it may send and receive; kept across restarts in the cache file, which it needs. |
 | `expire_at` | string | unset | sail extension | When it may no longer connect, in RFC 3339. |
 | `up_mbps` | number | unset | sail extension | Its rate up, what its clients send, in Mbps: the unit of sing-box's Hysteria2 `up_mbps`, not its direction. |

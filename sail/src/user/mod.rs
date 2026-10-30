@@ -40,6 +40,13 @@ pub use limits::{Limits, Status};
 /// `up_mbps`.
 const MBPS: u64 = 125_000;
 
+/// How many of `live` are TCP connections.
+fn tcp_live(live: &HashMap<u64, Arc<Counter>>) -> usize {
+    live.values()
+        .filter(|c| c.sess.network == crate::session::Network::Tcp)
+        .count()
+}
+
 /// What sail keeps of a user while it runs.
 pub struct UserState {
     name: Arc<str>,
@@ -162,11 +169,20 @@ impl UserState {
         if self.removed_from(&counter.sess.inbound_tag) {
             return false;
         }
-        let max = self.limits().max_connections;
+        let limits = self.limits();
+        let tcp = counter.sess.network == crate::session::Network::Tcp;
         let mut live = self.live.lock().unwrap_or_else(|e| e.into_inner());
         // Checked under the lock `shut` takes: a connection admitted is
         // one it closes.
-        if !self.active() || max.is_some_and(|max| live.len() >= max as usize) {
+        if !self.active()
+            || limits
+                .max_connections
+                .is_some_and(|max| live.len() >= max as usize)
+            || tcp
+                && limits
+                    .max_tcp_connections
+                    .is_some_and(|max| tcp_live(&live) >= max as usize)
+        {
             return false;
         }
         live.insert(counter.id, counter.clone());
@@ -174,10 +190,30 @@ impl UserState {
     }
 
     /// Whether a connection through the inbound `tag` would be admitted
-    /// now; `admit` decides.
+    /// now, as a TCP one when `tcp`; `admit` decides.
     pub fn admits(&self, tag: &str) -> bool {
-        let max = self.limits().max_connections;
-        self.active() && !self.removed_from(tag) && max.is_none_or(|max| self.live() < max as usize)
+        self.admits_on(tag, true)
+    }
+
+    /// `admits`, of a connection of `tcp` or not.
+    pub fn admits_on(&self, tag: &str, tcp: bool) -> bool {
+        let limits = self.limits();
+        if !self.active() || self.removed_from(tag) {
+            return false;
+        }
+        let live = self.live.lock().unwrap_or_else(|e| e.into_inner());
+        limits
+            .max_connections
+            .is_none_or(|max| live.len() < max as usize)
+            && !(tcp
+                && limits
+                    .max_tcp_connections
+                    .is_some_and(|max| tcp_live(&live) >= max as usize))
+    }
+
+    /// How many live TCP connections it has.
+    pub fn live_tcp(&self) -> usize {
+        tcp_live(&self.live.lock().unwrap_or_else(|e| e.into_inner()))
     }
 
     /// Whether it was taken out of the inbound `tag`.
@@ -688,14 +724,53 @@ impl UserRegistry {
 
     /// Limits `user` by `limits`, until the limits are set again.
     pub fn set_limit(&self, user: &UserRef, limits: Limits) {
-        let changed = {
+        self.set_limits_named([(user.name.to_string(), limits)]);
+    }
+
+    /// Limits each user named by its limits, until the limits are set
+    /// again: those there are at once, those not made yet as they are made.
+    /// One lock for them all, and what expires users is woken only when an
+    /// expiry changed: a host setting thousands of users' limits often
+    /// costs a map insertion a user.
+    pub fn set_limits_named(&self, limits: impl IntoIterator<Item = (String, Limits)>) {
+        let (apply, changed) = {
             let mut registry = self.lock();
-            registry
-                .limits
-                .insert(user.name.to_string(), limits.clone());
-            registry.changed.clone()
+            let mut apply = Vec::new();
+            let mut expiry_changed = false;
+            for (name, limits) in limits {
+                let was = registry.limits.insert(name.clone(), limits.clone());
+                expiry_changed |= was.map(|was| was.expire_at) != Some(limits.expire_at);
+                if let Some(user) = registry.users.get(name.as_str()).and_then(Weak::upgrade) {
+                    apply.push((user, limits));
+                }
+            }
+            (apply, expiry_changed.then(|| registry.changed.clone()))
         };
-        user.apply(limits, SystemTime::now());
+        let now = SystemTime::now();
+        for (user, limits) in apply {
+            user.apply(limits, now);
+        }
+        if let Some(changed) = changed {
+            changed.notify_one();
+        }
+    }
+
+    /// Limits the user `name` by what the configuration sets for it again,
+    /// undoing `set_limits_named`; one not made yet will be.
+    pub fn restore_limit_named(&self, name: &str) {
+        let (user, limits, changed) = {
+            let mut registry = self.lock();
+            let limits = registry.configured.get(name).cloned().unwrap_or_default();
+            registry.limits.insert(name.to_string(), limits.clone());
+            (
+                registry.users.get(name).and_then(Weak::upgrade),
+                limits,
+                registry.changed.clone(),
+            )
+        };
+        if let Some(user) = user {
+            user.apply(limits, SystemTime::now());
+        }
         changed.notify_one();
     }
 
@@ -1051,6 +1126,84 @@ mod tests {
             assert_eq!(bob.live(), 3);
         }
 
+        /// `max_tcp_connections` counts TCP connections alone: UDP
+        /// sessions come on past it, and `max_connections` still counts
+        /// them all.
+        #[tokio::test]
+        async fn max_tcp_connections_counts_tcp_alone() {
+            let users = UserRegistry::default();
+            let alice = users.bind("alice");
+            limited(
+                &users,
+                "alice",
+                Limits {
+                    max_connections: Some(4),
+                    max_tcp_connections: Some(2),
+                    ..Default::default()
+                },
+            );
+            let sm = StatManager::new(0, users.clone());
+            let udp = |sm: &StatManager| {
+                let (a, _b) = tokio::io::duplex(1 << 16);
+                std::mem::forget(_b);
+                sm.stat_stream(
+                    Box::new(a),
+                    Session {
+                        user: Some(alice.clone()),
+                        network: Network::Udp,
+                        ..Default::default()
+                    },
+                )
+            };
+            let _t = (stream(&sm, &alice), stream(&sm, &alice));
+            assert!(!alice.admits_on("", true));
+            assert!(alice.admits_on("", false));
+            let _third_tcp = stream(&sm, &alice);
+            let _u = (udp(&sm), udp(&sm));
+            assert_eq!(closed(&sm), [false, false, true, false, false]);
+            assert_eq!((alice.live(), alice.live_tcp()), (4, 2));
+            // At max_connections, UDP too is refused.
+            let _fifth = udp(&sm);
+            assert!(*closed(&sm).last().unwrap());
+            assert!(!alice.admits_on("", false));
+        }
+
+        /// Limits set by name apply to a user made later, and are put back
+        /// to the configuration's by name.
+        #[test]
+        fn limits_set_by_name_wait_for_their_user() {
+            let users = UserRegistry::default();
+            users.set_limits(HashMap::from([(
+                "carol".to_string(),
+                Limits {
+                    max_connections: Some(9),
+                    ..Default::default()
+                },
+            )]));
+            users.set_limits_named([(
+                "carol".to_string(),
+                Limits {
+                    max_connections: Some(1),
+                    ..Default::default()
+                },
+            )]);
+            let carol = users.bind("carol");
+            assert_eq!(carol.limits().max_connections, Some(1));
+            users.restore_limit_named("carol");
+            assert_eq!(carol.limits().max_connections, Some(9));
+            // Many at once, those made and not.
+            users.set_limits_named((0..1000).map(|n| {
+                (
+                    format!("u{}", n),
+                    Limits {
+                        quota_bytes: Some(n + 1),
+                        ..Default::default()
+                    },
+                )
+            }));
+            assert_eq!(users.bind("u7").limits().quota_bytes, Some(8));
+        }
+
         /// Crossing the quota closes every live connection of the user, and
         /// refuses new ones, until the quota is raised.
         #[tokio::test]
@@ -1368,7 +1521,8 @@ mod tests {
         #[test]
         fn user_limits_are_read_and_checked() {
             let c = with_limits(
-                r#"{"alice": {"max_connections": 3, "quota_bytes": 100,
+                r#"{"alice": {"max_connections": 3, "max_tcp_connections": 2,
+                              "quota_bytes": 100,
                               "expire_at": "2026-12-31T16:00:00+08:00",
                               "up_mbps": 5, "down_mbps": 50},
                     "bob": {}}"#,
@@ -1380,6 +1534,7 @@ mod tests {
                 limits["alice"],
                 Limits {
                     max_connections: Some(3),
+                    max_tcp_connections: Some(2),
                     quota_bytes: Some(100),
                     expire_at: Some(SystemTime::UNIX_EPOCH + Duration::from_secs(1_798_704_000)),
                     up_mbps: Some(5),
@@ -1398,6 +1553,11 @@ mod tests {
                     r#"{"alice": {"max_connections": 0}}"#,
                     true,
                     "user_limits.alice.max_connections: must be more than 0",
+                ),
+                (
+                    r#"{"alice": {"max_tcp_connections": 0}}"#,
+                    true,
+                    "user_limits.alice.max_tcp_connections: must be more than 0",
                 ),
                 (
                     r#"{"alice": {"quota_bytes": 0}}"#,

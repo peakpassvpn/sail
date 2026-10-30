@@ -76,13 +76,9 @@ fn users_are_managed(port: u16) -> anyhow::Result<()> {
         assert_eq!(manager.user("alice")?.unwrap().traffic.up, 4);
 
         // Limits changed while running.
-        manager.set_user_limits(
-            "alice",
-            sail::user::Limits {
-                max_connections: Some(1),
-                ..Default::default()
-            },
-        )?;
+        let mut one = sail::user::Limits::default();
+        one.max_connections = Some(1);
+        manager.set_user_limits("alice", one)?;
         assert!(connect(port, "a", echo).await.is_none(), "one at most");
 
         // Disconnected, and let in again.

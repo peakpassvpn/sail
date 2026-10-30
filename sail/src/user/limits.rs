@@ -8,12 +8,18 @@ use std::time::{Duration, SystemTime};
 /// is refused at once however late the check.
 pub(super) const RECHECK: Duration = Duration::from_secs(60);
 
-/// A user's limits; none limits nothing.
+/// A user's limits; none limits nothing. Made from `Default` and set field
+/// by field: fields are added.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Limits {
     /// How many connections it may have live at once: TCP connections, UDP
     /// sessions and the streams of multiplexed ones, each one.
     pub max_connections: Option<u32>,
+    /// How many of them may be TCP at once: TCP connections and the
+    /// streams of multiplexed ones, its UDP sessions not counted. With
+    /// `max_connections` too, both apply.
+    pub max_tcp_connections: Option<u32>,
     /// How many bytes, up and down together, it may send and receive.
     pub quota_bytes: Option<u64>,
     /// When it may no longer connect.
@@ -29,6 +35,7 @@ impl Limits {
     pub fn from_config(limits: &crate::config::UserLimits) -> Self {
         Limits {
             max_connections: limits.max_connections,
+            max_tcp_connections: limits.max_tcp_connections,
             quota_bytes: limits.quota_bytes,
             expire_at: limits.expire_at().map(SystemTime::from),
             up_mbps: limits.up_mbps,
