@@ -780,7 +780,8 @@ mod tests {
     ];
 
     /// Under memory pressure a new connection is refused before its
-    /// handshake, and counted.
+    /// handshake, and counted: at least once, as the client may resend its
+    /// Initial before the refusal reaches it, and each one is refused.
     #[tokio::test]
     async fn a_connection_under_memory_pressure_is_refused() {
         let admission = crate::app::inbound::admission::Admission::under_pressure();
@@ -796,7 +797,7 @@ mod tests {
             "{:?}",
             refused
         );
-        assert_eq!(admission.info().refused_quic, 1);
+        assert!(admission.info().refused_quic >= 1);
     }
 
     #[tokio::test]
