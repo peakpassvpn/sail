@@ -312,7 +312,9 @@ pub struct Inbound {
     /// The memory kept free, in percent of what the system or the
     /// process's cgroup gives: with less free, connections still in their
     /// handshake are held back (app/inbound/admission.rs); 0, memory is
-    /// not looked at. A sail extension.
+    /// not looked at. Where free memory cannot be read (Windows, macOS),
+    /// no pressure is seen, but a full inbound still closes its stalled
+    /// handshakes. A sail extension.
     #[serde(default)]
     pub memory_reserve: u32,
     /// Under memory pressure, a connection in its handshake for longer is

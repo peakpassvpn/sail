@@ -178,6 +178,28 @@ async fn a_full_inbound_closes_its_stalled_handshakes() {
     assert_eq!(info.level, AdmissionLevel::Normal);
 }
 
+/// Where free memory cannot be read (Windows, macOS), a reserve set keeps
+/// admission on: no pressure is ever seen, and a full inbound still closes
+/// its stalled handshakes.
+#[tokio::test]
+async fn a_reserve_without_a_memory_reading_still_makes_room_when_full() {
+    let mut options = crate::runtime::RuntimeOptions::default().inbound;
+    options.memory_reserve = 1;
+    options.handshake_stall = Duration::from_millis(50);
+    let a = Admission::of_memory(&options, None, EventHub::default()).expect("admission on");
+    let stalled = a.enter(ip(1), &tag("full"));
+    tokio::time::sleep(Duration::from_millis(60)).await;
+    assert!(a.check(ip(2)).is_ok());
+    a.full("full");
+    assert!(futures::FutureExt::now_or_never(stalled.eviction().evicted()).is_some());
+    let info = a.info();
+    assert_eq!((info.evicted_full, info.reserve), (1, 0));
+    assert_eq!(info.level, AdmissionLevel::Normal);
+    // Nothing set, nothing kept.
+    options.memory_reserve = 0;
+    assert!(Admission::of_memory(&options, None, EventHub::default()).is_none());
+}
+
 /// Handshakes past the descriptors' share are pressure, memory or not.
 #[test]
 fn too_many_handshakes_for_the_descriptors_are_pressure() {

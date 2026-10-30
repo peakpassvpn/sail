@@ -189,15 +189,32 @@ impl Admission {
         options: &crate::runtime::options::Inbound,
         events: EventHub,
     ) -> Option<Arc<Self>> {
-        let total = crate::runtime::system_memory::total();
+        Self::of_memory(options, crate::runtime::system_memory::total(), events)
+    }
+
+    /// As `new`, the system giving `total` bytes of memory. Where that
+    /// cannot be read (Windows, macOS), a reserve set still keeps admission
+    /// on: memory pressure is never seen, but a full inbound closes its
+    /// stalled handshakes all the same.
+    fn of_memory(
+        options: &crate::runtime::options::Inbound,
+        total: Option<u64>,
+        events: EventHub,
+    ) -> Option<Arc<Self>> {
+        if options.memory_reserve == 0 && options.handshake_descriptor_share == 0 {
+            return None;
+        }
+        if options.memory_reserve > 0 && total.is_none() {
+            info!(
+                "admission: free memory cannot be read here: memory pressure is not seen, \
+                 and a full inbound still closes its stalled handshakes"
+            );
+        }
         let reserve = total.map_or(0, |total| total / 100 * u64::from(options.memory_reserve));
         let descriptors = match options.handshake_descriptor_share {
             0 => 0,
             share => file_limit() / share as usize,
         };
-        if reserve == 0 && descriptors == 0 {
-            return None;
-        }
         let free = crate::runtime::system_memory::Free::new();
         Some(Arc::new(Self::with(
             reserve,
