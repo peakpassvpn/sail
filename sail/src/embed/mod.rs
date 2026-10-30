@@ -29,6 +29,7 @@ mod rule_set;
 mod streams;
 
 pub use crate::app::inbound::AdmissionInfo;
+pub use crate::control::records::{Record, RecordStream, RecordSummary};
 pub use crate::control::{
     ConnectionInfo, Delay, Failure, GroupInfo, InboundInfo, Mode, OutboundInfo, ProviderInfo,
     RuleSetInfo, SourceKind, SubscriptionInfo, Traffic,
@@ -132,6 +133,7 @@ pub struct Options {
     stop_within: Option<Duration>,
     connection_records: Option<usize>,
     record_interval: Option<Duration>,
+    lossless_records: Option<usize>,
     kinds: kinds::HostKinds,
 }
 
@@ -231,6 +233,21 @@ impl Options {
     /// costs a pointer while someone subscribes.
     pub fn connection_records(mut self, capacity: usize) -> Self {
         self.connection_records = Some(capacity);
+        self
+    }
+
+    /// Keeps every connection record for one reader
+    /// (`Instance::connection_records`), from the instance's first start:
+    /// a host that bills by them loses no byte. Up to `cap` records queue;
+    /// past that, a record is folded into a summary of its user, inbound and
+    /// outbound (`Record::Folded`), which counts its bytes, and the reader
+    /// is given the summaries once it has taken what was queued. No
+    /// connection ever waits for the reader. A record costs about 300
+    /// bytes queued: 65,536 is about 20 MB. Records not read when the
+    /// process ends are lost: read them promptly, and pass at the billing
+    /// granularity (`record_interval`).
+    pub fn connection_records_lossless(mut self, cap: usize) -> Self {
+        self.lossless_records = Some(cap);
         self
     }
 
@@ -450,6 +467,26 @@ impl Instance {
     pub async fn close_connection(&self, id: u64) -> Result<bool, Error> {
         self.with_manager(move |m| Box::pin(async move { m.close_connection(id).await }))
             .await
+    }
+
+    /// The reader of the lossless connection records
+    /// (`Options::connection_records_lossless`): one at a time. Every record
+    /// since the instance first started is there, or counted in a
+    /// `Record::Folded` summary. `Unsupported` without the option,
+    /// `InvalidArgument` while another reader is held.
+    pub fn connection_records(&self) -> Result<RecordStream, Error> {
+        let sink = self.inner().events().lossless_records().ok_or_else(|| {
+            Error::new(
+                ErrorKind::Unsupported,
+                "no lossless connection records: Options::connection_records_lossless",
+            )
+        })?;
+        sink.reader().ok_or_else(|| {
+            Error::new(
+                ErrorKind::InvalidArgument,
+                "the lossless connection records have a reader already",
+            )
+        })
     }
 
     /// An interim pass, now: a record (`Kinds::CONNECTION`) of each

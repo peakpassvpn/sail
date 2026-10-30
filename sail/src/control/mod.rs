@@ -20,6 +20,7 @@ mod inbounds;
 pub mod json;
 pub mod listen;
 mod providers;
+pub mod records;
 
 pub use crate::app::inbound::manager::InboundChange;
 pub(crate) use dial::relay_stream;

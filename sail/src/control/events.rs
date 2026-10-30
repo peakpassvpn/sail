@@ -525,6 +525,8 @@ pub struct EventHub {
     route: Channel<Arc<RoutedConnection>>,
     dns: Channel<Arc<DnsExchange>>,
     record: Channel<Arc<ConnectionRecord>>,
+    /// The instance's lossless sink of them, when the host asked for one.
+    lossless: Option<Arc<super::records::LosslessRecords>>,
     admission: broadcast::Sender<AdmissionChange>,
     /// How often an interim pass records the connections open, as the host
     /// set it; none, never.
@@ -625,6 +627,12 @@ impl EventHub {
     /// A hub whose subscribers to connection records may fall `capacity`
     /// behind.
     pub fn with_record_capacity(capacity: usize) -> Self {
+        Self::with_records(capacity, None)
+    }
+
+    /// `with_record_capacity`, its records also queued to a lossless sink
+    /// of `lossless` records before they are folded, when some.
+    pub fn with_records(capacity: usize, lossless: Option<usize>) -> Self {
         Self {
             group: broadcast::channel(CAPACITY).0,
             dial: broadcast::channel(CAPACITY).0,
@@ -633,6 +641,7 @@ impl EventHub {
             route: Channel::new(ROUTE_CAPACITY),
             dns: Channel::new(DNS_CAPACITY),
             record: Channel::new(capacity.max(1)),
+            lossless: lossless.map(super::records::LosslessRecords::new),
             admission: broadcast::channel(ADMISSION_CAPACITY).0,
             record_interval: tokio::sync::watch::channel(None).0,
             network: broadcast::channel(crate::net::network::EVENTS).0,
@@ -726,7 +735,18 @@ impl EventHub {
     /// Tells of a connection's record, which `build` makes only when
     /// someone listens.
     pub fn recorded(&self, build: impl FnOnce() -> ConnectionRecord) {
-        self.record.emit(|| Arc::new(build()));
+        let Some(lossless) = &self.lossless else {
+            self.record.emit(|| Arc::new(build()));
+            return;
+        };
+        let record = Arc::new(build());
+        self.record.emit(|| record.clone());
+        lossless.push(record);
+    }
+
+    /// The lossless sink of the records, when the host asked for one.
+    pub fn lossless_records(&self) -> Option<&Arc<super::records::LosslessRecords>> {
+        self.lossless.as_ref()
     }
 
     /// Has an interim pass record the connections open every `every`
@@ -744,9 +764,10 @@ impl EventHub {
         self.record_interval.subscribe()
     }
 
-    /// Whether anyone listens for connection records.
+    /// Whether anyone listens for connection records: a subscriber, or a
+    /// lossless sink, which takes them all from the start.
     pub fn records_wanted(&self) -> bool {
-        self.record.wanted()
+        self.lossless.is_some() || self.record.wanted()
     }
 
     pub fn records(&self) -> Subscription<Arc<ConnectionRecord>> {

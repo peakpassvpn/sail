@@ -602,6 +602,22 @@ and their closed records (`Closed(Stopped)`) carry what moved after the
 pass, told before the subscription ends. A crash loses what moved since
 the last pass.
 
+For billing, a host that must lose no byte asks for
+`Options::connection_records_lossless(cap)` and reads
+`instance.connection_records()`, a `RecordStream` of one reader at a time,
+instead of subscribing. Every record is kept for it from the instance's
+first start, whether it reads or not: up to `cap` queue; past that, a
+record is folded into a `Record::Folded` summary of its user, inbound and
+outbound (the last of its chain), which adds up its bytes and counts it,
+and the summaries are given once the queued records are read. What the
+reader gets, records and summaries, adds up to every byte the
+connections were counted; only the folded records' detail is lost. No
+connection ever waits for the reader. The queue is the instance's, so
+records of connections a stop cut wait for the reader across the stop
+(`try_next` drains them). A crash loses what was not read, and what
+moved since the last interim pass: a billing host reads promptly, and
+sets `record_interval` to its billing granularity.
+
 A connection is a TCP connection, a UDP session or a stream of a
 multiplexed connection, as for `Kinds::ROUTE`; the sessions a host's own
 inbound submits are recorded as sail's own are. Records are built only

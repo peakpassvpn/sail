@@ -141,6 +141,7 @@ impl Instance {
             stop_within,
             connection_records,
             record_interval,
+            lossless_records,
             kinds,
         } = options;
         let profile: crate::runtime::Profile = match &settings.profile {
@@ -187,8 +188,9 @@ impl Instance {
             state,
             dialer: tokio::sync::watch::channel(None).0,
             transitions: tokio::sync::broadcast::channel(16).0,
-            events: crate::control::events::EventHub::with_record_capacity(
+            events: crate::control::events::EventHub::with_records(
                 connection_records.unwrap_or(crate::control::events::RECORD_CAPACITY),
+                lossless_records,
             ),
             me: me.clone(),
         });

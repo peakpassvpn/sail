@@ -1761,3 +1761,54 @@ async fn a_host_limits_and_disconnects_a_user_without_a_reload() {
     round_trip(&mut b, b"b").await;
     instance.stop().await.unwrap();
 }
+
+/// With lossless records, every byte is in what the reader gets, though
+/// no one subscribes and it reads late: past the cap, records fold into a
+/// summary of their user, inbound and outbound.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn lossless_records_lose_no_byte_to_a_late_reader() {
+    use sail::embed::Record;
+    let (echo, serve) = common::run_tcp_echo_server("127.0.0.1:0").await.unwrap();
+    tokio::spawn(serve);
+    let socks = common::free_port();
+    let instance = Instance::new(options().connection_records_lossless(1)).unwrap();
+    instance
+        .start(Config::Json(config(socks, 53)))
+        .await
+        .unwrap();
+    // Three connections, each a round trip of a different size, closed.
+    for n in 1..=3usize {
+        let mut s = socks_asked(socks, echo.port()).await;
+        assert_eq!(socks_reply(&mut s).await, 0);
+        round_trip(&mut s, &vec![b'x'; n * 100]).await;
+        s.shutdown().await.unwrap();
+        let mut rest = Vec::new();
+        s.read_to_end(&mut rest).await.unwrap();
+    }
+    // A stop makes the records of what is left, and the queue outlives
+    // the run: the reader comes after it, and drains.
+    instance.stop().await.unwrap();
+    let mut reader = instance.connection_records().unwrap();
+    assert!(instance.connection_records().is_err(), "one reader");
+    let (mut up, mut down, mut connections, mut folded) = (0, 0, 0, 0);
+    while let Some(record) = reader.try_next() {
+        match record {
+            Record::Connection(r) => {
+                up += r.up;
+                down += r.down;
+                connections += 1;
+            }
+            Record::Folded(s) => {
+                assert_eq!(s.inbound, "socks-in");
+                assert_eq!(s.outbound, "direct");
+                up += s.up;
+                down += s.down;
+                folded += s.records;
+            }
+            other => panic!("unexpected {:?}", other),
+        }
+    }
+    assert_eq!((connections, folded), (1, 2));
+    assert_eq!((up, down), (600, 600));
+    assert_eq!(reader.folded_total(), 2);
+}
