@@ -111,21 +111,20 @@ impl Client {
         self.conn.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// The connection in use, if it is open. One whose server has gone
-    /// silent is given up, though not closed: what is open on it stays,
-    /// and the next request dials anew.
+    /// The connection in use, if it is open. One that has closed is
+    /// dropped, its reason in the debug log, as Hysteria2's; one whose
+    /// server has gone silent is given up, though not closed: what is open
+    /// on it stays, and the next request dials anew.
     fn live(&self) -> Option<Arc<ClientConn>> {
         let mut current = self.slot();
         let conn = current.conn.as_ref()?;
-        if conn.conn.close_reason().is_some() {
-            return None;
+        match conn.conn.close_reason() {
+            None if !conn.silence.gone(&conn.conn) => return Some(conn.clone()),
+            None => debug!("tuic: the server stopped answering, dialling anew"),
+            Some(reason) => debug!("tuic connection closed: {:?}", reason),
         }
-        if conn.silence.gone(&conn.conn) {
-            debug!("tuic: the server stopped answering, dialling anew");
-            current.conn = None;
-            return None;
-        }
-        Some(conn.clone())
+        current.conn = None;
+        None
     }
 
     /// The connection in use, or a new one if it has closed.
