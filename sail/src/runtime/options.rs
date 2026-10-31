@@ -410,14 +410,22 @@ pub struct Quic {
     /// `net.core.wmem_max` unless sail has CAP_NET_ADMIN. quic-go asks
     /// for 7 MiB here too.
     pub udp_send_buffer: usize,
+    /// The datagrams a QUIC endpoint takes from its UDP socket in one
+    /// system call, at most 32; zero for quinn's 32. The endpoint keeps
+    /// room for this many for as long as it lives, each up to 64 datagrams
+    /// that Linux coalesced (GRO): about 3 MB at 32.
+    #[serde(default)]
+    pub udp_receive_batch: usize,
 }
 
-/// What `quic.udp_receive_buffer` and `quic.udp_send_buffer` ask for, in
-/// bytes; zero leaves the system's.
+/// What `quic.udp_receive_buffer`, `quic.udp_send_buffer` and
+/// `quic.udp_receive_batch` ask for, buffers in bytes; zero leaves the
+/// system's, or quinn's.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct UdpBuffers {
     pub receive: usize,
     pub send: usize,
+    pub receive_batch: usize,
 }
 
 impl Quic {
@@ -426,6 +434,7 @@ impl Quic {
         UdpBuffers {
             receive: self.udp_receive_buffer.saturating_mul(1024),
             send: self.udp_send_buffer.saturating_mul(1024),
+            receive_batch: self.udp_receive_batch,
         }
     }
 }
@@ -671,6 +680,7 @@ impl RuntimeOptions {
                 // is a judgment, for margin.
                 udp_receive_buffer: 7168,
                 udp_send_buffer: 0,
+                udp_receive_batch: 0,
             },
             ws: Ws { half_close: false },
             dns: Dns {
@@ -888,6 +898,13 @@ impl RuntimeOptions {
                     free_memory_floor: 16 << 10,
                     // As mobile's.
                     udp_receive_buffer: 1024,
+                    // In a 64 MiB cgroup, a quarter of quinn's 32 lowered
+                    // downloads' peaks by 2-3 MiB, uploads' by up to 0.7
+                    // (where only acknowledgments arrive, so little of the
+                    // room is touched), and slowed no cell: on the LAN at
+                    // 0 and 8 ms, at 150 and 300 ms, up to 5.7 Gbit/s
+                    // (measured, sail#10).
+                    udp_receive_batch: 8,
                     ..desktop.quic
                 },
                 // As mobile's: with the kernel's TCP buffers of a 256 or
@@ -1158,19 +1175,24 @@ mod tests {
     }
 
     /// A QUIC socket asks for room to receive in, more where the links
-    /// are fast, and keeps the system's to send from.
+    /// are fast, and keeps the system's to send from; a router's endpoint
+    /// takes fewer datagrams at a time, for less memory.
     #[test]
     fn quic_sockets_ask_for_a_receive_buffer_by_profile() {
-        for (profile, receive) in [
-            (Profile::Mobile, 1 << 20),
-            (Profile::Desktop, 7 << 20),
-            (Profile::Server, 7 << 20),
-            (Profile::Router, 1 << 20),
+        for (profile, receive, receive_batch) in [
+            (Profile::Mobile, 1 << 20, 0),
+            (Profile::Desktop, 7 << 20, 0),
+            (Profile::Server, 7 << 20, 0),
+            (Profile::Router, 1 << 20, 8),
         ] {
             let quic = RuntimeOptions::profile(profile).quic;
             assert_eq!(
                 quic.udp_buffers(),
-                UdpBuffers { receive, send: 0 },
+                UdpBuffers {
+                    receive,
+                    send: 0,
+                    receive_batch
+                },
                 "{:?}",
                 profile
             );
@@ -1189,6 +1211,7 @@ mod tests {
             UdpBuffers {
                 receive: 7168 << 10,
                 send: 1 << 20,
+                receive_batch: 0,
             }
         );
         for bad in ["7m", "-1", "1.5", "true"] {

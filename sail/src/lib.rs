@@ -2986,6 +2986,7 @@ mod tests {
             super::runtime::options::UdpBuffers {
                 receive: 2 << 20,
                 send: 1 << 20,
+                receive_batch: 0,
             }
         );
     }

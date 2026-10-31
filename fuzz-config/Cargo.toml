@@ -19,8 +19,8 @@ sail = { path = "../sail", default-features = false, features = ["fuzzing"] }
 btls = { git = "https://github.com/peakpassvpn/btls.git", rev = "132da2caff5d94c0f9ea52aa82bbc170bf2baaa6" }
 btls-sys = { git = "https://github.com/peakpassvpn/btls.git", rev = "132da2caff5d94c0f9ea52aa82bbc170bf2baaa6" }
 # One revision for both; FORK.md there says what each carries.
-quinn = { git = "https://github.com/peakpassvpn/quinn.git", rev = "eeec8f71731a5670b364f3e8fccfd9fee73ed05f" }
-quinn-proto = { git = "https://github.com/peakpassvpn/quinn.git", rev = "eeec8f71731a5670b364f3e8fccfd9fee73ed05f" }
+quinn = { git = "https://github.com/peakpassvpn/quinn.git", rev = "0007e82aa0a4e7b47b6c1ecdc932aa65ed65cf17" }
+quinn-proto = { git = "https://github.com/peakpassvpn/quinn.git", rev = "0007e82aa0a4e7b47b6c1ecdc932aa65ed65cf17" }
 
 [[bin]]
 name = "config_json"

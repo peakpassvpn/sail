@@ -638,7 +638,61 @@ pub fn wrap_socket(
 ) -> io::Result<Arc<dyn AsyncUdpSocket>> {
     socket.set_nonblocking(true)?;
     size_buffers(&socket, buffers);
-    quinn::TokioRuntime.wrap_udp_socket(socket)
+    let socket = quinn::TokioRuntime.wrap_udp_socket(socket)?;
+    Ok(match buffers.receive_batch {
+        0 => socket,
+        batch => Arc::new(Batched {
+            inner: socket,
+            batch,
+        }),
+    })
+}
+
+/// `inner`, whose endpoint takes at most `batch` datagrams a receive
+/// (`quic.udp_receive_batch`), and keeps room for that many.
+#[derive(Debug)]
+struct Batched {
+    inner: Arc<dyn AsyncUdpSocket>,
+    batch: usize,
+}
+
+impl AsyncUdpSocket for Batched {
+    fn create_io_poller(self: Arc<Self>) -> Pin<Box<dyn quinn::UdpPoller>> {
+        self.inner.clone().create_io_poller()
+    }
+
+    fn try_send(&self, transmit: &quinn::udp::Transmit) -> io::Result<()> {
+        self.inner.try_send(transmit)
+    }
+
+    fn poll_recv(
+        &self,
+        cx: &mut Context,
+        bufs: &mut [io::IoSliceMut<'_>],
+        meta: &mut [quinn::udp::RecvMeta],
+    ) -> Poll<io::Result<usize>> {
+        self.inner.poll_recv(cx, bufs, meta)
+    }
+
+    fn local_addr(&self) -> io::Result<SocketAddr> {
+        self.inner.local_addr()
+    }
+
+    fn max_transmit_segments(&self) -> usize {
+        self.inner.max_transmit_segments()
+    }
+
+    fn max_receive_segments(&self) -> usize {
+        self.inner.max_receive_segments()
+    }
+
+    fn max_receive_batch(&self) -> usize {
+        self.batch.min(self.inner.max_receive_batch())
+    }
+
+    fn may_fragment(&self) -> bool {
+        self.inner.may_fragment()
+    }
 }
 
 /// Asks the system for `buffers` on `socket`, a zero leaving what it has.
@@ -978,6 +1032,7 @@ mod tests {
         let (system, sized) = buffers_of(UdpBuffers {
             receive: ASKED,
             send: 0,
+            ..UdpBuffers::default()
         });
         assert!(
             sized.0 >= ASKED || sized.0 > system.0,
@@ -993,6 +1048,7 @@ mod tests {
         let (system, sized) = buffers_of(UdpBuffers {
             receive: 0,
             send: ASKED,
+            ..UdpBuffers::default()
         });
         assert!(
             sized.1 >= ASKED || sized.1 > system.1,
@@ -1054,6 +1110,7 @@ mod tests {
             UdpBuffers {
                 receive: asked,
                 send: 0,
+                ..UdpBuffers::default()
             },
         );
         let reported = socket2::SockRef::from(&sized).recv_buffer_size().unwrap();
@@ -1068,6 +1125,25 @@ mod tests {
     fn no_buffer_asked_leaves_the_systems() {
         let (system, sized) = buffers_of(UdpBuffers::default());
         assert_eq!(sized, system);
+    }
+
+    /// The endpoint is told the batch asked for, through the receive
+    /// errors' wrapper as well; zero leaves quinn's.
+    #[tokio::test]
+    async fn a_wrapped_socket_has_the_receive_batch_asked() {
+        for (asked, batch) in [(0, quinn::udp::BATCH_SIZE), (1, 1)] {
+            let socket = std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+            let wrapped = wrap_socket(
+                socket,
+                UdpBuffers {
+                    receive_batch: asked,
+                    ..UdpBuffers::default()
+                },
+            )
+            .unwrap();
+            assert_eq!(wrapped.max_receive_batch(), batch);
+            assert_eq!(RecvBackoff::new(wrapped).max_receive_batch(), batch);
+        }
     }
 
     // Not on Windows: a duplicate made before the sizing went on reporting
@@ -1086,6 +1162,7 @@ mod tests {
             UdpBuffers {
                 receive: ASKED,
                 send: ASKED,
+                ..UdpBuffers::default()
             },
         )
         .unwrap();
