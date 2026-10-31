@@ -806,8 +806,11 @@ class Run:
     def stall_start(self):
         """--stalled clients: downloads nobody reads, open through the
         client for as long as the workload beside them, and how many
-        opened."""
-        cmd = self.netgen_cmd("stall", f"-conns {self.args.stalled}",
+        opened; beside a bulk_up, --stalled-up uploads to a target that
+        reads none of them."""
+        up = self.workload_now == "bulk_up"
+        cmd = self.netgen_cmd("stallup" if up else "stall",
+                              f"-conns {self.args.stalled_up if up else self.args.stalled}",
                               f"-bytes {1 << 30}", "-hold 3600s")
         p = subprocess.Popen(cmd, shell=True, stdout=subprocess.DEVNULL,
                              stderr=subprocess.PIPE, text=True, start_new_session=True)
@@ -974,8 +977,10 @@ class Run:
                 # echo and setup follow bulk_up on the same processes.
                 if workload.startswith("bulk"):
                     self.fresh()
-                stall = (self.stall_start() if self.args.stalled and workload == "bulk_down"
-                         else None)
+                self.workload_now = workload
+                stall = (self.stall_start()
+                         if (self.args.stalled and workload == "bulk_down")
+                         or (self.args.stalled_up and workload == "bulk_up") else None)
                 idle_before = self.idle(sampler, settle=1)
                 m = sampler.mark()
                 before = sampler.one()
@@ -1632,6 +1637,10 @@ def main():
                     help="beside each bulk_down, N more downloads through the client that "
                          "nobody reads, open from before it to its end: clients that stopped "
                          "reading, holding what fills on their way (sail#10)")
+    ap.add_argument("--stalled-up", type=int, default=0, metavar="N",
+                    help="beside each bulk_up, N more uploads through the client and the "
+                         "server to a target that reads none of them, the server's side of "
+                         "--stalled (sail#18)")
     ap.add_argument("--streams", type=int, default=4,
                     help="parallel streams of the bulk workloads (default 4)")
     ap.add_argument("--bulk-bytes-quic", type=int, default=None,

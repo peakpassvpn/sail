@@ -390,6 +390,15 @@ pub struct Quic {
     pub receive_window_max: usize,
     /// The largest the send window grows to, in KiB.
     pub send_window_max: usize,
+    /// Hysteria2's and TUIC's connections give their peer credit for
+    /// stream data as it arrives, lent out of `memory.transfer_budget`
+    /// until the stream reads it, rather than only once it is read. A
+    /// stream nobody reads (a client that stopped reading) then holds its
+    /// own window and no more, where it would otherwise hold its share of
+    /// the connection's window and, with a few others, stop every stream
+    /// on the connection (sail#18). Where the budget is spent, credit comes
+    /// back on read, as with it off.
+    pub credit_on_receipt: bool,
     /// The receive buffer (`SO_RCVBUF`) asked for the UDP socket of a QUIC
     /// endpoint (Hysteria2, TUIC, the quic transport, DNS over QUIC), in
     /// KiB: the datagrams the system holds while sail is busy, and drops
@@ -511,7 +520,8 @@ pub struct Mux {
     pub stream_buffer: usize,
     /// A stream whose received data nothing has read for this long is
     /// reset, alone, so that it holds up neither its connection nor its
-    /// memory.
+    /// memory. Hysteria2's and TUIC's streams take it too, and with
+    /// `quic.credit_on_receipt` give back what was lent them.
     #[serde(with = "duration")]
     pub stall_timeout: Duration,
 }
@@ -685,6 +695,7 @@ impl RuntimeOptions {
                 stream_window_max: 16 << 10,
                 receive_window_max: 64 << 10,
                 send_window_max: 32 << 10,
+                credit_on_receipt: true,
                 // 7 MiB to receive, quic-go's. In Linux's 208 KiB a sender
                 // at some hundred Mbit/s on a path of 50 or 150 ms lost
                 // every fourth batch of datagrams, and a Hysteria2

@@ -393,7 +393,8 @@ pub fn proxy_windows(config: &mut quinn::TransportConfig, tuning: &Tuning) {
                 kib(tuning.receive_window_max),
                 tuning.send_window_max as u64 * 1024,
             )
-            .budget(std::sync::Arc::new(Budget)),
+            .budget(std::sync::Arc::new(Budget))
+            .credit_on_receipt(tuning.credit_on_receipt),
         ));
 }
 
@@ -907,8 +908,10 @@ impl Runtime for ScopedRuntime {
 /// and so does dropping the stream.
 ///
 /// A stream whose reader has not come back for data for the stall timeout
-/// is reset both ways, alone (`muxcore::stall`): what it holds would
-/// otherwise count against its connection's window for as long.
+/// (`mux.stall_timeout`, the multiplexers' own) is reset both ways, alone
+/// (`muxcore::stall`): what it holds would otherwise count against its
+/// connection's window, or with `quic.credit_on_receipt` against the
+/// transfer budget, for as long.
 pub struct QuicStream<G = ()> {
     io: Guarded<Halves>,
     _guard: G,
@@ -923,10 +926,23 @@ impl QuicStream {
 impl<G> QuicStream<G> {
     pub fn guarded(send: quinn::SendStream, recv: quinn::RecvStream, guard: G) -> Self {
         Self {
-            io: Guarded::new(Halves { send, recv }, "quic", STALL_TIMEOUT, "".into()),
+            io: Guarded::new(Halves { send, recv }, "quic", stall_timeout(), "".into()),
             _guard: guard,
         }
     }
+}
+
+/// The stall timeout of the process's QUIC streams, `mux.stall_timeout`
+/// once the runtime options are in.
+static STALL: std::sync::OnceLock<std::time::Duration> = std::sync::OnceLock::new();
+
+/// Takes the stall timeout from the runtime options; the first call holds.
+pub fn configure_stall_timeout(timeout: std::time::Duration) {
+    let _ = STALL.set(timeout);
+}
+
+fn stall_timeout() -> std::time::Duration {
+    STALL.get().copied().unwrap_or(STALL_TIMEOUT)
 }
 
 /// A QUIC stream's two halves.
@@ -2053,6 +2069,81 @@ mod tests {
             after,
             (after.saturating_sub(before)) / CONNECTIONS
         );
+    }
+
+    /// Bytes held, out of no limit.
+    #[derive(Default)]
+    struct Held(std::sync::Mutex<u64>);
+
+    impl quinn::WindowBudget for Held {
+        fn try_grow(&self, bytes: u64) -> bool {
+            *self.0.lock().unwrap() += bytes;
+            true
+        }
+
+        fn release(&self, bytes: u64) {
+            *self.0.lock().unwrap() -= bytes;
+        }
+    }
+
+    #[tokio::test]
+    async fn a_stalled_stream_is_reset_at_the_stall_timeout_and_repays_its_loan() {
+        let budget = Arc::new(Held::default());
+        let held = || *budget.0.lock().unwrap();
+        let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
+        let mut server_config = server_config(
+            server_crypto(&cert.cert.pem(), &cert.key_pair.serialize_pem(), &[]).unwrap(),
+        )
+        .unwrap();
+        let mut transport = quinn::TransportConfig::default();
+        transport
+            .receive_window((96u32 << 10).into())
+            .stream_receive_window((64u32 << 10).into())
+            .window_tuning(Some(
+                quinn::WindowTuning::new((64u32 << 10).into(), (96u32 << 10).into(), 1 << 20)
+                    .budget(budget.clone())
+                    .credit_on_receipt(true),
+            ));
+        server_config.transport_config(Arc::new(transport));
+        let server = endpoint(
+            std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap(),
+            Some(server_config),
+            Default::default(),
+        )
+        .unwrap();
+        let client = endpoint(
+            std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap(),
+            None,
+            Default::default(),
+        )
+        .unwrap();
+        let roots = crate::transport::tls::tests::test_roots();
+        let client_config =
+            quinn::ClientConfig::new(Arc::new(client_crypto(None, true, &[], &roots).unwrap()));
+        let connecting = client
+            .connect_with(client_config, server.local_addr().unwrap(), "localhost")
+            .unwrap();
+        let (accepted, connected) = tokio::join!(
+            async { server.accept().await.unwrap().await.unwrap() },
+            connecting
+        );
+        let connected = connected.unwrap();
+        let (mut send, _recv) = connected.open_bi().await.unwrap();
+        let writer = tokio::spawn(async move {
+            let _ = send.write_all(&vec![0; 1 << 20]).await;
+            send
+        });
+        let (send, recv) = accepted.accept_bi().await.unwrap();
+        // Accepted and never read, as by a relay whose client stopped reading
+        let timeout = std::time::Duration::from_millis(800);
+        let _stream = Guarded::new(Halves { send, recv }, "quic", timeout, "".into());
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        assert_eq!(held(), 64 << 10, "the stream's window, lent");
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        assert_eq!(held(), 64 << 10, "not reset before the timeout");
+        tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+        assert_eq!(held(), 0, "reset, and the loan repaid");
+        writer.abort();
     }
 
     #[test]

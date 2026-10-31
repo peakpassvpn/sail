@@ -557,6 +557,8 @@ impl Dispatcher {
     ) -> Self {
         net::relay::set_pool_max(env.options.relay.buffer_pool << 10);
         crate::runtime::transfer_budget::configure(&env.options.memory);
+        #[cfg(feature = "quic")]
+        crate::transport::quic::configure_stall_timeout(env.options.mux.stall_timeout);
         Dispatcher {
             outbound_manager,
             router,
