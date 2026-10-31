@@ -678,6 +678,13 @@ async fn interim_passes_come_as_often_as_set() {
     passes.abort();
 }
 
+/// Every routed session holds its number for as long as it lives, so the
+/// number is a few words: the copy of a session told to a host is boxed.
+#[test]
+fn a_number_is_a_few_words() {
+    assert!(std::mem::size_of::<Number>() <= 64);
+}
+
 /// A session is numbered before it is counted, and listed by that number:
 /// a number the host was told and never listed has a closed record of its
 /// own once the session's last copy goes, telling how its dial failed; one

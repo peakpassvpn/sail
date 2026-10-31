@@ -611,7 +611,9 @@ pub struct Number {
     recorder: Option<Arc<Recorder>>,
     /// The session as it was when the host was told its number, or as its
     /// dial failed after, and how it ended: none until the host is told.
-    told: Mutex<Option<Unlisted>>,
+    /// Boxed: each routed session holds its number while it lives, and
+    /// only those a host is told need the copy.
+    told: Mutex<Option<Box<Unlisted>>>,
 }
 
 struct Unlisted {
@@ -647,11 +649,11 @@ impl Number {
         }
         let mut told = self.told.lock().unwrap_or_else(|e| e.into_inner());
         if told.is_none() {
-            *told = Some(Unlisted {
+            *told = Some(Box::new(Unlisted {
                 sess: Self::unlisted(sess),
                 at: SystemTime::now(),
                 end: None,
-            });
+            }));
         }
     }
 
@@ -695,6 +697,7 @@ impl Drop for Number {
         if self.listed.load(Ordering::Relaxed) || !recorder.events.records_wanted() {
             return;
         }
+        let unlisted = *unlisted;
         let mut counter = Counter::new(self.id, unlisted.sess);
         counter.started = unlisted.at;
         counter
