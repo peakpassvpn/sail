@@ -207,6 +207,21 @@ pub fn receive_buffer(socket: SockRef<'_>, bytes: usize) -> io::Result<()> {
     Ok(())
 }
 
+/// A send buffer of `bytes` on `socket`, as [`receive_buffer`]: past
+/// `net.core.wmem_max` (208 KiB by default too) with `SO_SNDBUFFORCE`
+/// where sail may.
+pub fn send_buffer(socket: SockRef<'_>, bytes: usize) -> io::Result<()> {
+    socket.set_send_buffer_size(bytes)?;
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    if socket.send_buffer_size()? < bytes.saturating_mul(2) {
+        let bytes = libc::c_int::try_from(bytes).unwrap_or(libc::c_int::MAX);
+        if let Err(e) = set_int(&socket, libc::SOL_SOCKET, libc::SO_SNDBUFFORCE, bytes) {
+            tracing::debug!("send buffer held at net.core.wmem_max: {}", e);
+        }
+    }
+    Ok(())
+}
+
 /// `SO_REUSEADDR`, and `SO_REUSEPORT` on Unix, on a UDP socket not bound
 /// yet.
 pub fn reuse_addr(socket: SockRef<'_>) -> io::Result<()> {

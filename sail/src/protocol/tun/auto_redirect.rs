@@ -502,7 +502,9 @@ async fn serve(listener: tokio::net::TcpListener, tag: String, dispatcher: Arc<D
         };
         let send_buffer = dispatcher.env().options.inbound.tcp_send_buffer * 1024;
         if send_buffer > 0 {
-            if let Err(e) = socket2::SockRef::from(&stream).set_send_buffer_size(send_buffer) {
+            if let Err(e) =
+                crate::net::dial::sockopt::send_buffer(socket2::SockRef::from(&stream), send_buffer)
+            {
                 debug!("auto_redirect: send buffer: {}", e);
             }
         }

@@ -96,7 +96,8 @@ impl TcpListener {
     }
 
     /// The send buffer of accepted connections, in bytes; zero leaves it to
-    /// the system.
+    /// the system. Past `net.core.wmem_max` where sail may
+    /// ([`dial::sockopt::send_buffer`]).
     pub fn send_buffer(mut self, bytes: usize) -> Self {
         self.send_buffer = bytes;
         self
@@ -149,7 +150,7 @@ impl TcpListener {
             SockRef::from(stream).set_linger(Some(Duration::ZERO))?;
         }
         if self.send_buffer > 0 {
-            SockRef::from(stream).set_send_buffer_size(self.send_buffer)?;
+            dial::sockopt::send_buffer(SockRef::from(stream), self.send_buffer)?;
         }
         Ok(())
     }
@@ -895,6 +896,25 @@ mod tests {
         let (accepted, _) = listener.accept().await.unwrap();
         let size = SockRef::from(&accepted).send_buffer_size().unwrap();
         assert!((ASKED..=2 * ASKED).contains(&size), "{}", size);
+    }
+
+    /// Past `net.core.wmem_max` (208 KiB by default) too, where sail may.
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[tokio::test]
+    async fn accepted_connections_get_a_send_buffer_past_the_limit() {
+        // SAFETY: geteuid has no failure and touches nothing.
+        if unsafe { libc::geteuid() } != 0 {
+            return;
+        }
+        const ASKED: usize = 1 << 20;
+        let listener = TcpListener::bind_now(&"127.0.0.1:0".parse().unwrap())
+            .unwrap()
+            .send_buffer(ASKED);
+        let addr = listener.io().local_addr().unwrap();
+        let _client = tokio::net::TcpStream::connect(addr).await.unwrap();
+        let (accepted, _) = listener.accept().await.unwrap();
+        let size = SockRef::from(&accepted).send_buffer_size().unwrap();
+        assert!(size >= 2 * ASKED, "{}", size);
     }
 
     /// Accepted connections get the receive buffer asked for, which Linux
