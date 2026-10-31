@@ -234,6 +234,13 @@ async fn handle_inbound_tcp_stream(
         );
     }
     async move {
+        // Its send buffer grows out of the transfer budget while it is
+        // what holds the client back.
+        let (base, max) = {
+            let options = &dispatcher.env().options.inbound;
+            (options.tcp_send_buffer, options.tcp_send_buffer_max)
+        };
+        let stream = crate::net::send_buffer::Growing::new(stream, base * 1024, max * 1024);
         // Transforms the TCP stream into an inbound transport.
         let mut transport = timeout(
             dispatcher.env().options.inbound.handshake_timeout,

@@ -1,56 +1,63 @@
-//! What all of a process's Hysteria2 and TUIC windows may grow by, together.
+//! What all of a process's growable transfer buffers may grow by,
+//! together: Hysteria2's and TUIC's windows and the send buffers of the
+//! TCP connections inbounds accept.
 //!
 //! quinn (sail's fork) grows a stream's receive window while it is read
 //! about as fast as data arrives, the connection's with it, and the send
-//! window with the congestion window; every growth past the starting sizes
-//! is asked of a [`quinn::WindowBudget`] first. One budget for the process
-//! lets one transfer take a large window while many connections share it,
-//! and bounds what windows can hold at once, which is what QUIC's memory
-//! goes to (sail#9).
+//! window with the congestion window; an accepted connection's send buffer
+//! grows while it, not the network, is what holds the client's transfer
+//! back (`net::send_buffer`). Every growth past the starting sizes is asked
+//! of the [`TransferBudget`] first. One budget for the process lets one
+//! transfer take a large share while many share it, and bounds what they
+//! can hold at once: a far server's download needs the windows and not the
+//! LAN send buffer, a near one's the send buffer and not the windows
+//! (sail#9, sail#10).
 //!
 //! The budget follows the memory too: once a second at most, when a
-//! window asks to grow, it reads what is free (and, where it has a bound,
-//! what the process holds), and lets windows grow by no more than leaves
-//! `quic.free_memory_floor` free. It is read when asked, not on a timer:
-//! the limit only matters to a growth, and an idle process never wakes for
-//! it.
+//! buffer asks to grow, it reads what is free (and, where it has a bound,
+//! what the process holds), and lets buffers grow by no more than leaves
+//! `memory.free_memory_floor` free. A cgroup's use counts its sockets'
+//! memory, so what send buffers took leaves the windows less, and the
+//! reverse. It is read when asked, not on a timer: the limit only matters
+//! to a growth, and an idle process never wakes for it.
 
-use std::sync::{Arc, OnceLock};
+use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
 use portable_atomic::{AtomicU64, Ordering};
 
+use crate::runtime::options::Memory;
 use crate::runtime::system_memory;
 
 /// How often the memory is read, at most.
 const READ_EVERY: Duration = Duration::from_secs(1);
 
-/// The process's window budget.
+/// The process's transfer budget.
 #[derive(Debug, Default)]
-pub struct WindowBudget {
+pub struct TransferBudget {
     limit: AtomicU64,
     held: AtomicU64,
     peak: AtomicU64,
     refused: AtomicU64,
-    memory: OnceLock<Memory>,
+    memory: OnceLock<MemoryRead>,
 }
 
 /// What the budget reads the memory with, and what it read last.
 #[derive(Debug)]
-struct Memory {
+struct MemoryRead {
     free: system_memory::Free,
     floor: u64,
     anon_max: u64,
     start: Instant,
     /// When to read again, in milliseconds from `start`.
     next: AtomicU64,
-    /// What windows may hold, all together, for the memory read last.
+    /// What buffers may hold, all together, for the memory read last.
     limit: AtomicU64,
     refused: AtomicU64,
 }
 
-impl Memory {
-    /// What windows may hold for the memory, read again if it was read
+impl MemoryRead {
+    /// What buffers may hold for the memory, read again if it was read
     /// more than a second ago, given that they hold `held` now.
     fn limit(&self, held: u64) -> u64 {
         let now = self.start.elapsed().as_millis() as u64;
@@ -80,8 +87,8 @@ impl Memory {
     }
 }
 
-impl WindowBudget {
-    /// What windows hold past their starting sizes now, in bytes.
+impl TransferBudget {
+    /// What buffers hold past their starting sizes now, in bytes.
     pub fn held(&self) -> u64 {
         self.held.load(Ordering::Relaxed)
     }
@@ -102,10 +109,10 @@ impl WindowBudget {
             .get()
             .map_or(0, |memory| memory.refused.load(Ordering::Relaxed))
     }
-}
 
-impl quinn::WindowBudget for WindowBudget {
-    fn try_grow(&self, bytes: u64) -> bool {
+    /// Takes `bytes` more for a buffer's growth, if the budget and the
+    /// memory have them; a growth refused leaves the buffer as it is.
+    pub fn try_grow(&self, bytes: u64) -> bool {
         let limit = self.limit.load(Ordering::Relaxed);
         let for_memory = self
             .memory
@@ -134,7 +141,8 @@ impl quinn::WindowBudget for WindowBudget {
         }
     }
 
-    fn release(&self, bytes: u64) {
+    /// Gives back what a buffer grew by.
+    pub fn release(&self, bytes: u64) {
         let _ = self
             .held
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |held| {
@@ -143,24 +151,47 @@ impl quinn::WindowBudget for WindowBudget {
     }
 }
 
-/// The process's budget, at `limit` bytes from now on: what connections
-/// already hold stays theirs, and new growth is judged against it. It
-/// also leaves `floor` bytes of memory free and keeps the process's
-/// anonymous memory under `anon_max` (zero for neither), as the first
-/// call has them.
-pub fn window_budget(limit: u64, floor: u64, anon_max: u64) -> Arc<WindowBudget> {
-    static BUDGET: OnceLock<Arc<WindowBudget>> = OnceLock::new();
-    let budget = BUDGET.get_or_init(Default::default);
-    budget.limit.store(limit, Ordering::Relaxed);
+impl TransferBudget {
+    /// A budget of `limit` bytes, of no memory's: a test's own.
+    #[cfg(all(test, any(target_os = "linux", target_os = "android")))]
+    pub(crate) fn limited(limit: u64) -> Self {
+        Self {
+            limit: AtomicU64::new(limit),
+            ..Default::default()
+        }
+    }
+}
+
+/// The process's budget: unbounded until an instance [`configure`]s it.
+pub fn global() -> &'static TransferBudget {
+    static BUDGET: OnceLock<TransferBudget> = OnceLock::new();
+    BUDGET.get_or_init(|| TransferBudget {
+        limit: AtomicU64::new(u64::MAX),
+        ..Default::default()
+    })
+}
+
+/// The process's budget at `options.transfer_budget` from now on: what
+/// buffers already hold stays theirs, and new growth is judged against
+/// it. It also leaves `free_memory_floor` of memory free and keeps the
+/// process's anonymous memory under `anon_memory_max` (zero for neither),
+/// as the first call has them. The process's, as the budget is: the last
+/// instance to start sets it.
+pub fn configure(options: &Memory) {
+    let budget = global();
+    budget
+        .limit
+        .store(options.transfer_budget as u64 * 1024, Ordering::Relaxed);
+    let floor = options.free_memory_floor as u64 * 1024;
+    let anon_max = options.anon_memory_max as u64 * 1024;
     if floor > 0 || anon_max > 0 {
         budget
             .memory
-            .get_or_init(|| Memory::new(system_memory::Free::new(), floor, anon_max));
+            .get_or_init(|| MemoryRead::new(system_memory::Free::new(), floor, anon_max));
     }
-    budget.clone()
 }
 
-/// What windows may grow by for the memory: what is `free` beyond the
+/// What buffers may grow by for the memory: what is `free` beyond the
 /// `floor`, and what the process's `anon` memory is short of `anon_max`;
 /// none when neither is known.
 fn room(free: Option<u64>, floor: u64, anon: Option<u64>, anon_max: u64) -> Option<u64> {
@@ -169,7 +200,7 @@ fn room(free: Option<u64>, floor: u64, anon: Option<u64>, anon_max: u64) -> Opti
     free.into_iter().chain(anon).min()
 }
 
-impl Memory {
+impl MemoryRead {
     fn new(free: system_memory::Free, floor: u64, anon_max: u64) -> Self {
         Self {
             free,
@@ -186,11 +217,10 @@ impl Memory {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use quinn::WindowBudget as _;
 
     #[test]
     fn growth_is_refused_past_the_limit_and_released() {
-        let budget = WindowBudget::default();
+        let budget = TransferBudget::default();
         budget.limit.store(100, Ordering::Relaxed);
         assert!(budget.try_grow(60));
         assert!(!budget.try_grow(41));
@@ -213,15 +243,15 @@ mod tests {
         assert_eq!(room(None, 30, None, 40), None);
     }
 
-    /// Below the floor, windows that grew keep what they have, and no
+    /// Below the floor, buffers that grew keep what they have, and no
     /// more growth is given until a read finds the memory again.
     #[test]
-    fn below_the_floor_windows_stop_growing() {
-        let budget = WindowBudget::default();
+    fn below_the_floor_buffers_stop_growing() {
+        let budget = TransferBudget::default();
         budget.limit.store(1000, Ordering::Relaxed);
         assert!(budget.try_grow(100));
         let memory = budget.memory.get_or_init(|| {
-            let mut memory = Memory::new(system_memory::Free::default(), 0, 0);
+            let mut memory = MemoryRead::new(system_memory::Free::default(), 0, 0);
             // As read: the floor reached, with 100 held.
             memory.next = AtomicU64::new(u64::MAX);
             memory.limit = AtomicU64::new(100);

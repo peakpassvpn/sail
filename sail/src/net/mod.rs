@@ -28,6 +28,7 @@ pub mod netstack;
 pub mod network;
 pub mod relay;
 pub mod resolver;
+pub mod send_buffer;
 
 pub use datagram::*;
 pub use dial::{DialDefaults, Dialer, InboundDialer, InstanceDial, SharedDialDefaults};
@@ -972,13 +973,16 @@ mod tests {
     fn only_the_router_profile_caps_the_send_buffer() {
         use crate::runtime::options::{Profile, RuntimeOptions};
         for profile in [Profile::Desktop, Profile::Mobile, Profile::Server] {
-            assert_eq!(RuntimeOptions::profile(profile).inbound.tcp_send_buffer, 0);
+            let inbound = RuntimeOptions::profile(profile).inbound;
+            assert_eq!(
+                (inbound.tcp_send_buffer, inbound.tcp_send_buffer_max),
+                (0, 0)
+            );
         }
+        let router = RuntimeOptions::profile(Profile::Router).inbound;
         assert_eq!(
-            RuntimeOptions::profile(Profile::Router)
-                .inbound
-                .tcp_send_buffer,
-            256
+            (router.tcp_send_buffer, router.tcp_send_buffer_max),
+            (256, 2048)
         );
     }
 

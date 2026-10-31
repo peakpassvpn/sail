@@ -373,7 +373,8 @@ pub fn transport_config(
 /// The flow-control windows of a Hysteria2 or TUIC connection, as the
 /// `quic` options set them, in place of quinn's fixed 1.25 MB a stream:
 /// they start small and grow while they are read about as fast as data
-/// arrives, within the process's [`window_budget`](super::window_budget).
+/// arrives, within the process's
+/// [`transfer_budget`](crate::runtime::transfer_budget).
 #[cfg(any(
     feature = "inbound-hysteria2",
     feature = "outbound-hysteria2",
@@ -392,12 +393,33 @@ pub fn proxy_windows(config: &mut quinn::TransportConfig, tuning: &Tuning) {
                 kib(tuning.receive_window_max),
                 tuning.send_window_max as u64 * 1024,
             )
-            .budget(super::window_budget(
-                tuning.window_budget as u64 * 1024,
-                tuning.free_memory_floor as u64 * 1024,
-                tuning.anon_memory_max as u64 * 1024,
-            )),
+            .budget(std::sync::Arc::new(Budget)),
         ));
+}
+
+/// The process's transfer budget, as quinn asks it.
+#[cfg(any(
+    feature = "inbound-hysteria2",
+    feature = "outbound-hysteria2",
+    feature = "inbound-tuic",
+    feature = "outbound-tuic"
+))]
+struct Budget;
+
+#[cfg(any(
+    feature = "inbound-hysteria2",
+    feature = "outbound-hysteria2",
+    feature = "inbound-tuic",
+    feature = "outbound-tuic"
+))]
+impl quinn::WindowBudget for Budget {
+    fn try_grow(&self, bytes: u64) -> bool {
+        crate::runtime::transfer_budget::global().try_grow(bytes)
+    }
+
+    fn release(&self, bytes: u64) {
+        crate::runtime::transfer_budget::global().release(bytes)
+    }
 }
 
 /// The bytes of unfinished UDP packets, fragments waiting for the rest, a

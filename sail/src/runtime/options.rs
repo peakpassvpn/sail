@@ -133,6 +133,7 @@ pub struct RuntimeOptions {
     pub netstack: Netstack,
     pub inbound: Inbound,
     pub quic: Quic,
+    pub memory: Memory,
     pub ws: Ws,
     pub dns: Dns,
     pub stats: Stats,
@@ -282,6 +283,16 @@ pub struct Inbound {
     /// `net.ipv4.tcp_wmem` (4 MiB) while the connection goes fast. Linux
     /// keeps twice what is set, for its own bookkeeping.
     pub tcp_send_buffer: usize,
+    /// The most an accepted TCP connection's send buffer grows to, in KiB,
+    /// from `inbound.tcp_send_buffer`, out of `memory.transfer_budget`:
+    /// it doubles while it, rather than the network or the client's
+    /// reading, holds the client's transfer back, and returns to
+    /// `tcp_send_buffer` when the connection goes a second without filling
+    /// it, or a second without taking what fills it (a client that stopped
+    /// reading). Zero, or not more than `tcp_send_buffer`, or a system
+    /// other than Linux and Android: no growth.
+    #[serde(default)]
+    pub tcp_send_buffer_max: usize,
     /// What an accepted TCP connection (an inbound's, or one
     /// `auto_redirect` takes) holds received and not yet read by sail
     /// (`SO_RCVBUF`), in KiB; zero leaves it to the system, which on Linux
@@ -379,22 +390,6 @@ pub struct Quic {
     pub receive_window_max: usize,
     /// The largest the send window grows to, in KiB.
     pub send_window_max: usize,
-    /// What all Hysteria2 and TUIC connections' windows together may grow
-    /// by past their starting sizes, in KiB: one budget for the process,
-    /// so that one transfer can take a large window and many share it. A
-    /// window the budget cannot grow stays as it is.
-    pub window_budget: usize,
-    /// The memory windows leave free, in KiB: while less than this is free
-    /// (the least of MemAvailable and the process's cgroups' limits less
-    /// their use, read at most once a second), windows grow by no more
-    /// than is free beyond it, and not at all below it. Windows that grew
-    /// keep what they have. Zero, or memory that cannot be read (outside
-    /// Linux and Android), leaves only `window_budget`.
-    pub free_memory_floor: usize,
-    /// The anonymous memory (RssAnon) past which the process's windows
-    /// stop growing, in KiB, read as `free_memory_floor`'s memory is; zero
-    /// for none.
-    pub anon_memory_max: usize,
     /// The receive buffer (`SO_RCVBUF`) asked for the UDP socket of a QUIC
     /// endpoint (Hysteria2, TUIC, the quic transport, DNS over QUIC), in
     /// KiB: the datagrams the system holds while sail is busy, and drops
@@ -437,6 +432,30 @@ impl Quic {
             receive_batch: self.udp_receive_batch,
         }
     }
+}
+
+/// What the process's growable transfer buffers may take
+/// (`runtime::transfer_budget`).
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct Memory {
+    /// What Hysteria2's and TUIC's windows and the send buffers of
+    /// accepted TCP connections (`inbound.tcp_send_buffer_max`) together
+    /// may grow by past their starting sizes, in KiB: one budget for the
+    /// process, so that one transfer can take a large share and many share
+    /// it. A buffer the budget cannot grow stays as it is.
+    pub transfer_budget: usize,
+    /// The memory buffers leave free, in KiB: while less than this is free
+    /// (the least of MemAvailable and the process's cgroups' limits less
+    /// their use, read at most once a second), buffers grow by no more
+    /// than is free beyond it, and not at all below it. Buffers that grew
+    /// keep what they have. Zero, or memory that cannot be read (outside
+    /// Linux and Android), leaves only `transfer_budget`.
+    pub free_memory_floor: usize,
+    /// The anonymous memory (RssAnon) past which the process's buffers
+    /// stop growing, in KiB, read as `free_memory_floor`'s memory is; zero
+    /// for none.
+    pub anon_memory_max: usize,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -638,6 +657,7 @@ impl RuntimeOptions {
                 multiplex_accept_concurrency: 256,
                 tcp_abort_on_close: false,
                 tcp_send_buffer: 0,
+                tcp_send_buffer_max: 0,
                 tcp_receive_buffer: 0,
                 max_connections: 0,
                 // A judgment: a client's local inbounds see few at once.
@@ -665,11 +685,6 @@ impl RuntimeOptions {
                 stream_window_max: 16 << 10,
                 receive_window_max: 64 << 10,
                 send_window_max: 32 << 10,
-                window_budget: 256 << 10,
-                // Judgments: what a desktop's other programs may want
-                // next, and no bound of its own.
-                free_memory_floor: 128 << 10,
-                anon_memory_max: 0,
                 // 7 MiB to receive, quic-go's. In Linux's 208 KiB a sender
                 // at some hundred Mbit/s on a path of 50 or 150 ms lost
                 // every fourth batch of datagrams, and a Hysteria2
@@ -681,6 +696,13 @@ impl RuntimeOptions {
                 udp_receive_buffer: 7168,
                 udp_send_buffer: 0,
                 udp_receive_batch: 0,
+            },
+            memory: Memory {
+                transfer_budget: 256 << 10,
+                // Judgments: what a desktop's other programs may want
+                // next, and no bound of its own.
+                free_memory_floor: 128 << 10,
+                anon_memory_max: 0,
             },
             ws: Ws { half_close: false },
             dns: Dns {
@@ -761,7 +783,15 @@ impl RuntimeOptions {
                     stream_window_max: 8 << 10,
                     receive_window_max: 32 << 10,
                     send_window_max: 16 << 10,
-                    window_budget: 24 << 10,
+                    // A judgment: a phone's links are not those the
+                    // 7 MiB was measured for, and its memory is short.
+                    udp_receive_buffer: 1024,
+                    ..desktop.quic
+                },
+                // The budget, as the windows' maxima, a judgment (see the
+                // windows').
+                memory: Memory {
+                    transfer_budget: 24 << 10,
                     // A judgment: Android kills background apps before
                     // MemAvailable runs out.
                     free_memory_floor: 64 << 10,
@@ -769,10 +799,6 @@ impl RuntimeOptions {
                     // 41.4 MB with it, 42.1 without, as fast (measured,
                     // glibc, sail#9).
                     anon_memory_max: 40 << 10,
-                    // A judgment: a phone's links are not those the
-                    // 7 MiB was measured for, and its memory is short.
-                    udp_receive_buffer: 1024,
-                    ..desktop.quic
                 },
                 mux: Mux {
                     stream_window_max: 8 << 10,
@@ -830,6 +856,15 @@ impl RuntimeOptions {
                     // with it, 50 without (measured); twice this, what
                     // Linux keeps, carries 200 Mbit/s at 20 ms.
                     tcp_send_buffer: 256,
+                    // Four downloads by a client 8 ms away (Wi-Fi), through
+                    // Hysteria2 or TUIC, in a 64 MiB cgroup, at fixed
+                    // sizes: 0.34 of sing-box's at 256 KiB, 0.57-0.59 at
+                    // 512, 0.85-0.86 at 1 MiB, 0.99-1.02 at 2 MiB, which
+                    // peaked at 50.8-52.8 MiB (measured, sail#10). The
+                    // size that reached sing-box's, out of the budget:
+                    // grown from it, 0.88-0.91 at a 37.8 MiB peak, 42.2
+                    // with 20 stalled clients beside them (measured, sail#10).
+                    tcp_send_buffer_max: 2048,
                     // Uploads through Hysteria2 or TUIC queued 18-22 MB
                     // in four LAN connections' receive buffers without it.
                     // A client 8 ms away (Wi-Fi) uploaded as fast with 1 MiB
@@ -887,15 +922,6 @@ impl RuntimeOptions {
                     // only under a 12 MiB budget, which took 0.1-0.2 off
                     // downloads (measured, sail#11).
                     send_window_max: 12 << 10,
-                    // At most; `window_budget_for` the memory, 16 MiB at
-                    // 64 MiB.
-                    window_budget: 64 << 10,
-                    // The 16 MiB a router keeps to spare. With 16 MiB
-                    // taken by another process first, no budget was
-                    // killed in 64 MiB, and uploads at 150 and 300 ms were
-                    // held to 0.7 to 0.9 of what a 12 MiB budget without
-                    // it carried (measured, sail#9).
-                    free_memory_floor: 16 << 10,
                     // As mobile's.
                     udp_receive_buffer: 1024,
                     // In a 64 MiB cgroup, a quarter of quinn's 32 lowered
@@ -906,6 +932,18 @@ impl RuntimeOptions {
                     // (measured, sail#10).
                     udp_receive_batch: 8,
                     ..desktop.quic
+                },
+                memory: Memory {
+                    // At most; `transfer_budget_for` the memory, 16 MiB at
+                    // 64 MiB.
+                    transfer_budget: 64 << 10,
+                    // The 16 MiB a router keeps to spare. With 16 MiB
+                    // taken by another process first, no budget was
+                    // killed in 64 MiB, and uploads at 150 and 300 ms were
+                    // held to 0.7 to 0.9 of what a 12 MiB budget without
+                    // it carried (measured, sail#9).
+                    free_memory_floor: 16 << 10,
+                    ..desktop.memory
                 },
                 // As mobile's: with the kernel's TCP buffers of a 256 or
                 // 512 MB router, one connection is held to 100 or 200
@@ -974,10 +1012,13 @@ impl RuntimeOptions {
                 },
                 quic: Quic {
                     max_concurrent_streams: 4096,
+                    ..desktop.quic
+                },
+                memory: Memory {
                     // Judgment: what a server's many clients' windows may
                     // grow by, all together.
-                    window_budget: 1 << 20,
-                    ..desktop.quic
+                    transfer_budget: 1 << 20,
+                    ..desktop.memory
                 },
                 // Kubernetes' default grace period (terminationGracePeriod-
                 // Seconds); the systemd unit's stop timeout leaves room
@@ -1036,7 +1077,7 @@ impl RuntimeOptions {
     }
 
     /// What `memory`, in bytes, the system's or its cgroup's, carries:
-    /// the QUIC window budget lowered to `window_budget_for` it, and the
+    /// the transfer budget lowered to `transfer_budget_for` it, and the
     /// router profile's sessions, `inbound.max_connections`, to
     /// `router_sessions` of it, where those are less; nothing when the
     /// memory is unknown.
@@ -1044,7 +1085,7 @@ impl RuntimeOptions {
         let Some(mib) = memory.map(|bytes| bytes >> 20) else {
             return;
         };
-        self.quic.window_budget = self.quic.window_budget.min(window_budget_for(mib));
+        self.memory.transfer_budget = self.memory.transfer_budget.min(transfer_budget_for(mib));
         if self.profile != Profile::Router {
             return;
         }
@@ -1056,18 +1097,18 @@ impl RuntimeOptions {
     }
 }
 
-/// The QUIC window budget, in KiB, for `mib` MiB of memory: a quarter of
+/// The transfer budget, in KiB, for `mib` MiB of memory: a quarter of
 /// it.
 ///
 /// Four streams cold at 150 and 300 ms or 2% loss, the router profile in a
-/// cgroup of 64 MiB, with `quic.free_memory_floor` at 16 MiB: a 16 MiB
+/// cgroup of 64 MiB, with `memory.free_memory_floor` at 16 MiB: a 16 MiB
 /// budget peaked at 44.0 to 46.6 MiB (12 MiB: 43.2) and came down at 0.99
 /// to 1.43 times a sing-box client's, Hysteria2 at 300 ms at 1.02 and 1.11
 /// (12 MiB: 0.91 to 1.27); 24 MiB with
 /// 8 and 32 MiB windows came down faster but peaked at 56.2. In 128 MiB,
 /// 32 MiB peaked at 47.2, as fast as 16 for four streams (measured,
 /// sail#9). Between and beyond them, a judgment.
-pub fn window_budget_for(mib: u64) -> usize {
+pub fn transfer_budget_for(mib: u64) -> usize {
     (mib << 8) as usize
 }
 
@@ -1266,14 +1307,14 @@ mod tests {
         assert_eq!(fitted(Profile::Server, mib(84)), (0, None));
     }
 
-    /// Every profile's window budget is held to a quarter of the memory;
+    /// Every profile's transfer budget is held to a quarter of the memory;
     /// a router's is the quarter, up to 64 MiB.
     #[test]
-    fn the_window_budget_follows_the_memory() {
+    fn the_transfer_budget_follows_the_memory() {
         let budget = |profile, memory| {
             let mut options = RuntimeOptions::profile(profile);
             options.fit_to_memory(memory);
-            options.quic.window_budget >> 10
+            options.memory.transfer_budget >> 10
         };
         assert_eq!(budget(Profile::Router, Some(64 << 20)), 16);
         assert_eq!(budget(Profile::Router, Some(128 << 20)), 32);
@@ -1285,8 +1326,8 @@ mod tests {
         // A setting wins.
         let mut options = RuntimeOptions::profile(Profile::Router);
         options.fit_to_memory(Some(64 << 20));
-        options.set("quic.window_budget", "12288").unwrap();
-        assert_eq!(options.quic.window_budget, 12288);
+        options.set("memory.transfer_budget", "12288").unwrap();
+        assert_eq!(options.memory.transfer_budget, 12288);
     }
 
     /// What the user sets wins over the memory, and only that setting

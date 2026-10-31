@@ -517,6 +517,11 @@ async fn serve(listener: tokio::net::TcpListener, tag: String, dispatcher: Arc<D
                 continue;
             }
         };
+        let stream = crate::net::send_buffer::Growing::new(
+            stream,
+            send_buffer,
+            dispatcher.env().options.inbound.tcp_send_buffer_max * 1024,
+        );
         let dispatcher = dispatcher.clone();
         crate::runtime::scope::spawn("auto_redirect stream", async move {
             dispatcher.dispatch_stream(sess, stream).await

@@ -233,6 +233,10 @@ COEXIST_SKIP_S = 5
 # rtt300, so 16 MiB at rtt300 (about 35 Mbit/s for both sail and sing-box,
 # 105-120 with 128 MiB) and 32 MiB at rtt150 measured mostly the climb. At
 # 128 MiB the climb is a quarter to a third of the transfer.
+# How long --stalled clients' data is given to fill the buffers on its way
+# before the workload beside them starts.
+STALL_SETTLE = 3
+
 BULK_BYTES = {"rate10m": 8 << 20, "rate2m": 2 << 20, "rtt150": 128 << 20,
               "rtt300": 128 << 20, "loss5": 8 << 20, "burst2": 16 << 20}
 
@@ -755,7 +759,7 @@ class Run:
         self.failures = []
         self.procs = {}
 
-    def netgen(self, mode, *flags, timeout=600, spread=False, direct=None):
+    def netgen_cmd(self, mode, *flags, spread=False, direct=None):
         """`direct`, the port of the traffic tool's server to dial with no
         proxy between."""
         proxy = f"-proxy {SOCKS} " if self.args.inbound == "socks" and not direct else ""
@@ -767,8 +771,11 @@ class Run:
         if spread:
             host = target.rsplit(":", 1)[0]
             to = "-targets " + ",".join(f"{host}:{9000 + i}" for i in range(CHURN_PORTS))
-        cmd = in_ns_netgen(CLIENT_NS, f"{self.args.netgen} {mode} {proxy}{to} "
-                    + " ".join(flags))
+        return in_ns_netgen(CLIENT_NS, f"{self.args.netgen} {mode} {proxy}{to} "
+                            + " ".join(flags))
+
+    def netgen(self, mode, *flags, timeout=600, spread=False, direct=None):
+        cmd = self.netgen_cmd(mode, *flags, spread=spread, direct=direct)
         t0 = time.time()
         # Its own process group: a timeout ends the traffic tool itself, not
         # only the shell that started it, and the run goes on with the
@@ -795,6 +802,33 @@ class Run:
         if p.returncode != 0:
             res["_error"] = stderr.strip()[-500:]
         return res
+
+    def stall_start(self):
+        """--stalled clients: downloads nobody reads, open through the
+        client for as long as the workload beside them, and how many
+        opened."""
+        cmd = self.netgen_cmd("stall", f"-conns {self.args.stalled}",
+                              f"-bytes {1 << 30}", "-hold 3600s")
+        p = subprocess.Popen(cmd, shell=True, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.PIPE, text=True, start_new_session=True)
+        opened = 0
+        for line in p.stderr:
+            if line.startswith("STALLING"):
+                opened = int(line.split()[1])
+                break
+        # Their data on its way into every buffer it can fill.
+        time.sleep(STALL_SETTLE)
+        return p, opened
+
+    @staticmethod
+    def stall_stop(stall):
+        p, opened = stall
+        try:
+            os.killpg(p.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        p.communicate()
+        return opened
 
     def start_server(self):
         log = os.path.join(self.dir, "server.log")
@@ -940,6 +974,8 @@ class Run:
                 # echo and setup follow bulk_up on the same processes.
                 if workload.startswith("bulk"):
                     self.fresh()
+                stall = (self.stall_start() if self.args.stalled and workload == "bulk_down"
+                         else None)
                 idle_before = self.idle(sampler, settle=1)
                 m = sampler.mark()
                 before = sampler.one()
@@ -993,6 +1029,9 @@ class Run:
                     rec["sender"] = sender_state(
                         [before] + sampler.since(m) + [after],
                         "client" if workload == "bulk_up" else "server")
+                if stall:
+                    rec["stalled"] = self.stall_stop(stall)
+                    res["stalled"] = rec["stalled"]
                 rec["round"] = round_ + 1
                 self.check(scenario, workload, res)
                 print(f"  {self.name} {scenario} {workload}: {brief(res)}", flush=True)
@@ -1589,6 +1628,10 @@ def main():
                     help="client>server pairs, each sb, sail or a --sail-bin name, e.g. "
                          "sb>sb,sail>sb,sb>sail,sail>sail; rounds go outside, the order of "
                          "pairs and protocols rotates each round")
+    ap.add_argument("--stalled", type=int, default=0, metavar="N",
+                    help="beside each bulk_down, N more downloads through the client that "
+                         "nobody reads, open from before it to its end: clients that stopped "
+                         "reading, holding what fills on their way (sail#10)")
     ap.add_argument("--streams", type=int, default=4,
                     help="parallel streams of the bulk workloads (default 4)")
     ap.add_argument("--bulk-bytes-quic", type=int, default=None,

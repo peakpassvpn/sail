@@ -15,6 +15,7 @@ pub mod scope;
 pub(crate) mod stamp;
 pub mod system_memory;
 pub mod teardown;
+pub mod transfer_budget;
 #[cfg(feature = "auto-reload")]
 pub(crate) mod watch;
 

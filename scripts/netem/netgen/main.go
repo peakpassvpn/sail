@@ -73,7 +73,7 @@ const ackTimeout = 120 * time.Second
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: netgen serve|bulk|echo|setup|concurrent|hold|churn|halfclose|probe [flags]")
+		fmt.Fprintln(os.Stderr, "usage: netgen serve|bulk|echo|setup|concurrent|hold|stall|churn|halfclose|probe [flags]")
 		os.Exit(2)
 	}
 	fs := flag.NewFlagSet(os.Args[1], flag.ExitOnError)
@@ -83,13 +83,13 @@ func main() {
 	targets := fs.String("targets", "", "hold/churn: servers, comma-separated, taken in turn; overrides -target")
 	target := fs.String("target", "127.0.0.1:9000", "server address, as the proxy sees it")
 	streams := fs.Int("streams", 8, "bulk: parallel streams")
-	size := fs.Int64("bytes", 64<<20, "bulk/halfclose: bytes per stream")
+	size := fs.Int64("bytes", 64<<20, "bulk/halfclose/stall: bytes per stream")
 	dir := fs.String("dir", "down", "bulk: down|up")
-	conns := fs.Int("conns", 16, "echo/concurrent/hold: connections")
+	conns := fs.Int("conns", 16, "echo/concurrent/hold/stall: connections")
 	rounds := fs.Int("rounds", 200, "echo: round trips per connection")
 	msg := fs.Int("size", 4096, "echo: largest message")
 	n := fs.Int("n", 500, "setup/halfclose: connections")
-	hold := fs.Duration("hold", 20*time.Second, "concurrent/hold: how long connections stay open")
+	hold := fs.Duration("hold", 20*time.Second, "concurrent/hold/stall: how long connections stay open")
 	rate := fs.Int("rate", 200, "churn/hold: connections per second")
 	duration := fs.Duration("duration", 30*time.Second, "churn/probe: how long")
 	interval := fs.Duration("interval", 100*time.Millisecond, "probe: between attempts")
@@ -106,7 +106,7 @@ func main() {
 		}
 	}
 	switch os.Args[1] {
-	case "hold", "concurrent", "echo":
+	case "hold", "concurrent", "echo", "stall":
 		if *conns <= 0 {
 			usage("-conns must be at least 1")
 		}
@@ -137,6 +137,8 @@ func main() {
 		}
 		dial := func(i int) dialer { return dialer{proxy: ps[i%len(ps)], target: ts[i%len(ts)]} }
 		res = runHold(dial, *conns, *rate, *hold)
+	case "stall":
+		res = runStall(d, *conns, *size, *hold)
 	case "churn":
 		// Connection i to target i mod T: short connections to one address
 		// and port leave the side that closes first a TIME-WAIT each, and
@@ -1039,5 +1041,50 @@ func runProbe(d dialer, duration, interval time.Duration) any {
 	}
 	wg.Wait()
 	sort.Slice(r.Events, func(i, j int) bool { return r.Events[i].AtMs < r.Events[j].AtMs })
+	return r
+}
+
+type stallResult struct {
+	counts
+	Conns       int `json:"conns"`
+	Established int `json:"established"`
+}
+
+// runStall opens `conns` downloads of `size` bytes each and reads none of
+// them for `hold`: clients that stopped reading, whose data fills every
+// buffer on the way. "STALLING n" on stderr once they are all asked.
+func runStall(d dialer, conns int, size int64, hold time.Duration) any {
+	r := &stallResult{Conns: conns}
+	var mu sync.Mutex
+	open := make([]net.Conn, 0, conns)
+	var wg sync.WaitGroup
+	for i := 0; i < conns; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			c, err := d.dial()
+			if err == nil {
+				c.SetWriteDeadline(time.Now().Add(timeout))
+				_, err = c.Write(header(cmdDown, uint64(size), 0, uint64(i)))
+			}
+			r.add(err)
+			if err != nil {
+				if c != nil {
+					c.Close()
+				}
+				return
+			}
+			mu.Lock()
+			open = append(open, c)
+			mu.Unlock()
+		}(i)
+	}
+	wg.Wait()
+	r.Established = len(open)
+	fmt.Fprintf(os.Stderr, "STALLING %d\n", len(open))
+	time.Sleep(hold)
+	for _, c := range open {
+		c.Close()
+	}
 	return r
 }
