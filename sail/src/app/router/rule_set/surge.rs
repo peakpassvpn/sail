@@ -11,7 +11,7 @@
 use anyhow::{anyhow, Result};
 use tracing::debug;
 
-use super::rule;
+use super::rule::{self, Parts};
 use crate::app::router::matcher::Condition;
 use crate::config::rule_set::{ClashBehavior, HeadlessRule};
 use crate::runtime::RuntimeEnv;
@@ -48,7 +48,13 @@ pub(crate) fn read(
                     None => rule.domain.push(name),
                 }
             }
-            Ok(vec![rule::from_source(&rule, "rules[0]", env)?])
+            rule::list(
+                Parts {
+                    rule,
+                    ..Default::default()
+                },
+                env,
+            )
         }
         ClashBehavior::Classical => classical(lines, env),
         ClashBehavior::Ipcidr => Err(anyhow!(

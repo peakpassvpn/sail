@@ -90,8 +90,22 @@ fn compile(rule: &HeadlessRule, path: &str, depth: usize, env: &RuntimeEnv) -> R
     }
 }
 
-/// Compiles a default rule, found at `path`, of `env`'s data files.
+/// Compiles a default rule, found at `path`, of `env`'s data files. One
+/// with no conditions, inverted or not, is refused, as sing-box refuses
+/// it ("missing conditions"): it would match everything.
 pub(crate) fn default(parts: Parts, path: &str, env: &RuntimeEnv) -> Result<Condition> {
+    conditions(parts, path, env)?.ok_or_else(|| anyhow!("{}: missing conditions", path))
+}
+
+/// The one rule of a list (Mihomo's or Surge's), of `env`'s data files:
+/// none when the list has no entries, so that it matches nothing, as an
+/// empty list matches nothing in Mihomo.
+pub(crate) fn list(parts: Parts, env: &RuntimeEnv) -> Result<Vec<Condition>> {
+    Ok(conditions(parts, "rules[0]", env)?.into_iter().collect())
+}
+
+/// A default rule compiled, or none when it has no conditions.
+fn conditions(parts: Parts, path: &str, env: &RuntimeEnv) -> Result<Option<Condition>> {
     let rule = &parts.rule;
     if let Some(field) = rule.unsupported() {
         return Err(anyhow!("{}.{}: sail does not match it yet", path, field));
@@ -142,5 +156,5 @@ pub(crate) fn default(parts: Parts, path: &str, env: &RuntimeEnv) -> Result<Cond
         rule_sets: &Default::default(),
     };
     let compiled = Conditions::compile(&conditions, extras, path, &mut ctx)?;
-    Ok(Condition::Default(Box::new(compiled)))
+    Ok((!compiled.is_empty()).then(|| Condition::Default(Box::new(compiled))))
 }

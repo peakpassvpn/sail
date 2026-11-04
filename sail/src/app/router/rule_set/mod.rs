@@ -1147,6 +1147,27 @@ mod tests {
         assert!(!m.matches(&at("www.blocked.example", 443, Tcp)));
     }
 
+    /// A rule of no conditions, inverted or not, nested or not, is
+    /// refused, as sing-box refuses it: it would match everything.
+    #[test]
+    fn a_rule_of_no_conditions_is_refused() {
+        for (rule, path) in [
+            (serde_json::json!({}), "rules[0]"),
+            (serde_json::json!({ "invert": true }), "rules[0]"),
+            (
+                serde_json::json!({ "type": "logical", "mode": "or", "rules": [{}] }),
+                "rules[0].rules[0]",
+            ),
+        ] {
+            let rules: Vec<config::HeadlessRule> =
+                serde_json::from_value(serde_json::json!([rule])).unwrap();
+            let err = RuleSet::from_rules(&rules, &RuntimeEnv::default())
+                .err()
+                .unwrap();
+            assert_eq!(err.to_string(), format!("{}: missing conditions", path));
+        }
+    }
+
     #[test]
     fn a_rule_set_s_autonomous_systems_are_its_data_directory_s() {
         use crate::app::router::matcher::tests::{asn_records, mmdb};

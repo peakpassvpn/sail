@@ -474,12 +474,14 @@ impl CidrIndex {
         Ok(index)
     }
 
-    /// Inclusive ranges of addresses, each of one family.
+    /// Inclusive ranges of addresses, each of one family. An IPv4-mapped
+    /// range stays IPv6, as an `ip_cidr` written so does: the addresses
+    /// matched are canonical, so it never matches, as in sing-box.
     #[cfg_attr(not(feature = "rule-set"), allow(dead_code))]
     pub(crate) fn from_ranges(ranges: &[(IpAddr, IpAddr)]) -> Result<Self> {
         let mut index = CidrIndex::default();
         for &(first, last) in ranges {
-            match (first.to_canonical(), last.to_canonical()) {
+            match (first, last) {
                 (IpAddr::V4(first), IpAddr::V4(last)) if first <= last => {
                     index.v4.push((first.into(), last.into()))
                 }
@@ -1158,6 +1160,12 @@ impl Item {
 }
 
 impl Conditions {
+    /// Whether there are none, so that they match everything.
+    #[cfg_attr(not(feature = "rule-set"), allow(dead_code))]
+    pub(crate) fn is_empty(&self) -> bool {
+        self.empty
+    }
+
     /// Compiles the conditions of the default rule `rule`, found at
     /// `path`, with what a binary rule-set gives in `extras`.
     pub(crate) fn compile(
@@ -1987,6 +1995,16 @@ pub(crate) mod tests {
         assert!(m.matches(&ip("fd12::1", 80)));
         assert!(m.matches(&ip("::ffff:10.0.0.1", 80)));
         assert!(!m.matches(&domain("example.com", 80)));
+    }
+
+    /// A range of IPv4-mapped addresses stays IPv6, and so holds no IPv4
+    /// address, mapped or not, as in sing-box.
+    #[test]
+    fn a_mapped_range_holds_no_ipv4_address() {
+        let ip = |s: &str| s.parse::<IpAddr>().unwrap();
+        let index = CidrIndex::from_ranges(&[(ip("::ffff:0:0"), ip("::ffff:ffff:ffff"))]).unwrap();
+        assert!(!index.contains(ip("1.2.3.4")));
+        assert!(!index.contains(ip("::ffff:1.2.3.4")));
     }
 
     /// As in sing-box: `example.com` matches it and its subdomains,

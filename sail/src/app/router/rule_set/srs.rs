@@ -253,6 +253,23 @@ mod tests {
         assert_eq!(err.to_string(), "inflates to more than 10000 bytes");
     }
 
+    /// A set's IPv4-mapped address stays IPv6, as Go's netip reads it.
+    #[test]
+    fn a_mapped_address_stays_ipv6() {
+        let mapped = |last: u8| {
+            let mut b = vec![16u8];
+            b.extend([0; 10]);
+            b.extend([0xff, 0xff, 0, 0, 0, last]);
+            b
+        };
+        let mut data = vec![1u8];
+        data.extend(1u64.to_be_bytes());
+        data.extend(mapped(0));
+        data.extend(mapped(255));
+        let ranges = read_ip_set(&mut Reader::new(&data)).unwrap();
+        assert!(ranges.iter().all(|&(f, l)| f.is_ipv6() && l.is_ipv6()));
+    }
+
     /// A file cut short says so, as sing-box's "unexpected EOF" does.
     #[test]
     fn a_rule_set_cut_short_says_so() {

@@ -22,22 +22,20 @@ pub(crate) fn read(
     let lines = match format {
         RuleSetFormat::Mrs => {
             return match mrs::read(data, behavior)? {
-                mrs::Set::Domains(set) => Ok(vec![rule::default(
+                mrs::Set::Domains(set) => rule::list(
                     Parts {
                         succinct: Some(SuccinctSet::Mihomo(set)),
                         ..Default::default()
                     },
-                    "rules[0]",
                     env,
-                )?]),
-                mrs::Set::Ranges(ranges) => Ok(vec![rule::default(
+                ),
+                mrs::Set::Ranges(ranges) => rule::list(
                     Parts {
                         ip_ranges: Some(ranges),
                         ..Default::default()
                     },
-                    "rules[0]",
                     env,
-                )?]),
+                ),
             }
         }
         RuleSetFormat::ClashText => text(data)?,
@@ -56,7 +54,7 @@ pub(crate) fn from_lines(
     env: &RuntimeEnv,
 ) -> Result<Vec<Condition>> {
     match behavior {
-        ClashBehavior::Domain => Ok(vec![domain_set(lines.iter(), env)?]),
+        ClashBehavior::Domain => domain_set(lines.iter(), env),
         ClashBehavior::Ipcidr => {
             let prefixes: Vec<String> = lines
                 .iter()
@@ -74,7 +72,13 @@ pub(crate) fn from_lines(
                 ip_cidr: prefixes,
                 ..Default::default()
             };
-            Ok(vec![rule::from_source(&rule, "rules[0]", env)?])
+            rule::list(
+                Parts {
+                    rule,
+                    ..Default::default()
+                },
+                env,
+            )
         }
         ClashBehavior::Classical => classical(lines, env),
     }
@@ -133,7 +137,7 @@ fn yaml(_: &[u8]) -> Result<Vec<String>> {
 fn domain_set<'a>(
     entries: impl Iterator<Item = &'a String>,
     env: &RuntimeEnv,
-) -> Result<Condition> {
+) -> Result<Vec<Condition>> {
     let mut rule = HeadlessRule::default();
     for entry in entries {
         let entry = entry.trim().to_ascii_lowercase();
@@ -151,7 +155,13 @@ fn domain_set<'a>(
             rule.domain.push(entry);
         }
     }
-    rule::from_source(&rule, "rules[0]", env)
+    rule::list(
+        Parts {
+            rule,
+            ..Default::default()
+        },
+        env,
+    )
 }
 
 /// A domain with `*` labels as a regular expression, each `*` one label.
@@ -181,6 +191,18 @@ mod tests {
             &[],
         );
         rules.iter().any(|r| r.matches(&facts, false))
+    }
+
+    /// A list with no entries has no rule, and so matches nothing, as in
+    /// Mihomo.
+    #[test]
+    fn a_list_of_no_entries_matches_nothing() {
+        let lines = vec!["no entry".to_string()];
+        for behavior in [ClashBehavior::Domain, ClashBehavior::Ipcidr] {
+            let rules = from_lines(&lines, behavior, &RuntimeEnv::default()).unwrap();
+            assert!(rules.is_empty());
+            assert!(!matches(&rules, "example.com"));
+        }
     }
 
     #[test]
