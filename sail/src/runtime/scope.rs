@@ -215,6 +215,24 @@ impl TaskScope {
         CURRENT.scope(self.clone(), fut)
     }
 
+    /// Poll-free construction on a blocking thread still needs this scope's
+    /// task context (the runtime handle is entered separately by its owner).
+    #[cfg(feature = "inbound-tun")]
+    pub(crate) fn enter_sync<T>(&self, f: impl FnOnce() -> T) -> T {
+        CURRENT.sync_scope(self.clone(), f)
+    }
+
+    /// Keeps an owned result counted until its resources actually drop,
+    /// including while a completed blocking task stores an unjoined result.
+    #[cfg(feature = "inbound-tun")]
+    pub(crate) fn hold_resource(&self, name: &'static str) -> TaskResource {
+        let id = self.0.next.fetch_add(1, Ordering::Relaxed);
+        lock(&self.0.shards[(id as usize) % SHARDS]).insert(id, (name, None));
+        TaskResource {
+            _registration: Registered(self.clone(), id),
+        }
+    }
+
     /// The scope of the task running, if it is a scoped one; else that of
     /// the instance this thread is building, if it is building one.
     pub fn current() -> Option<TaskScope> {
@@ -547,6 +565,11 @@ impl TaskScope {
     }
 }
 
+#[cfg(feature = "inbound-tun")]
+pub(crate) struct TaskResource {
+    _registration: Registered,
+}
+
 /// Takes its task out of the registry when it ends.
 struct Registered(TaskScope, u64);
 
@@ -831,6 +854,44 @@ pub fn unscoped_count() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "inbound-tun")]
+    #[tokio::test]
+    async fn an_unjoined_blocking_result_stays_owned_until_its_payload_drops() {
+        use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
+        struct Payload(Arc<AtomicBool>);
+        impl Drop for Payload {
+            fn drop(&mut self) {
+                self.0.store(true, AtomicOrdering::SeqCst);
+            }
+        }
+        struct OwnedResult {
+            _payload: Payload,
+            _held: TaskResource,
+        }
+        let scope = TaskScope::default();
+        let dropped = Arc::new(AtomicBool::new(false));
+        let payload = Payload(dropped.clone());
+        let held = scope.hold_resource("unjoined opening result");
+        let result = scope.spawn_blocking("opening task", move || OwnedResult {
+            _payload: payload,
+            _held: held,
+        });
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while !result.is_finished() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert!(!dropped.load(AtomicOrdering::SeqCst));
+        let report = scope.stop(Duration::from_millis(20)).await;
+        assert!(!report.clean());
+        assert_eq!(report.tasks, [("unjoined opening result", 1)]);
+        drop(result);
+        assert!(dropped.load(AtomicOrdering::SeqCst));
+        assert!(scope.is_empty());
+    }
 
     #[cfg(feature = "inbound-tun")]
     #[tokio::test]

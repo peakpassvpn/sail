@@ -8,7 +8,6 @@ use crate::protocol::tun::inbound::TunRunner;
 use crate::runtime::scope::{StopReport, TaskScope};
 use crate::runtime::teardown::Teardown;
 use crate::RuntimeManager;
-use futures::FutureExt;
 
 #[derive(Default)]
 pub(crate) struct DynamicTun(Mutex<State>);
@@ -31,14 +30,18 @@ enum Phase {
     Committing {
         token: u64,
         tag: String,
+        scope: TaskScope,
+        teardown: Teardown,
     },
     Active {
+        token: u64,
         tag: String,
         control: NativeRuntimeControl,
         scope: TaskScope,
         teardown: Teardown,
     },
     Draining {
+        token: u64,
         tag: String,
         scope: TaskScope,
         teardown: Teardown,
@@ -46,6 +49,20 @@ enum Phase {
 }
 enum PreparedSource {
     Packets(TunRunner),
+    #[cfg(unix)]
+    Device(Box<crate::config::Inbound>),
+}
+/// Field order matters: close the unpolled I/O before removing its resource
+/// registration. A blocking task's JoinHandle can retain this after it exits.
+struct OpenedTun {
+    tun: TunRunner,
+    held: crate::runtime::scope::TaskResource,
+}
+impl Phase {
+    fn owns(&self, token: u64) -> bool {
+        matches!(self, Self::Prepared { token: current, .. } | Self::Committing { token: current, .. }
+            | Self::Active { token: current, .. } | Self::Draining { token: current, .. } if *current == token)
+    }
 }
 impl DynamicTun {
     fn lock(&self) -> MutexGuard<'_, State> {
@@ -65,7 +82,10 @@ impl Drop for DynamicTun {
         // Fallback if run() unwinds before its explicit drain, particularly
         // on a host-owned runtime that will keep running after Sail stops.
         let state = self.lock();
-        if let Phase::Active { scope, .. } | Phase::Draining { scope, .. } = &state.phase {
+        if let Phase::Committing { scope, .. }
+        | Phase::Active { scope, .. }
+        | Phase::Draining { scope, .. } = &state.phase
+        {
             scope.abort_all();
         }
     }
@@ -85,10 +105,13 @@ impl RuntimeManager {
             | Phase::Active { tag, .. }
             | Phase::Draining { tag, .. } => tag,
         };
-        if inbounds
-            .iter()
-            .any(|i| i.tag == *tag || i.protocol == "tun")
-        {
+        if inbounds.iter().any(|i| i.protocol == "tun") {
+            return Err(crate::Error::NeedsRestart(
+                "a static TUN is applied only at restart; the dynamic attachment is unchanged"
+                    .to_string(),
+            ));
+        }
+        if inbounds.iter().any(|i| i.tag == *tag) {
             return Err(crate::Error::Config(anyhow::anyhow!(
                 "dynamic TUN reserves tag [{}] and the TUN slot; detach it first",
                 tag
@@ -114,6 +137,20 @@ impl RuntimeManager {
                 reason: scope.failure().unwrap_or_else(|| "TUN ended".to_string()),
             },
             Phase::Draining { tag, .. } => TunState::Draining { tag: tag.clone() },
+        }
+    }
+    pub(crate) fn prepared_tun_scope(&self, token: u64) -> Result<TaskScope, Error> {
+        let state = self.dynamic_tun.lock();
+        if state.closed {
+            return Err(Error::not_running());
+        }
+        match &state.phase {
+            Phase::Prepared {
+                token: current,
+                scope,
+                ..
+            } if *current == token => Ok(scope.clone()),
+            _ => Err(Error::state("TUN preparation is no longer current")),
         }
     }
     pub(crate) fn cancel_prepared_tun(&self, token: u64) {
@@ -197,14 +234,15 @@ impl RuntimeManager {
         }
         let (io, flow) = PacketBridge::pair(capacity)?;
         let dispatcher = self.dispatcher.upgrade().ok_or_else(Error::not_running)?;
-        let nat = Arc::new(crate::app::nat_manager::NatManager::new(
+        let scope = self.env.scope.isolated();
+        let nat = Arc::new(crate::app::nat_manager::NatManager::new_scoped(
             dispatcher.clone(),
             std::slice::from_ref(&inbound),
+            scope.clone(),
         ));
-        let scope = self.env.scope.isolated();
         let tag = inbound.tag.clone();
         let tun = scope
-            .enter(async {
+            .enter_sync(|| {
                 crate::protocol::tun::inbound::run(
                     inbound,
                     dispatcher,
@@ -215,7 +253,6 @@ impl RuntimeManager {
                     settings.endpoint_independent_nat,
                 )
             })
-            .await
             .map_err(|e| Error::new(ErrorKind::Failed, format!("{e:#}")))?;
         let token = {
             let mut state = self.dynamic_tun.lock();
@@ -244,9 +281,69 @@ impl RuntimeManager {
             flow,
         ))
     }
-    pub(crate) async fn commit_prepared_tun(&self, token: u64) -> Result<(), Error> {
+    #[cfg(unix)]
+    pub(crate) async fn prepare_tun_device(
+        self: &Arc<Self>,
+        json: &str,
+    ) -> Result<PreparedTun, Error> {
         let _update = self.update.lock().await;
+        let config = crate::config::from_string(&format!("{{\"inbounds\":[{json}]}}"))
+            .map_err(|e| Error::new(ErrorKind::Config, format!("{e:#}")))?;
+        if config.inbounds.len() != 1 {
+            return Err(Error::new(
+                ErrorKind::InvalidArgument,
+                "exactly one TUN inbound required",
+            ));
+        }
+        let inbound = config
+            .inbounds
+            .into_iter()
+            .next()
+            .ok_or_else(|| Error::state("missing TUN"))?;
+        if inbound.protocol != "tun"
+            || inbound.tag.is_empty()
+            || inbound.listen.is_some()
+            || inbound.listen_port.is_some()
+        {
+            return Err(Error::new(
+                ErrorKind::InvalidArgument,
+                "one named TUN inbound without a listen address is required",
+            ));
+        }
+        self.check_dynamic_tun(&inbound.tag)?;
+        crate::protocol::tun::inbound::dynamic_options(&inbound, &self.env.host)
+            .map_err(|e| Error::new(ErrorKind::Config, format!("{e:#}")))?;
+        let scope = self.env.scope.isolated();
+        let mut state = self.dynamic_tun.lock();
+        if state.closed {
+            return Err(Error::not_running());
+        }
+        if !matches!(state.phase, Phase::Empty) {
+            return Err(Error::state(
+                "a TUN is already prepared, attached or draining",
+            ));
+        }
+        state.next = state
+            .next
+            .checked_add(1)
+            .ok_or_else(|| Error::state("TUN generation exhausted"))?;
+        let token = state.next;
+        state.phase = Phase::Prepared {
+            token,
+            tag: inbound.tag.clone(),
+            source: PreparedSource::Device(Box::new(inbound)),
+            scope,
+        };
+        Ok(PreparedTun {
+            manager: Arc::downgrade(self),
+            token,
+            armed: true,
+        })
+    }
+    pub(crate) async fn commit_prepared_tun(&self, token: u64) -> Result<(), Error> {
+        let teardown = Teardown::default();
         let (tag, source, scope) = {
+            let _update = self.update.lock().await;
             let mut state = self.dynamic_tun.lock();
             if state.closed {
                 return Err(Error::not_running());
@@ -272,80 +369,157 @@ impl RuntimeManager {
             state.phase = Phase::Committing {
                 token,
                 tag: tag.clone(),
+                scope: scope.clone(),
+                teardown: teardown.clone(),
             };
             (tag, source, scope)
         };
-        let teardown = Teardown::default();
-        let opened = std::panic::AssertUnwindSafe(scope.enter(async {
-            match source {
-                PreparedSource::Packets(tun) => Ok::<TunRunner, anyhow::Error>(tun),
+        // No update lock or async worker is held hostage by a host callback.
+        // The reservation remains visible to reload/detach/stop throughout.
+        let held = scope.hold_resource("dynamic TUN opening resource");
+        let opened = match source {
+            PreparedSource::Packets(tun) => Ok(OpenedTun { tun, held }),
+            #[cfg(unix)]
+            PreparedSource::Device(inbound) => {
+                let dispatcher = self.dispatcher.upgrade().ok_or_else(Error::not_running)?;
+                let nat = Arc::new(crate::app::nat_manager::NatManager::new_scoped(
+                    dispatcher.clone(),
+                    std::slice::from_ref(inbound.as_ref()),
+                    scope.clone(),
+                ));
+                let handle = self.handle.clone();
+                let local = scope.clone();
+                let undo = teardown.clone();
+                scope
+                    .spawn_blocking("dynamic TUN open", move || {
+                        let _entered = handle.enter();
+                        local
+                            .enter_sync(|| {
+                                crate::protocol::tun::inbound::new_dynamic(
+                                    *inbound, dispatcher, nat, undo,
+                                )
+                            })
+                            .map(|tun| OpenedTun { tun, held })
+                    })
+                    .await
+                    .map_err(|e| {
+                        Error::new(
+                            ErrorKind::Failed,
+                            format!("opening the dynamic TUN ended: {e}"),
+                        )
+                    })
+                    .and_then(|result| {
+                        result.map_err(|e| Error::new(ErrorKind::Failed, format!("{e:#}")))
+                    })
             }
-        }))
-        .catch_unwind()
-        .await;
-        let result = match opened {
-            Ok(Ok(tun)) => Ok(tun),
-            Ok(Err(e)) => Err(Error::new(ErrorKind::Failed, format!("{e:#}"))),
-            Err(_) => Err(Error::new(
-                ErrorKind::Failed,
-                "opening the dynamic TUN panicked",
-            )),
         };
-        let tun = match result {
-            Ok(tun) => tun,
+        // Release a late result before waiting for update: detach may be
+        // holding that lock while it waits on this resource registration.
+        let cancelled = {
+            let state = self.dynamic_tun.lock();
+            state.closed
+                || !matches!(state.phase, Phase::Committing { token: current, .. } if current == token)
+        };
+        if cancelled {
+            drop(opened);
+            return self
+                .rollback_tun_open(
+                    token,
+                    tag,
+                    scope,
+                    teardown,
+                    Error::new(
+                        ErrorKind::Cancelled,
+                        "dynamic TUN commit was cancelled by detach or stop",
+                    ),
+                )
+                .await;
+        }
+        let _update = self.update.lock().await;
+        let opened = match opened {
+            Ok(opened) => opened,
             Err(error) => {
-                teardown.run_all();
-                teardown.check_all();
-                let left = teardown.left();
-                let mut state = self.dynamic_tun.lock();
-                state.phase = if left.is_empty() {
-                    Phase::Empty
-                } else {
-                    Phase::Draining {
-                        tag,
-                        scope,
-                        teardown,
-                    }
-                };
-                return Err(error.with_left(left));
+                drop(_update);
+                return self
+                    .rollback_tun_open(token, tag, scope, teardown, error)
+                    .await;
             }
         };
+        let rejected = {
+            let mut state = self.dynamic_tun.lock();
+            if state.closed
+                || !matches!(state.phase, Phase::Committing { token: current, .. } if current == token)
+            {
+                Some(opened)
+            } else {
+                if let Some(dispatcher) = self.dispatcher.upgrade() {
+                    dispatcher.set_inbound_type(&tag, Some("tun"));
+                }
+                let OpenedTun { tun, held } = opened;
+                let control = tun.control;
+                let observed = scope.clone();
+                scope.spawn_essential("dynamic tun runner", async move {
+                    tun.runner.await;
+                    observed.fail("dynamic TUN runner ended".to_string());
+                });
+                state.phase = Phase::Active {
+                    token,
+                    tag: tag.clone(),
+                    control,
+                    scope: scope.clone(),
+                    teardown: teardown.clone(),
+                };
+                drop(held);
+                None
+            }
+        };
+        drop(_update);
+        if let Some(opened) = rejected {
+            drop(opened);
+            return self
+                .rollback_tun_open(
+                    token,
+                    tag,
+                    scope,
+                    teardown,
+                    Error::new(
+                        ErrorKind::Cancelled,
+                        "dynamic TUN commit was cancelled by detach or stop",
+                    ),
+                )
+                .await;
+        }
+        Ok(())
+    }
+    async fn rollback_tun_open(
+        &self,
+        token: u64,
+        tag: String,
+        scope: TaskScope,
+        teardown: Teardown,
+        error: Error,
+    ) -> Result<(), Error> {
+        teardown.run_all();
+        // The open task has been joined and its owned result dropped before
+        // entering rollback. Do not stop this scope from its own controller.
+        teardown.check_all();
+        let left = teardown.left();
+        let _update = self.update.lock().await;
         let mut state = self.dynamic_tun.lock();
-        if state.closed
-            || !matches!(state.phase, Phase::Committing { token: current, .. } if current == token)
-        {
-            drop(state);
-            drop(tun);
-            teardown.run_all();
-            teardown.check_all();
-            let left = teardown.left();
-            self.dynamic_tun.lock().phase = if left.is_empty() {
+        // An old result must never erase a newer preparation/attachment.
+        if state.phase.owns(token) {
+            state.phase = if left.is_empty() {
                 Phase::Empty
             } else {
                 Phase::Draining {
+                    token,
                     tag,
                     scope,
                     teardown,
                 }
             };
-            return Err(Error::not_running().with_left(left));
         }
-        if let Some(dispatcher) = self.dispatcher.upgrade() {
-            dispatcher.set_inbound_type(&tag, Some("tun"));
-        }
-        let control = tun.control;
-        let observed = scope.clone();
-        scope.spawn_essential("dynamic tun runner", async move {
-            tun.runner.await;
-            observed.fail("dynamic TUN runner ended".to_string());
-        });
-        state.phase = Phase::Active {
-            tag,
-            control,
-            scope,
-            teardown,
-        };
-        Ok(())
+        Err(error.with_left(left))
     }
     pub(crate) async fn detach_dynamic_tun(&self) -> Result<StopReport, Error> {
         let _update = self.update.lock().await;
@@ -356,20 +530,43 @@ impl RuntimeManager {
             let mut state = self.dynamic_tun.lock();
             match std::mem::take(&mut state.phase) {
                 Phase::Empty => return Ok(StopReport::default()),
-                Phase::Prepared { .. } => return Ok(StopReport::default()),
-                Phase::Committing { .. } => return Err(Error::state("TUN commit did not finish")),
-                Phase::Active {
+                Phase::Prepared {
+                    token,
+                    tag,
+                    source,
+                    scope,
+                } => {
+                    drop(source);
+                    let teardown = Teardown::default();
+                    state.phase = Phase::Draining {
+                        token,
+                        tag: tag.clone(),
+                        scope: scope.clone(),
+                        teardown: teardown.clone(),
+                    };
+                    (tag, scope, teardown)
+                }
+                Phase::Committing {
+                    token,
+                    tag,
+                    scope,
+                    teardown,
+                }
+                | Phase::Active {
+                    token,
                     tag,
                     scope,
                     teardown,
                     ..
                 }
                 | Phase::Draining {
+                    token,
                     tag,
                     scope,
                     teardown,
                 } => {
                     state.phase = Phase::Draining {
+                        token,
                         tag: tag.clone(),
                         scope: scope.clone(),
                         teardown: teardown.clone(),

@@ -206,20 +206,23 @@ impl PreparedTun {
     pub async fn commit(mut self) -> Result<(), Error> {
         let manager = self.manager.upgrade().ok_or_else(Error::not_running)?;
         let token = self.token;
+        let scope = manager.prepared_tun_scope(token)?;
         let (tx, rx) = tokio::sync::oneshot::channel();
         let task_manager = manager.clone();
-        manager
-            .env
-            .scope
-            .spawn_on(manager.handle(), "commit dynamic tun", async move {
-                let result = task_manager.commit_prepared_tun(token).await;
-                if result.is_err() {
-                    task_manager.cancel_prepared_tun(token);
-                }
-                let _ = tx.send(result);
-            });
+        scope.spawn_on(manager.handle(), "commit dynamic tun", async move {
+            let result = task_manager.commit_prepared_tun(token).await;
+            if result.is_err() {
+                task_manager.cancel_prepared_tun(token);
+            }
+            let _ = tx.send(result);
+        });
         self.armed = false;
-        rx.await.map_err(|_| Error::state("the instance stopped"))?
+        rx.await.map_err(|_| {
+            Error::new(
+                ErrorKind::Cancelled,
+                "dynamic TUN commit cancelled by detach or instance stop",
+            )
+        })?
     }
 }
 impl Instance {
@@ -235,6 +238,18 @@ impl Instance {
         let json = inbound_json.to_owned();
         self.with_manager(move |manager| {
             Box::pin(async move { manager.prepare_tun_packets(&json, capacity).await })
+        })
+        .await?
+    }
+    /// Validates/reserves a Unix device TUN. Commit opens it, using the
+    /// Platform's open_tun when enabled; otherwise Sail creates an unrouted
+    /// device. No OS routes/DNS are installed by Sail. A host callback must
+    /// provide its own transaction for any host-side network changes.
+    #[cfg(unix)]
+    pub async fn prepare_tun_device(&self, inbound_json: &str) -> Result<PreparedTun, Error> {
+        let json = inbound_json.to_owned();
+        self.with_manager(move |manager| {
+            Box::pin(async move { manager.prepare_tun_device(&json).await })
         })
         .await?
     }

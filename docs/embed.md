@@ -837,8 +837,47 @@ to signal attachment. Genuine physical network changes retain their normal
 semantics. Core packet tests do not establish macOS route/DNS/socket continuity
 or iOS extension lifetime behavior; those need platform integration validation.
 
+On Unix, `prepare_tun_device(inbound_json)` validates and reserves without asking
+`Platform::open_tun`. Commit opens the device through that callback when
+`opens_tun()` is true, otherwise through Sail's internal device creation.
+Internal creation configures addresses/MTU and brings the device up, which may
+create connected routes; it does not install capture routes or DNS. The callback
+transfers the returned descriptor under the existing Platform contract; it must
+return an owned descriptor, duplicating a borrowed descriptor before transfer.
+The host must roll back any separate OS transaction it performs. Local device
+checks run at rollback/detach, not at some later full-instance stop. Cleanup
+failures appear in Error::left or StopReport::left and keep the slot quarantined;
+only transient task-drain reports can recover by retrying detach after tasks end.
+Device creation is not offered by this dynamic API on Windows.
+
 For packetFlow hosts, a clean detach proves closure of Sail's bridge, stack and
 captured forwarding tasks, not termination of the host's OS packetFlow object or
 an already-started host write. Packets already returned to the host cannot be
 revoked. The wrapper must cancel/join its own per-generation read/write tasks
 and finish its OS network transaction before reporting VPN capture fully off.
+Likewise, a host-retained original descriptor can keep its device alive after
+Sail closes the transferred duplicate; the ownership boundary is Sail's handle.
+
+Attachment task ownership does not extend to shared outbound carriers. Captured
+TCP dispatch and all private-NAT outbound I/O run in the original instance's
+spawn context, so lazily created mux/AnyTLS/QUIC drivers and pool maintenance
+belong to the core even when first used by TUN. The captured TCP task and private
+NAT dispatch/uplink/downlink/cleanup tasks themselves remain registered in the
+attachment scope and are drained at detach. An established mixed stream that
+shares a TUN-created carrier must survive without reconnecting that carrier.
+
+The public packet bridge is a library transport capability, not an endorsement
+of hosting mixed proxy listeners inside a Network Extension provider. Apple's
+[TN3120](https://developer.apple.com/documentation/technotes/tn3120-expected-use-cases-for-network-extension-packet-tunnel-providers)
+lists provider-hosted listeners/proxy servers as unsupported use. Deployment must
+respect that boundary. Provider termination ends the process it owns; dynamic
+detach cannot promise that an in-provider proxy survives the extension's exit.
+
+Device open runs on a tracked blocking-pool task, so a synchronous host callback
+cannot occupy the instance's sole I/O worker. The update lock protects reservation
+and publication, not the blocking wait. Detach/stop can cancel publication while
+open is pending; a late result is released and never replaces a newer generation.
+An uninterruptible callback cannot be forcibly stopped: it remains named in the
+nonclean report and keeps the attachment quarantined. The unjoined open result
+also has a resource registration, so a completed blocking task holding a device
+cannot be mistaken for a released device. Hosts must still make callbacks finite.

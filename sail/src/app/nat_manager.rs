@@ -84,7 +84,69 @@ async fn end_sessions(sessions: &Mutex<SessionMap>, ends: impl Fn(&NatKey) -> bo
     keys.len()
 }
 
+/// Ownership of a NAT task differs from the context in which it polls
+/// outbound I/O. Attachment tasks drain locally; lazily created shared
+/// carriers must always be spawned in the instance's root scope.
+#[derive(Clone, Default)]
+enum NatTasks {
+    #[default]
+    Inherited,
+    #[cfg(feature = "inbound-tun")]
+    Attachment {
+        owner: crate::runtime::scope::TaskScope,
+        context: crate::runtime::scope::TaskScope,
+    },
+}
+impl NatTasks {
+    fn spawn<F>(&self, name: &'static str, future: F) -> tokio::task::JoinHandle<F::Output>
+    where
+        F: std::future::Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        self.spawn_as(crate::runtime::scope::TaskClass::Contained, name, future)
+    }
+    fn spawn_essential<F>(
+        &self,
+        name: &'static str,
+        future: F,
+    ) -> tokio::task::JoinHandle<F::Output>
+    where
+        F: std::future::Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        self.spawn_as(crate::runtime::scope::TaskClass::Essential, name, future)
+    }
+    fn spawn_as<F>(
+        &self,
+        class: crate::runtime::scope::TaskClass,
+        name: &'static str,
+        future: F,
+    ) -> tokio::task::JoinHandle<F::Output>
+    where
+        F: std::future::Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        use crate::runtime::scope::{self, TaskClass};
+        match self {
+            Self::Inherited => match class {
+                TaskClass::Contained => scope::spawn(name, future),
+                TaskClass::Essential => scope::spawn_essential(name, future),
+            },
+            #[cfg(feature = "inbound-tun")]
+            Self::Attachment { owner, context } => {
+                let context = context.clone();
+                let future = async move { context.enter(future).await };
+                match class {
+                    TaskClass::Contained => owner.spawn(name, future),
+                    TaskClass::Essential => owner.spawn_essential(name, future),
+                }
+            }
+        }
+    }
+}
+
 pub struct NatManager {
+    tasks: NatTasks,
     sessions: Arc<Mutex<SessionMap>>,
     dispatcher: Arc<Dispatcher>,
     timeout_check_task: Mutex<Option<BoxFuture<'static, ()>>>,
@@ -147,12 +209,25 @@ impl NatManager {
         });
 
         NatManager {
+            tasks: Default::default(),
             sessions,
             dispatcher,
             timeout_check_task: Mutex::new(Some(timeout_check_task)),
             udp_timeouts,
             watched: Default::default(),
         }
+    }
+
+    #[cfg(feature = "inbound-tun")]
+    pub(crate) fn new_scoped(
+        dispatcher: Arc<Dispatcher>,
+        inbounds: &[crate::config::Inbound],
+        owner: crate::runtime::scope::TaskScope,
+    ) -> Self {
+        let context = dispatcher.env().scope.clone();
+        let mut manager = Self::new(dispatcher, inbounds);
+        manager.tasks = NatTasks::Attachment { owner, context };
+        manager
     }
 
     /// Ends the session of `source` through the inbound `inbound_tag`,
@@ -188,7 +263,7 @@ impl NatManager {
         let association = association.clone();
         let sessions = self.sessions.clone();
         let watched = self.watched.clone();
-        crate::runtime::scope::spawn("nat association watch", async move {
+        self.tasks.spawn("nat association watch", async move {
             association.ended().await;
             // Unwatched first: a session added from here on starts its own
             // watch, which finds the association ended at once.
@@ -305,7 +380,7 @@ impl NatManager {
     ) {
         // Runs the lazy task for session cleanup job, this task will run only once.
         if let Some(task) = self.timeout_check_task.lock().await.take() {
-            crate::runtime::scope::spawn_essential("nat cleanup", task);
+            self.tasks.spawn_essential("nat cleanup", task);
         }
 
         let (target_ch_tx, mut target_ch_rx) =
@@ -332,7 +407,8 @@ impl NatManager {
         // TCP stream would block the task.
         let raddr_cloned = raddr.clone();
         let span = sess.span();
-        crate::runtime::scope::spawn(
+        let tasks = self.tasks.clone();
+        self.tasks.spawn(
             "nat dispatch",
             async move {
                 // new socket to communicate with the target. A sniff rule
@@ -416,17 +492,17 @@ impl NatManager {
                 .instrument(tracing::Span::current());
 
                 let (downlink_task, downlink_task_handle) = abortable(downlink_task);
-                crate::runtime::scope::spawn("nat downlink", downlink_task);
+                tasks.spawn("nat downlink", downlink_task);
 
                 // Runs a task to receive the abort signal.
-                crate::runtime::scope::spawn("nat downlink abort", async move {
+                tasks.spawn("nat downlink abort", async move {
                     let _ = downlink_abort_rx.await;
                     downlink_task_handle.abort();
                 });
 
                 // uplink
                 let raddr_uplink = raddr_cloned.clone();
-                crate::runtime::scope::spawn(
+                tasks.spawn(
                     "nat uplink",
                     async move {
                         let mut sniffed = sniffed.into_iter();
