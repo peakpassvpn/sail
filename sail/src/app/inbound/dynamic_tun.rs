@@ -10,7 +10,12 @@ use crate::runtime::teardown::Teardown;
 use crate::RuntimeManager;
 
 #[derive(Default)]
-pub(crate) struct DynamicTun(Mutex<State>);
+pub(crate) struct DynamicTun {
+    state: Mutex<State>,
+    // Independent of reload: a full stop can join an in-flight detach's
+    // local teardown without waiting on a suspended reload's update lock.
+    drain: tokio::sync::Mutex<()>,
+}
 #[derive(Default)]
 struct State {
     closed: bool,
@@ -66,7 +71,7 @@ impl Phase {
 }
 impl DynamicTun {
     fn lock(&self) -> MutexGuard<'_, State> {
-        self.0.lock().unwrap_or_else(|e| e.into_inner())
+        self.state.lock().unwrap_or_else(|e| e.into_inner())
     }
     fn control(&self) -> Option<NativeRuntimeControl> {
         match &self.lock().phase {
@@ -499,11 +504,16 @@ impl RuntimeManager {
         teardown: Teardown,
         error: Error,
     ) -> Result<(), Error> {
-        teardown.run_all();
-        // The open task has been joined and its owned result dropped before
-        // entering rollback. Do not stop this scope from its own controller.
-        teardown.check_all();
-        let left = teardown.left();
+        let left = {
+            let _drain = self.dynamic_tun.drain.lock().await;
+            teardown.run_all();
+            // The open task has been joined and its owned result dropped.
+            // Do not stop this scope from its own controller.
+            teardown.check_all();
+            teardown.left()
+        };
+        // Release drain before waiting for update: shutdown never takes
+        // update, and may need to cancel this controller while draining.
         let _update = self.update.lock().await;
         let mut state = self.dynamic_tun.lock();
         // An old result must never erase a newer preparation/attachment.
@@ -523,8 +533,10 @@ impl RuntimeManager {
     }
     pub(crate) async fn detach_dynamic_tun(&self) -> Result<StopReport, Error> {
         let _update = self.update.lock().await;
+        let _drain = self.dynamic_tun.drain.lock().await;
         self.detach_dynamic_tun_locked().await
     }
+    // The caller holds drain, plus update or a permanently closed epoch.
     async fn detach_dynamic_tun_locked(&self) -> Result<StopReport, Error> {
         let old = {
             let mut state = self.dynamic_tun.lock();
@@ -544,7 +556,7 @@ impl RuntimeManager {
                         scope: scope.clone(),
                         teardown: teardown.clone(),
                     };
-                    (tag, scope, teardown)
+                    (token, tag, scope, teardown)
                 }
                 Phase::Committing {
                     token,
@@ -571,11 +583,11 @@ impl RuntimeManager {
                         scope: scope.clone(),
                         teardown: teardown.clone(),
                     };
-                    (tag, scope, teardown)
+                    (token, tag, scope, teardown)
                 }
             }
         };
-        let (tag, scope, teardown) = old;
+        let (token, tag, scope, teardown) = old;
         teardown.run_all();
         let mut report = scope
             .stop(
@@ -590,16 +602,29 @@ impl RuntimeManager {
         }
         report.left = teardown.left();
         if report.clean() {
-            if let Some(dispatcher) = self.dispatcher.upgrade() {
-                dispatcher.set_inbound_type(&tag, None);
+            let cleared = {
+                let mut state = self.dynamic_tun.lock();
+                if state.phase.owns(token) {
+                    state.phase = Phase::Empty;
+                    true
+                } else {
+                    false
+                }
+            };
+            if cleared {
+                if let Some(dispatcher) = self.dispatcher.upgrade() {
+                    dispatcher.set_inbound_type(&tag, None);
+                }
             }
-            self.dynamic_tun.lock().phase = Phase::Empty;
         }
         Ok(report)
     }
     pub(crate) async fn stop_dynamic_tun(&self) {
+        // A whole-run stop closes publication permanently. It must not wait
+        // for update: a suspended reload in run()'s remaining root futures
+        // owns that lock until those futures are dropped after this drain.
         self.dynamic_tun.lock().closed = true;
-        let _update = self.update.lock().await;
+        let _drain = self.dynamic_tun.drain.lock().await;
         match self.detach_dynamic_tun_locked().await {
             Ok(report) if !report.clean() => {
                 for left in report.left {
@@ -702,5 +727,96 @@ mod tests {
         let (p, _next_flow) = instance.prepare_tun_packets(json, 1).await.unwrap();
         p.commit().await.unwrap();
         instance.stop().await.unwrap();
+    }
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn stop_joins_a_concurrent_detach_check_and_preserves_its_failure() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let instance = Instance::new(
+            Options::new()
+                .dynamic_tun(true)
+                .stop_within(Duration::from_millis(100))
+                .runtime(Runtime::Host(tokio::runtime::Handle::current())),
+        )
+        .unwrap();
+        instance
+            .start(Config::Json(
+                r#"{"outbounds":[{"type":"direct","tag":"direct"}]}"#.into(),
+            ))
+            .await
+            .unwrap();
+        let manager = instance.manager().unwrap();
+        let (p, _flow) = instance
+            .prepare_tun_packets(
+                r#"{"type":"tun","tag":"capture","address":["10.19.0.1/24"]}"#,
+                1,
+            )
+            .await
+            .unwrap();
+        p.commit().await.unwrap();
+        let teardown = match &manager.dynamic_tun.lock().phase {
+            Phase::Active { teardown, .. } => teardown.clone(),
+            _ => unreachable!(),
+        };
+        let gate = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
+        struct Release(Arc<(Mutex<bool>, std::sync::Condvar)>);
+        impl Drop for Release {
+            fn drop(&mut self) {
+                *self.0 .0.lock().unwrap() = true;
+                self.0 .1.notify_all();
+            }
+        }
+        let release = Release(gate.clone());
+        let checks = Arc::new(AtomicUsize::new(0));
+        let counted = checks.clone();
+        let (started_tx, started) = tokio::sync::oneshot::channel();
+        teardown.push_check(crate::runtime::teardown::Step::new(
+            crate::runtime::teardown::LeftKind::Tun,
+            "test attachment cleanup",
+            move || {
+                counted.fetch_add(1, Ordering::SeqCst);
+                started_tx.send(()).unwrap();
+                let mut released = gate.0.lock().unwrap();
+                while !*released {
+                    released = gate.1.wait(released).unwrap();
+                }
+                Err(std::io::Error::other("injected local cleanup failure"))
+            },
+        ));
+        let detaching = instance.clone();
+        let detach = tokio::spawn(async move { detaching.detach_tun().await });
+        started.await.unwrap();
+        let stopping = instance.clone();
+        let stop = tokio::spawn(async move { stopping.stop().await });
+        tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                if manager.dynamic_tun.lock().closed {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        // The check was dequeued but has not completed; another drain must
+        // not observe an empty queue and report a completed clean teardown.
+        assert!(tokio::time::timeout(Duration::from_millis(200), async {
+            while !stop.is_finished() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .is_err());
+        drop(release);
+        let detached = detach.await.unwrap().unwrap();
+        assert!(!detached.clean());
+        assert!(stop.await.unwrap().is_err());
+        assert_eq!(checks.load(Ordering::SeqCst), 1);
+        assert!(instance
+            .stop_report()
+            .unwrap()
+            .left
+            .iter()
+            .any(|left| left.resource == "test attachment cleanup"
+                && left.why.contains("injected local cleanup failure")));
     }
 }

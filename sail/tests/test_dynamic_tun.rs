@@ -1014,3 +1014,54 @@ async fn a_late_successful_host_fd_is_closed_after_detach_or_instance_stop() {
         }
     }
 }
+
+#[cfg(feature = "rule-set")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn instance_stop_does_not_wait_for_a_hung_reload_in_any_dynamic_slot_state() {
+    // Disabled, enabled-but-empty, and active: none may make ordinary stop
+    // depend on a reload that still owns the update lock.
+    for mode in 0..3 {
+        let (i, port) = start(mode != 0).await;
+        let mut flow = if mode == 2 {
+            let (p, flow) = i.prepare_tun_packets(TUN, 1).await.unwrap();
+            p.commit().await.unwrap();
+            Some(flow)
+        } else {
+            None
+        };
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let rule_port = listener.local_addr().unwrap().port();
+        let (accepted_tx, accepted) = tokio::sync::oneshot::channel();
+        let server = tokio::spawn(async move {
+            let (_held, _) = listener.accept().await.unwrap();
+            accepted_tx.send(()).unwrap();
+            std::future::pending::<()>().await;
+        });
+        let mut cfg: serde_json::Value = serde_json::from_str(&config(port)).unwrap();
+        cfg["route"] = serde_json::json!({"final":"direct","rule_set":[{"type":"remote","tag":"hang","format":"source","url":format!("http://127.0.0.1:{rule_port}/rules.json")}],"rules":[{"rule_set":"hang","action":"reject"}]});
+        let reloading_instance = i.clone();
+        let reload = tokio::spawn(async move {
+            reloading_instance
+                .reload(Some(Config::Json(cfg.to_string())))
+                .await
+        });
+        tokio::time::timeout(Duration::from_secs(5), accepted)
+            .await
+            .unwrap()
+            .unwrap();
+        let stopped = tokio::time::timeout(Duration::from_secs(3), i.stop()).await;
+        // Release the fixture even on failure; do not leave a hanging server.
+        server.abort();
+        stopped
+            .expect("stop waited for the hanging reload's update lock")
+            .unwrap();
+        assert!(tokio::time::timeout(Duration::from_secs(5), reload)
+            .await
+            .unwrap()
+            .unwrap()
+            .is_err());
+        if let Some(flow) = flow.as_mut() {
+            assert!(flow.downlink.recv().await.is_none());
+        }
+    }
+}

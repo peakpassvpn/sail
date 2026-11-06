@@ -881,3 +881,9 @@ An uninterruptible callback cannot be forcibly stopped: it remains named in the
 nonclean report and keeps the attachment quarantined. The unjoined open result
 also has a resource registration, so a completed blocking task holding a device
 cannot be mistaken for a released device. Hosts must still make callbacks finite.
+
+A whole-instance stop permanently closes this run's publication epoch and drains
+the attachment without waiting for the reload/update lock. A suspended reload
+may own that lock until its root future is dropped during shutdown. Ordinary
+detach still serializes updates; the closed epoch and token check prevent late
+open results from publishing while full shutdown bypasses that lock.
