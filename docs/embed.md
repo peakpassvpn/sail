@@ -787,3 +787,58 @@ started) is safe to call any number of times and returns at once: it
 asks for nothing and undoes nothing a second time, and tells again what
 the last run left, if anything.
 
+
+### Explicit dynamic packet TUN
+
+`Options::dynamic_tun(true)` enables `Instance::prepare_tun_packets(inbound_json,
+capacity)`. This is separate from configuration reload: adding, removing or
+changing a static TUN through ordinary reload still requires restart. One dynamic
+attachment or preparation may own the slot in a run; a static TUN excludes it.
+The argument is one sing-box TUN inbound object, with its own tag. `auto_route`
+and `auto_redirect` must be off. The host owns OS route/DNS transactions.
+
+The call returns `(PreparedTun, TunPacketFlow)`. Move `flow.uplink` and
+`flow.downlink` into the host's independent packet read/write loops. Send complete
+IPv4/IPv6 packets without a platform family prefix. This supports a public iOS
+packetFlow adapter without obtaining a private file descriptor. Each queue holds
+at most `capacity` packets (`1..=4096`), at most 65535 bytes each; the existing
+netstack budget bounds its own storage separately. Pending host producers and
+host packetFlow batches are host-owned memory and must also be bounded.
+
+Preparation builds an unpolled stack and reserves its tag in this run; it opens
+no device and changes no system routes/DNS. No packet is consumed before
+`prepared.commit().await`. Dropping the preparation releases its resources and
+closes both queues. Commit consumes the handle. A stopped run invalidates all
+preparations, including handles retained across restart. Concurrent preparations
+are serialized: one wins, others return `State`. Reload and inbound mutation use
+the same update lock and cannot claim the reserved tag or install a static TUN.
+
+`detach_tun().await` is idempotent. It terminates only the attachment's packet
+stack, captured TCP streams and private UDP association table, then waits for its
+tasks to drop. A clean `StopReport` proves the packet ingress and its owned
+resources are released; queued old output is discarded and blocked send/read
+calls wake. A nonclean report leaves the generation in `Draining` and refuses
+another attachment until a later detach drains it. Commit/detach continue on
+Sail's runtime after cancellation of the host await; reconcile an uncertain
+result with `tun_state()` and idempotent detach. Stop drains the attachment too.
+A stack failure is visible as `TunState::Failed` and is local to that attachment.
+
+All generations share the original Instance, runtime, dispatcher, router,
+outbounds, users and statistics. The private NAT table is ingress state used to
+end exactly the captured UDP sessions; the mixed listener's existing NAT table
+and associations remain. No second proxy core or runtime is created. The dynamic
+API itself sends no global `network_changed` notification.
+
+The host must keep verified physical-egress state and socket protection/binding
+across its own capture-route changes. The startup baseline's normal network-change
+logic can end existing connections, particularly on forced same-state events;
+do not report the capture interface as the physical network or use such an event
+to signal attachment. Genuine physical network changes retain their normal
+semantics. Core packet tests do not establish macOS route/DNS/socket continuity
+or iOS extension lifetime behavior; those need platform integration validation.
+
+For packetFlow hosts, a clean detach proves closure of Sail's bridge, stack and
+captured forwarding tasks, not termination of the host's OS packetFlow object or
+an already-started host write. Packets already returned to the host cannot be
+revoked. The wrapper must cancel/join its own per-generation read/write tasks
+and finish its OS network transaction before reporting VPN capture fully off.

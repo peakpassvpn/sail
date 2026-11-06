@@ -16,3 +16,6 @@ pub mod manager;
 
 #[cfg(feature = "inbound-nf")]
 pub use network_listener::get_network_listen_addr;
+
+#[cfg(feature = "inbound-tun")]
+pub(crate) mod dynamic_tun;

@@ -24,6 +24,10 @@ mod instance;
 mod logs;
 mod network;
 mod streams;
+#[cfg(feature = "inbound-tun")]
+pub(crate) mod tun;
+#[cfg(feature = "inbound-tun")]
+pub use tun::{PreparedTun, TunPacketFlow, TunPacketReceiver, TunPacketSender, TunState};
 
 pub use crate::control::{
     ConnectionInfo, Delay, Failure, GroupInfo, InboundInfo, Mode, OutboundInfo, ProviderInfo,
@@ -116,9 +120,16 @@ pub struct Options {
     clash_modes: bool,
     log: Option<Arc<crate::app::logger::InstanceLog>>,
     stop_within: Option<Duration>,
+    dynamic_tun: bool,
 }
 
 impl Options {
+    /// Enables the explicit dynamic TUN API. Ordinary reload semantics stay unchanged.
+    pub fn dynamic_tun(mut self, enabled: bool) -> Self {
+        self.dynamic_tun = enabled;
+        self
+    }
+
     /// The desktop profile, its threads as sail-cli's, no platform, 3000
     /// lines of log kept.
     pub fn new() -> Self {

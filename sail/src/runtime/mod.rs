@@ -26,6 +26,8 @@ use serde_derive::Deserialize;
 /// Where the host keeps things, and what it does for the instance.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Host {
+    /// Explicit opt-in to attaching a TUN without restarting the instance.
+    pub dynamic_tun: bool,
     /// Data files (`geo.mmdb`, `site.dat`), certificates given by relative
     /// path, and the cache live here. Defaults to the executable's directory.
     pub data_dir: Option<PathBuf>,
@@ -365,6 +367,7 @@ impl StartSettings {
         Ok((
             options,
             Host {
+                dynamic_tun: false,
                 data_dir: self.data_dir,
                 cache_dir: self.cache_dir,
                 log_to_system: self.log_to_system.unwrap_or(false),

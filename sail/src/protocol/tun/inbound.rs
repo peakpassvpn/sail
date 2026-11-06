@@ -240,7 +240,7 @@ fn set_receive_window(tcp: &mut sail_netstack::TcpTableConfig, netstack: &Netsta
         .then_some(netstack.receive_window_max << 10);
 }
 
-fn run<I: sail_netstack::PacketIo + 'static>(
+pub(crate) fn run<I: sail_netstack::PacketIo + 'static>(
     inbound: Inbound,
     dispatcher: Arc<Dispatcher>,
     nat_manager: Arc<NatManager>,

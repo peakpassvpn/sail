@@ -7,8 +7,9 @@
 //!   request or probe. A panic there ends that task alone; it is logged,
 //!   counted and told (`Fault`), and the instance goes on.
 //! - `spawn_essential`: what the instance cannot do its job without, and
-//!   whose loss would degrade it silently. A panic there fails the
-//!   instance.
+//!   whose loss would degrade it silently. A panic there fails its scope.
+//!   The instance monitors its root scope; dynamic TUN attachments have
+//!   an isolated failure domain drained independently.
 //!
 //! In doubt, essential: a stopped instance is visible, a silently dead
 //! updater is not.
@@ -100,7 +101,7 @@ struct Inner {
     next: AtomicU64,
     shards: [Registry; SHARDS],
     /// Contained panics since the scope was made.
-    faults: AtomicU64,
+    faults: Arc<AtomicU64>,
     /// Why the instance failed: an essential task's panic, or a lock it
     /// poisoned; told once to whoever waits on it.
     failed: tokio::sync::watch::Sender<Option<String>>,
@@ -111,7 +112,7 @@ struct Inner {
     log: std::sync::OnceLock<Arc<crate::app::logger::InstanceLog>>,
     /// What the system's clock is behind the instance's NTP server, in
     /// nanoseconds (`crate::clock`).
-    clock: portable_atomic::AtomicI64,
+    clock: Arc<portable_atomic::AtomicI64>,
 }
 
 /// An instance's tasks. Cheap to clone; every clone the same.
@@ -144,16 +145,43 @@ fn message(panic: &(dyn std::any::Any + Send)) -> String {
 
 impl TaskScope {
     pub fn new(events: crate::control::events::EventHub) -> Self {
+        Self::with_context(
+            events,
+            Arc::new(AtomicU64::new(0)),
+            Arc::new(portable_atomic::AtomicI64::new(0)),
+        )
+    }
+
+    fn with_context(
+        events: crate::control::events::EventHub,
+        faults: Arc<AtomicU64>,
+        clock: Arc<portable_atomic::AtomicI64>,
+    ) -> Self {
         TaskScope(Arc::new(Inner {
             next: AtomicU64::new(0),
             shards: std::array::from_fn(|_| Mutex::new(HashMap::new())),
-            faults: AtomicU64::new(0),
+            faults,
             failed: tokio::sync::watch::channel(None).0,
             events,
             report: Mutex::new(None),
             log: std::sync::OnceLock::new(),
-            clock: portable_atomic::AtomicI64::new(0),
+            clock,
         }))
+    }
+
+    /// An independently drainable task registry/failure domain in the same
+    /// instance. Logs, events, NTP clock and fault accounting remain shared.
+    #[cfg(feature = "inbound-tun")]
+    pub(crate) fn isolated(&self) -> Self {
+        let scope = Self::with_context(
+            self.0.events.clone(),
+            self.0.faults.clone(),
+            self.0.clock.clone(),
+        );
+        if let Some(log) = self.log() {
+            scope.set_log(log);
+        }
+        scope
     }
 
     /// What the system's clock is behind the instance's NTP server, in
@@ -419,13 +447,14 @@ impl TaskScope {
                     .fault(crate::control::events::Fault::new(name, class, what, count));
             }
             TaskClass::Essential => {
-                tracing::error!("task [{}] panicked: {}; the instance fails", name, what);
+                tracing::error!("task [{}] panicked: {}; its scope fails", name, what);
                 self.fail(format!("task [{}] panicked: {}", name, what));
             }
         }
     }
 
-    /// Fails the instance: the first reason is kept.
+    /// Fails this scope: the first reason is kept. A root scope fails the
+    /// instance; an isolated attachment scope fails only that attachment.
     pub fn fail(&self, why: String) {
         self.0.failed.send_if_modified(|failed| {
             if failed.is_none() {
@@ -476,11 +505,9 @@ impl TaskScope {
         self.len() == 0
     }
 
-    /// Ends every task: aborts them, then waits up to `within` for them to
-    /// be gone. What is left (a blocking call, which an abort cannot end)
-    /// is reported, and kept for `report`.
-    pub async fn stop(&self, within: Duration) -> StopReport {
-        let started = Instant::now();
+    /// Emergency cancellation without waiting, for an owner's Drop. Normal
+    /// lifecycle operations use stop() and inspect its resource barrier.
+    pub(crate) fn abort_all(&self) {
         for shard in &self.0.shards {
             for (_, abort) in lock(shard).values() {
                 if let Some(abort) = abort {
@@ -488,6 +515,14 @@ impl TaskScope {
                 }
             }
         }
+    }
+
+    /// Ends every task: aborts them, then waits up to `within` for them to
+    /// be gone. What is left (a blocking call, which an abort cannot end)
+    /// is reported, and kept for `report`.
+    pub async fn stop(&self, within: Duration) -> StopReport {
+        let started = Instant::now();
+        self.abort_all();
         while !self.is_empty() && started.elapsed() < within {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
@@ -796,6 +831,27 @@ pub fn unscoped_count() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "inbound-tun")]
+    #[tokio::test]
+    async fn an_isolated_registry_keeps_instance_context_but_not_failure_or_tasks() {
+        let parent = TaskScope::default();
+        let child = parent.isolated();
+        parent.set_clock_offset(17);
+        assert_eq!(child.clock_offset(), 17);
+        child.set_clock_offset(23);
+        assert_eq!(parent.clock_offset(), 23);
+        let bad = child.spawn("isolated panic", async { panic!("one attachment") });
+        assert!(bad.await.is_err());
+        assert_eq!(parent.faults(), 1);
+        assert!(parent.failure().is_none());
+        child.fail("attachment failed".to_string());
+        assert!(parent.failure().is_none());
+        assert!(child.failure().is_some());
+        let _task = child.spawn("isolated pending", std::future::pending::<()>());
+        assert!(parent.is_empty());
+        assert!(child.stop(Duration::from_secs(1)).await.clean());
+    }
 
     #[tokio::test]
     async fn a_contained_panic_is_counted_and_the_scope_goes_on() {
