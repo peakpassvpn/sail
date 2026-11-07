@@ -27,6 +27,9 @@ pub struct AutoInterface {
     /// Interfaces never to send through: the TUN's own.
     skip: Vec<String>,
     detect: Detect,
+    /// The same authority as network rules/events, including a push before
+    /// this detector is first constructed or after an OS lookup began.
+    network: Option<super::network::Network>,
 }
 
 impl std::fmt::Debug for AutoInterface {
@@ -50,10 +53,28 @@ impl AutoInterface {
     /// Looks at the interfaces now; `skip` names those never to send
     /// through.
     pub fn new(skip: Vec<String>, detect: Detect) -> Arc<AutoInterface> {
+        Self::create(skip, detect, None)
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows", test))]
+    pub(crate) fn with_network(
+        skip: Vec<String>,
+        detect: Detect,
+        network: super::network::Network,
+    ) -> Arc<AutoInterface> {
+        Self::create(skip, detect, Some(network))
+    }
+
+    fn create(
+        skip: Vec<String>,
+        detect: Detect,
+        network: Option<super::network::Network>,
+    ) -> Arc<Self> {
         let this = Arc::new(AutoInterface {
             state: ArcSwap::from_pointee(State::default()),
             skip,
             detect,
+            network,
         });
         this.refresh();
         this
@@ -61,7 +82,22 @@ impl AutoInterface {
 
     /// Looks again, and says whether anything changed.
     pub fn refresh(&self) -> bool {
-        let default = match (self.detect)() {
+        self.refresh_from(|| ((self.detect)(), subnets().unwrap_or_default()))
+    }
+
+    fn refresh_from(
+        &self,
+        detect: impl FnOnce() -> (io::Result<String>, Vec<(IpAddr, u8, String)>),
+    ) -> bool {
+        if self
+            .network
+            .as_ref()
+            .is_some_and(|network| network.pushed())
+        {
+            return false;
+        }
+        let (default, subnets) = detect();
+        let default = match default {
             Ok(name) if !self.skip.contains(&name) => Some(name),
             Ok(name) => {
                 tracing::warn!("the default route goes through {}, sail's own", name);
@@ -72,12 +108,20 @@ impl AutoInterface {
                 None
             }
         };
-        let subnets = subnets()
-            .unwrap_or_default()
+        let subnets = subnets
             .into_iter()
             .filter(|(_, _, name)| !self.skip.contains(name))
             .collect();
         let state = State { default, subnets };
+        match &self.network {
+            Some(network) => network
+                .while_detecting(|| self.install(state))
+                .unwrap_or(false),
+            None => self.install(state),
+        }
+    }
+
+    fn install(&self, state: State) -> bool {
         if **self.state.load() == state {
             return false;
         }
@@ -91,6 +135,35 @@ impl AutoInterface {
 
     /// The interface to send to `target` through.
     pub fn for_target(&self, target: IpAddr) -> Option<String> {
+        if let Some(state) = self
+            .network
+            .as_ref()
+            .and_then(|network| network.host_state())
+        {
+            return state
+                .addresses
+                .iter()
+                .filter_map(|inet| state.interface.as_ref().map(|name| (inet, name)))
+                .chain(state.interfaces.iter().flat_map(|interface| {
+                    interface
+                        .addresses
+                        .iter()
+                        .map(move |inet| (inet, &interface.name))
+                }))
+                .filter(|(inet, name)| {
+                    !self.skip.contains(name)
+                        && contains(inet.address(), inet.network_length(), target)
+                })
+                .max_by_key(|(inet, _)| inet.network_length())
+                .map(|(_, name)| name.clone())
+                .or_else(|| {
+                    state
+                        .interface
+                        .as_ref()
+                        .filter(|name| !self.skip.contains(name))
+                        .cloned()
+                });
+        }
         let state = self.state.load();
         state
             .subnets
@@ -103,6 +176,17 @@ impl AutoInterface {
 
     /// The default interface now.
     pub fn current(&self) -> Option<String> {
+        if let Some(state) = self
+            .network
+            .as_ref()
+            .and_then(|network| network.host_state())
+        {
+            return state
+                .interface
+                .as_ref()
+                .filter(|name| !self.skip.contains(name))
+                .cloned();
+        }
         self.state.load().default.clone()
     }
 }
@@ -466,6 +550,175 @@ mod tests {
 
     fn fixed() -> io::Result<String> {
         Ok("eth0".into())
+    }
+
+    fn host(name: &str) -> super::super::network::NetworkState {
+        super::super::network::NetworkState {
+            interface: Some(name.into()),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn host_push_before_or_after_construction_overrides_os_routes_and_subnets() {
+        for before in [true, false] {
+            let network = super::super::network::Network::default();
+            if before {
+                network.push(host("en0"));
+            }
+            let auto = AutoInterface::with_network(vec![], fixed, network.clone());
+            // A capture interface may be unknown to the static skip list.
+            auto.state.store(Arc::new(State {
+                default: Some("utun233".into()),
+                subnets: vec![("192.0.2.0".parse().unwrap(), 24, "utun233".into())],
+            }));
+            if !before {
+                network.push(host("en0"));
+            }
+            assert_eq!(auto.current().as_deref(), Some("en0"));
+            for target in [
+                "192.0.2.1",
+                "203.0.113.1",
+                "::ffff:192.0.2.1",
+                "2001:db8::1",
+            ] {
+                assert_eq!(
+                    auto.for_target(target.parse().unwrap()).as_deref(),
+                    Some("en0")
+                );
+            }
+            assert!(!auto.refresh_from(|| panic!("OS detection after host push")));
+            network.push(host("en1"));
+            assert_eq!(auto.current().as_deref(), Some("en1"));
+            network.push(Default::default());
+            assert_eq!(auto.current(), None);
+            assert_eq!(auto.for_target("192.0.2.1".parse().unwrap()), None);
+        }
+    }
+
+    #[test]
+    fn automatic_detection_and_its_reset_notice_work_until_the_host_takes_over() {
+        use super::super::network::{ChangeReason, Network};
+        let network = Network::default();
+        network.settle_first(Some(host("eth0")));
+        let auto = AutoInterface::with_network(vec![], fixed, network.clone());
+        assert!(auto.refresh_from(|| (Ok("eth1".into()), vec![])));
+        assert_eq!(auto.current().as_deref(), Some("eth1"));
+        assert_eq!(network.announce(ChangeReason::DefaultInterface), Some(2));
+        assert!(network.detected(host("eth1"), ChangeReason::State));
+        assert_eq!(network.snapshot_with_generation().generation, 3);
+        assert_eq!(network.snapshot().interface.as_deref(), Some("eth1"));
+    }
+
+    #[test]
+    fn only_host_listed_subnets_can_override_its_default() {
+        let network = super::super::network::Network::default();
+        let mut state = host("en0");
+        state.addresses = vec!["192.0.0.1/16".parse().unwrap()];
+        state.interfaces = vec![super::super::network::NetworkInterface {
+            name: "en1".into(),
+            index: None,
+            kind: super::super::network::NetworkType::Ethernet,
+            addresses: vec![
+                "192.0.2.1/24".parse().unwrap(),
+                "2001:db8:1::1/64".parse().unwrap(),
+            ],
+            expensive: false,
+            constrained: false,
+        }];
+        let mut default = state.interfaces[0].clone();
+        default.name = "en0".into();
+        default.addresses = state.addresses.clone();
+        state.interfaces.push(default);
+        network.push(state.normalized().unwrap());
+        let auto = AutoInterface::with_network(vec![], fixed, network);
+        auto.state.store(Arc::new(State {
+            default: Some("utun233".into()),
+            subnets: vec![("192.0.2.1".parse().unwrap(), 32, "utun233".into())],
+        }));
+        for target in ["192.0.2.1", "::ffff:192.0.2.1", "2001:db8:1::2"] {
+            assert_eq!(
+                auto.for_target(target.parse().unwrap()).as_deref(),
+                Some("en1")
+            );
+        }
+        assert_eq!(
+            auto.for_target("192.0.3.1".parse().unwrap()).as_deref(),
+            Some("en0")
+        );
+        assert_eq!(
+            auto.for_target("203.0.113.1".parse().unwrap()).as_deref(),
+            Some("en0")
+        );
+    }
+
+    #[test]
+    fn host_authority_still_excludes_exact_known_own_interfaces() {
+        use super::super::network::{Network, NetworkInterface, NetworkType};
+        let network = Network::default();
+        let mut state = host("tun0");
+        state.addresses = vec!["192.0.2.1/24".parse().unwrap()];
+        network.push(state);
+        let auto = AutoInterface::with_network(vec!["tun0".into()], fixed, network.clone());
+        assert_eq!(auto.current(), None);
+        assert_eq!(auto.for_target("192.0.2.1".parse().unwrap()), None);
+        assert_eq!(auto.for_target("203.0.113.1".parse().unwrap()), None);
+        let interface = |name: &str, address: &str| NetworkInterface {
+            name: name.into(),
+            index: None,
+            kind: NetworkType::Other,
+            addresses: vec![address.parse().unwrap()],
+            expensive: false,
+            constrained: false,
+        };
+        let mut state = host("en0");
+        state.addresses = vec!["192.0.0.1/16".parse().unwrap()];
+        state.interfaces = vec![
+            interface("en0", "192.0.0.1/16"),
+            interface("tun0", "192.0.2.1/32"),
+            interface("utun99", "203.0.113.1/24"),
+        ];
+        network.push(state.normalized().unwrap());
+        assert_eq!(auto.current().as_deref(), Some("en0"));
+        assert_eq!(
+            auto.for_target("192.0.2.1".parse().unwrap()).as_deref(),
+            Some("en0")
+        );
+        // Another explicitly supplied VPN interface remains valid; skip is
+        // exact ownership, not a blanket utun/tun prefix restriction.
+        assert_eq!(
+            auto.for_target("203.0.113.2".parse().unwrap()).as_deref(),
+            Some("utun99")
+        );
+    }
+
+    #[test]
+    fn an_os_lookup_already_in_flight_cannot_publish_after_host_push() {
+        let network = super::super::network::Network::default();
+        let auto = AutoInterface::with_network(vec![], fixed, network.clone());
+        let (started_tx, started) = std::sync::mpsc::channel();
+        let (release, released) = std::sync::mpsc::channel();
+        let detector = auto.clone();
+        let task = std::thread::spawn(move || {
+            detector.refresh_from(|| {
+                started_tx.send(()).unwrap();
+                released.recv().unwrap();
+                (
+                    Ok("utun233".into()),
+                    vec![("192.0.2.0".parse().unwrap(), 24, "utun233".into())],
+                )
+            })
+        });
+        started.recv().unwrap();
+        network.push(host("en0"));
+        release.send(()).unwrap();
+        assert!(!task.join().unwrap());
+        assert_eq!(auto.state.load().default.as_deref(), Some("eth0"));
+        assert_eq!(auto.current().as_deref(), Some("en0"));
+        assert_eq!(
+            auto.for_target("192.0.2.1".parse().unwrap()).as_deref(),
+            Some("en0")
+        );
     }
 
     #[test]

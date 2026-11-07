@@ -2028,9 +2028,10 @@ pub(crate) fn dial_defaults(
         defaults.env.auto_interface = Some(
             env.auto_interface
                 .get_or_init(|| {
-                    net::interface::AutoInterface::new(
+                    net::interface::AutoInterface::with_network(
                         own_interfaces,
                         platform::detect_default_interface,
+                        env.network.clone(),
                     )
                 })
                 .clone(),
@@ -2906,6 +2907,43 @@ mod tests {
         );
         // And it is the one the network's follower refreshes.
         assert!(Arc::ptr_eq(&started, env.auto_interface.get().unwrap()));
+    }
+
+    #[cfg(all(
+        feature = "outbound-direct",
+        any(target_os = "macos", target_os = "linux", target_os = "windows")
+    ))]
+    #[test]
+    fn host_push_reaches_existing_and_future_automatic_dialers() {
+        let config = super::config::Config::from_json(
+            r#"{"route":{"auto_detect_interface":true},"outbounds":[{"type":"direct"}]}"#,
+        )
+        .unwrap();
+        for before in [true, false] {
+            let env = super::runtime::RuntimeEnv::default();
+            let host = || super::net::network::NetworkState {
+                interface: Some("en0".into()),
+                ..Default::default()
+            };
+            if before {
+                env.network.push(host());
+            }
+            let defaults = super::dial_defaults(&config, &env).unwrap();
+            let auto = defaults.env.auto_interface.as_ref().unwrap();
+            if !before {
+                env.network.push(host());
+            }
+            assert_eq!(auto.current().as_deref(), Some("en0"));
+            assert_eq!(
+                auto.for_target("192.0.2.1".parse().unwrap()).as_deref(),
+                Some("en0")
+            );
+            let reloaded = super::dial_defaults(&config, &env).unwrap();
+            assert!(std::sync::Arc::ptr_eq(
+                auto,
+                reloaded.env.auto_interface.as_ref().unwrap()
+            ));
+        }
     }
 
     /// `quic.udp_receive_buffer` and `quic.udp_send_buffer` reach the

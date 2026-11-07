@@ -103,12 +103,52 @@ async fn udp_echo() -> (SocketAddr, tokio::task::JoinHandle<()>) {
     )
 }
 
+type UdpPeers = Arc<std::sync::Mutex<std::collections::HashSet<SocketAddr>>>;
+async fn udp_echo_tracking_mixed_peer() -> (SocketAddr, tokio::task::JoinHandle<()>, UdpPeers) {
+    let socket = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let address = socket.local_addr().unwrap();
+    let peers = Arc::new(std::sync::Mutex::new(std::collections::HashSet::new()));
+    let seen = peers.clone();
+    let task = tokio::spawn(async move {
+        let mut bytes = [0; 2048];
+        loop {
+            let (len, peer) = socket.recv_from(&mut bytes).await.unwrap();
+            if &bytes[..len] == b"mixed-udp" {
+                seen.lock().unwrap().insert(peer);
+            }
+            socket.send_to(&bytes[..len], peer).await.unwrap();
+        }
+    });
+    (address, task, peers)
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn mixed_authenticated_tcp_http_and_udp_survive_three_tun_generations() {
+    proxy_survives_tun_generations(3, false).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn host_physical_state_preserves_held_tcp_http_and_udp_across_twenty_capture_cycles() {
+    proxy_survives_tun_generations(20, true).await;
+}
+
+async fn proxy_survives_tun_generations(cycles: u16, host_pushed: bool) {
+    use sail::net::network::ChangeReason;
+    const PHYSICAL: &str = r#"{"interface":"en0","addresses":["192.0.2.1/24"]}"#;
     let (i, port) = start(true).await;
     let original = i.manager().unwrap();
+    if host_pushed {
+        // Finish the real initial physical-state transition before opening
+        // held connections. The explicit notice folds into that push.
+        let (p, _flow) = i.prepare_tun_packets(TUN, 2).await.unwrap();
+        p.commit().await.unwrap();
+        i.set_network_state(PHYSICAL).unwrap();
+        i.network_changed(None).await.unwrap();
+        assert!(i.detach_tun().await.unwrap().clean());
+    }
+    let physical_generation = i.network().unwrap().generation;
     let (tcp, task) = tcp_echo().await;
-    let (udp, utask) = udp_echo().await;
+    let (udp, utask, mixed_udp_peers) = udp_echo_tracking_mixed_peer().await;
     let (mut s, _) = socks(port, 1, tcp).await;
     let mut http = tokio::net::TcpStream::connect(("127.0.0.1", port))
         .await
@@ -137,12 +177,19 @@ async fn mixed_authenticated_tcp_http_and_udp_survive_three_tun_generations() {
     udp_req.extend(v4.ip().octets());
     udp_req.extend(v4.port().to_be_bytes());
     udp_req.extend(b"mixed-udp");
-    for n in 0..3 {
+    for n in 0..cycles {
         roundtrip(&mut s, b"before").await;
         roundtrip(&mut http, b"before-http").await;
         let (p, mut flow) = i.prepare_tun_packets(TUN, 2).await.unwrap();
         assert!(matches!(i.tun_state().unwrap(), TunState::Prepared { .. }));
         p.commit().await.unwrap();
+        if host_pushed {
+            i.set_network_state(PHYSICAL).unwrap();
+            // The follower may have observed capture changing the OS default
+            // just before a host push. Its late announcement is not a move.
+            original.network().announce(ChangeReason::DefaultInterface);
+            i.network_changed(None).await.unwrap();
+        }
         assert!(original.has_tun());
         let source = "10.19.0.2:41000".parse().unwrap();
         flow.uplink
@@ -179,6 +226,11 @@ async fn mixed_authenticated_tcp_http_and_udp_survive_three_tun_generations() {
             .unwrap()
             .unwrap();
         assert_eq!(&b[10..len], b"mixed-udp");
+        assert_eq!(
+            mixed_udp_peers.lock().unwrap().len(),
+            1,
+            "mixed UDP silently reopened its outbound socket"
+        );
         assert!(Arc::ptr_eq(&original, &i.manager().unwrap()));
         let mut denied = tokio::net::TcpStream::connect(("127.0.0.1", port))
             .await
@@ -187,6 +239,42 @@ async fn mixed_authenticated_tcp_http_and_udp_survive_three_tun_generations() {
         let mut r = [0; 2];
         denied.read_exact(&mut r).await.unwrap();
         assert_eq!(r, [5, 255]);
+    }
+    if host_pushed {
+        assert_eq!(i.network().unwrap().generation, physical_generation);
+        let (p, _flow) = i.prepare_tun_packets(TUN, 2).await.unwrap();
+        p.commit().await.unwrap();
+        // A genuine physical move still closes old held connections and
+        // advances generation; capture continuity must not suppress it.
+        i.set_network_state(r#"{"interface":"en1","addresses":["198.51.100.1/24"]}"#)
+            .unwrap();
+        i.network_changed(None).await.unwrap();
+        assert_eq!(i.network().unwrap().generation, physical_generation + 1);
+        let mut b = [0; 1];
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(3), s.read(&mut b))
+                .await
+                .unwrap()
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(3), http.read(&mut b))
+                .await
+                .unwrap()
+                .unwrap(),
+            0
+        );
+        i.set_network_state(r#"{}"#).unwrap();
+        i.network_changed(None).await.unwrap();
+        assert!(i.network().unwrap().offline());
+        assert_eq!(i.network().unwrap().generation, physical_generation + 2);
+        i.set_network_state(PHYSICAL).unwrap();
+        i.network_changed(None).await.unwrap();
+        assert_eq!(i.network().unwrap().generation, physical_generation + 3);
+        let (mut fresh, _) = socks(port, 1, tcp).await;
+        roundtrip(&mut fresh, b"new physical generation").await;
+        assert!(i.detach_tun().await.unwrap().clean());
     }
     i.stop().await.unwrap();
     task.abort();

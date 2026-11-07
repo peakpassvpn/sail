@@ -527,12 +527,30 @@ impl Network {
         (self.state.borrow().clone(), self.events.subscribe())
     }
 
+    /// A host-provided default is authoritative for automatic egress too.
+    pub(crate) fn host_state(&self) -> Option<Arc<NetworkState>> {
+        let _telling = self.telling.lock().unwrap_or_else(|e| e.into_inner());
+        self.pushed().then(|| self.snapshot())
+    }
+
+    /// Publish a detector result only while detection still owns the state.
+    /// The slow OS query runs before this critical section.
+    pub(crate) fn while_detecting<T>(&self, publish: impl FnOnce() -> T) -> Option<T> {
+        let _telling = self.telling.lock().unwrap_or_else(|e| e.into_inner());
+        (!self.pushed()).then(publish)
+    }
+
     /// Tells of a change whatever the state says: the host says the network
     /// changed, or the system woke. Returns the generation the change took,
     /// or None when the word folded into a pushed state told already (the
     /// generation to wait on is the state's then, `snapshot_with_generation`).
     pub fn announce(&self, reason: ChangeReason) -> Option<u64> {
         let _telling = self.telling.lock().unwrap_or_else(|e| e.into_inner());
+        // OS route notices can describe capture, not a physical move. A
+        // late detector must not turn that into an unconditional reset.
+        if self.pushed() && matches!(reason, ChangeReason::DefaultInterface | ChangeReason::State) {
+            return None;
+        }
         // The host's word right after the state it pushed is about that
         // state, which sail handled as it came: folded into it.
         let pushed_at = self
@@ -667,9 +685,7 @@ impl Network {
     /// The state as the host tells it; what sail detects is left from then
     /// on.
     pub fn push(&self, state: NetworkState) {
-        self.pushed.store(true, Ordering::Relaxed);
         self.set(state, ChangeReason::HostPush);
-        *self.pushed_at.lock().unwrap_or_else(|e| e.into_inner()) = Some(std::time::Instant::now());
     }
 
     /// Settles the state sail starts on, before the instance runs: `state`
@@ -685,7 +701,7 @@ impl Network {
         let mut state = state.unwrap_or_default();
         self.leave_own_out(&mut state);
         let _telling = self.telling.lock().unwrap_or_else(|e| e.into_inner());
-        if self.known.swap(true, Ordering::Relaxed) {
+        if self.pushed() || self.known.swap(true, Ordering::Relaxed) {
             return;
         }
         let state = Arc::new(state);
@@ -726,6 +742,13 @@ impl Network {
     fn set(&self, mut state: NetworkState, reason: ChangeReason) -> bool {
         self.leave_own_out(&mut state);
         let _telling = self.telling.lock().unwrap_or_else(|e| e.into_inner());
+        if reason == ChangeReason::HostPush {
+            self.pushed.store(true, Ordering::Relaxed);
+            *self.pushed_at.lock().unwrap_or_else(|e| e.into_inner()) =
+                Some(std::time::Instant::now());
+        } else if self.pushed() {
+            return false;
+        }
         let old = self.snapshot();
         // The first state known, at the start, moves nothing.
         let known = self.known.swap(true, Ordering::Relaxed);
@@ -785,6 +808,53 @@ impl Network {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn host_authority_rejects_late_detection_and_automatic_resets_but_keeps_real_moves() {
+        let network = Network::default();
+        network.settle_first(Some(on("en0", &["192.0.2.1/24"])));
+        let (queried_tx, queried) = std::sync::mpsc::channel();
+        let (release, released) = std::sync::mpsc::channel();
+        let late = network.clone();
+        let detector = std::thread::spawn(move || {
+            let result = on("utun233", &["10.19.0.1/24"]);
+            // Model the detector past its old !pushed gate, before it
+            // enters set's publication critical section.
+            queried_tx.send(()).unwrap();
+            released.recv().unwrap();
+            late.set(result, ChangeReason::State)
+        });
+        queried.recv().unwrap();
+        network.push(on("en0", &["192.0.2.1/24"]));
+        let generation = network.snapshot_with_generation().generation;
+        release.send(()).unwrap();
+        assert!(!detector.join().unwrap());
+        network.settle_first(Some(on("utun233", &["10.19.0.1/24"])));
+        assert!(network
+            .while_detecting(|| panic!("late detector publication"))
+            .is_none());
+        assert_eq!(network.announce(ChangeReason::DefaultInterface), None);
+        assert_eq!(network.announce(ChangeReason::State), None);
+        assert_eq!(network.snapshot().interface.as_deref(), Some("en0"));
+        assert_eq!(network.snapshot_with_generation().generation, generation);
+        // Automatic notices must not consume the explicit host-fold token.
+        assert_eq!(network.announce(ChangeReason::HostPush), None);
+        assert_eq!(
+            network.announce(ChangeReason::HostPush),
+            Some(generation + 1)
+        );
+        assert_eq!(network.announce(ChangeReason::Wake), Some(generation + 2));
+        network.push(on("en1", &["198.51.100.1/24"]));
+        assert_eq!(
+            network.snapshot_with_generation().generation,
+            generation + 3
+        );
+        network.push(Default::default());
+        assert_eq!(
+            network.snapshot_with_generation().generation,
+            generation + 4
+        );
+    }
 
     #[test]
     fn a_host_s_state_is_read_and_normalized() {
