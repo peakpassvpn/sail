@@ -41,7 +41,7 @@ classify_failure() {
     echo "security-check: ERROR: $scanner was blocked by filesystem permissions" >&2
     return "$EXIT_ERROR"
   fi
-  if grep -Eiq 'could not resolve|failed to (fetch|download)|network failure|timed? out|unable to access|could not connect|connection refused' "$log"; then
+  if grep -Eiq 'could not resolve|failed to (fetch|download)|network failure|timed? out|unable to access|could not connect|connection refused|couldn.t fetch advisory database|error sending request|allotted timeframe' "$log"; then
     echo "security-check: UNAVAILABLE: $scanner could not reach a required service" >&2
     return "$EXIT_UNAVAILABLE"
   fi
@@ -82,7 +82,16 @@ run_audit() {
     echo "security-check: ERROR: Cargo.lock is required for cargo-audit: $lockfile" >&2
     return "$EXIT_ERROR"
   fi
-  local -a audit_args=(cargo audit --file "$lockfile")
+  # Both scanners must inspect the repository graph. A copied lockfile is
+  # accepted only when it is byte-identical, then the canonical file is used.
+  if ! cmp -s "$lockfile" "$repo_root/Cargo.lock"; then
+    echo "security-check: ERROR: audit requires the repository Cargo.lock or an identical copy" >&2
+    return "$EXIT_ERROR"
+  fi
+  lockfile="$repo_root/Cargo.lock"
+  require_tool cargo-deny "$DENY_VERSION" || return $?
+  # Unsound advisories are warnings by default; they must fail this gate.
+  local -a audit_args=(cargo audit --deny unsound --file "$lockfile")
   # The advisories deny.toml allows, each with its reason there.
   local id
   for id in $(grep -oE 'id = "RUSTSEC-[0-9]{4}-[0-9]{4}"' "$script_dir/deny.toml" | grep -oE 'RUSTSEC-[0-9-]+'); do
@@ -91,7 +100,13 @@ run_audit() {
   if [[ -n "${CARGO_AUDIT_DB:-}" ]]; then
     audit_args+=(--db "$CARGO_AUDIT_DB")
   fi
-  run_logged "cargo-audit" "${audit_args[@]}"
+  run_logged "cargo-audit advisories" "${audit_args[@]}" || return $?
+  # Independently require readable local registry entries. This native
+  # check does not attest to a fresh online yank query; cargo-audit can
+  # return zero after an online lookup error, which remains incomplete.
+  run_logged "cargo-deny advisories" \
+    cargo deny --locked --manifest-path "$repo_root/Cargo.toml" \
+      --config "$script_dir/deny.toml" check --deny index-failure advisories
 }
 
 run_licenses() {
