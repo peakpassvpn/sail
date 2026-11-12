@@ -543,10 +543,13 @@ async fn udp_rechecks_a_new_destination_without_spending_another_session_place()
     assert_eq!(connections[0].id, id);
     assert_eq!((connections[0].upload, connections[0].download), (173, 173));
     drop(send);
-    instance.stop().await.unwrap();
+    // Observe source/association teardown before stopping the whole
+    // instance: its record must say Finished, never IdleTimeout.
     let closed = tokio::time::timeout(Duration::from_secs(5), next_bound(&mut records, &binding))
         .await
         .unwrap();
+    assert_eq!(closed.kind, RecordKind::Closed(End::Finished));
+    instance.stop().await.unwrap();
     assert_eq!(closed.id, id);
     assert_eq!(closed.parent_id, None);
     assert_eq!(closed.run, rejected.run);
