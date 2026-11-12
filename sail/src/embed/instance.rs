@@ -145,6 +145,13 @@ impl Instance {
             kinds,
             admission,
         } = options;
+        #[cfg(not(feature = "inbound-tun"))]
+        if kinds.dynamic_tun_enabled() {
+            return Err(Error::new(
+                ErrorKind::Unsupported,
+                "dynamic TUN requires inbound-tun",
+            ));
+        }
         if admission.bind.is_some() && lossless_records.is_none() {
             return Err(Error::new(
                 ErrorKind::InvalidArgument,
@@ -535,6 +542,18 @@ impl Inner {
                 life.phase.name()
             )));
         }
+        // A bounded stop may return while a dynamic device callback still
+        // runs. It can read the host's staged device only later, so a new
+        // run must not allow that host slot to be reused before the old
+        // task and its returned-resource guard have both ended.
+        #[cfg(feature = "inbound-tun")]
+        if self.host.kinds.dynamic_tun_enabled()
+            && life.scope.as_ref().is_some_and(|scope| !scope.is_empty())
+        {
+            return Err(Error::state(
+                "the previous dynamic TUN run still owns tasks or resources; wait for them to end before restarting",
+            ));
+        }
         // The last run's thread has ended, or is ending.
         if let Some(thread) = life.thread.take() {
             let _ = thread.join();
@@ -885,4 +904,13 @@ fn expires(
 #[doc(hidden)]
 pub fn ids_held() -> usize {
     lock(&IDS).len()
+}
+
+#[cfg(all(test, not(feature = "inbound-tun")))]
+mod dynamic_feature_tests {
+    #[test]
+    fn an_explicit_dynamic_tun_option_requires_the_feature() {
+        let error = super::Instance::new(super::Options::new().dynamic_tun(true)).unwrap_err();
+        assert_eq!(error.kind(), super::ErrorKind::Unsupported);
+    }
 }

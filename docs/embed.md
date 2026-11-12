@@ -465,6 +465,24 @@ that some connections may not survive (a move), as `Event::Network`:
 - **Settled.** Every change is settled before it is told: sail's detection
   waits until the system has been quiet for 100 ms (1 s at most) before it
   looks. A state the host pushes (`set_network_state`) is taken as given.
+- **Physical egress supplied by the host.** The first `set_network_state`
+  also gives the host authority over automatic interface selection for this
+  run, including dialers created earlier or retained through reload. The
+  default comes from `interface`; target selection uses longest prefix from
+  the default's addresses and explicitly listed `interfaces`. It does not
+  supplement these with OS routes/subnets while the host supplies the state.
+  Exact known self-owned names are excluded; unrelated explicitly listed
+  VPN interfaces remain valid. With no default or matching host subnet,
+  automatic non-loopback dialing has no interface, rather than falling back
+  to a cached capture route. Explicit outbound binds and loopback keep
+  their existing behavior. The host must keep reporting actual physical
+  moves, offline and restoration. Late OS detector results and automatic
+  capture-route notifications cannot replace this authority or issue a
+  same-state reset. Explicit host reset/folding and wake semantics remain;
+  without a push, automatic monitoring continues. The network snapshot
+  remains a state publication, not an acknowledgment that reset handling
+  has finished. Private egress retains the exact host declarations so that
+  ownership exclusions do not permanently erase a supplied interface.
 - **Old and new.** Each event carries the old and the new state, the
   `reason` (default interface, detected, host, wake) and the generation.
   Generations count from 1 in each run.
@@ -880,6 +898,105 @@ back-reference to its owners, nor may its provider form such a cycle.
 Use immutable host snapshots; interior mutability is the host's explicit
 synchronization and versioning responsibility. No TTL, tombstone or new
 per-destination meter is introduced.
+
+## Explicit TUN attachment
+
+`Options::dynamic_tun(true)` enables the optional Rust attachment API. It
+is off by default and requires `inbound-tun`. One running `Instance` owns
+at most one reservation or attachment, alongside its existing proxy core.
+Ordinary static TUN startup and reload retain their existing semantics.
+
+`prepare_tun_packets(inbound_json, capacity)` returns a `PreparedTun` and a
+`TunPacketFlow`. The JSON is one named TUN inbound object, not a whole
+configuration. Preparation allocates an unpolled stack and bounded queues;
+it opens no device and changes no OS routes or DNS. Capacity is 1–4096
+packets in each direction; each packet is a whole 1–65535 byte raw IPv4 or
+IPv6 payload, without a Darwin address-family prefix. Netstack budgets and
+host-retained batches remain separate bounds. Move `flow.uplink` and
+`flow.downlink` into independent host tasks. Sending backpressures; ending
+the attachment wakes pending operations and discards its queued output.
+
+On Unix, `prepare_tun_device(inbound_json)` validates and reserves a device
+attachment. The consuming `PreparedTun::commit()` then opens it, calling
+`Platform::open_tun` when the host supplies devices. That callback transfers
+an owned descriptor: duplicate any original the host retains. Internal
+device creation can configure addresses, MTU, interface-up and connected
+routes, and therefore occurs only at commit. Dynamic `auto_route` and
+`auto_redirect` are refused. The host owns the OS route/DNS transaction and
+must verify an explicit interface identity; `tun_names()` describes static
+startup and is not dynamic-device discovery. Device and public packet-flow
+framing are different contracts. Windows offers the packet API, not this
+Unix device method.
+
+Dynamic device commit verifies the descriptor's interface identity with a
+read-only kernel query and requires it to match the requested nonempty name.
+Configuration hints and the device crate's cached name are not proof. Query
+failure or an unsupported platform refuses the commit; a mismatch returns
+`InvalidArgument`. Failure closes the transferred duplicate, retaining the
+host's original. The dynamic host path retains one `OwnedFd` throughout
+construction and actual I/O. The tun crate borrows it with descriptor-close
+on drop disabled; every builder and queue-construction failure releases only
+that owner, after all borrowed I/O handles. Packet bridges carry no OS device identity. The real-device
+positive and FD lifecycle platform checks require an isolated capable host;
+UnixDatagram and memory-stack witnesses do not establish that acceptance.
+
+Only successful publication of the current run and token registers a
+kernel-verified device as an owned interface. Preparation, failed or late
+opens and packet bridges do not register one. The registration belongs to
+the actual queue I/O: with multiple queues it lasts until the final queue's
+I/O and descriptor drop. A retained manager, control handle or packet-flow
+endpoint does not extend it. A missing queue owner refuses publication;
+registering or releasing ownership does not reset existing connections.
+
+Dropping an unused `PreparedTun` releases only its own reservation. A
+stopped/restarted run and later generations reject stale handles. Once a
+commit future has been polled, cancelling its host await does not imply
+that it was rolled back: `tun_state()` reports Prepared, Committing,
+Attached, Failed, Draining or Detached, and `detach_tun()` reconciles an
+uncertain result. A blocked open runs outside the mutation lock on tracked
+blocking work; late results cannot publish or clear another generation.
+
+`detach_tun()` ends only the attachment's packet runtime, captured streams,
+private NAT and per-request DNS work, on the same dispatcher, routing,
+DNS, user quotas and statistics core. Shared lazy carriers are polled and
+registered with the instance, so an existing proxy connection is not owned
+by the attachment that first created its carrier. Root admission, frozen
+record context, UDP parent/run identity, reply-peer leases and pending DNS
+ownership remain in force. A new attachment is refused while a prior one
+has unfinished work or cleanup; inspect the returned `StopReport::clean()`
+and retry detach after the reported owner finishes. Full instance stop
+closes publication and drains the attachment without waiting on a reload
+that still owns the mutation lock.
+
+For an instance with dynamic attachment enabled, a new run is also refused
+while a previous run still owns tasks or returned resources. A bounded
+stop cannot cancel an already running host callback. Wait for its actual
+resource barrier to clear before restarting or replacing the host's staged
+device; a stopped run thread alone does not establish that clearance.
+This guard rejects Sail's `start`; it cannot prevent a host from replacing
+its own mutable staging slot earlier. The host must keep that slot stable
+until the old callback and owned results end. `TunRequest` currently does
+not bind an immutable host resource generation. Supporting earlier staging
+would require a separate request-bound resource contract and host changes.
+Within one run, failed publication also retains its old generation's owner
+barrier until all tasks and returned resources end; `Draining` and a refused
+new preparation are intentional during that interval. An exclusive host
+broker may be unable to prepare a second device while the old grant exists.
+Keep the old resource until actual native drainage is clean (or a new run
+successfully passes the previous-run barrier), then settle the old broker
+cleanup and release its grant. Prepare the new host device without staging
+it, obtain its actual name, reserve it in Sail, and only then stage it and
+consume `commit`. A refused reservation rolls back that unstaged resource;
+uncertain native or broker cleanup remains quarantined. Host operations
+must remain serialized. No reservation API binds an unknown future name.
+
+Sail's existing C callback layout is unchanged; these are Rust APIs. A
+client C/Swift packet-flow wrapper owns its generation fences, callback
+joins, external packetFlow and OS transaction. Clean Sail detach does not
+join a packet already handed to an external host writer. Rebuild and test
+those wrappers against the exact SDK source; older device results do not
+validate a new dependency. Protect physical egress before enabling capture
+and report genuine physical network state, not the capture interface.
 
 ## Dialling
 
