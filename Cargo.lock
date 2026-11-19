@@ -2783,6 +2783,7 @@ version = "0.1.0"
 dependencies = [
  "foldhash",
  "futures",
+ "portable-atomic",
  "smoltcp",
 ]
 

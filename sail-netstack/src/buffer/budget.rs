@@ -1,7 +1,9 @@
 use std::array;
 use std::fmt;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
+
+use super::credit::{CreditObserverAlreadyBound, CreditReturnObserver, CreditReturnState};
 
 const RESOURCE_KIND_COUNT: usize = 12;
 
@@ -269,6 +271,7 @@ pub struct ResourceLedger {
     used: [AtomicUsize; RESOURCE_KIND_COUNT],
     peaks: [AtomicUsize; RESOURCE_KIND_COUNT],
     denied: AtomicUsize,
+    credit: OnceLock<CreditReturnState>,
 }
 
 impl ResourceLedger {
@@ -283,7 +286,31 @@ impl ResourceLedger {
             used: array::from_fn(|_| AtomicUsize::new(0)),
             peaks: array::from_fn(|_| AtomicUsize::new(0)),
             denied: AtomicUsize::new(0),
+            credit: OnceLock::new(),
         }))
+    }
+
+    /// Bind exactly one fixed runtime group before it starts. Never replace it.
+    /// # Errors
+    /// Returns an error even if the same observer is installed twice.
+    pub fn install_credit_observer(
+        &self,
+        observer: Arc<dyn CreditReturnObserver>,
+    ) -> Result<(), CreditObserverAlreadyBound> {
+        self.credit
+            .set(CreditReturnState::new(observer))
+            .map_err(|_| CreditObserverAlreadyBound)
+    }
+
+    #[must_use]
+    pub fn credit_return_state(&self) -> Option<&CreditReturnState> {
+        self.credit.get()
+    }
+
+    fn bytes_returned(&self) {
+        if let Some(credit) = self.credit.get() {
+            credit.returned();
+        }
     }
 
     #[must_use]
@@ -326,13 +353,7 @@ impl ResourceLedger {
         if kind.is_bytes() {
             self.reserve(&self.total_bytes, self.budget.total_bytes, kind, amount)?;
         }
-        let limit = self.limit(kind).min(ceiling);
-        if let Err(error) = self.reserve(&self.used[kind.index()], limit, kind, amount) {
-            if kind.is_bytes() {
-                self.total_bytes.fetch_sub(amount, Ordering::AcqRel);
-            }
-            return Err(error);
-        }
+        self.reserve_pool_or_rollback(kind, amount, ceiling)?;
         self.peaks[kind.index()].fetch_max(
             self.used[kind.index()].load(Ordering::Relaxed),
             Ordering::Relaxed,
@@ -342,6 +363,22 @@ impl ResourceLedger {
             kind,
             amount,
         })
+    }
+
+    fn reserve_pool_or_rollback(
+        &self,
+        kind: ResourceKind,
+        amount: usize,
+        ceiling: usize,
+    ) -> Result<(), BudgetError> {
+        let limit = self.limit(kind).min(ceiling);
+        if let Err(error) = self.reserve(&self.used[kind.index()], limit, kind, amount) {
+            if kind.is_bytes() {
+                self.total_bytes.fetch_sub(amount, Ordering::AcqRel);
+            }
+            return Err(error);
+        }
+        Ok(())
     }
 
     fn reserve(
@@ -535,6 +572,7 @@ impl BudgetLease {
             self.ledger
                 .total_bytes
                 .fetch_sub(released, Ordering::AcqRel);
+            self.ledger.bytes_returned();
         }
     }
 
@@ -560,6 +598,7 @@ impl Drop for BudgetLease {
             self.ledger
                 .total_bytes
                 .fetch_sub(self.amount, Ordering::AcqRel);
+            self.ledger.bytes_returned();
         }
     }
 }
@@ -609,5 +648,71 @@ mod pressure_tests {
             .try_acquire(ResourceKind::TcpPayloadBytes, 7 << 20)
             .unwrap();
         assert_eq!(ledger.snapshot().pressure, PressureLevel::Critical);
+    }
+}
+
+#[cfg(test)]
+mod credit_rollback_tests {
+    use super::*;
+    use std::sync::atomic::AtomicBool;
+    #[derive(Debug, Default)]
+    struct Observer(AtomicUsize);
+    impl CreditReturnObserver for Observer {
+        fn hint_interested(&self) {
+            self.0.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+    #[test]
+    fn temporary_global_hold_then_silent_rollback_permits_timer_degradation() {
+        let ledger = ResourceLedger::new(BudgetProfile::Mobile.budget()).unwrap();
+        let observer = Arc::new(Observer::default());
+        ledger.install_credit_observer(observer.clone()).unwrap();
+        let state = ledger.credit_return_state().unwrap();
+        assert!(state.enter());
+        let release = ledger.try_acquire(ResourceKind::PacketBytes, 1).unwrap();
+        let temporarily_reserved = ledger.budget.total_bytes - 1;
+        let held = Arc::new(AtomicBool::new(false));
+        let (global_ready, global_wait) = std::sync::mpsc::channel();
+        let (rollback_ready, rollback_wait) = std::sync::mpsc::channel();
+        std::thread::scope(|scope| {
+            let ledger = &ledger;
+            let held = &held;
+            scope.spawn(move || {
+                ledger
+                    .reserve(
+                        &ledger.total_bytes,
+                        ledger.budget.total_bytes,
+                        ResourceKind::MetadataBytes,
+                        temporarily_reserved,
+                    )
+                    .unwrap();
+                held.store(true, Ordering::SeqCst);
+                global_ready.send(()).unwrap();
+                rollback_wait.recv().unwrap();
+                assert!(ledger
+                    .reserve_pool_or_rollback(
+                        ResourceKind::MetadataBytes,
+                        temporarily_reserved,
+                        usize::MAX
+                    )
+                    .is_err());
+                held.store(false, Ordering::SeqCst);
+            });
+            global_wait.recv().unwrap();
+            drop(release); // real release wakes A, but B still holds global.
+            let epoch = state.epoch();
+            assert_eq!(observer.0.load(Ordering::Relaxed), 1);
+            assert!(held.load(Ordering::SeqCst));
+            assert!(ledger.try_acquire(ResourceKind::PacketBytes, 2).is_err());
+            rollback_ready.send(()).unwrap();
+            // scope joins B before checking that rollback stayed silent.
+            assert_eq!(state.epoch(), epoch);
+        });
+        assert_eq!(state.epoch(), Some(1));
+        assert_eq!(observer.0.load(Ordering::Relaxed), 1);
+        assert_eq!(ledger.snapshot().total_bytes, 0);
+        let retry = ledger.try_acquire(ResourceKind::PacketBytes, 2).unwrap();
+        state.leave();
+        drop(retry); // actual retry stands for next real-release/original timer.
     }
 }

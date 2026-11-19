@@ -2,18 +2,23 @@ use std::io;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool as CleanupActive, AtomicUsize, Ordering as AtomicOrdering};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(not(test))]
+use std::time::Instant;
+#[cfg(test)]
+use tokio::time::Instant;
 
 use futures::channel::{mpsc, oneshot};
 use futures::SinkExt;
 use sail_netstack::{
-    FlowMap, IpEndpoint, NetworkGeneration, PacketIo, ResourceKind, ResourceLedger, RunnerConfig,
-    RunnerError, ShardRouterStats, ShardedPacketIo, ShardedPacketIoControl, SingleShardRunner,
-    SlabChain, StackStats, StepOutcome, TcpConnection, TcpError, TcpEvent, TcpFlowToken,
-    TcpTableError, TransportProtocol, UdpError, UdpFlowToken,
+    BudgetError, FlowId, FlowMap, IpEndpoint, NetworkGeneration, PacketIo, ResourceKind,
+    ResourceLedger, RunnerConfig, RunnerError, ShardId, ShardRouterStats, ShardedPacketIo,
+    ShardedPacketIoControl, SingleShardRunner, SlabChain, StackStats, StepOutcome, TcpConnection,
+    TcpError, TcpEvent, TcpFlowToken, TcpTableError, TransportProtocol, UdpError, UdpFlowToken,
 };
 use tokio::sync::{mpsc as tokio_mpsc, watch, Notify};
 
+use super::credit_wake::{self, CreditInterest};
 use super::stream::{command_channel, next_command, NativeTcpStream, ReadReply, TcpCommand};
 
 /// How often the runtime tries again what the stack had no room for, while
@@ -284,6 +289,9 @@ struct FlowBridge {
     reserved_write_bytes: usize,
     pending_write: Option<(Vec<u8>, oneshot::Sender<io::Result<usize>>)>,
     pending_close: Option<oneshot::Sender<io::Result<()>>>,
+    credit_prev: Option<FlowId>,
+    credit_next: Option<FlowId>,
+    credit_member: bool,
     /// The application's close went through: its FIN is queued.
     closed: bool,
 }
@@ -300,6 +308,9 @@ impl FlowBridge {
             pending_write: None,
             pending_close: None,
             closed: false,
+            credit_prev: None,
+            credit_next: None,
+            credit_member: false,
         }
     }
 
@@ -331,6 +342,16 @@ impl FlowBridge {
 
 pub(crate) struct NativeRuntime<I> {
     runner: SingleShardRunner<I>,
+    credit: CreditInterest,
+    credit_head: Option<FlowId>,
+    credit_tail: Option<FlowId>,
+    credit_generation: NetworkGeneration,
+    credit_shard: ShardId,
+    credit_continuation: bool,
+    #[cfg(test)]
+    credit_write_attempts: usize,
+    #[cfg(feature = "internal-diagnostics")]
+    credit_diagnostics: super::credit_wake::CreditDiagnostics,
     /// The stack's budget, which bytes read ahead are charged to.
     ledger: Arc<ResourceLedger>,
     /// What a read takes beyond what was asked, in bytes: see
@@ -395,8 +416,10 @@ impl<I: PacketIo> NativeRuntime<I> {
         assert!(udp_capacity > 0, "native UDP capacity must be non-zero");
         let (accepted_tx, accepted_rx) = tokio_mpsc::channel(accept_capacity);
         let (udp_tx, udp_rx) = tokio_mpsc::channel(udp_capacity);
-        let (runtime, commands_tx) =
+        let (mut runtime, commands_tx) =
             Self::new_with_sinks(io, ledger, config, command_capacity, accepted_tx, udp_tx)?;
+        let bound = credit_wake::bind(&runtime.ledger, &[Arc::clone(&runtime.credit.slot)]);
+        runtime.credit.set_bound(bound);
         let udp_reply = NativeUdpReplyHandle {
             commands: vec![commands_tx],
         };
@@ -423,6 +446,16 @@ impl<I: PacketIo> NativeRuntime<I> {
         Ok((
             Self {
                 runner,
+                credit: CreditInterest::new(Arc::clone(&ledger)),
+                credit_head: None,
+                credit_tail: None,
+                credit_generation: config.generation,
+                credit_shard: config.shard,
+                credit_continuation: false,
+                #[cfg(test)]
+                credit_write_attempts: 0,
+                #[cfg(feature = "internal-diagnostics")]
+                credit_diagnostics: Default::default(),
                 ledger,
                 read_ahead: 0,
                 commands_tx: commands_tx.clone(),
@@ -451,11 +484,16 @@ impl<I: PacketIo> NativeRuntime<I> {
     pub(crate) async fn run(mut self) -> Result<(), RunnerError> {
         let started = Instant::now();
         let cleanup_overflow = Arc::clone(&self.cleanup_overflow);
+        let credit_slot = Arc::clone(&self.credit.slot);
         // One timer, for the stack's next deadline or the next retry, and
         // none while neither waits: an idle stack does not wake.
         let mut timer = std::pin::pin!(tokio::time::sleep(Duration::ZERO));
         let mut armed_ms = None;
         loop {
+            if std::mem::take(&mut self.credit_continuation) {
+                tokio::task::yield_now().await;
+                credit_slot.hint();
+            }
             let now_ms = elapsed_ms(started);
             if std::mem::take(&mut self.retry_wanted) {
                 self.retry_at_ms
@@ -476,6 +514,9 @@ impl<I: PacketIo> NativeRuntime<I> {
             if wake_ms != armed_ms {
                 if let Some(wake_ms) = wake_ms {
                     let at = started + Duration::from_millis(wake_ms);
+                    // Tests take tokio's Instant (paused time), so the
+                    // conversion is the identity there.
+                    #[allow(clippy::useless_conversion)]
                     timer.as_mut().reset(at.into());
                 }
                 armed_ms = wake_ms;
@@ -484,6 +525,7 @@ impl<I: PacketIo> NativeRuntime<I> {
                 Command(Option<TcpCommand>),
                 Cleanup(Option<TcpFlowToken>),
                 CleanupOverflow,
+                ResourceCredit,
                 Step(Result<StepOutcome, RunnerError>),
                 Timer,
             }
@@ -491,6 +533,7 @@ impl<I: PacketIo> NativeRuntime<I> {
                 command = next_command(&mut self.commands_rx) => Wake::Command(command),
                 cleanup = self.cleanup_rx.recv() => Wake::Cleanup(cleanup),
                 () = cleanup_overflow.notified() => Wake::CleanupOverflow,
+                () = credit_slot.ready() => Wake::ResourceCredit,
                 result = self.runner.step_with_clock(now_ms, || elapsed_ms(started)) => Wake::Step(result),
                 () = &mut timer, if armed_ms.is_some() => Wake::Timer,
             };
@@ -503,18 +546,22 @@ impl<I: PacketIo> NativeRuntime<I> {
                 Wake::Command(None) => {
                     self.runner.abort();
                     self.fail_all("native TCP command channel closed");
+                    self.credit.stop();
                     return Ok(());
                 }
                 Wake::Cleanup(Some(token)) => self.drop_flow(token),
                 Wake::Cleanup(None) => {}
                 Wake::CleanupOverflow => self.cleanup_dropped_streams(),
+                Wake::ResourceCredit => self.retry_credit_write(),
                 Wake::Step(Ok(outcome)) => self.handle_outcome(outcome),
                 Wake::Step(Err(RunnerError::Closed)) => {
                     self.fail_all("native network runner stopped");
+                    self.credit.stop();
                     return Ok(());
                 }
                 Wake::Step(Err(error)) => {
                     self.fail_all("native network runner failed");
+                    self.credit.stop();
                     return Err(error);
                 }
                 Wake::Timer => armed_ms = None,
@@ -572,12 +619,15 @@ impl<I: PacketIo> NativeRuntime<I> {
                 grace_period_ms,
                 response,
             } => {
+                self.clear_credit_waiters();
+                self.credit.stop();
                 self.runner.shutdown(now_ms.saturating_add(grace_period_ms));
                 let _ = response.send(());
             }
             TcpCommand::ControlAbort { response } => {
                 self.runner.abort();
                 self.fail_all("native network runner aborted");
+                self.credit.stop();
                 let _ = response.send(());
                 return true;
             }
@@ -585,8 +635,10 @@ impl<I: PacketIo> NativeRuntime<I> {
                 generation,
                 response,
             } => {
+                self.clear_credit_waiters();
                 self.runner.reset_network(generation);
                 self.fail_all("native network generation changed");
+                self.credit_generation = generation;
                 let _ = response.send(());
             }
             TcpCommand::UpdateMtu { mtu, response } => {
@@ -824,40 +876,242 @@ impl<I: PacketIo> NativeRuntime<I> {
         payload: Vec<u8>,
         response: oneshot::Sender<io::Result<usize>>,
     ) {
-        let Some(flow) = self.flows.get_mut(&token) else {
+        self.submit_write_from(token, payload, response, WriteOrigin::Other);
+    }
+
+    fn submit_write_from(
+        &mut self,
+        token: TcpFlowToken,
+        payload: Vec<u8>,
+        response: oneshot::Sender<io::Result<usize>>,
+        origin: WriteOrigin,
+    ) -> usize {
+        let attempt = self.write_once(token, payload, response, origin);
+        let mut written = attempt.written;
+        if attempt.packet_blocked {
+            // First registration: W0 precedes publication and one mandatory
+            // recheck. Resource processing never calls this two-attempt entry.
+            let before = self.credit.epoch();
+            self.link_credit(token);
+            if self.credit.arm() {
+                written += self.retry_linked_write(token, origin, before);
+            } else {
+                self.unlink_credit(token);
+            }
+        }
+        self.credit.finish(None, self.credit_head.is_some());
+        written
+    }
+
+    fn write_once(
+        &mut self,
+        token: TcpFlowToken,
+        payload: Vec<u8>,
+        response: oneshot::Sender<io::Result<usize>>,
+        origin: WriteOrigin,
+    ) -> WriteAttempt {
+        let Some(flow) = self.flows.get(&token) else {
             let _ = response.send(Err(io::Error::new(
                 io::ErrorKind::BrokenPipe,
                 "TCP flow is closed",
             )));
-            return;
+            return WriteAttempt::default();
         };
+        if response.is_canceled() || !flow.cleanup_active.load(AtomicOrdering::Acquire) {
+            self.abort_flow(token);
+            return WriteAttempt::default();
+        }
         if flow.pending_write.is_some() {
             let _ = response.send(Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "concurrent TCP write",
             )));
-            return;
+            return WriteAttempt::default();
         }
-        match self.runner.write_tcp_segments(token, &payload) {
-            Ok((written, _)) if written == payload.len() => {
-                if response.send(Ok(payload.len())).is_err() {
-                    self.abort_flow(token);
-                }
+        #[cfg(test)]
+        {
+            self.credit_write_attempts += 1;
+        }
+        let report = self.runner.write_tcp_segments_report(token, &payload);
+        let written = report.written;
+        #[cfg(feature = "internal-diagnostics")]
+        match origin {
+            WriteOrigin::Resource => {
+                self.credit_diagnostics.credit_event_written_bytes = self
+                    .credit_diagnostics
+                    .credit_event_written_bytes
+                    .saturating_add(written as u64)
             }
-            // Memory ran out partway: the rest goes once the flow is
-            // writable again, and the writer hears when all of it went.
-            Ok((written, _)) => {
-                flow.pending_write = Some((payload[written..].to_vec(), response));
-                self.retry_wanted = true;
+            WriteOrigin::Timer => {
+                self.credit_diagnostics.timer_retry_written_bytes = self
+                    .credit_diagnostics
+                    .timer_retry_written_bytes
+                    .saturating_add(written as u64)
             }
-            Err(error) if retryable(&error) => {
-                flow.pending_write = Some((payload, response));
-                self.retry_wanted = true;
+            WriteOrigin::Other => {}
+        }
+        #[cfg(not(feature = "internal-diagnostics"))]
+        let _ = origin;
+        if written == payload.len() {
+            if response.send(Ok(payload.len())).is_err() {
+                self.abort_flow(token);
             }
-            Err(error) => {
+            return WriteAttempt {
+                written,
+                packet_blocked: false,
+            };
+        }
+        let packet_blocked = report.stopped.as_ref().is_some_and(packet_bytes_blocked);
+        match report.stopped {
+            Some(error) if !retryable(&error) => {
+                // Preserve the exact nonretryable first stop even after a prefix.
                 let _ = response.send(Err(runner_io_error(error)));
             }
+            _ => {
+                if let Some(flow) = self.flows.get_mut(&token) {
+                    flow.pending_write = Some((payload[written..].to_vec(), response));
+                    self.retry_wanted = true;
+                    return WriteAttempt {
+                        written,
+                        packet_blocked,
+                    };
+                }
+            }
         }
+        WriteAttempt {
+            written,
+            packet_blocked: false,
+        }
+    }
+
+    fn credit_token(&self, id: FlowId) -> TcpFlowToken {
+        TcpFlowToken::new_on_shard(id, self.credit_generation, self.credit_shard)
+    }
+
+    fn link_credit(&mut self, token: TcpFlowToken) {
+        if token.generation() != self.credit_generation || token.shard() != self.credit_shard {
+            return;
+        }
+        let Some(flow) = self.flows.get_mut(&token) else {
+            return;
+        };
+        if flow.credit_member || flow.pending_write.is_none() {
+            return;
+        }
+        flow.credit_member = true;
+        flow.credit_prev = self.credit_tail;
+        flow.credit_next = None;
+        #[cfg(feature = "internal-diagnostics")]
+        {
+            self.credit_diagnostics.resource_pending_writes += 1;
+            self.credit_diagnostics.resource_pending_bytes +=
+                flow.pending_write.as_ref().unwrap().0.len();
+        }
+        if let Some(tail) = self.credit_tail {
+            let tail = self.credit_token(tail);
+            self.flows
+                .get_mut(&tail)
+                .expect("credit tail in current map")
+                .credit_next = Some(token.flow());
+        } else {
+            self.credit_head = Some(token.flow());
+        }
+        self.credit_tail = Some(token.flow());
+    }
+
+    /// Always before pending take or map remove. Interest stays armed through
+    /// the synchronous attempt; caller settles it only after classification.
+    fn unlink_credit(&mut self, token: TcpFlowToken) {
+        if token.generation() != self.credit_generation || token.shard() != self.credit_shard {
+            return;
+        }
+        let Some(flow) = self.flows.get_mut(&token) else {
+            return;
+        };
+        if !flow.credit_member {
+            return;
+        }
+        let previous = flow.credit_prev.take();
+        let next = flow.credit_next.take();
+        flow.credit_member = false;
+        #[cfg(feature = "internal-diagnostics")]
+        {
+            self.credit_diagnostics.resource_pending_writes -= 1;
+            self.credit_diagnostics.resource_pending_bytes -= flow
+                .pending_write
+                .as_ref()
+                .expect("indexed pending")
+                .0
+                .len();
+        }
+        if let Some(previous) = previous {
+            let previous = self.credit_token(previous);
+            self.flows
+                .get_mut(&previous)
+                .expect("credit previous in current map")
+                .credit_next = next;
+        } else {
+            self.credit_head = next;
+        }
+        if let Some(next) = next {
+            let next = self.credit_token(next);
+            self.flows
+                .get_mut(&next)
+                .expect("credit next in current map")
+                .credit_prev = previous;
+        } else {
+            self.credit_tail = previous;
+        }
+    }
+
+    fn clear_credit_waiters(&mut self) {
+        while let Some(id) = self.credit_head {
+            self.unlink_credit(self.credit_token(id));
+        }
+        self.credit_continuation = false;
+        self.credit.reset();
+    }
+
+    fn retry_linked_write(
+        &mut self,
+        token: TcpFlowToken,
+        origin: WriteOrigin,
+        before: Option<u64>,
+    ) -> usize {
+        self.unlink_credit(token);
+        let pending = self
+            .flows
+            .get_mut(&token)
+            .and_then(|flow| flow.pending_write.take());
+        let mut written = 0;
+        if let Some((payload, response)) = pending {
+            let attempt = self.write_once(token, payload, response, origin);
+            written = attempt.written;
+            if attempt.packet_blocked {
+                self.link_credit(token);
+                if !self.credit.arm() {
+                    self.unlink_credit(token);
+                }
+            }
+        }
+        self.credit.finish(before, self.credit_head.is_some());
+        written
+    }
+
+    fn retry_credit_write(&mut self) {
+        let before = self.credit.epoch();
+        if before.is_none() {
+            self.clear_credit_waiters();
+            return;
+        }
+        let Some(id) = self.credit_head else {
+            self.credit.finish(before, false);
+            return;
+        };
+        let token = self.credit_token(id);
+        let written = self.retry_linked_write(token, WriteOrigin::Resource, before);
+        // A zero-progress event never schedules its own cooperative continuation.
+        self.credit_continuation = written > 0 && self.credit_head.is_some();
     }
 
     fn try_reserve_write(
@@ -912,12 +1166,25 @@ impl<I: PacketIo> NativeRuntime<I> {
     }
 
     fn retry_write(&mut self, token: TcpFlowToken) {
-        let pending = self
+        self.retry_write_from(token, WriteOrigin::Other);
+    }
+
+    fn retry_write_from(&mut self, token: TcpFlowToken, origin: WriteOrigin) {
+        if self
             .flows
-            .get_mut(&token)
-            .and_then(|flow| flow.pending_write.take());
-        if let Some((payload, response)) = pending {
-            self.submit_write(token, payload, response);
+            .get(&token)
+            .is_some_and(|flow| flow.credit_member)
+        {
+            let before = self.credit.epoch();
+            self.retry_linked_write(token, origin, before);
+        } else {
+            let pending = self
+                .flows
+                .get_mut(&token)
+                .and_then(|flow| flow.pending_write.take());
+            if let Some((payload, response)) = pending {
+                self.submit_write_from(token, payload, response, origin);
+            }
         }
     }
 
@@ -932,6 +1199,8 @@ impl<I: PacketIo> NativeRuntime<I> {
     }
 
     fn try_close(&mut self, token: TcpFlowToken, response: oneshot::Sender<io::Result<()>>) {
+        self.unlink_credit(token);
+        self.credit.finish(None, self.credit_head.is_some());
         let Some(flow) = self.flows.get_mut(&token) else {
             let _ = response.send(Ok(()));
             return;
@@ -971,7 +1240,7 @@ impl<I: PacketIo> NativeRuntime<I> {
         }
         let tokens: Vec<_> = self.flows.keys().copied().collect();
         for token in tokens {
-            self.retry_write(token);
+            self.retry_write_from(token, WriteOrigin::Timer);
             self.retry_write_reservation(token);
             self.retry_close(token);
             self.service_read(token);
@@ -1014,6 +1283,8 @@ impl<I: PacketIo> NativeRuntime<I> {
     /// The application dropped its stream: a flow it closed finishes its
     /// close alone, bounded by the stack's timers; any other is aborted.
     fn drop_flow(&mut self, token: TcpFlowToken) {
+        self.unlink_credit(token);
+        self.credit.finish(None, self.credit_head.is_some());
         match self.flows.get(&token) {
             Some(flow) if flow.closed => {
                 if let Some(flow) = self.flows.remove(&token) {
@@ -1026,6 +1297,8 @@ impl<I: PacketIo> NativeRuntime<I> {
     }
 
     fn abort_flow(&mut self, token: TcpFlowToken) {
+        self.unlink_credit(token);
+        self.credit.finish(None, self.credit_head.is_some());
         if let Some(flow) = self.flows.remove(&token) {
             flow.fail("TCP stream aborted");
         }
@@ -1048,6 +1321,8 @@ impl<I: PacketIo> NativeRuntime<I> {
     }
 
     fn finish_flow(&mut self, token: TcpFlowToken) {
+        self.unlink_credit(token);
+        self.credit.finish(None, self.credit_head.is_some());
         if let Some(mut flow) = self.flows.remove(&token) {
             if let Some((_, response)) = flow.pending_read.take() {
                 let _ = response.send(Ok((Vec::new(), None)));
@@ -1057,6 +1332,7 @@ impl<I: PacketIo> NativeRuntime<I> {
     }
 
     fn fail_all(&mut self, message: &'static str) {
+        self.clear_credit_waiters();
         for (_, flow) in self.flows.drain() {
             flow.fail(message);
         }
@@ -1124,6 +1400,14 @@ impl<I: PacketIo> NativeRuntimeGroup<I> {
             )?;
             runtimes.push(runtime);
             commands.push(command);
+        }
+        let slots: Vec<_> = runtimes
+            .iter()
+            .map(|runtime| Arc::clone(&runtime.credit.slot))
+            .collect();
+        let bound = credit_wake::bind(&ledger, &slots);
+        for runtime in &mut runtimes {
+            runtime.credit.set_bound(bound);
         }
         drop(accepted_tx);
         drop(udp_tx);
@@ -2581,3 +2865,34 @@ mod tests {
         runtime_task.abort();
     }
 }
+
+#[derive(Clone, Copy)]
+enum WriteOrigin {
+    Other,
+    Timer,
+    Resource,
+}
+#[derive(Default)]
+struct WriteAttempt {
+    written: usize,
+    packet_blocked: bool,
+}
+fn packet_bytes_blocked(error: &RunnerError) -> bool {
+    matches!(
+        error,
+        RunnerError::Budget(BudgetError::Exhausted {
+            kind: ResourceKind::PacketBytes,
+            ..
+        }) | RunnerError::Tcp(TcpTableError::Budget(BudgetError::Exhausted {
+            kind: ResourceKind::PacketBytes,
+            ..
+        }))
+    )
+}
+
+#[cfg(test)]
+#[path = "credit_index_tests.rs"]
+mod credit_index_tests;
+#[cfg(test)]
+#[path = "credit_return_tests.rs"]
+mod credit_return_tests;

@@ -13,5 +13,6 @@ pub use shard::{
 };
 pub use sharded_io::{ShardedPacketIo, ShardedPacketIoControl, ShardedPacketIoError};
 pub use single_shard::{
-    RunnerConfig, RunnerError, RunnerState, SingleShardRunner, StepOutcome, TCP_MAX_HEADER_BYTES,
+    RunnerConfig, RunnerError, RunnerState, SingleShardRunner, StepOutcome, TcpWriteReport,
+    TCP_MAX_HEADER_BYTES,
 };

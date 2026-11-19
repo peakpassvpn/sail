@@ -8,6 +8,9 @@ publish = false
 
 [dependencies]
 foldhash = "0.2"
+# 64-bit atomics where the target has none (32-bit mips); the native
+# ones elsewhere.
+portable-atomic = "1"
 
 [features]
 # Internals the fuzz targets compare against references (fuzz/).
