@@ -16,6 +16,7 @@
 )]
 
 mod channel;
+mod credit_wake;
 mod runtime;
 mod stream;
 #[cfg(test)]
