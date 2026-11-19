@@ -30,8 +30,6 @@ pub mod nf;
 pub mod pass;
 #[cfg(any(feature = "inbound-redirect", feature = "outbound-redirect"))]
 pub mod redirect;
-#[cfg(any(feature = "inbound-sail", feature = "outbound-sail"))]
-pub mod sail;
 #[cfg(any(feature = "inbound-shadowsocks", feature = "outbound-shadowsocks"))]
 pub mod shadowsocks;
 #[cfg(any(feature = "inbound-shadowtls", feature = "outbound-shadowtls"))]

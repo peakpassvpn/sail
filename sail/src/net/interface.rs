@@ -91,12 +91,10 @@ impl AutoInterface {
     }
 
     fn refresh_from(&self, lookup: impl FnOnce() -> (io::Result<String>, Subnets)) -> bool {
-        // Detection is left while the host's pushed state names the way
-        // out; one that names none is no reason to stop looking.
         if self
             .network
             .as_ref()
-            .is_some_and(|network| network.egress_view().host.is_some())
+            .is_some_and(|network| network.pushed())
         {
             return false;
         }

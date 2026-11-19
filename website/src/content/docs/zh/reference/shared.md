@@ -33,7 +33,7 @@ Rust 定义：[`MultiplexBrutal`](https://github.com/peakpassvpn/sail/blob/maste
 
 ## `client_subnet`
 
-所在位置：`dns.servers[h3, https, quic, tcp, tls, udp].client_subnet`, `outbounds[redirect, sail].domain_resolver.client_subnet`
+所在位置：`dns.servers[h3, https, quic, tcp, tls, udp].client_subnet`, `outbounds[redirect].domain_resolver.client_subnet`
 
 Rust 定义：[`Prefix`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs) · **sail 扩展**
 
@@ -73,24 +73,6 @@ Rust 定义：[`Prefix`](https://github.com/peakpassvpn/sail/blob/master/sail/sr
 | `disable_optimistic_cache` | bool | — | 支持 | — |
 | `rewrite_ttl` | number | — | 支持 | — |
 | `client_subnet` | string | — | 支持 | — |
-
-<a id="domain-resolver-outbounds"></a>
-
-## `domain_resolver` — outbounds
-
-所在位置：`outbounds[redirect, sail].domain_resolver`
-
-Rust 定义：[`DomainResolver`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs) · **sail 扩展**
-
-| 字段 | 类型 | 默认 | 状态 | 说明 |
-| --- | --- | --- | --- | --- |
-| `server` | string | 必填 | sail 扩展 | — |
-| `strategy` | string, 取值 `prefer_ipv4`, `prefer_ipv6`, `ipv4_only`, `ipv6_only` | 未设置 | sail 扩展 | — |
-| `timeout` | duration | 未设置 | sail 扩展 | — |
-| `disable_cache` | bool | `false` | sail 扩展 | — |
-| `disable_optimistic_cache` | bool | `false` | sail 扩展 | — |
-| `rewrite_ttl` | number | 未设置 | sail 扩展 | — |
-| `client_subnet` | 对象 → [对象](#client-subnet) | 未设置 | sail 扩展 | — |
 
 <a id="domain-resolver-default-domain-resolver"></a>
 
@@ -199,7 +181,7 @@ Rust 定义：[`OutboundEch`](https://github.com/peakpassvpn/sail/blob/master/sa
 
 ## `fallback / fallback_for_alpn`
 
-所在位置：`inbounds[anytls, sail, vless].fallback`, `inbounds[anytls, sail, vless].fallback_for_alpn`
+所在位置：`inbounds[anytls, vless].fallback`, `inbounds[anytls, vless].fallback_for_alpn`
 
 Rust 定义：[`FallbackServer`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/fallback.rs) · 构建条件：`any (feature = "inbound-anytls" , feature = "inbound-trojan" , feature = "inbound-vless" , feature = "inbound-shadowtls")` · **sail 扩展**
 
@@ -644,7 +626,7 @@ Rust 定义：[`InboundTls`](https://github.com/peakpassvpn/sail/blob/master/sai
 
 ## `tls` — outbounds
 
-所在位置：`outbounds[anytls, http, trojan, vless, vmess].tls`
+所在位置：`outbounds[anytls, http, shadowtls, trojan, vless, vmess].tls`
 
 Rust 定义：[`OutboundTls`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
@@ -667,9 +649,9 @@ Rust 定义：[`OutboundTls`](https://github.com/peakpassvpn/sail/blob/master/sa
 | `client_certificate_path` | string | 未设置 | 支持 | `client_certificate`, by path. |
 | `client_key` | listable-string | 未设置 | 支持 | The inline PEM key of the client certificate. |
 | `client_key_path` | string | 未设置 | 支持 | `client_key`, by path. |
-| `fragment` | bool | `false` | 支持 | sing-box 1.12's: the ClientHello goes out in TCP segments, cut in its server name, `fragment_fallback_delay` apart. |
-| `fragment_fallback_delay` | duration | 未设置 | 支持 | The wait between those segments; unset (or zero), 500ms. sing-box waits for the segment's ACK where it can tell, which sail does not yet. |
-| `record_fragment` | bool | `false` | 支持 | sing-box 1.12's: the ClientHello goes out as TLS records, cut in its server name, in one write; with `fragment`, each record a segment of its own. |
+| `fragment` | bool | — | 报错：Fragmenting or spoofing the TLS handshake against censorship | — |
+| `fragment_fallback_delay` | duration | — | 报错：Fragmenting or spoofing the TLS handshake against censorship | — |
+| `record_fragment` | bool | — | 报错：Fragmenting or spoofing the TLS handshake against censorship | — |
 | `spoof` | string | — | 报错：Fragmenting or spoofing the TLS handshake against censorship | — |
 | `spoof_method` | string, 取值 `wrong-sequence`, `wrong-checksum`, `wrong-ack`, `wrong-md5`, `wrong-timestamp` | — | 报错：Fragmenting or spoofing the TLS handshake against censorship | — |
 | `kernel_tx` | bool | — | 警告：The TLS stack, kernel TLS and the handshake's timeout: the same TLS without them | — |

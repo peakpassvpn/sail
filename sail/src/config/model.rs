@@ -521,10 +521,11 @@ pub struct UserLimits {
 
 impl UserLimits {
     /// `expire_at`, once `Config::validate` checked it.
-    pub fn expire_at(&self) -> Option<std::time::SystemTime> {
+    pub fn expire_at(&self) -> Option<chrono::DateTime<chrono::Utc>> {
         self.expire_at
             .as_deref()
-            .and_then(|at| crate::util::rfc3339::parse(at).ok())
+            .and_then(|at| chrono::DateTime::parse_from_rfc3339(at).ok())
+            .map(|at| at.with_timezone(&chrono::Utc))
     }
 
     pub(crate) fn check(&self, name: &str) -> Result<()> {
@@ -559,7 +560,7 @@ impl UserLimits {
             ));
         }
         if let Some(at) = &self.expire_at {
-            crate::util::rfc3339::parse(at).map_err(|e| {
+            chrono::DateTime::parse_from_rfc3339(at).map_err(|e| {
                 anyhow!(
                     "{}: {:?} is not an RFC 3339 time: {}",
                     field("expire_at"),
@@ -3252,6 +3253,12 @@ impl Rule {
                 path
             ));
         }
+        if self.tls_fragment && self.tls_record_fragment {
+            return Err(anyhow!(
+                "{}: tls_fragment and tls_record_fragment are exclusive",
+                path
+            ));
+        }
         if self.tls_fragment_fallback_delay.is_some() && !self.tls_fragment {
             return Err(anyhow!(
                 "{}.tls_fragment_fallback_delay: only with tls_fragment",
@@ -4778,6 +4785,10 @@ mod tests {
             (
                 r#"[{ "action": "reject", "port": 1, "method": "other" }]"#,
                 "route.rules[0].method",
+            ),
+            (
+                r#"[{ "action": "route-options", "tls_fragment": true, "tls_record_fragment": true }]"#,
+                "exclusive",
             ),
             (
                 r#"[{ "action": "route-options", "tls_fragment_fallback_delay": "1s" }]"#,

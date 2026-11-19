@@ -80,9 +80,14 @@ fn config(port: u16) -> String {
     .to_string()
 }
 
-#[path = "../src/test_ports.rs"]
-mod test_ports;
-use test_ports::free_port;
+/// A port free now; a start that finds it taken tries another.
+fn free_port() -> u16 {
+    std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port()
+}
 
 /// A SOCKS5 connection through `port` to `target`, an echo round trip.
 async fn echo_through(port: u16, target: std::net::SocketAddr) {

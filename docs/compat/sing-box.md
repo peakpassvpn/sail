@@ -26,8 +26,6 @@ The dial fields Windows cannot take are refused there. A known gap is `tcp_fast_
 
 An outbound closes the carriers it keeps -- a Hysteria2 connection, a pooled connection of the quic or grpc transport, an HTTP proxy's HTTP/2 connection, a mux or amux session -- once nothing has been open on one for 60 s; the next connection dials anew. So does the member a group selects, which sing-box 1.14.3 and later keep: they close only the outbounds no rule or group selection references.
 
-A ClientHello cut by `fragment` or `record_fragment` (an outbound's `tls`, or the route options `tls_fragment` and `tls_record_fragment`) is cut at random inside its server name's first label, as in sing-box, but never before the name's first byte: sing-box's cut may fall there, leaving the whole name in the second piece. The two may be set together, each record then a segment of its own, as sing-box allows; the wait between segments is always `fragment_fallback_delay`, where sing-box waits for the segment's ACK on the platforms it can tell it.
-
 ## Summary
 
 | Section | Fields | Supported | Warned | Error |
@@ -42,11 +40,11 @@ A ClientHello cut by `fragment` or `record_fragment` (an outbound's `tls`, or th
 | `network_namespaces` | 6 | 0 | 0 | 6 |
 | `endpoints` | 433 | 48 | 13 | 372 |
 | `inbounds` | 1367 | 651 | 116 | 600 |
-| `outbounds` | 1228 | 700 | 78 | 450 |
+| `outbounds` | 1228 | 685 | 75 | 468 |
 | `route` | 268 | 177 | 38 | 53 |
 | `services` | 751 | 1 | 166 | 584 |
 | `experimental` | 34 | 16 | 17 | 1 |
-| **All** | **5003** | **2039** | **503** | **2461** |
+| **All** | **5003** | **2024** | **500** | **2479** |
 
 ## `$schema`
 
@@ -1931,9 +1929,9 @@ A ClientHello cut by `fragment` or `record_fragment` (an outbound's `tls`, or th
 | `tls.client_certificate_path` | Supported |  |
 | `tls.client_key` | Supported |  |
 | `tls.client_key_path` | Supported |  |
-| `tls.fragment` | Supported |  |
-| `tls.fragment_fallback_delay` | Supported |  |
-| `tls.record_fragment` | Supported |  |
+| `tls.fragment` | Error | Fragmenting or spoofing the TLS handshake against censorship |
+| `tls.fragment_fallback_delay` | Error | Fragmenting or spoofing the TLS handshake against censorship |
+| `tls.record_fragment` | Error | Fragmenting or spoofing the TLS handshake against censorship |
 | `tls.spoof` | Error | Fragmenting or spoofing the TLS handshake against censorship |
 | `tls.spoof_method` | Error | Fragmenting or spoofing the TLS handshake against censorship |
 | `tls.kernel_tx` | Warned | The TLS stack, kernel TLS and the handshake's timeout: the same TLS without them |
@@ -2054,9 +2052,9 @@ A ClientHello cut by `fragment` or `record_fragment` (an outbound's `tls`, or th
 | `tls.client_certificate_path` | Supported |  |
 | `tls.client_key` | Supported |  |
 | `tls.client_key_path` | Supported |  |
-| `tls.fragment` | Supported |  |
-| `tls.fragment_fallback_delay` | Supported |  |
-| `tls.record_fragment` | Supported |  |
+| `tls.fragment` | Error | Fragmenting or spoofing the TLS handshake against censorship |
+| `tls.fragment_fallback_delay` | Error | Fragmenting or spoofing the TLS handshake against censorship |
+| `tls.record_fragment` | Error | Fragmenting or spoofing the TLS handshake against censorship |
 | `tls.spoof` | Error | Fragmenting or spoofing the TLS handshake against censorship |
 | `tls.spoof_method` | Error | Fragmenting or spoofing the TLS handshake against censorship |
 | `tls.kernel_tx` | Warned | The TLS stack, kernel TLS and the handshake's timeout: the same TLS without them |
@@ -2144,9 +2142,9 @@ A ClientHello cut by `fragment` or `record_fragment` (an outbound's `tls`, or th
 | `tls.client_certificate_path` | Supported |  |
 | `tls.client_key` | Supported |  |
 | `tls.client_key_path` | Supported |  |
-| `tls.fragment` | Error | Fragmenting the TLS handshake: over QUIC, or under ShadowTLS, whose server reads the ClientHello |
-| `tls.fragment_fallback_delay` | Warned | Only for fragmenting the TLS handshake, which sail does not do here |
-| `tls.record_fragment` | Error | Fragmenting the TLS handshake: over QUIC, or under ShadowTLS, whose server reads the ClientHello |
+| `tls.fragment` | Error | Fragmenting or spoofing the TLS handshake against censorship |
+| `tls.fragment_fallback_delay` | Error | Fragmenting or spoofing the TLS handshake against censorship |
+| `tls.record_fragment` | Error | Fragmenting or spoofing the TLS handshake against censorship |
 | `tls.spoof` | Error | Fragmenting or spoofing the TLS handshake against censorship |
 | `tls.spoof_method` | Error | Fragmenting or spoofing the TLS handshake against censorship |
 | `tls.kernel_tx` | Warned | The TLS stack, kernel TLS and the handshake's timeout: the same TLS without them |
@@ -2295,9 +2293,9 @@ A ClientHello cut by `fragment` or `record_fragment` (an outbound's `tls`, or th
 | `tls.client_certificate_path` | Supported |  |
 | `tls.client_key` | Supported |  |
 | `tls.client_key_path` | Supported |  |
-| `tls.fragment` | Error | Fragmenting the TLS handshake: over QUIC, or under ShadowTLS, whose server reads the ClientHello |
-| `tls.fragment_fallback_delay` | Warned | Only for fragmenting the TLS handshake, which sail does not do here |
-| `tls.record_fragment` | Error | Fragmenting the TLS handshake: over QUIC, or under ShadowTLS, whose server reads the ClientHello |
+| `tls.fragment` | Error | Fragmenting or spoofing the TLS handshake against censorship |
+| `tls.fragment_fallback_delay` | Error | Fragmenting or spoofing the TLS handshake against censorship |
+| `tls.record_fragment` | Error | Fragmenting or spoofing the TLS handshake against censorship |
 | `tls.spoof` | Error | Fragmenting or spoofing the TLS handshake against censorship |
 | `tls.spoof_method` | Error | Fragmenting or spoofing the TLS handshake against censorship |
 | `tls.kernel_tx` | Warned | The TLS stack, kernel TLS and the handshake's timeout: the same TLS without them |
@@ -2416,9 +2414,9 @@ A ClientHello cut by `fragment` or `record_fragment` (an outbound's `tls`, or th
 | `tls.client_certificate_path` | Supported |  |
 | `tls.client_key` | Supported |  |
 | `tls.client_key_path` | Supported |  |
-| `tls.fragment` | Supported |  |
-| `tls.fragment_fallback_delay` | Supported |  |
-| `tls.record_fragment` | Supported |  |
+| `tls.fragment` | Error | Fragmenting or spoofing the TLS handshake against censorship |
+| `tls.fragment_fallback_delay` | Error | Fragmenting or spoofing the TLS handshake against censorship |
+| `tls.record_fragment` | Error | Fragmenting or spoofing the TLS handshake against censorship |
 | `tls.spoof` | Error | Fragmenting or spoofing the TLS handshake against censorship |
 | `tls.spoof_method` | Error | Fragmenting or spoofing the TLS handshake against censorship |
 | `tls.kernel_tx` | Warned | The TLS stack, kernel TLS and the handshake's timeout: the same TLS without them |
@@ -2529,9 +2527,9 @@ A ClientHello cut by `fragment` or `record_fragment` (an outbound's `tls`, or th
 | `tls.client_certificate_path` | Supported |  |
 | `tls.client_key` | Supported |  |
 | `tls.client_key_path` | Supported |  |
-| `tls.fragment` | Error | Fragmenting the TLS handshake: over QUIC, or under ShadowTLS, whose server reads the ClientHello |
-| `tls.fragment_fallback_delay` | Warned | Only for fragmenting the TLS handshake, which sail does not do here |
-| `tls.record_fragment` | Error | Fragmenting the TLS handshake: over QUIC, or under ShadowTLS, whose server reads the ClientHello |
+| `tls.fragment` | Error | Fragmenting or spoofing the TLS handshake against censorship |
+| `tls.fragment_fallback_delay` | Error | Fragmenting or spoofing the TLS handshake against censorship |
+| `tls.record_fragment` | Error | Fragmenting or spoofing the TLS handshake against censorship |
 | `tls.spoof` | Error | Fragmenting or spoofing the TLS handshake against censorship |
 | `tls.spoof_method` | Error | Fragmenting or spoofing the TLS handshake against censorship |
 | `tls.kernel_tx` | Warned | The TLS stack, kernel TLS and the handshake's timeout: the same TLS without them |
@@ -2624,9 +2622,9 @@ A ClientHello cut by `fragment` or `record_fragment` (an outbound's `tls`, or th
 | `tls.client_certificate_path` | Supported |  |
 | `tls.client_key` | Supported |  |
 | `tls.client_key_path` | Supported |  |
-| `tls.fragment` | Supported |  |
-| `tls.fragment_fallback_delay` | Supported |  |
-| `tls.record_fragment` | Supported |  |
+| `tls.fragment` | Error | Fragmenting or spoofing the TLS handshake against censorship |
+| `tls.fragment_fallback_delay` | Error | Fragmenting or spoofing the TLS handshake against censorship |
+| `tls.record_fragment` | Error | Fragmenting or spoofing the TLS handshake against censorship |
 | `tls.spoof` | Error | Fragmenting or spoofing the TLS handshake against censorship |
 | `tls.spoof_method` | Error | Fragmenting or spoofing the TLS handshake against censorship |
 | `tls.kernel_tx` | Warned | The TLS stack, kernel TLS and the handshake's timeout: the same TLS without them |
@@ -2736,9 +2734,9 @@ A ClientHello cut by `fragment` or `record_fragment` (an outbound's `tls`, or th
 | `tls.client_certificate_path` | Supported |  |
 | `tls.client_key` | Supported |  |
 | `tls.client_key_path` | Supported |  |
-| `tls.fragment` | Supported |  |
-| `tls.fragment_fallback_delay` | Supported |  |
-| `tls.record_fragment` | Supported |  |
+| `tls.fragment` | Error | Fragmenting or spoofing the TLS handshake against censorship |
+| `tls.fragment_fallback_delay` | Error | Fragmenting or spoofing the TLS handshake against censorship |
+| `tls.record_fragment` | Error | Fragmenting or spoofing the TLS handshake against censorship |
 | `tls.spoof` | Error | Fragmenting or spoofing the TLS handshake against censorship |
 | `tls.spoof_method` | Error | Fragmenting or spoofing the TLS handshake against censorship |
 | `tls.kernel_tx` | Warned | The TLS stack, kernel TLS and the handshake's timeout: the same TLS without them |

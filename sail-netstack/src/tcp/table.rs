@@ -12,6 +12,9 @@ use crate::{
     TcpFlowToken, TcpOptions, TcpState, TcpTcb, TimerEvent, WireError,
 };
 
+mod flow_samples;
+pub use flow_samples::TcpFlowSample;
+
 const TCP_FLOW_METADATA_CHARGE: usize = 512;
 const TCP_CHUNK_METADATA_CHARGE: usize = 64;
 const TIME_WAIT_METADATA_CHARGE: usize = 128;
@@ -207,6 +210,8 @@ struct TcpFlow {
     /// When the peer was last heard from, in the table's clock.
     last_received_ms: u64,
     max_send_segment_bytes: usize,
+    /// Raw peer SYN MSS (or family default), never pre-adjusted for options.
+    peer_send_mss: usize,
     sack_permitted: bool,
     peer_window_scale: Option<u8>,
     local_window_scale: u8,
@@ -933,6 +938,7 @@ impl TcpTable {
                 retransmission_timeouts: 0,
                 last_received_ms: self.now_ms,
                 max_send_segment_bytes: local_mss.min(default_peer_mss),
+                peer_send_mss: default_peer_mss,
                 sack_permitted: false,
                 peer_window_scale: None,
                 local_window_scale,
@@ -1027,9 +1033,9 @@ impl TcpTable {
                 recent_at_ms: now_ms,
             });
             let default_peer_mss = if key.source.is_ipv4() { 536 } else { 1_220 };
-            flow.max_send_segment_bytes = max_segment_payload_bytes.min(usize::from(
-                options.maximum_segment_size.unwrap_or(default_peer_mss),
-            ));
+            flow.peer_send_mss =
+                usize::from(options.maximum_segment_size.unwrap_or(default_peer_mss));
+            flow.max_send_segment_bytes = max_segment_payload_bytes.min(flow.peer_send_mss);
             if let Some(mtu) = link_mtu {
                 lower_flow_mtu(key, flow, mtu);
             }
@@ -1119,6 +1125,11 @@ impl TcpTable {
                 retransmission_timeouts: 0,
                 last_received_ms: self.now_ms,
                 max_send_segment_bytes,
+                peer_send_mss: usize::from(
+                    options
+                        .maximum_segment_size
+                        .unwrap_or(if key.source.is_ipv4() { 536 } else { 1_220 }),
+                ),
                 sack_permitted: options.sack_permitted,
                 peer_window_scale: options.window_scale,
                 local_window_scale,
@@ -1232,6 +1243,7 @@ impl TcpTable {
             ))?;
             flow.receive.push_back(chunk);
         }
+        let previous_effective = effective_segment_bytes(flow).unwrap_or(0);
         queue_out_of_order_and_promote(
             flow,
             admission.out_of_order,
@@ -1240,6 +1252,12 @@ impl TcpTable {
             delivered_current || delivers_initial,
             &mut actions,
         )?;
+        let effective = effective_segment_bytes(flow).unwrap_or(0);
+        if effective < previous_effective {
+            for chunk in &mut flow.send {
+                chunk.resegment |= chunk.bytes.len() > effective;
+            }
+        }
         release_acknowledged_send(flow)?;
         let resegment_control = pending_resegment_control(flow, old_send_unacked);
         let id = flow.id;
@@ -1419,11 +1437,11 @@ impl TcpTable {
     pub fn accept(&mut self, token: TcpFlowToken) -> Result<TcpConnection, TcpTableError> {
         let key = self.key_for(token)?;
         let flow = self.by_key.get_mut(&key).ok_or(TcpTableError::StaleToken)?;
+        let max_segment_payload_bytes = effective_segment_bytes(flow)?;
         if flow.accept_lease.take().is_none() {
             increment_counter(&mut self.stats.stale_operations);
             return Err(TcpTableError::StaleToken);
         }
-        let max_segment_payload_bytes = flow.max_send_segment_bytes;
         self.sync_flow_stats(key);
         Ok(TcpConnection {
             token,
@@ -1527,7 +1545,8 @@ impl TcpTable {
             return Ok(TcpIngress::default());
         }
         let flow = self.by_key.get(&key).ok_or(TcpTableError::StaleToken)?;
-        if payload.len() > flow.max_send_segment_bytes {
+        let effective = effective_segment_bytes(flow)?;
+        if payload.len() > effective {
             return Err(TcpTableError::PayloadTooLarge);
         }
         if flow.accept_lease.is_some() {
@@ -1555,10 +1574,7 @@ impl TcpTable {
         let flow = self.by_key.get_mut(&key).ok_or(TcpTableError::StaleToken)?;
         let pending_reason = if flow.tcb.peer_window() == 0 {
             Some(PendingSendReason::Persist)
-        } else if self.config.nagle_enabled
-            && !flow.send.is_empty()
-            && bytes.len() < flow.max_send_segment_bytes
-        {
+        } else if self.config.nagle_enabled && !flow.send.is_empty() && bytes.len() < effective {
             Some(PendingSendReason::Nagle)
         } else {
             None
@@ -1948,8 +1964,8 @@ impl TcpTable {
         let key = self.key_for(token)?;
         self.by_key
             .get(&key)
-            .map(|flow| flow.max_send_segment_bytes)
             .ok_or(TcpTableError::StaleToken)
+            .and_then(effective_segment_bytes)
     }
 
     /// Returns how many application bytes this flow can take ownership of now:
@@ -1971,7 +1987,7 @@ impl TcpTable {
         let capacity = if flow.tcb.peer_window() == 0
             || (self.config.nagle_enabled && !flow.send.is_empty())
         {
-            flow.max_send_segment_bytes
+            effective_segment_bytes(flow)?
         } else {
             flow.tcb.send_available()
         };
@@ -1993,11 +2009,18 @@ impl TcpTable {
     ) -> Result<usize, TcpTableError> {
         let key = self.key_for(token)?;
         let flow = self.by_key.get(&key).ok_or(TcpTableError::StaleToken)?;
-        if payload_len > flow.max_send_segment_bytes {
+        let plan = SegmentOptionPlan::new(flow);
+        if payload_len
+            > checked_effective_segment_bytes(
+                flow.max_send_segment_bytes,
+                flow.peer_send_mss,
+                plan.len,
+            )?
+        {
             return Err(TcpTableError::PayloadTooLarge);
         }
         let mut header_len: usize = if key.source.is_ipv4() { 40 } else { 60 };
-        header_len += self.segment_options(key).map_or(0, |options| options.len());
+        header_len += plan.len;
         header_len
             .checked_add(payload_len)
             .ok_or(TcpTableError::PayloadTooLarge)
@@ -2288,7 +2311,7 @@ impl TcpTable {
             }
             flow.tcb
                 .send_available()
-                .min(flow.max_send_segment_bytes)
+                .min(effective_segment_bytes(flow)?)
                 .min(pending.bytes.len())
         };
         if amount == 0 {
@@ -2403,27 +2426,27 @@ impl TcpTable {
         key: TcpFlowKey,
         control: SendControl,
     ) -> Result<Vec<u8>, TcpTableError> {
-        let chunk = self
+        let flow = self
             .by_key
-            .get(&key)
-            .and_then(|flow| {
-                flow.send.iter().find(|chunk| {
-                    usize::try_from(control.sequence.distance_from(chunk.sequence))
-                        .is_ok_and(|offset| offset < chunk.bytes.len())
-                })
+            .get_mut(&key)
+            .ok_or(TcpTableError::UnknownFlow)?;
+        let effective = effective_segment_bytes(flow)?;
+        let chunk = flow
+            .send
+            .iter_mut()
+            .find(|chunk| {
+                usize::try_from(control.sequence.distance_from(chunk.sequence))
+                    .is_ok_and(|offset| offset < chunk.bytes.len())
             })
             .ok_or(TcpTableError::Invariant(
                 "payload action lacked matching send chunk",
             ))?;
         let offset = usize::try_from(control.sequence.distance_from(chunk.sequence))
             .map_err(|_| TcpTableError::Invariant("payload send offset exceeds usize"))?;
-        let payload = chunk
-            .bytes
-            .get(offset..)
-            .ok_or(TcpTableError::Invariant(
-                "payload sequence lies outside send chunk",
-            ))?
-            .to_vec();
+        let remaining = &chunk.bytes[offset..];
+        let amount = remaining.len().min(effective);
+        let payload = remaining[..amount].to_vec();
+        chunk.resegment |= remaining.len() > amount;
         self.emit_payload(key, control, &payload)
             .map_err(Into::into)
     }
@@ -2444,11 +2467,9 @@ impl TcpTable {
             token,
             source,
             destination,
-            max_segment_payload_bytes: self
-                .by_key
-                .get(&key)
-                .ok_or(TcpTableError::UnknownFlow)?
-                .max_send_segment_bytes,
+            max_segment_payload_bytes: effective_segment_bytes(
+                self.by_key.get(&key).ok_or(TcpTableError::UnknownFlow)?,
+            )?,
         })
     }
 
@@ -2499,7 +2520,7 @@ impl TcpTable {
                 .by_key
                 .get_mut(&key)
                 .ok_or(TcpTableError::UnknownFlow)?;
-            let limit = flow.max_send_segment_bytes;
+            let limit = effective_segment_bytes(flow)?;
             let Some(chunk) = flow
                 .send
                 .iter_mut()
@@ -2532,7 +2553,7 @@ impl TcpTable {
                     break;
                 };
                 if flow.tcb.congestion_window().saturating_sub(sack_pipe(flow))
-                    < flow.max_send_segment_bytes
+                    < effective_segment_bytes(flow)?
                 {
                     break;
                 }
@@ -2546,6 +2567,7 @@ impl TcpTable {
                     .by_key
                     .get_mut(&key)
                     .ok_or(TcpTableError::UnknownFlow)?;
+                let effective = effective_segment_bytes(flow)?;
                 flow.rtt_probe = None;
                 if rescue {
                     let recovery = flow.sack_recovery.as_mut().expect("recovery checked above");
@@ -2554,7 +2576,8 @@ impl TcpTable {
                 let chunk = flow.send.get_mut(index).ok_or(TcpTableError::Invariant(
                     "SACK recovery selected a missing send chunk",
                 ))?;
-                let amount = chunk.bytes.len().min(flow.max_send_segment_bytes);
+                let amount = chunk.bytes.len().min(effective);
+                chunk.resegment |= chunk.bytes.len() > amount;
                 let control = SendControl {
                     sequence: chunk.sequence,
                     acknowledgment: flow.tcb.recv_next(),
@@ -2606,9 +2629,26 @@ impl TcpTable {
         control: SendControl,
         payload: &[u8],
     ) -> Result<Vec<u8>, WireError> {
+        // This exact encoded plan is checked and then passed to the builder.
+        // Earlier sizing calls see the same owner-local option state: no await,
+        // receive admission or option mutation occurs between sizing and emit.
+        let options = self.segment_options(key);
+        let flow = self
+            .by_key
+            .get(&key)
+            .ok_or(WireError::Malformed("unknown TCP flow"))?;
+        let limit = checked_effective_segment_bytes(
+            flow.max_send_segment_bytes,
+            flow.peer_send_mss,
+            options.as_ref().map_or(0, Vec::len),
+        )
+        .map_err(|_| WireError::Malformed("no effective TCP data space"))?;
+        if payload.len() > limit {
+            return Err(WireError::Malformed("TCP data exceeds effective send MSS"));
+        }
         let identification = self.next_ipv4_id;
         self.next_ipv4_id = self.next_ipv4_id.wrapping_add(1);
-        if let Some(options) = self.segment_options(key) {
+        if let Some(options) = options {
             emit_tcp_segment_with_options(
                 key.destination,
                 key.source,
@@ -2644,25 +2684,23 @@ impl TcpTable {
 
     fn segment_options(&self, key: TcpFlowKey) -> Option<Vec<u8>> {
         let flow = self.by_key.get(&key)?;
+        let plan = SegmentOptionPlan::new(flow);
+        if plan.len == 0 {
+            return None;
+        }
         let mut options = self
             .timestamp_options(key)
             .map_or_else(Vec::new, |timestamp| timestamp.to_vec());
-        if flow.sack_permitted && !flow.out_of_order.is_empty() {
-            let max_blocks = (40_usize.saturating_sub(options.len() + 2) / 8).min(4);
-            let blocks = receive_sack_blocks(flow, max_blocks);
-            if !blocks.is_empty() {
-                options.push(5);
-                options.push(u8::try_from(2 + blocks.len() * 8).expect("SACK option fits u8"));
-                for (left, right) in blocks {
-                    options.extend_from_slice(&left.get().to_be_bytes());
-                    options.extend_from_slice(&right.get().to_be_bytes());
-                }
+        if !plan.sack_blocks.is_empty() {
+            options.push(5);
+            options
+                .push(u8::try_from(2 + plan.sack_blocks.len() * 8).expect("SACK option fits u8"));
+            for (left, right) in plan.sack_blocks {
+                options.extend_from_slice(&left.get().to_be_bytes());
+                options.extend_from_slice(&right.get().to_be_bytes());
             }
         }
-        if options.is_empty() {
-            return None;
-        }
-        options.resize(options.len().next_multiple_of(4), 1);
+        options.resize(plan.len, 1);
         Some(options)
     }
 
@@ -3617,8 +3655,9 @@ fn lower_flow_mtu(key: TcpFlowKey, flow: &mut TcpFlow, mtu: usize) -> bool {
         return false;
     }
     flow.max_send_segment_bytes = ceiling;
+    let effective = effective_segment_bytes(flow).unwrap_or(0);
     for chunk in &mut flow.send {
-        chunk.resegment |= chunk.bytes.len() > ceiling;
+        chunk.resegment |= chunk.bytes.len() > effective;
     }
     true
 }
@@ -3822,6 +3861,7 @@ fn split_sack_chunk(
         resegment: _,
         _metadata_lease: first_metadata,
     } = chunk;
+    let effective = effective_segment_bytes(flow).unwrap_or(0);
     let mut start = 0_usize;
     let mut first_metadata = Some(first_metadata);
     for end in cuts.iter().copied().chain(std::iter::once(bytes.len())) {
@@ -3839,7 +3879,7 @@ fn split_sack_chunk(
             payload_lease,
             sacked: piece_sacked,
             retransmitted,
-            resegment: amount > flow.max_send_segment_bytes,
+            resegment: amount > effective,
             _metadata_lease: first_metadata
                 .take()
                 .unwrap_or_else(|| metadata.next().expect("SACK split metadata preallocated")),
@@ -4451,3 +4491,61 @@ mod tests {
         assert_eq!(table.write_capacity(token).unwrap(), 0);
     }
 }
+
+/// One plan for actual padded data options. Empty/TS-only needs no block Vec
+/// allocation; out-of-order SACK selection retains the existing bounded scan.
+struct SegmentOptionPlan {
+    len: usize,
+    sack_blocks: Vec<(SeqNumber, SeqNumber)>,
+}
+impl SegmentOptionPlan {
+    fn new(flow: &TcpFlow) -> Self {
+        let timestamp_len = if flow.timestamp.is_some() {
+            TCP_TIMESTAMP_OPTION_BYTES
+        } else {
+            0
+        };
+        let sack_blocks = if flow.sack_permitted && !flow.out_of_order.is_empty() {
+            let limit = (TCP_MAX_OPTION_BYTES.saturating_sub(timestamp_len + 2) / 8).min(4);
+            receive_sack_blocks(flow, limit)
+        } else {
+            Vec::new()
+        };
+        let len = timestamp_len
+            + if sack_blocks.is_empty() {
+                0
+            } else {
+                2 + 8 * sack_blocks.len()
+            };
+        Self {
+            len: len.next_multiple_of(4),
+            sack_blocks,
+        }
+    }
+}
+
+/// RFC9293 3.7.1: the raw peer MSS covers data with fixed headers, so actual
+/// options must be subtracted exactly once. The cached local/path limit may
+/// remain more conservative. Zero is an error, never a forced one-byte send.
+fn checked_effective_segment_bytes(
+    cached_ceiling: usize,
+    peer_mss: usize,
+    option_bytes: usize,
+) -> Result<usize, TcpTableError> {
+    if option_bytes > TCP_MAX_OPTION_BYTES || !option_bytes.is_multiple_of(4) {
+        return Err(TcpTableError::PayloadTooLarge);
+    }
+    peer_mss
+        .checked_sub(option_bytes)
+        .map(|peer| peer.min(cached_ceiling))
+        .filter(|bytes| *bytes != 0)
+        .ok_or(TcpTableError::PayloadTooLarge)
+}
+fn effective_segment_bytes(flow: &TcpFlow) -> Result<usize, TcpTableError> {
+    let plan = SegmentOptionPlan::new(flow);
+    checked_effective_segment_bytes(flow.max_send_segment_bytes, flow.peer_send_mss, plan.len)
+}
+
+#[cfg(test)]
+#[path = "mss_options_tests.rs"]
+mod mss_options_tests;

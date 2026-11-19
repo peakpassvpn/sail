@@ -22,7 +22,6 @@
 
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread::JoinHandle;
@@ -607,15 +606,11 @@ impl CacheFile {
         });
     }
 
-    /// Forgets every DNS answer kept. Readers must ignore the old disk
-    /// contents until the returned flag says this clear committed.
-    pub(crate) fn clear_dns(&self) -> Arc<AtomicBool> {
-        let done = Arc::new(AtomicBool::new(false));
+    /// Forgets every DNS answer kept.
+    pub(crate) fn clear_dns(&self) {
         self.queue(Write::DnsClear {
             table: self.table(DNS),
-            done: done.clone(),
         });
-        done
     }
 
     /// How many DNS answers are kept.
@@ -701,7 +696,6 @@ enum Write {
     },
     DnsClear {
         table: String,
-        done: Arc<AtomicBool>,
     },
     DnsPrune {
         table: String,
@@ -733,35 +727,23 @@ fn prune_interval(pruned: &Mutex<std::collections::HashMap<String, Duration>>) -
         .unwrap_or(Duration::from_secs(3600))
 }
 
-/// How soon a DNS clear whose commit failed is tried again: until it
-/// commits, the DNS answers on disk are not read.
-const CLEAR_RETRY: Duration = Duration::from_secs(1);
-
 /// Writes what is queued, in one transaction for as much as has queued up
 /// while the last committed, until the file closes; and prunes the DNS
-/// answers kept when nothing was queued for a while. A DNS clear that
-/// failed to commit is tried again, before what was queued after it.
+/// answers kept when nothing was queued for a while.
 fn write(
     db: &RwLock<Option<Database>>,
     queue: mpsc::Receiver<Write>,
     pruned: &Mutex<std::collections::HashMap<String, Duration>>,
 ) {
     let mut last_pruned = std::time::Instant::now();
-    let mut clears: Vec<Write> = Vec::new();
-    // Whether the clears' failure was warned of: once until they commit.
-    let mut warned = false;
     loop {
         let interval = prune_interval(pruned);
-        let mut wait = interval.saturating_sub(last_pruned.elapsed());
-        if !clears.is_empty() {
-            wait = wait.min(CLEAR_RETRY);
-        }
-        let mut writes = std::mem::take(&mut clears);
-        match queue.recv_timeout(wait) {
-            Ok(first) => writes.push(first),
-            Err(mpsc::RecvTimeoutError::Timeout) => {}
+        let wait = interval.saturating_sub(last_pruned.elapsed());
+        let mut writes = match queue.recv_timeout(wait) {
+            Ok(first) => vec![first],
+            Err(mpsc::RecvTimeoutError::Timeout) => Vec::new(),
             Err(mpsc::RecvTimeoutError::Disconnected) => return,
-        }
+        };
         writes.extend(queue.try_iter());
         if last_pruned.elapsed() >= interval {
             last_pruned = std::time::Instant::now();
@@ -776,26 +758,7 @@ fn write(
             continue;
         }
         if let Err(e) = with(db, |db| commit(db, &writes)) {
-            clears = writes
-                .into_iter()
-                .filter(|w| matches!(w, Write::DnsClear { .. }))
-                .collect();
-            if clears.is_empty() {
-                warn!("cache_file: not written: {}", e);
-            } else if !std::mem::replace(&mut warned, true) {
-                warn!(
-                    "cache_file: not written: {}; the DNS answers on disk are not read \
-                     until the cache clear is, tried again in {:?}",
-                    e, CLEAR_RETRY
-                );
-            }
-        } else {
-            warned = false;
-            for write in &writes {
-                if let Write::DnsClear { done, .. } = write {
-                    done.store(true, Ordering::Release);
-                }
-            }
+            warn!("cache_file: not written: {}", e);
         }
     }
 }
@@ -814,7 +777,7 @@ fn commit(db: &Database, writes: &[Write]) -> Result<()> {
                 tx.open_table(TableDefinition::<&str, (&[u8], u64)>::new(table))?
                     .insert(key.as_str(), (message.as_slice(), *expires))?;
             }
-            Write::DnsClear { table, .. } => {
+            Write::DnsClear { table } => {
                 tx.delete_table(TableDefinition::<&str, (&[u8], u64)>::new(table))?;
             }
             Write::DnsPrune { table, window } => {
@@ -871,16 +834,6 @@ pub(crate) mod tests {
             },
             ..Default::default()
         }
-    }
-
-    /// Runs `f` while a write transaction holds the writer off. The
-    /// database lock's read guard is let go first: `f` may read through
-    /// it, and a read taken again on the same thread may deadlock or
-    /// panic (`RwLock::read`).
-    pub(crate) fn with_writes_paused(cache: &CacheFile, f: impl FnOnce()) {
-        let transaction = cache.shared.with(|db| Ok(db.begin_write()?)).unwrap();
-        f();
-        drop(transaction);
     }
 
     pub(crate) fn enabled() -> CacheFileOptions {
@@ -1117,79 +1070,5 @@ pub(crate) mod tests {
         assert_eq!(slot.get().unwrap().dns_entries().unwrap(), 0);
         slot.replace(None, &env).unwrap().keep();
         std::fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[test]
-    fn dns_clear_reports_only_a_committed_clear_and_stays_pending_when_closed() {
-        let dir = temp_dir("dns-clear-completion");
-        let env = env(&dir);
-        let slot = CacheFileSlot::default();
-        slot.replace(Some(&enabled()), &env).unwrap().keep();
-        let cache = slot.get().unwrap();
-        let done = with(&cache.shared.db, |db| {
-            let _transaction = db.begin_write()?;
-            cache.store_dns(
-                "old".into(),
-                vec![1],
-                SystemTime::now() + Duration::from_secs(60),
-            );
-            let done = cache.clear_dns();
-            assert!(!done.load(Ordering::Acquire));
-            Ok(done)
-        })
-        .unwrap();
-        // close drains the writer; a queued put before clear must be gone.
-        slot.replace(None, &env).unwrap().keep();
-        assert!(done.load(Ordering::Acquire));
-        assert!(!cache.clear_dns().load(Ordering::Acquire));
-        drop(cache);
-        slot.replace(Some(&enabled()), &env).unwrap().keep();
-        assert_eq!(slot.get().unwrap().dns_entries().unwrap(), 0);
-        slot.replace(None, &env).unwrap().keep();
-        std::fs::remove_dir_all(dir).unwrap();
-    }
-
-    /// A DNS clear whose commit fails is tried again until it commits,
-    /// rather than leaving the answers on disk unread for good.
-    #[test]
-    fn a_dns_clear_that_failed_to_commit_is_tried_again() {
-        let dir = temp_dir("dns-clear-retry");
-        let env = env(&dir);
-        let slot = CacheFileSlot::default();
-        slot.replace(Some(&enabled()), &env).unwrap().keep();
-        let cache = slot.get().unwrap();
-        // The DNS table's name taken by a multimap table: deleting it as
-        // the DNS table fails.
-        let table = cache.table(DNS);
-        let wrong = redb::MultimapTableDefinition::<&str, u64>::new(&table);
-        with(&cache.shared.db, |db| {
-            let tx = db.begin_write()?;
-            tx.open_multimap_table(wrong)?.insert("x", 1)?;
-            tx.commit()?;
-            Ok(())
-        })
-        .unwrap();
-        let done = cache.clear_dns();
-        std::thread::sleep(Duration::from_millis(300));
-        assert!(!done.load(Ordering::Acquire), "a failed clear is not done");
-        // Set right: the clear is tried again, and commits.
-        with(&cache.shared.db, |db| {
-            let tx = db.begin_write()?;
-            tx.delete_multimap_table(wrong)?;
-            tx.commit()?;
-            Ok(())
-        })
-        .unwrap();
-        let deadline = std::time::Instant::now() + Duration::from_secs(5);
-        while !done.load(Ordering::Acquire) {
-            assert!(
-                std::time::Instant::now() < deadline,
-                "the failed clear was never tried again"
-            );
-            std::thread::sleep(Duration::from_millis(20));
-        }
-        drop(cache);
-        slot.replace(None, &env).unwrap().keep();
-        std::fs::remove_dir_all(dir).unwrap();
     }
 }

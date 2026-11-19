@@ -33,7 +33,7 @@ Rust: [`MultiplexBrutal`](https://github.com/peakpassvpn/sail/blob/master/sail/s
 
 ## `client_subnet`
 
-Used at: `dns.servers[h3, https, quic, tcp, tls, udp].client_subnet`, `outbounds[redirect, sail].domain_resolver.client_subnet`
+Used at: `dns.servers[h3, https, quic, tcp, tls, udp].client_subnet`, `outbounds[redirect].domain_resolver.client_subnet`
 
 Rust: [`Prefix`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs) · **sail extension**
 
@@ -73,24 +73,6 @@ Used at: `inbounds[anytls].tls.reality.handshake.domain_resolver`, `route.rule_s
 | `disable_optimistic_cache` | bool | — | Supported | — |
 | `rewrite_ttl` | number | — | Supported | — |
 | `client_subnet` | string | — | Supported | — |
-
-<a id="domain-resolver-outbounds"></a>
-
-## `domain_resolver` — outbounds
-
-Used at: `outbounds[redirect, sail].domain_resolver`
-
-Rust: [`DomainResolver`](https://github.com/peakpassvpn/sail/blob/master/sail/src/config/model.rs) · **sail extension**
-
-| Field | Type | Default | Status | Description |
-| --- | --- | --- | --- | --- |
-| `server` | string | required | sail extension | — |
-| `strategy` | string, one of `prefer_ipv4`, `prefer_ipv6`, `ipv4_only`, `ipv6_only` | unset | sail extension | — |
-| `timeout` | duration | unset | sail extension | — |
-| `disable_cache` | bool | `false` | sail extension | — |
-| `disable_optimistic_cache` | bool | `false` | sail extension | — |
-| `rewrite_ttl` | number | unset | sail extension | — |
-| `client_subnet` | object → [object](#client-subnet) | unset | sail extension | — |
 
 <a id="domain-resolver-default-domain-resolver"></a>
 
@@ -199,7 +181,7 @@ Rust: [`OutboundEch`](https://github.com/peakpassvpn/sail/blob/master/sail/src/t
 
 ## `fallback / fallback_for_alpn`
 
-Used at: `inbounds[anytls, sail, vless].fallback`, `inbounds[anytls, sail, vless].fallback_for_alpn`
+Used at: `inbounds[anytls, vless].fallback`, `inbounds[anytls, vless].fallback_for_alpn`
 
 Rust: [`FallbackServer`](https://github.com/peakpassvpn/sail/blob/master/sail/src/protocol/fallback.rs) · Build: `any (feature = "inbound-anytls" , feature = "inbound-trojan" , feature = "inbound-vless" , feature = "inbound-shadowtls")` · **sail extension**
 
@@ -644,7 +626,7 @@ Used at: `inbounds[hysteria2].realm.http_client.tls`, `outbounds[hysteria2].real
 
 ## `tls` — outbounds
 
-Used at: `outbounds[anytls, http, trojan, vless, vmess].tls`
+Used at: `outbounds[anytls, http, shadowtls, trojan, vless, vmess].tls`
 
 Rust: [`OutboundTls`](https://github.com/peakpassvpn/sail/blob/master/sail/src/transport/layers.rs)
 
@@ -667,9 +649,9 @@ Rust: [`OutboundTls`](https://github.com/peakpassvpn/sail/blob/master/sail/src/t
 | `client_certificate_path` | string | unset | Supported | `client_certificate`, by path. |
 | `client_key` | listable-string | unset | Supported | The inline PEM key of the client certificate. |
 | `client_key_path` | string | unset | Supported | `client_key`, by path. |
-| `fragment` | bool | `false` | Supported | sing-box 1.12's: the ClientHello goes out in TCP segments, cut in its server name, `fragment_fallback_delay` apart. |
-| `fragment_fallback_delay` | duration | unset | Supported | The wait between those segments; unset (or zero), 500ms. sing-box waits for the segment's ACK where it can tell, which sail does not yet. |
-| `record_fragment` | bool | `false` | Supported | sing-box 1.12's: the ClientHello goes out as TLS records, cut in its server name, in one write; with `fragment`, each record a segment of its own. |
+| `fragment` | bool | — | Error: Fragmenting or spoofing the TLS handshake against censorship | — |
+| `fragment_fallback_delay` | duration | — | Error: Fragmenting or spoofing the TLS handshake against censorship | — |
+| `record_fragment` | bool | — | Error: Fragmenting or spoofing the TLS handshake against censorship | — |
 | `spoof` | string | — | Error: Fragmenting or spoofing the TLS handshake against censorship | — |
 | `spoof_method` | string, one of `wrong-sequence`, `wrong-checksum`, `wrong-ack`, `wrong-md5`, `wrong-timestamp` | — | Error: Fragmenting or spoofing the TLS handshake against censorship | — |
 | `kernel_tx` | bool | — | Warned: The TLS stack, kernel TLS and the handshake's timeout: the same TLS without them | — |

@@ -31,7 +31,7 @@ pub mod diagnostics;
 /// The places, when there is a limit.
 pub struct Sessions {
     #[cfg(feature = "internal-diagnostics")]
-    diagnostics: diagnostics::Counters,
+    diagnostics: Arc<diagnostics::Counters>,
     places: Arc<Semaphore>,
     limit: usize,
     /// Those waiting for a place: they hold their inbound side already, so
@@ -43,7 +43,12 @@ pub struct Sessions {
 }
 
 /// A session's place, given back when it is dropped.
-pub struct Place(#[allow(dead_code)] OwnedSemaphorePermit);
+pub struct Place {
+    // Own the very same semaphore permit; the observer owns no permit.
+    _permit: OwnedSemaphorePermit,
+    #[cfg(feature = "internal-diagnostics")]
+    _observation: diagnostics::PermitObservation,
+}
 
 /// One queued admission. Cancellation drops this along with the semaphore
 /// wait, so it cannot permanently consume the bounded waiting budget.
@@ -75,11 +80,43 @@ impl Sessions {
     /// A place for one more session, waiting `wait` at most, and only
     /// while fewer than `max_waiting` wait; none, and the session is
     /// refused.
-    pub async fn enter(&self, wait: Duration) -> Option<Place> {
+    pub fn enter(&self, wait: Duration) -> impl std::future::Future<Output = Option<Place>> + '_ {
+        #[cfg(feature = "internal-diagnostics")]
+        {
+            self.enter_inner(wait, diagnostics::PermitKind::Unknown)
+        }
+        #[cfg(not(feature = "internal-diagnostics"))]
+        {
+            self.enter_inner(wait)
+        }
+    }
+
+    #[cfg(feature = "internal-diagnostics")]
+    pub(crate) fn enter_network(
+        &self,
+        wait: Duration,
+        network: crate::session::Network,
+    ) -> impl std::future::Future<Output = Option<Place>> + '_ {
+        let kind = match network {
+            crate::session::Network::Tcp => diagnostics::PermitKind::Tcp,
+            crate::session::Network::Udp => diagnostics::PermitKind::Udp,
+        };
+        self.enter_inner(wait, kind)
+    }
+
+    async fn enter_inner(
+        &self,
+        wait: Duration,
+        #[cfg(feature = "internal-diagnostics")] kind: diagnostics::PermitKind,
+    ) -> Option<Place> {
         if let Ok(permit) = self.places.clone().try_acquire_owned() {
             #[cfg(feature = "internal-diagnostics")]
             self.diagnostics.admitted();
-            return Some(Place(permit));
+            return Some(Place {
+                _permit: permit,
+                #[cfg(feature = "internal-diagnostics")]
+                _observation: self.diagnostics.observe_permit(kind),
+            });
         }
         #[cfg(feature = "internal-diagnostics")]
         let mut observation = diagnostics::WaitObservation::new(&self.diagnostics);
@@ -104,7 +141,11 @@ impl Sessions {
             Ok(Ok(permit)) => {
                 #[cfg(feature = "internal-diagnostics")]
                 self.diagnostics.admitted();
-                Some(Place(permit))
+                Some(Place {
+                    _permit: permit,
+                    #[cfg(feature = "internal-diagnostics")]
+                    _observation: self.diagnostics.observe_permit(kind),
+                })
             }
             _ => {
                 self.refused();
@@ -421,3 +462,7 @@ mod tests {
 
 #[cfg(test)]
 mod diagnostics_tests;
+
+#[cfg(all(test, feature = "internal-diagnostics"))]
+#[path = "sessions/permit_class_tests.rs"]
+mod permit_class_tests;

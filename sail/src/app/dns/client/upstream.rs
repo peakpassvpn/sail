@@ -44,8 +44,8 @@ tokio::task_local! {
 
 /// An attempt of a `sequential` server on one member.
 pub(super) struct Attempt {
-    /// How long a kept connection may take to answer; `None` requires a
-    /// replacement. Pipelined DoT retries share one that a sibling opened.
+    /// How long a kept connection may take to answer; `None` takes none,
+    /// and a new connection is opened.
     pub reuse: Option<std::time::Duration>,
     /// Set when a kept connection timed out, which ends the attempt: the
     /// server is asked again on a new connection, with a whole attempt's
@@ -91,8 +91,6 @@ impl Driver {
         std::sync::Arc::new(Driver(handle))
     }
 
-    // DoH's pool asks; HTTP/3's connection lives as long as its queries.
-    #[cfg_attr(not(feature = "dns-doh"), allow(dead_code))]
     pub(super) fn is_finished(&self) -> bool {
         self.0.is_finished()
     }
@@ -336,11 +334,6 @@ impl Upstream {
             }
             if tls.ech.is_some() {
                 return Err(anyhow!("tls.ech: not for a dns server"));
-            }
-            if tls.fragment || tls.record_fragment {
-                return Err(anyhow!(
-                    "tls.fragment, tls.record_fragment: not for a dns server"
-                ));
             }
             if tls.disable_sni && matches!(protocol, Protocol::Quic | Protocol::H3) {
                 // As for QUIC outbounds: quinn-btls sends the SNI of every
@@ -788,24 +781,6 @@ impl super::DnsClient {
 #[cfg(all(test, any(feature = "dns-doh", feature = "dns-h3")))]
 mod tests {
     use super::*;
-
-    /// A DNS server's TLS takes neither ClientHello cut (sail#61): only
-    /// outbounds' do.
-    #[test]
-    fn a_dns_servers_tls_takes_no_fragment() {
-        for field in ["fragment", "record_fragment"] {
-            let json = format!(
-                r#"{{"dns": {{"servers": [{{"type": "tls", "tag": "t", "server": "1.1.1.1",
-                    "tls": {{"enabled": true, "{}": true}}}}]}}}}"#,
-                field
-            );
-            let err = match crate::config::Config::from_json(&json) {
-                Ok(_) => panic!("tls.{} was taken for a dns server", field),
-                Err(e) => format!("{:#}", e),
-            };
-            assert!(err.contains(field), "{}", err);
-        }
-    }
 
     /// A connection given up by its pool goes on while a query holds it,
     /// and stops when the last lets go, or at once when stopped.

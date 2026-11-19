@@ -560,6 +560,8 @@ pub struct Dispatcher {
     sessions: Option<super::sessions::Sessions>,
     #[cfg(feature = "internal-diagnostics")]
     diagnostics_epoch: u64,
+    #[cfg(feature = "internal-diagnostics")]
+    udp_send_terminal: super::sessions::diagnostics::UdpSendTerminalCounters,
     #[cfg(feature = "internal-udp-target-diagnostics")]
     udp_target: Option<std::sync::Arc<super::udp_target_diagnostics::Sink>>,
 }
@@ -586,6 +588,8 @@ impl Dispatcher {
             sessions: super::sessions::Sessions::new(env.options.inbound.max_connections),
             #[cfg(feature = "internal-diagnostics")]
             diagnostics_epoch,
+            #[cfg(feature = "internal-diagnostics")]
+            udp_send_terminal: Default::default(),
             #[cfg(feature = "internal-udp-target-diagnostics")]
             udp_target: env
                 .host
@@ -627,6 +631,7 @@ impl Dispatcher {
                 .as_ref()
                 .map(super::sessions::Sessions::diagnostics_snapshot)
                 .unwrap_or_default(),
+            udp_send_terminal: self.udp_send_terminal.snapshot(),
             dot_live_carriers: None,
             dot_active_queries: None,
             #[cfg(feature = "internal-udp-target-diagnostics")]
@@ -652,35 +657,28 @@ impl Dispatcher {
         }
     }
 
-    /// The trace of a UDP session at a stage past the packet: the flow its
-    /// packet began, even if sniffing has since changed the destination,
-    /// or a new one for the fixture. A TCP session to the same endpoint is
-    /// not observed.
-    #[cfg(feature = "internal-udp-target-diagnostics")]
-    fn udp_target_session_trace(
+    /// A place for one more session, or none: it is refused.
+    async fn enter(
         &self,
-        sess: &Session,
-    ) -> Option<super::udp_target_diagnostics::Trace> {
-        if sess.network != crate::session::Network::Udp {
-            return None;
-        }
-        let sink = self.udp_target.as_ref()?;
-        match super::udp_target_diagnostics::current() {
-            Some(trace) => sink.owns(&trace).then_some(trace),
-            None => sink.begin(&sess.destination),
+        #[cfg(feature = "internal-diagnostics")] network: Network,
+    ) -> Result<Option<super::sessions::Place>, ()> {
+        match &self.sessions {
+            None => Ok(None),
+            Some(sessions) => {
+                #[cfg(feature = "internal-diagnostics")]
+                let entered = sessions
+                    .enter_network(super::sessions::MAX_CONNECTIONS_WAIT, network)
+                    .await;
+                #[cfg(not(feature = "internal-diagnostics"))]
+                let entered = sessions.enter(super::sessions::MAX_CONNECTIONS_WAIT).await;
+                entered.map(Some).ok_or(())
+            }
         }
     }
 
-    /// A place for one more session, or none: it is refused.
-    async fn enter(&self) -> Result<Option<super::sessions::Place>, ()> {
-        match &self.sessions {
-            None => Ok(None),
-            Some(sessions) => sessions
-                .enter(super::sessions::MAX_CONNECTIONS_WAIT)
-                .await
-                .map(Some)
-                .ok_or(()),
-        }
+    #[cfg(feature = "internal-diagnostics")]
+    pub(crate) fn observe_udp_send_terminal(&self, current_removed: bool) {
+        self.udp_send_terminal.observe(current_removed);
     }
 
     /// Records the protocol of the inbound `tag`, or forgets the inbound.
@@ -810,7 +808,12 @@ impl Dispatcher {
         // Its place, held as long as it lives; without one, it is refused
         // as a general failure (SOCKS REP 1): the limit is sail's own, not
         // the destination refusing.
-        let entered = self.enter().await;
+        let entered = self
+            .enter(
+                #[cfg(feature = "internal-diagnostics")]
+                Network::Tcp,
+            )
+            .await;
         drop(handshake);
         let Ok(place) = entered else {
             let mut lhs = lhs;
@@ -994,7 +997,7 @@ impl Dispatcher {
                     reply.succeeded();
                 }
                 if let Some(how) = sess.route.tls_fragment {
-                    rhs = Box::new(crate::transport::fragment::FragmentStream::new(rhs, how));
+                    rhs = Box::new(super::router::fragment::FragmentStream::new(rhs, how));
                 }
                 let elapsed = tokio::time::Instant::now().duration_since(handshake_start);
 
@@ -1279,7 +1282,12 @@ impl Dispatcher {
             ));
         }
         // Its place, held by the datagram as long as the session lives.
-        let entered = self.enter().await;
+        let entered = self
+            .enter(
+                #[cfg(feature = "internal-diagnostics")]
+                Network::Udp,
+            )
+            .await;
         drop(handshake);
         let place = entered
             .map_err(|()| io::Error::other("refused: inbound.max_connections sessions live"))?;
@@ -1435,7 +1443,7 @@ impl Dispatcher {
         }
 
         #[cfg(feature = "internal-udp-target-diagnostics")]
-        if let Some(trace) = self.udp_target_session_trace(&sess) {
+        if let Some(trace) = self.udp_target_trace(&sess.destination) {
             trace.chain(h.tag(), &sess.chain);
         }
         match handshake {
@@ -1770,7 +1778,7 @@ impl Dispatcher {
             .await
             .map_err(|e| io::Error::other(format!("pick route: {}", e)))?;
         #[cfg(feature = "internal-udp-target-diagnostics")]
-        if let Some(trace) = self.udp_target_session_trace(sess) {
+        if let Some(trace) = self.udp_target_trace(&sess.destination) {
             let mut event = trace.event(super::udp_target_diagnostics::ROUTE);
             event.router_generation = router.generation();
             event.source_rule_index = sess
@@ -2579,66 +2587,5 @@ mod udp_target_route_tests {
                 .await
                 .clean());
         }
-    }
-    /// Only UDP is observed: a TCP route to the endpoint adds no event. A
-    /// UDP session whose destination sniffing changed keeps its packet's
-    /// flow.
-    #[tokio::test]
-    async fn udp_target_route_ignores_tcp_and_keeps_a_sniffed_udp_flow() {
-        let config = crate::config::Config::from_json(
-            &serde_json::json!({
-                "outbounds":[{"type":"direct","tag":"private-node"}],
-                "route":{"final":"private-node"}
-            })
-            .to_string(),
-        )
-        .unwrap();
-        let env = std::sync::Arc::new(diag::test_env());
-        let instance = env
-            .scope
-            .enter(async {
-                crate::app::instance::Instance::build(
-                    &config,
-                    config.route.rules.clone(),
-                    env.clone(),
-                    Default::default(),
-                )
-                .unwrap()
-            })
-            .await;
-        let d = instance.dispatcher.clone();
-        let address = SocksAddr::Ip(diag::TEST_ADDR.into());
-        let mut tcp = Session {
-            network: crate::session::Network::Tcp,
-            destination: address.clone(),
-            ..Default::default()
-        };
-        d.route_told(&mut tcp, &mut NoSniffer, &mut Matched::default())
-            .await
-            .unwrap();
-        assert!(d.internal_diagnostics(0).udp_target.events.is_empty());
-
-        let trace = d.udp_target_trace(&address).unwrap();
-        let flow = trace.flow_id;
-        let mut udp = Session {
-            network: crate::session::Network::Udp,
-            destination: SocksAddr::Domain("sniffed.example".into(), diag::TEST_ADDR.port()),
-            ..Default::default()
-        };
-        diag::scope(
-            Some(trace),
-            d.route_told(&mut udp, &mut NoSniffer, &mut Matched::default()),
-        )
-        .await
-        .unwrap();
-        let events = d.internal_diagnostics(0).udp_target.events;
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0].stage, Stage::Route);
-        assert_eq!(events[0].flow_id, flow);
-        assert!(env
-            .scope
-            .stop(std::time::Duration::from_secs(1))
-            .await
-            .clean());
     }
 }

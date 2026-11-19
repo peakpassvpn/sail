@@ -23,7 +23,8 @@ const HEALTH_CHECK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs
 #[cfg(any(feature = "outbound-provider", feature = "rule-set"))]
 fn time(at: Option<std::time::SystemTime>) -> String {
     match at {
-        Some(at) => crate::util::rfc3339::seconds(at),
+        Some(at) => chrono::DateTime::<chrono::Utc>::from(at)
+            .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
         None => "0001-01-01T00:00:00Z".to_string(),
     }
 }

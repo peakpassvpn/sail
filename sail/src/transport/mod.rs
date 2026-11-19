@@ -26,8 +26,7 @@ pub mod httpupgrade;
     feature = "outbound-quic",
     feature = "outbound-grpc",
     feature = "outbound-http",
-    feature = "outbound-amux",
-    feature = "outbound-sail"
+    feature = "outbound-amux"
 ))]
 pub mod idle;
 #[cfg(feature = "mux")]
@@ -57,7 +56,6 @@ pub mod tls_stream;
 #[cfg(any(feature = "inbound-ws", feature = "outbound-ws"))]
 pub mod ws;
 
-pub(crate) mod fragment;
 pub mod layers;
 pub mod uot;
 #[cfg(any(

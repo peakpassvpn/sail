@@ -34,9 +34,14 @@ fn through(proxy: u16, host: &str, port: u16) {
     assert_eq!(&echoed, b"ping");
 }
 
-#[path = "../src/test_ports.rs"]
-mod test_ports;
-use test_ports::free_port;
+/// A free port now.
+fn free_port() -> u16 {
+    TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port()
+}
 
 /// An instance `rt_id` with a mixed inbound on `proxy`, logging to `log`.
 fn start(

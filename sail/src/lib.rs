@@ -52,8 +52,6 @@ pub mod protocol;
 pub mod runtime;
 pub mod session;
 pub mod sniff;
-#[cfg(test)]
-pub(crate) mod test_ports;
 pub mod transport;
 pub mod user;
 pub mod util;
@@ -2074,21 +2072,11 @@ pub(crate) fn dial_defaults(
         defaults.env.auto_interface = Some(
             env.auto_interface
                 .get_or_init(|| {
-                    // The host's network authority and exact device
-                    // leases are a dynamic TUN's; without one, egress is
-                    // detected as before.
-                    if env.host.kinds.dynamic_tun_enabled() {
-                        net::interface::AutoInterface::with_network(
-                            own_interfaces,
-                            platform::detect_default_interface,
-                            env.network.clone(),
-                        )
-                    } else {
-                        net::interface::AutoInterface::new(
-                            own_interfaces,
-                            platform::detect_default_interface,
-                        )
-                    }
+                    net::interface::AutoInterface::with_network(
+                        own_interfaces,
+                        platform::detect_default_interface,
+                        env.network.clone(),
+                    )
                 })
                 .clone(),
         );
@@ -2377,10 +2365,6 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
         events.clone(),
         host.admission_hooks.as_ref(),
     );
-    let network = net::network::Network::telling_to(events.network_sender());
-    if host.kinds.dynamic_tun_enabled() {
-        network.hold_host_authority();
-    }
     let env = Arc::new(runtime::RuntimeEnv {
         options: opts.runtime,
         host,
@@ -2389,7 +2373,7 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
         ledger,
         #[cfg(feature = "inbound-tun")]
         tun_names: Arc::new(std::sync::Mutex::new(tun_names)),
-        network,
+        network: net::network::Network::telling_to(events.network_sender()),
         admission,
         events,
         scope: scope.clone(),
@@ -2780,16 +2764,8 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
     // in the system (routes, rules, filters, DNS); then the root tasks
     // left, the TUN's among them, which closes the device; the instance;
     // its tasks, within the bound; the runtime, within it too.
-    // A dynamic TUN's drain is part of the stop's bound (E2 teardown): the
-    // instance's tasks get what it leaves, not a bound of their own.
     #[cfg(feature = "inbound-tun")]
-    let drained = {
-        let started = std::time::Instant::now();
-        rt.block_on(runtime_manager.stop_dynamic_tun(stop_within));
-        started.elapsed()
-    };
-    #[cfg(not(feature = "inbound-tun"))]
-    let drained = std::time::Duration::ZERO;
+    rt.block_on(runtime_manager.stop_dynamic_tun());
     env.teardown.run_all();
     drop(here);
     for task in &spawned {
@@ -2799,7 +2775,6 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
     // for within the stop's bound, which the instance's tasks get the rest
     // of, and one that outlasts it is the stop's to report.
     let ending = std::time::Instant::now();
-    let stop_within = stop_within.saturating_sub(drained);
     let _ = rt.block_on(tokio::time::timeout(
         stop_within,
         futures::future::join_all(spawned),
@@ -3178,9 +3153,12 @@ mod tests {
 
     #[test]
     fn test_restart() {
-        // Not one the system hands out (`127.0.0.1:0`): another test may be
-        // given that between its being let go and the restart binding it.
-        let port = crate::test_ports::free_port();
+        // A port of the system's choosing, so parallel test runs do not
+        // clash.
+        let port = std::net::TcpListener::bind("127.0.0.1:0")
+            .and_then(|l| l.local_addr())
+            .unwrap()
+            .port();
         let conf = serde_json::json!({
             "log": { "level": "trace" },
             "inbounds": [{ "type": "socks", "listen": "127.0.0.1", "listen_port": port }],

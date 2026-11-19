@@ -91,11 +91,11 @@ mod models {
                 }
                 (Some(at), None) => Some(at),
                 (None, Some(ms)) => {
-                    let at = crate::util::rfc3339::millis_from_unix(
+                    let at = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(
                         i64::try_from(ms).map_err(|_| "expire_at_ms: too far".to_string())?,
                     )
                     .ok_or_else(|| "expire_at_ms: too far".to_string())?;
-                    Some(at)
+                    Some(at.to_rfc3339_opts(chrono::SecondsFormat::Millis, true))
                 }
                 (None, None) => None,
             };

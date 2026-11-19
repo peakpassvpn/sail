@@ -1,4 +1,3 @@
-pub mod rfc3339;
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::str::FromStr;

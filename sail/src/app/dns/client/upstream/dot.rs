@@ -78,11 +78,6 @@ struct Shared {
     // All queries in a batch share its origin: a fresh pipeline must not
     // become an idle-connection probe merely because a sibling joined it.
     probing: bool,
-    // When the connection was opened or last answered. Once a busy
-    // pipeline has been quiet for a whole reuse wait, joiners are probes
-    // whatever the batch's origin: a connection that died silently under
-    // steady load, which never drains, is still timed out and retired.
-    heard: Instant,
     // IDs are never reused on a connection. A late reply to a cancelled
     // query therefore cannot be mistaken for a new query with that ID.
     next_id: u32,
@@ -124,7 +119,6 @@ impl Connection {
         let shared = Arc::new(Mutex::new(Shared {
             pending: HashMap::new(),
             probing: false,
-            heard: Instant::now(),
             next_id: 0,
             closed: false,
             used: Instant::now(),
@@ -153,7 +147,6 @@ impl Connection {
                     let pending = {
                         let mut state = state.lock().unwrap_or_else(|e| e.into_inner());
                         state.used = Instant::now();
-                        state.heard = state.used;
                         state.pending.remove(&id)
                     };
                     if let Some(pending) = pending {
@@ -195,14 +188,7 @@ impl Connection {
         })
     }
 
-    /// `kept` when the connection was taken from the pool rather than
-    /// opened for this query; `wait` is how long a kept one may take.
-    fn reserve(
-        self: &Arc<Self>,
-        request: &[u8],
-        kept: bool,
-        wait: Option<Duration>,
-    ) -> Option<Query> {
+    fn reserve(self: &Arc<Self>, request: &[u8], kept: bool) -> Option<Query> {
         let mut state = self.shared.lock().unwrap_or_else(|e| e.into_inner());
         if state.closed
             || self.driver.is_finished()
@@ -214,8 +200,6 @@ impl Connection {
         if state.pending.is_empty() {
             state.probing = kept;
         }
-        let probing =
-            kept && (state.probing || wait.is_some_and(|wait| state.heard.elapsed() >= wait));
         let id = state.next_id as u16;
         state.next_id += 1;
         let (send, response) = oneshot::channel();
@@ -232,7 +216,7 @@ impl Connection {
         framed.extend_from_slice(&request[2..]);
         Some(Query {
             connection: self.clone(),
-            probing,
+            probing: state.probing,
             id,
             request: Some(framed),
             response,
@@ -303,7 +287,6 @@ impl Pool {
         addr: SocketAddr,
         request: &[u8],
         failed: Option<&Weak<Connection>>,
-        wait: Option<Duration>,
     ) -> Result<(Query, bool)> {
         let mut generation = self.generation.subscribe();
         let started = *generation.borrow();
@@ -316,11 +299,7 @@ impl Pool {
                 if let Some(failed) = failed {
                     state.retire(failed);
                 }
-                if let Some(query) = state
-                    .kept
-                    .as_ref()
-                    .and_then(|c| c.reserve(request, true, wait))
-                {
+                if let Some(query) = state.kept.as_ref().and_then(|c| c.reserve(request, true)) {
                     let probing = query.probing;
                     return Ok((query, probing));
                 }
@@ -344,7 +323,7 @@ impl Pool {
             }
             let connection = Connection::new(stream, permit, client.timeout);
             let query = connection
-                .reserve(request, false, None)
+                .reserve(request, false)
                 .ok_or_else(|| anyhow!("DoT connection closed"))?;
             state.live.push(Arc::downgrade(&connection));
             state.kept = Some(connection);
@@ -389,13 +368,10 @@ impl DnsClient {
     ) -> Result<Vec<u8>> {
         let _slot = pool.queries.acquire().await?;
         let wait = kept_wait(self.reused_connection_timeout());
-        let (query, probing) = pool
-            .query(self, upstream, addr, request, None, wait)
-            .await?;
+        let (query, probing) = pool.query(self, upstream, addr, request, None).await?;
         // A sequential fresh attempt has its full outer budget. Another
         // waiter may already have opened its replacement; share that one.
-        // Every query joining a fresh pipeline keeps its normal deadline
-        // while it opened or answered within the wait; see `Shared::heard`.
+        // Every query joining a fresh pipeline keeps its normal deadline.
         if !probing || wait.is_none() {
             return query.exchange().await;
         }
@@ -422,7 +398,7 @@ impl DnsClient {
         // Another query may already have replaced this failed connection.
         // Its replacement can be used; do not open one retry per waiter.
         let (query, _) = pool
-            .query(self, upstream, addr, request, Some(&failed), None)
+            .query(self, upstream, addr, request, Some(&failed))
             .await?;
         query.exchange().await
     }

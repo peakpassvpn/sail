@@ -1446,24 +1446,56 @@ impl<I: PacketIo> SingleShardRunner<I> {
         token: TcpFlowToken,
         payload: &[u8],
     ) -> Result<(usize, TcpIngress), RunnerError> {
-        let segment = self.tcp_write_limit(token)?;
-        let mut written = 0;
-        let mut ingress = TcpIngress::default();
-        while written < payload.len() {
-            let end = payload.len().min(written + segment);
-            match self.write_tcp(token, &payload[written..end]) {
-                Ok(output) => {
-                    ingress.outgoing.extend(output.outgoing);
-                    ingress.events.extend(output.events);
-                    ingress.timers.extend(output.timers);
-                    ingress.cancelled_timers.extend(output.cancelled_timers);
-                    written = end;
+        let report = self.write_tcp_segments_report(token, payload);
+        // Preserve the old wrapper: a partial write succeeds with its prefix.
+        match report.stopped {
+            Some(error) if report.written == 0 => Err(error),
+            _ => Ok((report.written, report.ingress)),
+        }
+    }
+
+    /// The actual prefix and first stopping error, including partial failures.
+    /// Unlike the compatibility wrapper, this never discards the stop cause.
+    pub fn write_tcp_segments_report(
+        &mut self,
+        token: TcpFlowToken,
+        payload: &[u8],
+    ) -> TcpWriteReport {
+        let segment = match self.tcp_write_limit(token) {
+            Ok(segment) => segment,
+            Err(error) => {
+                return TcpWriteReport {
+                    written: 0,
+                    ingress: TcpIngress::default(),
+                    stopped: Some(error),
                 }
-                Err(error) if written == 0 => return Err(error),
-                Err(_) => break,
+            }
+        };
+        let mut report = TcpWriteReport {
+            written: 0,
+            ingress: TcpIngress::default(),
+            stopped: None,
+        };
+        while report.written < payload.len() {
+            let end = payload.len().min(report.written + segment);
+            match self.write_tcp(token, &payload[report.written..end]) {
+                Ok(output) => {
+                    report.ingress.outgoing.extend(output.outgoing);
+                    report.ingress.events.extend(output.events);
+                    report.ingress.timers.extend(output.timers);
+                    report
+                        .ingress
+                        .cancelled_timers
+                        .extend(output.cancelled_timers);
+                    report.written = end;
+                }
+                Err(error) => {
+                    report.stopped = Some(error);
+                    break;
+                }
             }
         }
-        Ok((written, ingress))
+        report
     }
 
     /// Returns the current peer- and PMTU-constrained TCP write size.
@@ -2422,6 +2454,8 @@ fn poll_once<F: Future>(future: F) -> Option<F::Output> {
     }
 }
 
+mod flow_samples;
+
 #[cfg(test)]
 mod quoted_transport_tests {
     use super::{quoted_transport_endpoints, QuotedTransport};
@@ -2483,4 +2517,12 @@ mod quoted_transport_tests {
             .copy_from_slice(&2_000_u16.to_be_bytes());
         packet
     }
+}
+
+/// A segmented write's prefix and exact first stop. Errors are moved, not cloned.
+#[derive(Debug)]
+pub struct TcpWriteReport {
+    pub written: usize,
+    pub ingress: TcpIngress,
+    pub stopped: Option<RunnerError>,
 }

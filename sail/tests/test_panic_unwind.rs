@@ -16,9 +16,14 @@ use futures::StreamExt;
 use sail::embed::{Config, Event, Instance, Kinds, Options, Runtime, State, Threads};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-#[path = "../src/test_ports.rs"]
-mod test_ports;
-use test_ports::free_port;
+/// A port free now; a start that finds it taken tries another.
+fn free_port() -> u16 {
+    std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port()
+}
 
 fn config(port: u16) -> String {
     serde_json::json!({

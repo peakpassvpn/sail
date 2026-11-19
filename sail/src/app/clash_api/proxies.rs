@@ -40,7 +40,8 @@ pub(super) fn proxy(outbound: &OutboundInfo) -> Value {
                 .iter()
                 .map(|d| {
                     json!({
-                        "time": crate::util::rfc3339::millis(d.time),
+                        "time": chrono::DateTime::<chrono::Utc>::from(d.time)
+                            .to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
                         "delay": d.delay.map_or(0, millis),
                     })
                 })

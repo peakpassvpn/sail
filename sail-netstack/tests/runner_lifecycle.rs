@@ -2745,3 +2745,145 @@ fn a_connect_after_a_quiet_spell_measures_its_round_trip_from_the_syn() {
         .expect("the write armed no retransmission timer");
     assert_eq!(retransmission.after_ms, 1_000);
 }
+
+// Narrow related source-only cases for the independent credit-wake candidate.
+fn credit_report_partial_scenario(packet_stop: bool) {
+    let source = SocketAddr::from((Ipv4Addr::new(10, 0, 0, 2), 40_000));
+    let destination = SocketAddr::from((Ipv4Addr::new(10, 0, 0, 1), 443));
+    let mtu = 9_000;
+    let mut config = deterministic_runner_config();
+    config.mtu = mtu;
+    // Room for the test I/O's headroom.
+    config.max_packet_size = config.max_packet_size.max(mtu + 64);
+    config.tcp.max_segment_payload_bytes = mtu;
+    let timestamps = |value: u32, echo: u32| {
+        let mut options = vec![1, 1, 8, 10];
+        options.extend_from_slice(&value.to_be_bytes());
+        options.extend_from_slice(&echo.to_be_bytes());
+        options
+    };
+    // App MSS1460, SACK, timestamps, scale7; never use jumbo payloads.
+    let mut syn_options = vec![2, 4, 0x05, 0xb4, 4, 2];
+    syn_options.extend_from_slice(&timestamps(100, 0)[2..]);
+    syn_options.extend_from_slice(&[1, 3, 3, 7]);
+    let recv = Arc::new(Mutex::new(VecDeque::from([tcp_packet_with_options(
+        source,
+        destination,
+        100,
+        0,
+        TcpFlags::SYN,
+        &syn_options,
+    )])));
+    let sent = Arc::new(Mutex::new(Vec::new()));
+    let io = DynamicIo {
+        recv: Arc::clone(&recv),
+        sent: Arc::clone(&sent),
+        max_batch: 64,
+    };
+    let ledger = ResourceLedger::new(BudgetProfile::Server.budget()).unwrap();
+    let mut runner = SingleShardRunner::new(io, ledger.clone(), config).unwrap();
+    block_on(runner.step(1_000)).unwrap();
+    block_on(runner.step(1_001)).unwrap();
+    let packet = sent.lock().unwrap().last().unwrap().clone();
+    let syn_ack = parse_tcp_segment(parse_ip_packet(&packet, true).unwrap(), true).unwrap();
+    assert_eq!(syn_ack.options.maximum_segment_size, Some(8_960));
+    let server_next = syn_ack.meta.sequence.wrapping_add(1).get();
+    let echo = syn_ack.options.timestamps.unwrap().0;
+
+    recv.lock().unwrap().push_back(tcp_packet_with_options(
+        source,
+        destination,
+        101,
+        server_next,
+        TcpFlags::ACK,
+        &timestamps(101, echo),
+    ));
+    let accepted = block_on(runner.step(1_010)).unwrap();
+    block_on(runner.step(1_011)).unwrap();
+    let token = match accepted.tcp_events.as_slice() {
+        [TcpEvent::Accepted(connection)] => connection.token,
+        events => panic!("unexpected TCP events: {events:?}"),
+    };
+    runner.accept_tcp(token).unwrap();
+    let capacity = runner.tcp_write_capacity(token).unwrap();
+    assert!(capacity > 10_000);
+    let held = packet_stop.then(|| {
+        ledger
+            .try_acquire(
+                ResourceKind::PacketBytes,
+                ledger.budget().packet_bytes - (mtu + 64),
+            )
+            .unwrap()
+    });
+    let sent_before = sent.lock().unwrap().len();
+    let payload: Vec<u8> = (0..if packet_stop { capacity } else { capacity * 2 })
+        .map(|i| u8::try_from(i % 251).unwrap())
+        .collect();
+    let report = runner.write_tcp_segments_report(token, &payload);
+    assert!(report.written > 0 && report.written < payload.len());
+    let first_written = report.written;
+    if packet_stop {
+        assert!(matches!(
+            report.stopped,
+            Some(RunnerError::Budget(sail_netstack::BudgetError::Exhausted {
+                kind: ResourceKind::PacketBytes,
+                ..
+            }))
+        ));
+    } else {
+        assert!(matches!(
+            report.stopped,
+            Some(RunnerError::Tcp(sail_netstack::TcpTableError::State(
+                sail_netstack::TcpError::SendWindowExceeded
+                    | sail_netstack::TcpError::SendOutstanding
+            )))
+        ));
+    }
+    block_on(runner.step(1_100)).unwrap();
+    block_on(runner.step(1_101)).unwrap();
+    drop(held);
+    if packet_stop {
+        let resumed = runner.write_tcp_segments_report(token, &payload[first_written..]);
+        assert_eq!(resumed.written, payload.len() - first_written);
+        assert!(resumed.stopped.is_none());
+        block_on(runner.step(1_102)).unwrap();
+        block_on(runner.step(1_103)).unwrap();
+    }
+    let packets = sent.lock().unwrap()[sent_before..].to_vec();
+    let mut received = Vec::new();
+    for packet in &packets {
+        let ip = parse_ip_packet(packet, true).unwrap();
+        let segment = parse_tcp_segment(ip, true).unwrap();
+        let ip_header = usize::from(packet[0] & 0x0f) * 4;
+        let tcp_header = packet.len() - ip_header - segment.payload.len();
+        eprintln!("credit-partial wire={} ip_header={} tcp_header={} options={} payload={} flags={:?} seq={}",
+            packet.len(), ip_header, tcp_header, tcp_header - 20,
+            segment.payload.len(), segment.meta.flags, segment.meta.sequence.get());
+        assert!(
+            packet.len() <= 1500,
+            "wire={} ip_header={} tcp_header={} payload={} flags={:?} seq={}",
+            packet.len(),
+            ip_header,
+            tcp_header,
+            segment.payload.len(),
+            segment.meta.flags,
+            segment.meta.sequence.get()
+        );
+        received.extend_from_slice(segment.payload);
+    }
+    let expected = if packet_stop {
+        payload.as_slice()
+    } else {
+        &payload[..first_written]
+    };
+    assert_eq!(received, expected);
+}
+
+#[test]
+fn credit_report_preserves_packet_partial_and_resumed_suffix_without_duplicates() {
+    credit_report_partial_scenario(true);
+}
+#[test]
+fn credit_report_preserves_nonpacket_partial_stop() {
+    credit_report_partial_scenario(false);
+}

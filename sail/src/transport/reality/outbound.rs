@@ -36,8 +36,6 @@ pub struct Handler {
     connector: SslConnector,
     fingerprint: Fingerprint,
     alpn: Vec<String>,
-    /// How the ClientHello is cut, if it is.
-    fragment: Option<crate::session::TlsFragment>,
 }
 
 /// What the ClientHello hook and the certificate check of one connection
@@ -82,15 +80,7 @@ impl Handler {
             connector: builder.build(),
             fingerprint,
             alpn,
-            fragment: None,
         })
-    }
-
-    /// The ClientHello cut as `fragment` says (`tls.fragment`,
-    /// `tls.record_fragment`).
-    pub fn with_fragment(mut self, fragment: Option<crate::session::TlsFragment>) -> Self {
-        self.fragment = fragment;
-        self
     }
 
     pub(crate) fn connection(&self) -> io::Result<BoringConnection> {
@@ -278,10 +268,7 @@ impl OutboundStreamHandler for Handler {
         stream: Option<AnyStream>,
     ) -> io::Result<AnyStream> {
         tracing::trace!("handling outbound stream");
-        let mut stream = stream.ok_or_else(|| io::Error::other("invalid input"))?;
-        if let Some(how) = self.fragment {
-            stream = Box::new(crate::transport::fragment::FragmentStream::new(stream, how));
-        }
+        let stream = stream.ok_or_else(|| io::Error::other("invalid input"))?;
         let mut stream = TlsStream::new(self.connection()?, stream, Some(VisionState::of(sess)));
         stream
             .handshake()

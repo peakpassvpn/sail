@@ -85,8 +85,7 @@ impl<'a> Reader<'a> {
             .collect()
     }
 
-    /// An address: its length, 4 or 16, then its bytes. One of 16 is
-    /// IPv6, an IPv4-mapped one too, as Go's netip and sing-box read it.
+    /// An address: its length, 4 or 16, then its bytes.
     pub(crate) fn addr(&mut self) -> Result<std::net::IpAddr> {
         match self.uvarint()? {
             4 => {
@@ -95,7 +94,7 @@ impl<'a> Reader<'a> {
             }
             16 => {
                 let b: [u8; 16] = self.take(16)?.try_into().expect("16 bytes");
-                Ok(std::net::IpAddr::V6(std::net::Ipv6Addr::from(b)))
+                Ok(std::net::Ipv6Addr::from(b).to_canonical())
             }
             n => Err(anyhow!("invalid address length {}", n)),
         }
