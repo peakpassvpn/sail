@@ -36,6 +36,8 @@ pub struct InternalDiagnostics {
     pub instance_id: crate::RuntimeId,
     pub epoch: u64,
     pub sessions: AdmissionDiagnostics,
+    /// Lossless connection-record queue, when enabled on the instance.
+    pub connection_records: Option<crate::control::records::ConnectionRecordsInfo>,
     /// Not inferred from application connections or accepted totals.
     pub dot_live_carriers: Option<usize>,
     pub dot_active_queries: Option<usize>,

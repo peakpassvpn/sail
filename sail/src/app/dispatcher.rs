@@ -647,6 +647,7 @@ impl Dispatcher {
                 .as_ref()
                 .map(super::sessions::Sessions::diagnostics_snapshot)
                 .unwrap_or_default(),
+            connection_records: self.env.events.lossless_records().map(|sink| sink.info()),
             dot_live_carriers: None,
             dot_active_queries: None,
             #[cfg(feature = "internal-udp-target-diagnostics")]

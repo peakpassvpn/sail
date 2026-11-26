@@ -211,6 +211,9 @@ impl Instance {
             me: me.clone(),
         });
         inner.events.set_record_interval(record_interval);
+        if let Some(lossless) = inner.events.lossless_records() {
+            lossless.set_log(inner.log.clone());
+        }
         Ok(Instance(Arc::new(Handle(inner))))
     }
 
@@ -970,12 +973,14 @@ mod internal_diagnostics_tests {
         assert_eq!(snapshot.sessions.live, Some(0));
         assert_eq!(snapshot.sessions.waiting, Some(0));
         assert_eq!(snapshot.sessions.waiting_limit, Some(64));
+        assert_eq!(snapshot.connection_records, None);
         assert_eq!(snapshot, instance.internal_diagnostics().unwrap());
         let json = serde_json::to_value(&snapshot).unwrap();
         assert_eq!(json["schema_version"], 1);
         assert_eq!(json["instance_id"], instance.id());
         assert_eq!(json["sessions"]["limit"], 256);
         assert!(json["sessions"]["active_cancel_total"].is_null());
+        assert!(json["connection_records"].is_null());
         assert!(json["dot_live_carriers"].is_null());
         assert!(json["dot_active_queries"].is_null());
         instance.stop().await.unwrap();
@@ -1063,6 +1068,139 @@ mod internal_diagnostics_tests {
         assert_eq!(second.sessions.refused_total, Some(0));
         drop(old_manager);
         assert_eq!(instance.internal_diagnostics().unwrap(), second);
+        instance.stop().await.unwrap();
+    }
+}
+
+#[cfg(all(test, feature = "internal-diagnostics", feature = "outbound-direct"))]
+mod lossless_records_info_tests {
+    use super::*;
+    use crate::control::events::{ConnectionRecord, End, Outcome, RecordKind};
+    use crate::embed::ConnectionRecordsInfo;
+    use crate::session::{Network, SocksAddr};
+
+    fn sample_record(id: u64, closed: bool) -> ConnectionRecord {
+        let at = SystemTime::UNIX_EPOCH + Duration::from_secs(100 + id);
+        ConnectionRecord {
+            id,
+            parent_id: None,
+            run: SystemTime::UNIX_EPOCH,
+            seq: 0,
+            kind: match closed {
+                true => RecordKind::Closed(End::Finished),
+                false => RecordKind::Interim,
+            },
+            outcome: closed.then_some(Outcome::Ok),
+            reason: None,
+            network: Network::Tcp,
+            user: None,
+            inbound: "in".into(),
+            source: "127.0.0.1:1000".parse().unwrap(),
+            local: "127.0.0.1:2000".parse().unwrap(),
+            destination: SocksAddr::any(),
+            request_destination: None,
+            domain: None,
+            domain_source: None,
+            outbound: Some("direct".into()),
+            chain: vec!["direct".into()],
+            up_total: id,
+            down_total: id,
+            start: at,
+            at,
+        }
+    }
+
+    #[tokio::test]
+    async fn lossless_queue_info_reads_while_reader_owns_stream() {
+        let without =
+            Instance::new(super::super::Options::new().threads(super::super::Threads::One))
+                .unwrap();
+        assert_eq!(without.connection_records_info(), None);
+
+        let instance = Instance::new(
+            super::super::Options::new()
+                .threads(super::super::Threads::One)
+                .connection_records_lossless(2),
+        )
+        .unwrap();
+        assert_eq!(
+            instance.connection_records_info(),
+            Some(ConnectionRecordsInfo {
+                capacity: 2,
+                queued: 0,
+                closed: 0,
+                dropped: 0,
+                refused: 0,
+                has_reader: false,
+            })
+        );
+
+        let mut reader = instance.connection_records().unwrap();
+        assert_eq!(reader.capacity(), 2);
+        assert_eq!(reader.closed(), 0);
+        assert!(instance.connection_records_info().unwrap().has_reader);
+
+        instance.start(Config::Json("{}".into())).await.unwrap();
+
+        // Hold `RecordStream` in an async consumer task while reading `&Instance`.
+        let (step_tx, mut step_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (done_tx, mut done_rx) = tokio::sync::mpsc::unbounded_channel();
+        let consumer = tokio::spawn(async move {
+            while step_rx.recv().await.is_some() {
+                let record = reader.next().await;
+                let _ = done_tx.send(record.id);
+            }
+            reader
+        });
+        tokio::task::yield_now().await;
+
+        let events = instance.inner().events();
+        events.recorded(true, || sample_record(1, false));
+        events.recorded(true, || sample_record(2, true));
+        // Queue length is 2 (`capacity`): droppable interim is dropped, closed stays.
+        events.recorded(true, || sample_record(3, false));
+        events.recorded(true, || sample_record(4, true));
+        assert!(events.records_refuse());
+
+        let expected = ConnectionRecordsInfo {
+            capacity: 2,
+            queued: 3,
+            closed: 2,
+            dropped: 1,
+            refused: 1,
+            has_reader: true,
+        };
+        assert_eq!(instance.connection_records_info(), Some(expected));
+        let diag = instance.internal_diagnostics().unwrap();
+        assert_eq!(diag.connection_records, Some(expected));
+        let json = serde_json::to_value(&diag).unwrap();
+        assert_eq!(json["connection_records"]["capacity"], 2);
+        assert_eq!(json["connection_records"]["queued"], 3);
+        assert_eq!(json["connection_records"]["closed"], 2);
+        assert_eq!(json["connection_records"]["dropped"], 1);
+        assert_eq!(json["connection_records"]["refused"], 1);
+        assert_eq!(json["connection_records"]["has_reader"], true);
+
+        for expected_id in [1, 2, 4] {
+            step_tx.send(()).unwrap();
+            assert_eq!(done_rx.recv().await, Some(expected_id));
+        }
+        assert_eq!(
+            instance.connection_records_info(),
+            Some(ConnectionRecordsInfo {
+                capacity: 2,
+                queued: 0,
+                closed: 0,
+                dropped: 1,
+                refused: 1,
+                has_reader: true,
+            })
+        );
+
+        drop(step_tx);
+        let reader = consumer.await.unwrap();
+        drop(reader);
+        assert!(!instance.connection_records_info().unwrap().has_reader);
         instance.stop().await.unwrap();
     }
 }

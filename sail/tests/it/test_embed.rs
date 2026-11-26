@@ -1816,11 +1816,30 @@ async fn a_host_limits_and_disconnects_a_user_without_a_reload() {
 /// refused, and counted, until the reader takes one.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn lossless_records_keep_every_closed_one_and_refuse_past_the_cap() {
-    use sail::embed::{End, Outcome, RecordKind};
+    use futures::StreamExt;
+    use sail::embed::{ConnectionRecordsInfo, End, LogFilter, Outcome, RecordKind};
+    let tuple = |info: ConnectionRecordsInfo| {
+        (
+            info.capacity,
+            info.queued,
+            info.closed,
+            info.dropped,
+            info.refused,
+            info.has_reader,
+        )
+    };
+    assert_eq!(
+        Instance::new(options()).unwrap().connection_records_info(),
+        None
+    );
     let (echo, serve) = common::run_tcp_echo_server("127.0.0.1:0").await.unwrap();
     tokio::spawn(serve);
     let socks = common::free_port();
     let instance = Instance::new(options().connection_records_lossless(3)).unwrap();
+    assert_eq!(
+        instance.connection_records_info().map(tuple),
+        Some((3, 0, 0, 0, 0, false))
+    );
     instance
         .start(Config::Json(config(socks, 53)))
         .await
@@ -1839,12 +1858,18 @@ async fn lossless_records_keep_every_closed_one_and_refuse_past_the_cap() {
     }
     let mut reader = instance.connection_records().unwrap();
     assert!(instance.connection_records().is_err(), "one reader");
+    assert_eq!(reader.capacity(), 3);
     // Their closed records may still be on their way.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
     while reader.queued() < 3 {
         assert!(tokio::time::Instant::now() < deadline, "three records");
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
+    assert_eq!(reader.closed(), 3);
+    assert_eq!(
+        instance.connection_records_info().map(tuple),
+        Some((3, 3, 3, 0, 0, true))
+    );
     // At the cap: the next is refused, never answered.
     let mut s = socks_asked(socks, echo.port()).await;
     let mut reply = [0u8; 10];
@@ -1857,6 +1882,7 @@ async fn lossless_records_keep_every_closed_one_and_refuse_past_the_cap() {
         read
     );
     assert_eq!(reader.refused(), 1);
+    assert_eq!(instance.connection_records_info().unwrap().refused, 1);
     let mut up = 0;
     while let Some(r) = reader.try_next() {
         assert_eq!(r.kind, RecordKind::Closed(End::Finished), "{:?}", r);
@@ -1865,6 +1891,29 @@ async fn lossless_records_keep_every_closed_one_and_refuse_past_the_cap() {
         up += r.up_total;
     }
     assert_eq!(up, 600);
+    assert_eq!(reader.closed(), 0);
+    assert_eq!(
+        instance.connection_records_info().map(tuple),
+        Some((3, 0, 0, 0, 1, true))
+    );
+    let batch = std::pin::pin!(instance.logs(LogFilter::default()))
+        .next()
+        .await
+        .unwrap();
+    assert!(
+        batch.lines.iter().any(|l| l.level == tracing::Level::WARN
+            && l.message
+                .contains("connection records: 1 connection(s) refused (1 total)")),
+        "{:?}",
+        batch.lines
+    );
+    assert!(
+        batch.lines.iter().any(|l| l.level == tracing::Level::INFO
+            && l.message
+                .contains("connection records: backlog cleared after")),
+        "{:?}",
+        batch.lines
+    );
     // Taken: let in again.
     closed_after(socks, echo.port(), 1).await;
     instance.stop().await.unwrap();
@@ -1872,6 +1921,11 @@ async fn lossless_records_keep_every_closed_one_and_refuse_past_the_cap() {
     assert_eq!((last.up_total, last.down_total), (1, 1));
     assert!(reader.try_next().is_none());
     assert_eq!((reader.refused(), reader.dropped()), (1, 0));
+    drop(reader);
+    assert_eq!(
+        instance.connection_records_info().map(tuple),
+        Some((3, 0, 0, 0, 1, false))
+    );
 }
 
 /// Each connection routed has exactly one closed record, which tells how

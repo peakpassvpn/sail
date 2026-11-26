@@ -669,14 +669,21 @@ instance's first start, whether it reads or not. Every closed record is
 kept; what bounds them is admission: while `cap` closed records wait for
 the reader, each new connection is refused before it is routed, with no
 record, and counted (`RecordStream::refused`), until the reader takes
-one. Interim records of a timed pass are dropped while `cap` records
-wait, and counted (`RecordStream::dropped`): the connection's next
-record holds what they did. Those of a pass the host asked for are
-kept, queued by the time `report_connections` returns. No connection
-ever waits for the reader. The queue is the instance's, so records of
-connections a stop cut wait for the reader across the stop (`try_next`
-drains them). A crash loses what was not read, and what moved since the
-last interim pass: a billing host reads promptly, and sets
+one. Refusals warn at once and then every 10 s with the window's count,
+total refusals, queue depths and stall duration, and log at `INFO` once
+the closed backlog clears past a 5% hysteresis margin. Interim records of
+a timed pass are dropped while `cap` records wait, and counted
+(`RecordStream::dropped`): the connection's next record holds what they
+did. Those of a pass the host asked for are kept, queued by the time
+`report_connections` returns. `RecordStream` exposes `capacity`,
+`queued`, `closed`, `dropped` and `refused`; while a task owns
+`RecordStream`, `instance.connection_records_info()` gives the same
+snapshot (`ConnectionRecordsInfo`, plus `has_reader`) on `&Instance`
+without taking the reader (`None` without `connection_records_lossless`).
+No connection ever waits for the reader. The queue is the instance's, so
+records of connections a stop cut wait for the reader across the stop
+(`try_next` drains them). A crash loses what was not read, and what moved
+since the last interim pass: a billing host reads promptly, and sets
 `record_interval` to its billing granularity.
 
 A connection is a TCP connection, a UDP session or a stream of a
