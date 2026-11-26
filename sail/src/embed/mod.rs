@@ -35,8 +35,7 @@ pub use tun::{PreparedTun, TunPacketFlow, TunPacketReceiver, TunPacketSender, Tu
 
 pub use crate::app::inbound::AdmissionInfo;
 pub use crate::control::context::RecordContext;
-pub use crate::control::records::RecordEnvelope;
-pub use crate::control::records::RecordStream;
+pub use crate::control::records::{ConnectionRecordsInfo, RecordEnvelope, RecordStream};
 pub use crate::control::{
     ConnectionInfo, Delay, Failure, GroupInfo, InboundInfo, Mode, OutboundInfo, ProviderInfo,
     RuleSetInfo, SourceKind, SubscriptionInfo, Traffic,
@@ -265,7 +264,8 @@ impl Options {
     /// a host that bills by them loses no connection's closed record.
     /// Every closed record is kept; while `cap` of them wait for the
     /// reader, new connections are refused, and counted
-    /// (`RecordStream::refused`), until it takes one. Interim records,
+    /// (`RecordStream::refused`, `Instance::connection_records_info`),
+    /// until it takes one. Interim records,
     /// which carry the bytes since a connection started, are dropped, and
     /// counted (`RecordStream::dropped`), while `cap` records wait, unless
     /// the host asked for them (`Instance::report_connections`). No
@@ -527,6 +527,17 @@ impl Instance {
                 "the lossless connection records have a reader already",
             )
         })
+    }
+
+    /// Snapshot of the lossless connection-record queue
+    /// (`Options::connection_records_lossless`), whether or not a
+    /// [`RecordStream`] is held or the instance is running; `None` without
+    /// the option.
+    pub fn connection_records_info(&self) -> Option<ConnectionRecordsInfo> {
+        self.inner()
+            .events()
+            .lossless_records()
+            .map(|sink| sink.info())
     }
 
     /// An interim pass, now: a record (`Kinds::CONNECTION`) of each
