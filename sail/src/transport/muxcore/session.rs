@@ -172,14 +172,27 @@ impl Slot {
 /// Frames waiting for the writer.
 #[derive(Default)]
 struct Out {
-    queue: VecDeque<Bytes>,
+    /// `None` marks where a stream opened on an idle warm session.
+    queue: VecDeque<Option<Bytes>>,
     bytes: usize,
 }
 
 impl Out {
     fn push(&mut self, frame: Bytes) {
         self.bytes += frame.len();
-        self.queue.push_back(frame);
+        self.queue.push_back(Some(frame));
+    }
+
+    fn mark_idle_open(&mut self) {
+        self.queue.push_back(None);
+    }
+
+    fn take_idle_open(&mut self) -> bool {
+        if matches!(self.queue.front(), Some(None)) {
+            self.queue.pop_front();
+            return true;
+        }
+        false
     }
 }
 
@@ -343,6 +356,9 @@ impl Shared {
                 {
                     self.counters.refused();
                     return self.control(state, self.codec.refuse(id));
+                }
+                if state.ever_opened && state.streams.is_empty() {
+                    state.data.mark_idle_open();
                 }
                 state.streams.insert(id, Slot::new(self.flow));
                 self.counters.stream_opened(state.ever_opened);
@@ -833,6 +849,9 @@ impl Session {
             slot.unacked = true;
             state.unacked += 1;
         }
+        if state.ever_opened && state.streams.is_empty() {
+            state.data.mark_idle_open();
+        }
         state.streams.insert(id, slot);
         self.shared.counters.stream_opened(state.ever_opened);
         state.ever_opened = true;
@@ -960,17 +979,30 @@ async fn write_loop<W: AsyncWrite + Unpin>(shared: &Shared, mut w: W) -> String 
     let mut shaper = shared.codec.shaper();
     loop {
         let notified = shared.writer.notified();
-        let shaped = shaper.as_mut().is_some_and(|s| s.active());
-        let (ended, control, data) = {
+        let (ended, shaped, control, data) = {
             let mut guard = shared.lock();
             let state = &mut *guard;
+            let mut shaped = shaper.as_mut().is_some_and(|s| s.active());
             batch.reserve((state.control.bytes + state.data.bytes).min(WRITE_BATCH));
             let control = take(&mut state.control, &mut batch, shaped);
-            let data = match shaped && control > 0 {
-                true => 0,
-                false => take(&mut state.data, &mut batch, shaped),
+            let data = if shaped && control > 0 {
+                0
+            } else {
+                if batch.is_empty() {
+                    let mut idle_opened = false;
+                    while state.data.take_idle_open() {
+                        idle_opened = true;
+                    }
+                    if idle_opened {
+                        if let Some(shaper) = shaper.as_mut() {
+                            shaper.on_idle_stream_open();
+                            shaped = shaper.active();
+                        }
+                    }
+                }
+                take(&mut state.data, &mut batch, shaped)
             };
-            (state.error.is_some(), control, data)
+            (state.error.is_some(), shaped, control, data)
         };
         if batch.is_empty() {
             if ended {
@@ -1041,7 +1073,7 @@ async fn write_all<W: AsyncWrite + Unpin>(
 /// and says how many bytes.
 fn take(out: &mut Out, batch: &mut BytesMut, one: bool) -> usize {
     let mut taken = 0;
-    while let Some(frame) = out.queue.front() {
+    while let Some(Some(frame)) = out.queue.front() {
         if !batch.is_empty() && (one || batch.len() + frame.len() > WRITE_BATCH) {
             break;
         }

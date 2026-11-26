@@ -42,6 +42,30 @@ pub(crate) const MAX_DATA: usize = TLS_RECORD - DATA_HEADER;
 /// The header of a PAD frame, and the most it carries.
 const PAD_HEADER: usize = 3;
 const MAX_PAD: usize = u16::MAX as usize;
+/// Writes shaped when a stream opens on an idle warm session (`pkt >= stop`).
+const WARM_BURST_WRITES: u8 = 3;
+
+/// The scheme a Sail/1 client starts with and a Sail/1 server defaults to:
+/// AnyTLS's default with write 0 (the session prelude) widened from a fixed
+/// 30 bytes to 16..96 so fresh sessions do not share a constant 90-byte
+/// second outer TLS record, while leaving AnyTLS's own default untouched.
+pub(crate) const DEFAULT_SCHEME: &str = "stop=8
+0=16-96
+1=100-400
+2=400-500,c,500-1000,c,500-1000,c,500-1000,c,500-1000
+3=9-9,500-1000
+4=500-1000
+5=500-1000
+6=500-1000
+7=500-1000";
+
+/// The first 8 bytes of SHA-256(`DEFAULT_SCHEME`).
+pub(crate) const DEFAULT_DIGEST: [u8; 8] = [0x1d, 0x95, 0xad, 0x59, 0x3c, 0x65, 0x48, 0x62];
+
+/// Sail/1's built-in default padding scheme.
+pub(crate) fn default_scheme() -> PaddingScheme {
+    PaddingScheme::parse_strict(DEFAULT_SCHEME).expect("Sail/1's default padding scheme parses")
+}
 
 fn short(kind: u8, id: u32) -> [u8; 3] {
     let id = (id as u16).to_be_bytes();
@@ -180,16 +204,17 @@ impl Codec for Sail {
     }
 
     fn shaper(&self) -> Option<Box<dyn Shaper>> {
-        let scheme = match &self.role {
-            Role::Client(cell) => cell.read().ok()?.clone(),
-            Role::Server(scheme) => scheme.clone(),
+        let initial_done = match &self.role {
+            Role::Client(cell) => initial_done_at(cell.read().ok()?.as_ref(), 1),
+            Role::Server(scheme) => initial_done_at(scheme, 1),
         };
         Some(Box::new(Padder {
-            scheme,
+            role: self.role.clone(),
             // The prelude was the client's write 0, and the server's own
             // first write is its 1 as well: the two pad alike.
-            pkt: 0,
-            done: false,
+            next_pkt: 1,
+            initial_done,
+            warm_left: 0,
         }))
     }
 }
@@ -288,24 +313,87 @@ impl Decoder for SailDecoder {
     }
 }
 
-/// Pads a session's first writes as its scheme says, with PAD frames.
+/// Pads a session's first writes as its scheme says, and re-arms a short
+/// burst when a new stream opens on an idle warm session (`pkt >= stop`),
+/// with PAD frames that any Wire v1 receiver skips unconditionally.
 struct Padder {
-    scheme: Arc<PaddingScheme>,
-    pkt: u32,
-    done: bool,
+    role: Role,
+    next_pkt: u32,
+    initial_done: bool,
+    warm_left: u8,
+}
+
+impl Padder {
+    fn scheme(&self) -> Option<Arc<PaddingScheme>> {
+        match &self.role {
+            Role::Client(cell) => cell.read().ok().map(|s| s.clone()),
+            Role::Server(scheme) => Some(scheme.clone()),
+        }
+    }
+}
+
+fn scheme_has_padding(scheme: &PaddingScheme) -> bool {
+    scheme.stop() > 0 && (0..scheme.stop()).any(|pkt| !scheme.sizes(pkt).is_empty())
+}
+
+fn initial_done_at(scheme: &PaddingScheme, next_pkt: u32) -> bool {
+    next_pkt >= scheme.stop() || !(next_pkt..scheme.stop()).any(|pkt| !scheme.sizes(pkt).is_empty())
+}
+
+fn warm_burst_size(step: u8) -> Size {
+    let (min, max) = match step {
+        0 => (100usize, 400usize),
+        _ => (500usize, 1000usize),
+    };
+    Size::Record(rand::Rng::gen_range(&mut rand::thread_rng(), min..max))
 }
 
 impl Shaper for Padder {
     fn active(&mut self) -> bool {
-        !self.done
+        if !self.initial_done {
+            let Some(scheme) = self.scheme() else {
+                self.initial_done = true;
+                return self.warm_left > 0;
+            };
+            if initial_done_at(&scheme, self.next_pkt) {
+                self.initial_done = true;
+            }
+        }
+        !self.initial_done || self.warm_left > 0
+    }
+
+    fn on_idle_stream_open(&mut self) {
+        let Some(scheme) = self.scheme() else {
+            self.initial_done = true;
+            return;
+        };
+        if initial_done_at(&scheme, self.next_pkt) {
+            self.initial_done = true;
+        }
+        if self.initial_done && scheme_has_padding(&scheme) {
+            self.warm_left = WARM_BURST_WRITES;
+        }
     }
 
     fn shape(&mut self, write: BytesMut) -> Vec<BytesMut> {
-        self.pkt = self.pkt.wrapping_add(1);
-        if self.pkt < self.scheme.stop() {
-            return pad(write, &self.scheme.sizes(self.pkt));
+        if !self.initial_done {
+            let pkt = self.next_pkt;
+            self.next_pkt = self.next_pkt.saturating_add(1);
+            if let Some(scheme) = self.scheme() {
+                if pkt < scheme.stop() {
+                    if self.next_pkt >= scheme.stop() {
+                        self.initial_done = true;
+                    }
+                    return pad(write, &scheme.sizes(pkt));
+                }
+            }
+            self.initial_done = true;
         }
-        self.done = true;
+        if self.warm_left > 0 {
+            let step = WARM_BURST_WRITES - self.warm_left;
+            self.warm_left -= 1;
+            return pad(write, &[warm_burst_size(step)]);
+        }
         vec![write]
     }
 }
@@ -352,7 +440,7 @@ mod tests {
     use std::sync::RwLock;
 
     fn client() -> (Sail, PaddingCell) {
-        let cell: PaddingCell = Arc::new(RwLock::new(Arc::new(PaddingScheme::default_scheme())));
+        let cell: PaddingCell = Arc::new(RwLock::new(Arc::new(default_scheme())));
         (
             Sail {
                 role: Role::Client(cell.clone()),
@@ -437,9 +525,9 @@ mod tests {
         too_long.extend_from_slice(&((MAX_DATA + 1) as u16).to_be_bytes());
         assert!(decode_all(&mut *codec.decoder(false), &too_long).is_err());
         let server = Sail {
-            role: Role::Server(Arc::new(PaddingScheme::default_scheme())),
+            role: Role::Server(Arc::new(default_scheme())),
         };
-        let scheme = scheme_frame(&PaddingScheme::default_scheme());
+        let scheme = scheme_frame(&default_scheme());
         assert!(decode_all(&mut *server.decoder(true), &scheme).is_err());
     }
 
@@ -486,7 +574,7 @@ mod tests {
             records.iter().map(|r| r.len()).collect::<Vec<_>>(),
             [50, 60]
         );
-        assert!(shaper.active());
+        assert!(!shaper.active());
         let third = BytesMut::from(&codec.data(1, b"x")[..]);
         assert_eq!(shaper.shape(third).len(), 1);
         assert!(!shaper.active());
@@ -505,5 +593,126 @@ mod tests {
             events,
             [Event::Open(1), Event::Data(1, Bytes::from_static(b"hello"))]
         );
+    }
+
+    /// Sail/1's default scheme widens packet 0 to 16..96 while leaving
+    /// AnyTLS's reference default scheme and digests untouched.
+    #[test]
+    fn default_scheme_widens_packet_zero_without_changing_anytls() {
+        let sail = default_scheme();
+        assert_eq!(sail.stop(), 8);
+        assert_eq!(digest(&sail), DEFAULT_DIGEST);
+
+        let mut seen = std::collections::BTreeSet::new();
+        for _ in 0..256 {
+            let pad = sail.auth_padding();
+            assert!((16..=96).contains(&pad), "prelude pad out of range: {pad}");
+            seen.insert(pad);
+        }
+        assert!(seen.len() > 1, "prelude pad did not vary: {seen:?}");
+
+        let anytls = PaddingScheme::default_scheme();
+        assert_eq!(anytls.stop(), 8);
+        assert_eq!(anytls.md5(), "75cff2ad89aadf5e257059ee571ebe11");
+        assert_eq!(anytls.auth_padding(), 30);
+        assert_eq!(
+            digest(&anytls),
+            [0xd2, 0x11, 0x90, 0x76, 0x81, 0x24, 0xde, 0xf9]
+        );
+        assert_ne!(digest(&sail), digest(&anytls));
+    }
+
+    /// Opening a stream on an idle warm session arms a 3-write padding
+    /// burst that decodes cleanly on any Wire v1 peer and then returns to
+    /// zero-overhead unshaped writes; disabled or empty schemes never arm.
+    #[test]
+    fn idle_warm_open_arms_three_writes_and_returns_to_unshaped() {
+        let scheme = PaddingScheme::parse_strict("stop=3\n0=16-96\n1=180-180\n2=90-90").unwrap();
+        let codec = Sail {
+            role: Role::Server(Arc::new(scheme)),
+        };
+        let mut shaper = codec.shaper().unwrap();
+
+        // While initial writes remain, an idle-open signal does not override
+        // the initial scheme schedule.
+        assert_eq!(
+            shaper.shape(BytesMut::from(&codec.data(1, b"init1")[..]))[0].len(),
+            180
+        );
+        shaper.on_idle_stream_open();
+        assert_eq!(
+            shaper.shape(BytesMut::from(&codec.data(1, b"init2")[..]))[0].len(),
+            90
+        );
+        assert!(!shaper.active());
+
+        let mut step0_lens = std::collections::BTreeSet::new();
+        let mut step1_lens = std::collections::BTreeSet::new();
+        let mut step2_splits = std::collections::BTreeSet::new();
+        let inner_hello = vec![0x16u8; 1971];
+
+        for _ in 0..32 {
+            shaper.on_idle_stream_open();
+            assert!(shaper.active());
+
+            let syn = shaper.shape(BytesMut::from(&codec.open(2, b"")[..]));
+            assert_eq!(syn.len(), 1);
+            assert!((100..400).contains(&syn[0].len()));
+            step0_lens.insert(syn[0].len());
+
+            assert!(shaper.active());
+            let hdr = shaper.shape(BytesMut::from(
+                &codec.data(2, &[1, 1, 127, 0, 0, 1, 1, 187])[..],
+            ));
+            assert_eq!(hdr.len(), 1);
+            assert!((500..1000).contains(&hdr[0].len()));
+            step1_lens.insert(hdr[0].len());
+
+            assert!(shaper.active());
+            let hello = shaper.shape(BytesMut::from(&codec.data(2, &inner_hello)[..]));
+            assert_eq!(hello.len(), 2);
+            assert!((500..1000).contains(&hello[0].len()));
+            step2_splits.insert(hello[0].len());
+
+            // Exhausted: bulk MAX_DATA frames go out unshaped in one record.
+            assert!(!shaper.active());
+            let bulk = shaper.shape(BytesMut::from(&codec.data(2, &vec![0xa5; MAX_DATA])[..]));
+            assert_eq!(bulk.len(), 1);
+            assert_eq!(bulk[0].len(), TLS_RECORD);
+
+            let mut wire = BytesMut::new();
+            for group in [&syn, &hdr, &hello] {
+                for rec in group {
+                    wire.extend_from_slice(rec);
+                }
+            }
+            let events = decode_all(&mut *codec.decoder(true), &wire).unwrap();
+            assert_eq!(
+                events,
+                [
+                    Event::Open(2),
+                    Event::Data(2, Bytes::from_static(&[1, 1, 127, 0, 0, 1, 1, 187])),
+                    Event::Data(2, Bytes::from(inner_hello.clone())),
+                ]
+            );
+        }
+        assert!(step0_lens.len() > 1);
+        assert!(step1_lens.len() > 1);
+        assert!(step2_splits.len() > 1);
+
+        // Disabled (stop=0) or empty schemes never arm initial or warm bursts.
+        for disabled in [
+            PaddingScheme::parse_strict("stop=0").unwrap(),
+            PaddingScheme::parse_strict("stop=0\n0=16-96").unwrap(),
+            PaddingScheme::parse(b"stop=4").unwrap(),
+        ] {
+            let off = Sail {
+                role: Role::Server(Arc::new(disabled)),
+            };
+            let mut s = off.shaper().unwrap();
+            assert!(!s.active());
+            s.on_idle_stream_open();
+            assert!(!s.active());
+        }
     }
 }

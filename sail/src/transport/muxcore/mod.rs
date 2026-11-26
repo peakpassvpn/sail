@@ -279,6 +279,9 @@ pub trait Shaper: Send {
     /// Whether writes are still shaped. While they are, each frame, or run
     /// of frames queued at once, is a write of its own.
     fn active(&mut self) -> bool;
+    /// Called before queued stream frames are taken when a stream opened on
+    /// a session that had had streams before and had none left.
+    fn on_idle_stream_open(&mut self) {}
     /// The records one write is made of, each written and flushed on its
     /// own.
     fn shape(&mut self, write: BytesMut) -> Vec<BytesMut>;

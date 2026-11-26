@@ -29,7 +29,6 @@ use crate::adapter::outbound::HandlerBuilder;
 use crate::adapter::registry::{OutboundContext, OutboundFactory, OutboundRegistry};
 use crate::adapter::*;
 use crate::common::secret::Secret;
-use crate::protocol::anytls::padding::PaddingScheme;
 use crate::protocol::anytls::session::PaddingCell;
 use crate::session::{Session, SocksAddr};
 use crate::transport::idle::{self, Idle};
@@ -108,7 +107,7 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         server: SocksAddr::try_from((&server, server_port))?,
         token: Secret(token),
         connector,
-        padding: Arc::new(RwLock::new(Arc::new(PaddingScheme::default_scheme()))),
+        padding: Arc::new(RwLock::new(Arc::new(codec::default_scheme()))),
         // Windows bound what a stream holds: one nobody reads is kept.
         tuning: Tuning::from(&ctx.env.options).parking(),
         label: format!("outbound={}", tag),

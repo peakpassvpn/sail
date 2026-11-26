@@ -15,7 +15,6 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::time::{sleep, timeout};
 
 use super::codec::{Role, Sail};
-use crate::protocol::anytls::padding::PaddingScheme;
 use crate::protocol::anytls::session::PaddingCell;
 use crate::runtime::transfer_budget::TransferBudget;
 use crate::transport::muxcore::{Codec, Session, Stream, Tuning, INITIAL_WINDOW};
@@ -44,7 +43,7 @@ fn runtime() -> tokio::runtime::Runtime {
 }
 
 fn codec(server: bool) -> Arc<dyn Codec> {
-    let scheme = Arc::new(PaddingScheme::default_scheme());
+    let scheme = Arc::new(super::codec::default_scheme());
     let role = if server {
         Role::Server(scheme)
     } else {

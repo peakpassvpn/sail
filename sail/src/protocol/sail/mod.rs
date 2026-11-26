@@ -338,4 +338,30 @@ mod tests {
         }
         assert_eq!(Status::error(9).kind(), io::ErrorKind::InvalidData);
     }
+
+    /// Sail/1 stays opt-in behind `inbound-sail` and `outbound-sail` while
+    /// experimental (sail#60), out of `default` and `all-endpoints`.
+    #[test]
+    fn sail_features_remain_opt_in() {
+        let manifest = include_str!("../../../Cargo.toml");
+        let features_section = manifest
+            .split("\n[dependencies]")
+            .next()
+            .expect("features section before dependencies");
+        for group in ["default = [", "all-endpoints = ["] {
+            let body = features_section
+                .split(group)
+                .nth(1)
+                .and_then(|rest| rest.split(']').next())
+                .expect(group);
+            assert!(
+                !body.contains("\"inbound-sail\""),
+                "{group} enables inbound-sail"
+            );
+            assert!(
+                !body.contains("\"outbound-sail\""),
+                "{group} enables outbound-sail"
+            );
+        }
+    }
 }
