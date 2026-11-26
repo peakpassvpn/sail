@@ -111,10 +111,14 @@ fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
     if options.users.len() > MAX_USERS {
         return Err(anyhow!("[{}] inbound: users: at most {}", tag, MAX_USERS));
     }
-    let padding = match options.padding_scheme {
-        Some(scheme) => PaddingScheme::parse_strict(&scheme.joined())
-            .map_err(|e| anyhow!("[{}] inbound: padding_scheme: {}", tag, e))?,
-        None => PaddingScheme::default_scheme(),
+    let (padding, digest) = match options.padding_scheme {
+        Some(scheme) => {
+            let parsed = PaddingScheme::parse_strict(&scheme.joined())
+                .map_err(|e| anyhow!("[{}] inbound: padding_scheme: {}", tag, e))?;
+            let digest = codec::digest(&parsed);
+            (parsed, digest)
+        }
+        None => (codec::default_scheme(), codec::DEFAULT_DIGEST),
     };
     let fallback = Fallback::new(
         tag,
@@ -150,7 +154,7 @@ fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
     }
     let stream = Arc::new(StreamHandler {
         users,
-        digest: codec::digest(&padding),
+        digest,
         padding: Arc::new(padding),
         handshake_timeout: ctx.env.options.inbound.handshake_timeout,
         fallback,

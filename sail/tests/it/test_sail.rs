@@ -17,9 +17,10 @@
 #[allow(unused_imports)] // Unused where features leave out every test.
 use crate::common;
 
+use std::collections::BTreeSet;
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -350,6 +351,365 @@ fn test_sail_cold_pool_shares_dials() -> anyhow::Result<()> {
                     want
                 );
             }
+            echo_server.abort();
+            anyhow::Ok(())
+        });
+        common::shutdown_instances(&rt, ids);
+        result
+    })
+}
+
+/// Captures outer TLS 1.3 `0x17` Application Data record body lengths in
+/// both directions without decrypting or altering TCP framing.
+#[derive(Default)]
+struct TlsRecordTap {
+    connections: AtomicUsize,
+    close_on_drain: AtomicBool,
+    c2s_by_conn: Mutex<Vec<Vec<usize>>>,
+    c2s_phase: Mutex<Vec<usize>>,
+    s2c_phase: Mutex<Vec<usize>>,
+}
+
+impl TlsRecordTap {
+    fn clear_phase(&self) {
+        self.c2s_phase.lock().unwrap().clear();
+        self.s2c_phase.lock().unwrap().clear();
+    }
+
+    fn take_phase(&self) -> (Vec<usize>, Vec<usize>) {
+        (
+            std::mem::take(&mut *self.c2s_phase.lock().unwrap()),
+            std::mem::take(&mut *self.s2c_phase.lock().unwrap()),
+        )
+    }
+}
+
+struct RecordScanner {
+    head: [u8; 5],
+    head_len: usize,
+    skip_body: usize,
+}
+
+impl RecordScanner {
+    fn new() -> Self {
+        Self {
+            head: [0; 5],
+            head_len: 0,
+            skip_body: 0,
+        }
+    }
+
+    fn feed(&mut self, mut bytes: &[u8], mut on_app_data: impl FnMut(usize)) {
+        while !bytes.is_empty() {
+            if self.skip_body > 0 {
+                let take = self.skip_body.min(bytes.len());
+                self.skip_body -= take;
+                bytes = &bytes[take..];
+                continue;
+            }
+            let need = 5 - self.head_len;
+            let take = need.min(bytes.len());
+            self.head[self.head_len..self.head_len + take].copy_from_slice(&bytes[..take]);
+            self.head_len += take;
+            bytes = &bytes[take..];
+            if self.head_len == 5 {
+                let kind = self.head[0];
+                let body_len = u16::from_be_bytes([self.head[3], self.head[4]]) as usize;
+                self.head_len = 0;
+                self.skip_body = body_len;
+                if kind == 0x17 {
+                    on_app_data(body_len);
+                }
+            }
+        }
+    }
+}
+
+async fn tapping_forwarder(target: u16) -> anyhow::Result<(u16, Arc<TlsRecordTap>)> {
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    let port = listener.local_addr()?.port();
+    let tap = Arc::new(TlsRecordTap::default());
+    let shared = tap.clone();
+    tokio::spawn(async move {
+        while let Ok((inbound, _)) = listener.accept().await {
+            let idx = shared.connections.fetch_add(1, Ordering::SeqCst);
+            shared.c2s_by_conn.lock().unwrap().push(Vec::new());
+            let tap = shared.clone();
+            tokio::spawn(async move {
+                let Ok(outbound) = TcpStream::connect(("127.0.0.1", target)).await else {
+                    return;
+                };
+                let (mut ir, mut iw) = inbound.into_split();
+                let (mut or, mut ow) = outbound.into_split();
+                let tap_c2s = tap.clone();
+                let c2s = async move {
+                    let mut buf = vec![0u8; 32 * 1024];
+                    let mut scan = RecordScanner::new();
+                    loop {
+                        if tap_c2s.close_on_drain.load(Ordering::SeqCst) {
+                            break;
+                        }
+                        match timeout(Duration::from_millis(25), ir.read(&mut buf)).await {
+                            Ok(Ok(0)) | Ok(Err(_)) => break,
+                            Ok(Ok(n)) => {
+                                scan.feed(&buf[..n], |len| {
+                                    tap_c2s.c2s_by_conn.lock().unwrap()[idx].push(len);
+                                    tap_c2s.c2s_phase.lock().unwrap().push(len);
+                                });
+                                if ow.write_all(&buf[..n]).await.is_err() {
+                                    break;
+                                }
+                            }
+                            Err(_) => continue,
+                        }
+                    }
+                    let _ = ow.shutdown().await;
+                };
+                let tap_s2c = tap.clone();
+                let s2c = async move {
+                    let mut buf = vec![0u8; 32 * 1024];
+                    let mut scan = RecordScanner::new();
+                    loop {
+                        if tap_s2c.close_on_drain.load(Ordering::SeqCst) {
+                            break;
+                        }
+                        match timeout(Duration::from_millis(25), or.read(&mut buf)).await {
+                            Ok(Ok(0)) | Ok(Err(_)) => break,
+                            Ok(Ok(n)) => {
+                                scan.feed(&buf[..n], |len| {
+                                    tap_s2c.s2c_phase.lock().unwrap().push(len);
+                                });
+                                if iw.write_all(&buf[..n]).await.is_err() {
+                                    break;
+                                }
+                            }
+                            Err(_) => continue,
+                        }
+                    }
+                    let _ = iw.shutdown().await;
+                };
+                let _ = tokio::join!(c2s, s2c);
+            });
+        }
+    });
+    Ok((port, tap))
+}
+
+fn sail_server_with_scheme(port: u16, certs: &Certs, scheme: Option<&[&str]>) -> String {
+    let mut inbound = serde_json::json!({
+        "type": "sail",
+        "listen": "127.0.0.1",
+        "listen_port": port,
+        "users": [{ "name": "alice", "token": ALICE }],
+        "tls": {
+            "enabled": true,
+            "certificate_path": certs.cert,
+            "key_path": certs.key,
+            "alpn": ["h2", "http/1.1"]
+        }
+    });
+    if let Some(lines) = scheme {
+        inbound["padding_scheme"] = serde_json::json!(lines);
+    }
+    serde_json::json!({
+        "inbounds": [inbound],
+        "outbounds": [{ "type": "direct", "tag": "direct" }]
+    })
+    .to_string()
+}
+
+// Verifies Phase-4 outer TLS 1.3 `0x17` record-size properties (sail#60):
+// (a) Built-in default scheme widens packet 0 to 16..=96 bytes (outer
+//     record 76..=156 B, non-fixed across fresh sessions);
+// (b) Reopening a stream on an idle warm session (`pkt >= stop`,
+//     `active_streams == 1`) pads the opening burst in both directions,
+//     whereas concurrent streams (`active_streams > 1`) and bulk MAX_DATA
+//     transfers run unpadded in 16,401 B outer records;
+// (c) Configuring `padding_scheme: ["stop=0"]` disables warm-burst padding.
+#[test]
+fn test_sail_phase4_padding_and_warm_idle_burst() -> anyhow::Result<()> {
+    let certs = certs("sail-pad")?;
+    common::retry_port_clash(|| {
+        let [default_srv, zero_srv, default_socks, zero_socks] = common::free_ports();
+        let rt = runtime()?;
+        let (default_fwd, default_tap) = rt.block_on(tapping_forwarder(default_srv))?;
+        let (zero_fwd, zero_tap) = rt.block_on(tapping_forwarder(zero_srv))?;
+        let ids = common::run_sail_instances(
+            &rt,
+            vec![
+                sail_server_with_scheme(default_srv, &certs, None),
+                sail_server_with_scheme(zero_srv, &certs, Some(&["stop=0"])),
+                socks_to_sail(default_socks, default_fwd, ALICE, &certs),
+                socks_to_sail(zero_socks, zero_fwd, ALICE, &certs),
+            ],
+        )?;
+        let result = rt.block_on(async {
+            let (echo, echo_server) = common::run_tcp_echo_server("127.0.0.1:0").await?;
+            let echo_server = tokio::spawn(echo_server);
+            tokio::time::sleep(Duration::from_millis(200)).await;
+
+            // (a) Fresh sessions with the built-in default scheme: the
+            // client's second `0x17` record (after TLS 1.3 Finished = 53 B)
+            // carries the 43 B prelude head + 16..=96 B pad + 17 B AEAD =
+            // 76..=156 B, varying across sessions instead of fixed 90 B.
+            let mut prelude_records = BTreeSet::new();
+            for i in 0..10u8 {
+                echo_stream(default_socks, echo, i, 64).await?;
+                if i < 9 {
+                    default_tap.close_on_drain.store(true, Ordering::SeqCst);
+                    tokio::time::sleep(Duration::from_millis(60)).await;
+                    default_tap.close_on_drain.store(false, Ordering::SeqCst);
+                }
+            }
+            {
+                let by_conn = default_tap.c2s_by_conn.lock().unwrap();
+                anyhow::ensure!(
+                    by_conn.len() == 10,
+                    "expected 10 fresh sessions, got {}",
+                    by_conn.len()
+                );
+                for (idx, recs) in by_conn.iter().enumerate() {
+                    anyhow::ensure!(
+                        recs.len() >= 2 && recs[0] == 53,
+                        "conn {idx}: unexpected initial 0x17 records {recs:?}"
+                    );
+                    let prelude_rec = recs[1];
+                    anyhow::ensure!(
+                        (76..=156).contains(&prelude_rec),
+                        "conn {idx}: prelude outer record {prelude_rec} not in 76..=156"
+                    );
+                    prelude_records.insert(prelude_rec);
+                }
+            }
+            anyhow::ensure!(
+                prelude_records.len() > 1,
+                "prelude outer record did not vary across 10 sessions: {prelude_records:?}"
+            );
+
+            // Warm the current pooled session (conn 9) well past `stop=8`
+            // on both client and server, then let all streams close so
+            // `active_streams == 0`.
+            for i in 0..4u8 {
+                echo_stream(default_socks, echo, 30 + i, 4096).await?;
+            }
+            tokio::time::sleep(Duration::from_millis(80)).await;
+
+            // (b1) Reopen streams on the idle warm session (`0 -> 1` active
+            // streams): no bare 33 B (`SYN+hdr`) or 23 B (`Status`) record
+            // appears, opening records are padded (`>= 117 B`) and vary.
+            let mut warm_c2s_first = BTreeSet::new();
+            let mut warm_s2c_first = BTreeSet::new();
+            for round in 0..6u8 {
+                default_tap.clear_phase();
+                let mut s = timeout(
+                    Duration::from_secs(5),
+                    common::new_socks_stream(
+                        "127.0.0.1",
+                        default_socks,
+                        &session_to(echo),
+                        None,
+                        None,
+                    ),
+                )
+                .await??;
+                // Simulate an inner TLS handshake flight (~1,971 B) + follow-up.
+                let flight: Vec<u8> = (0..1971)
+                    .map(|k| (k as u8).wrapping_mul(17) ^ round)
+                    .collect();
+                s.write_all(&flight).await?;
+                let mut echoed = vec![0u8; flight.len()];
+                s.read_exact(&mut echoed).await?;
+                anyhow::ensure!(echoed == flight, "warm round {round} echo mismatch");
+                drop(s);
+                tokio::time::sleep(Duration::from_millis(60)).await;
+
+                let (c2s, s2c) = default_tap.take_phase();
+                anyhow::ensure!(
+                    !c2s.is_empty() && !s2c.is_empty(),
+                    "warm round {round}: empty tap c2s={c2s:?} s2c={s2c:?}"
+                );
+                // Opening c2s SYN (`100..400` + 17 B AEAD) and stream header
+                // (`500..1000` + 17 B AEAD), plus s2c Status (`100..400` + 17 B).
+                anyhow::ensure!(
+                    c2s[0] >= 117 && c2s.get(1).copied().unwrap_or(0) >= 517,
+                    "warm round {round}: c2s opening records not padded: {c2s:?}"
+                );
+                anyhow::ensure!(
+                    s2c[0] >= 117,
+                    "warm round {round}: s2c status record not padded: {s2c:?}"
+                );
+                warm_c2s_first.insert(c2s[0]);
+                warm_s2c_first.insert(s2c[0]);
+            }
+            anyhow::ensure!(
+                warm_c2s_first.len() > 1 && warm_s2c_first.len() > 1,
+                "warm opening records did not vary: c2s={warm_c2s_first:?} s2c={warm_s2c_first:?}"
+            );
+            anyhow::ensure!(
+                default_tap.connections.load(Ordering::SeqCst) == 10,
+                "warm rounds dialled extra connections: {}",
+                default_tap.connections.load(Ordering::SeqCst)
+            );
+
+            // (b2) Hold one stream active (`active_streams == 1`) and open
+            // a concurrent stream transferring 256 KiB: no warm-burst
+            // padding arms on the concurrent stream, and bulk MAX_DATA
+            // frames pack into exact 16,401 B single TLS records.
+            let mut held = common::new_socks_stream(
+                "127.0.0.1",
+                default_socks,
+                &session_to(echo),
+                None,
+                None,
+            )
+            .await?;
+            held.write_all(b"keep-active").await?;
+            let mut held_back = [0u8; 11];
+            held.read_exact(&mut held_back).await?;
+            // Drain the held stream's own opening burst before measuring the
+            // concurrent bulk stream.
+            for _ in 0..3 {
+                held.write_all(b"x").await?;
+                let mut one = [0u8; 1];
+                held.read_exact(&mut one).await?;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            default_tap.clear_phase();
+
+            echo_stream(default_socks, echo, 0x77, 256 * 1024).await?;
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            let (bulk_c2s, _) = default_tap.take_phase();
+            let full_records = bulk_c2s.iter().filter(|&&n| n == 16_401).count();
+            anyhow::ensure!(
+                full_records >= 14,
+                "expected >= 14 full 16,401 B bulk records on concurrent stream, got {full_records} in {bulk_c2s:?}"
+            );
+            // Concurrent stream's opening record is unpadded (< 100 B).
+            anyhow::ensure!(
+                bulk_c2s[0] < 100,
+                "concurrent stream unexpectedly armed warm padding: {bulk_c2s:?}"
+            );
+            drop(held);
+
+            // (c) With `padding_scheme: ["stop=0"]`, warm idle reopenings
+            // never arm padding on either end once the server's scheme
+            // has been received.
+            for i in 0..4u8 {
+                echo_stream(zero_socks, echo, 90 + i, 512).await?;
+            }
+            tokio::time::sleep(Duration::from_millis(80)).await;
+            zero_tap.clear_phase();
+            echo_stream(zero_socks, echo, 99, 10).await?;
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            let (off_c2s, off_s2c) = zero_tap.take_phase();
+            anyhow::ensure!(
+                !off_c2s.is_empty()
+                    && !off_s2c.is_empty()
+                    && off_c2s.iter().all(|&n| n < 100)
+                    && off_s2c.iter().all(|&n| n < 100),
+                "stop=0 warm session unexpectedly padded small echo: c2s={off_c2s:?} s2c={off_s2c:?}"
+            );
+
             echo_server.abort();
             anyhow::Ok(())
         });
